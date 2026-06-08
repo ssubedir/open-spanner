@@ -1,0 +1,22 @@
+version: '3'
+
+tasks:
+  default:
+    desc: Run tests
+    cmds:
+      - task: test
+
+  run:
+    desc: Run the API server
+    cmds:
+      - go run ./cmd/api
+
+  test:
+    desc: Run all Go tests
+    cmds:
+      - go test ./...
+
+  vet:
+    desc: Run Go vet
+    cmds:
+      - go vet ./...

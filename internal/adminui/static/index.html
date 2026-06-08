@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Open Spanner Admin</title>
+    <link rel="stylesheet" href="/admin/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Open Spanner</h1>
+        <p>Metering admin</p>
+      </div>
+      <div class="status" id="api-status">Checking API</div>
+    </header>
+
+    <main class="shell">
+      <section class="panel meters-panel">
+        <div class="section-title">
+          <h2>Meters</h2>
+          <button class="icon-button" id="refresh-meters" type="button" title="Refresh meters">Refresh</button>
+        </div>
+
+        <form id="meter-form" class="form-grid">
+          <label>
+            Name
+            <input name="name" placeholder="api_calls" required />
+          </label>
+          <label>
+            Unit
+            <input name="unit" placeholder="call" required />
+          </label>
+          <label class="wide">
+            Description
+            <input name="description" placeholder="API requests accepted by the platform" />
+          </label>
+          <button type="submit">Create Meter</button>
+        </form>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Unit</th>
+                <th>Aggregation</th>
+                <th>ID</th>
+              </tr>
+            </thead>
+            <tbody id="meters-body">
+              <tr><td colspan="4" class="empty">No meters yet</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel usage-create-panel">
+        <div class="section-title">
+          <h2>Create Usage</h2>
+        </div>
+
+        <form id="usage-form" class="form-grid">
+          <label>
+            Subject
+            <input name="subject" placeholder="org_123" required />
+          </label>
+          <label>
+            Meter
+            <select name="meter" required>
+              <option value="">Select meter</option>
+            </select>
+          </label>
+          <label>
+            Quantity
+            <input name="quantity" type="number" min="0" step="0.000001" value="1" required />
+          </label>
+          <label>
+            Timestamp
+            <input name="timestamp" type="datetime-local" />
+          </label>
+          <label class="wide">
+            Metadata JSON
+            <textarea name="metadata" rows="4" placeholder='{"region":"us-east-1","service":"api"}'></textarea>
+          </label>
+          <button type="submit">Create Usage</button>
+        </form>
+      </section>
+
+      <section class="panel usage-query-panel">
+        <div class="section-title">
+          <h2>Usage</h2>
+        </div>
+
+        <form id="query-form" class="form-grid">
+          <label>
+            Subject
+            <input name="subject" placeholder="org_123" required />
+          </label>
+          <label>
+            Meter
+            <select name="meter" required>
+              <option value="">Select meter</option>
+            </select>
+          </label>
+          <label>
+            From
+            <input name="from" type="datetime-local" required />
+          </label>
+          <label>
+            To
+            <input name="to" type="datetime-local" required />
+          </label>
+          <label>
+            Bucket
+            <select name="bucket_size">
+              <option value="day">Day</option>
+              <option value="hour">Hour</option>
+              <option value="month">Month</option>
+            </select>
+          </label>
+          <button type="submit">List Usage</button>
+        </form>
+
+        <div class="summary-row">
+          <div>
+            <span>Total</span>
+            <strong id="usage-total">0</strong>
+          </div>
+          <div>
+            <span>Buckets</span>
+            <strong id="usage-count">0</strong>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Bucket Start</th>
+                <th>Subject</th>
+                <th>Meter</th>
+                <th>Quantity</th>
+              </tr>
+            </thead>
+            <tbody id="usage-body">
+              <tr><td colspan="4" class="empty">Run a query to view usage</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <div class="toast" id="toast" hidden></div>
+    <script src="/admin/app.js"></script>
+  </body>
+</html>
