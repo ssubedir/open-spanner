@@ -3,14 +3,16 @@ package meter
 import (
 	"context"
 
-	domainmeter "open-spanner/internal/metering/domain/meter"
+	domainmeter "github.com/ssubedir/open-spanner/internal/metering/domain/meter"
 )
 
 type CreateCommand struct {
-	Name        string
-	Description string
-	Unit        string
-	Aggregation domainmeter.Aggregation
+	Name               string
+	Description        string
+	Unit               string
+	Aggregation        domainmeter.Aggregation
+	MetadataSchema     map[string]domainmeter.MetadataType
+	EventRetentionDays int
 }
 
 func (s *service) Create(ctx context.Context, cmd CreateCommand) (Result, error) {
@@ -20,6 +22,8 @@ func (s *service) Create(ctx context.Context, cmd CreateCommand) (Result, error)
 		cmd.Description,
 		cmd.Unit,
 		cmd.Aggregation,
+		cmd.MetadataSchema,
+		cmd.EventRetentionDays,
 		s.now(),
 	)
 	if err != nil {

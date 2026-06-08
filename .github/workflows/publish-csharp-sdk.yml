@@ -1,0 +1,70 @@
+name: Publish C# SDK
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "sdk-csharp-v*"
+
+concurrency:
+  group: publish-csharp-sdk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish to NuGet
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.5"
+          cache: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Install Task
+        run: npm install --global @go-task/cli
+
+      - name: Verify C# SDK
+        run: task sdk:csharp:check
+
+      - name: Build NuGet package
+        run: task sdk:csharp:pack
+
+      - name: Verify package version matches tag
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#sdk-csharp-v}"
+          PACKAGE_VERSION="$(dotnet msbuild sdk/csharp/OpenSpanner.csproj -getProperty:Version)"
+          if [ "$TAG_VERSION" != "$PACKAGE_VERSION" ]; then
+            echo "Version mismatch: tag=$TAG_VERSION csproj=$PACKAGE_VERSION"
+            exit 1
+          fi
+
+      - name: NuGet trusted publishing login
+        uses: NuGet/login@v1
+        id: nuget-login
+        with:
+          user: ssubedir
+
+      - name: Publish C# SDK
+        run: dotnet nuget push "sdk/csharp/bin/Release/*.nupkg" --api-key "$NUGET_API_KEY" --source "https://api.nuget.org/v3/index.json" --skip-duplicate
+        env:
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}

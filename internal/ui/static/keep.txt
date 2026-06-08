@@ -1,0 +1,1 @@
+Generated admin UI assets are written here by `task admin:build`.

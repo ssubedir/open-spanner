@@ -1,0 +1,11 @@
+open-spanner.db*
+node_modules/
+sdk/typescript/dist/
+internal/ui/static/**
+!internal/ui/static/
+!internal/ui/static/keep.txt
+.tools/
+sdk/csharp/bin/
+sdk/csharp/obj/
+examples/csharp/bin/
+examples/csharp/obj/

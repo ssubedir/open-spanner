@@ -1,0 +1,48 @@
+{
+  "name": "@ssubedir/open-spanner",
+  "version": "0.1.1",
+  "description": "TypeScript and JavaScript SDK for Open Spanner.",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "npm@11.6.2",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ssubedir/open-spanner"
+  },
+  "bugs": {
+    "url": "https://github.com/ssubedir/open-spanner/issues"
+  },
+  "homepage": "https://github.com/ssubedir/open-spanner#readme",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist/index.d.ts",
+    "dist/index.d.ts.map",
+    "dist/index.js",
+    "dist/schema.d.ts",
+    "dist/schema.d.ts.map",
+    "dist/schema.js",
+    "README.md"
+  ],
+  "scripts": {
+    "generate": "openapi-typescript ../../docs/sdk-openapi.json -o src/schema.ts",
+    "build": "tsc -p tsconfig.json",
+    "pack:dry-run": "npm pack --dry-run",
+    "publish:sdk": "npm publish --access public",
+    "test": "npm run build && node --test dist/index.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.2",
+    "openapi-typescript": "^7.10.1",
+    "typescript": "^5.9.3"
+  }
+}

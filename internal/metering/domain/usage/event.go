@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"open-spanner/internal/metering/domain"
+	"github.com/ssubedir/open-spanner/internal/metering/domain"
 )
 
 type Event struct {

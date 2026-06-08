@@ -1,0 +1,15 @@
+{
+  "name": "open-spanner-typescript-example",
+  "version": "0.1.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx basic.ts"
+  },
+  "dependencies": {
+    "@ssubedir/open-spanner": "^0.1.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0"
+  }
+}

@@ -1,0 +1,1079 @@
+basePath: /
+definitions:
+  github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorBody:
+    properties:
+      code:
+        type: string
+      message:
+        type: string
+    type: object
+  github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse:
+    properties:
+      error:
+        $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorBody'
+    type: object
+  internal_metering_adapters_http_meter.CreateRequest:
+    properties:
+      aggregation:
+        type: string
+      description:
+        type: string
+      event_retention_days:
+        type: integer
+      metadata_schema:
+        additionalProperties:
+          type: string
+        type: object
+      name:
+        type: string
+      unit:
+        type: string
+    type: object
+  internal_metering_adapters_http_meter.ListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_meter.Response'
+        type: array
+      next_cursor:
+        type: string
+    type: object
+  internal_metering_adapters_http_meter.Response:
+    properties:
+      aggregation:
+        type: string
+      created_at:
+        type: string
+      description:
+        type: string
+      event_retention_days:
+        type: integer
+      id:
+        type: string
+      metadata_schema:
+        additionalProperties:
+          type: string
+        type: object
+      name:
+        type: string
+      unit:
+        type: string
+    type: object
+  internal_metering_adapters_http_meter.StatsListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_meter.StatsResponse'
+        type: array
+      next_cursor:
+        type: string
+    type: object
+  internal_metering_adapters_http_meter.StatsResponse:
+    properties:
+      last_event_at:
+        type: string
+      meter:
+        type: string
+      retention_days:
+        type: integer
+      usage_events:
+        type: integer
+    type: object
+  internal_metering_adapters_http_meter.UpdateRequest:
+    properties:
+      description:
+        type: string
+    type: object
+  internal_metering_adapters_http_subject.EventResponse:
+    properties:
+      id:
+        type: string
+      idempotency_key:
+        type: string
+      metadata:
+        additionalProperties: {}
+        type: object
+      meter:
+        type: string
+      quantity:
+        type: number
+      received_at:
+        type: string
+      subject:
+        type: string
+      timestamp:
+        type: string
+    type: object
+  internal_metering_adapters_http_subject.ListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_subject.Response'
+        type: array
+      next_cursor:
+        type: string
+    type: object
+  internal_metering_adapters_http_subject.Response:
+    properties:
+      last_event_at:
+        type: string
+      meters:
+        type: integer
+      subject:
+        type: string
+      usage_events:
+        type: integer
+    type: object
+  internal_metering_adapters_http_system.LastPruneRunResponse:
+    properties:
+      created_at:
+        type: string
+      deleted:
+        type: integer
+      dry_run:
+        type: boolean
+      id:
+        type: string
+    type: object
+  internal_metering_adapters_http_system.StatsResponse:
+    properties:
+      last_prune_run:
+        $ref: '#/definitions/internal_metering_adapters_http_system.LastPruneRunResponse'
+      meters:
+        type: integer
+      prune_runs:
+        type: integer
+      usage_events:
+        type: integer
+    type: object
+  internal_metering_adapters_http_usage.BulkFailureResponse:
+    properties:
+      code:
+        type: string
+      index:
+        type: integer
+      message:
+        type: string
+    type: object
+  internal_metering_adapters_http_usage.BulkResponse:
+    properties:
+      accepted:
+        type: integer
+      accepted_items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_usage.Response'
+        type: array
+      duplicate_items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_usage.Response'
+        type: array
+      duplicates:
+        type: integer
+      failed:
+        type: integer
+      failed_items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_usage.BulkFailureResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_usage.CreateRequest:
+    properties:
+      idempotency_key:
+        type: string
+      metadata:
+        additionalProperties: {}
+        type: object
+      meter:
+        type: string
+      quantity:
+        type: number
+      subject:
+        type: string
+      timestamp:
+        type: string
+    type: object
+  internal_metering_adapters_http_usage.EventListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_usage.Response'
+        type: array
+      next_cursor:
+        type: string
+    type: object
+  internal_metering_adapters_http_usage.EventSearchRequest:
+    properties:
+      cursor:
+        type: string
+      filter:
+        $ref: '#/definitions/internal_metering_adapters_http_usage.FilterRequest'
+      from:
+        type: string
+      limit:
+        type: integer
+      meter:
+        type: string
+      subject:
+        type: string
+      to:
+        type: string
+    type: object
+  internal_metering_adapters_http_usage.FilterRequest:
+    properties:
+      field:
+        type: string
+      op:
+        type: string
+      rules:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_usage.FilterRequest'
+        type: array
+      type:
+        type: string
+      value: {}
+    type: object
+  internal_metering_adapters_http_usage.IngestionListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_usage.IngestionResponse'
+        type: array
+      next_cursor:
+        type: string
+    type: object
+  internal_metering_adapters_http_usage.IngestionResponse:
+    properties:
+      accepted:
+        type: integer
+      created_at:
+        type: string
+      duplicates:
+        type: integer
+      failed:
+        type: integer
+      id:
+        type: string
+      kind:
+        type: string
+    type: object
+  internal_metering_adapters_http_usage.ListItemResponse:
+    properties:
+      aggregation:
+        type: string
+      bucket_size:
+        type: string
+      bucket_start:
+        type: string
+      group:
+        additionalProperties:
+          type: string
+        type: object
+      meter:
+        type: string
+      quantity:
+        type: number
+      subject:
+        type: string
+      unit:
+        type: string
+    type: object
+  internal_metering_adapters_http_usage.PruneListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_usage.PruneResponse'
+        type: array
+      next_cursor:
+        type: string
+    type: object
+  internal_metering_adapters_http_usage.PruneMeterResponse:
+    properties:
+      before:
+        type: string
+      deleted:
+        type: integer
+      meter:
+        type: string
+    type: object
+  internal_metering_adapters_http_usage.PruneResponse:
+    properties:
+      created_at:
+        type: string
+      deleted:
+        type: integer
+      dry_run:
+        type: boolean
+      id:
+        type: string
+      meters:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_usage.PruneMeterResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_usage.Response:
+    properties:
+      id:
+        type: string
+      idempotency_key:
+        type: string
+      metadata:
+        additionalProperties: {}
+        type: object
+      meter:
+        type: string
+      quantity:
+        type: number
+      received_at:
+        type: string
+      subject:
+        type: string
+      timestamp:
+        type: string
+    type: object
+  internal_metering_adapters_http_usage.SearchRequest:
+    properties:
+      bucket_size:
+        type: string
+      filter:
+        $ref: '#/definitions/internal_metering_adapters_http_usage.FilterRequest'
+      from:
+        type: string
+      group_by:
+        type: string
+      limit:
+        type: integer
+      meter:
+        type: string
+      subject:
+        type: string
+      to:
+        type: string
+    type: object
+info:
+  contact: {}
+  description: Open source metering service for tracking who used what, when, how
+    much, and in what context.
+  title: Open Spanner API
+  version: 0.1.1
+paths:
+  /health:
+    get:
+      operationId: healthCheck
+      responses:
+        "204":
+          description: No Content
+      summary: Health check
+      tags:
+      - health
+  /v1/meters:
+    get:
+      operationId: listMeters
+      parameters:
+      - description: Filter by meter name
+        in: query
+        name: name
+        type: string
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      - description: Pagination cursor
+        in: query
+        name: cursor
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_meter.ListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List meters
+      tags:
+      - meters
+    post:
+      consumes:
+      - application/json
+      operationId: createMeter
+      parameters:
+      - description: Meter
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_meter.CreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_meter.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Create meter
+      tags:
+      - meters
+  /v1/meters/{id}:
+    delete:
+      operationId: deleteMeter
+      parameters:
+      - description: Meter ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Delete meter
+      tags:
+      - meters
+    get:
+      operationId: getMeter
+      parameters:
+      - description: Meter ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_meter.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Get meter
+      tags:
+      - meters
+    put:
+      consumes:
+      - application/json
+      operationId: updateMeter
+      parameters:
+      - description: Meter ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Meter update
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_meter.UpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_meter.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Update meter
+      tags:
+      - meters
+  /v1/meters/stats:
+    get:
+      operationId: listMeterStats
+      parameters:
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      - description: Pagination cursor
+        in: query
+        name: cursor
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_meter.StatsListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List meter stats
+      tags:
+      - meters
+  /v1/subjects:
+    get:
+      operationId: listSubjects
+      parameters:
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      - description: Pagination cursor
+        in: query
+        name: cursor
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_subject.ListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List subjects
+      tags:
+      - subjects
+  /v1/subjects/{subject}/usageevents:
+    get:
+      operationId: listSubjectUsageEvents
+      parameters:
+      - description: Subject
+        in: path
+        name: subject
+        required: true
+        type: string
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_metering_adapters_http_subject.EventResponse'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List subject usage events
+      tags:
+      - subjects
+  /v1/system/stats:
+    get:
+      operationId: getSystemStats
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_system.StatsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Get system stats
+      tags:
+      - system
+  /v1/usageevents:
+    get:
+      operationId: listUsageEvents
+      parameters:
+      - description: Subject
+        in: query
+        name: subject
+        type: string
+      - description: Meter name
+        in: query
+        name: meter
+        type: string
+      - description: RFC3339 start time
+        in: query
+        name: from
+        type: string
+      - description: RFC3339 end time
+        in: query
+        name: to
+        type: string
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      - description: Pagination cursor
+        in: query
+        name: cursor
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_usage.EventListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List usage events
+      tags:
+      - usage-events
+  /v1/usageevents/export:
+    get:
+      operationId: exportUsageEvents
+      parameters:
+      - description: Subject
+        in: query
+        name: subject
+        type: string
+      - description: Meter name
+        in: query
+        name: meter
+        type: string
+      - description: RFC3339 start time
+        in: query
+        name: from
+        type: string
+      - description: RFC3339 end time
+        in: query
+        name: to
+        type: string
+      - description: Result limit
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - text/csv
+      responses:
+        "200":
+          description: CSV
+          schema:
+            type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Export usage events
+      tags:
+      - usage-events
+  /v1/usageevents/prune:
+    post:
+      operationId: pruneUsageEvents
+      parameters:
+      - description: Count prunable events without deleting
+        in: query
+        name: dry_run
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_usage.PruneResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Prune usage events
+      tags:
+      - usage-events
+  /v1/usageevents/prunes:
+    get:
+      operationId: listPruneRuns
+      parameters:
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      - description: Pagination cursor
+        in: query
+        name: cursor
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_usage.PruneListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List prune runs
+      tags:
+      - usage-events
+  /v1/usageevents/search:
+    post:
+      consumes:
+      - application/json
+      operationId: searchUsageEvents
+      parameters:
+      - description: Usage event search
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_usage.EventSearchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_usage.EventListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Search usage events
+      tags:
+      - usage-events
+  /v1/usageingestions:
+    get:
+      operationId: listIngestionRuns
+      parameters:
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      - description: Pagination cursor
+        in: query
+        name: cursor
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_usage.IngestionListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List ingestion runs
+      tags:
+      - usages
+  /v1/usages:
+    get:
+      operationId: listUsageBuckets
+      parameters:
+      - description: Subject
+        in: query
+        name: subject
+        required: true
+        type: string
+      - description: Meter name
+        in: query
+        name: meter
+        required: true
+        type: string
+      - description: RFC3339 start time
+        in: query
+        name: from
+        required: true
+        type: string
+      - description: RFC3339 end time
+        in: query
+        name: to
+        required: true
+        type: string
+      - description: 'Bucket size: hour, day, month'
+        in: query
+        name: bucket_size
+        type: string
+      - description: Metadata key to group by
+        in: query
+        name: group_by
+        type: string
+      - description: Result limit
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_metering_adapters_http_usage.ListItemResponse'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List usage buckets
+      tags:
+      - usages
+    post:
+      consumes:
+      - application/json
+      operationId: createUsage
+      parameters:
+      - description: Usage event
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_usage.CreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_usage.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Create usage
+      tags:
+      - usages
+  /v1/usages/bulk:
+    post:
+      consumes:
+      - application/json
+      operationId: createUsageBulk
+      parameters:
+      - description: Batch idempotency key
+        in: header
+        name: Idempotency-Key
+        type: string
+      - description: Usage events
+        in: body
+        name: request
+        required: true
+        schema:
+          items:
+            $ref: '#/definitions/internal_metering_adapters_http_usage.CreateRequest'
+          type: array
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_usage.BulkResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Create usage in bulk
+      tags:
+      - usages
+  /v1/usages/export:
+    get:
+      operationId: exportUsageBuckets
+      parameters:
+      - description: Subject
+        in: query
+        name: subject
+        required: true
+        type: string
+      - description: Meter name
+        in: query
+        name: meter
+        required: true
+        type: string
+      - description: RFC3339 start time
+        in: query
+        name: from
+        required: true
+        type: string
+      - description: RFC3339 end time
+        in: query
+        name: to
+        required: true
+        type: string
+      - description: 'Bucket size: hour, day, month'
+        in: query
+        name: bucket_size
+        type: string
+      - description: Metadata key to group by
+        in: query
+        name: group_by
+        type: string
+      - description: Result limit
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - text/csv
+      responses:
+        "200":
+          description: CSV
+          schema:
+            type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Export usage buckets
+      tags:
+      - usages
+  /v1/usages/search:
+    post:
+      consumes:
+      - application/json
+      operationId: searchUsageBuckets
+      parameters:
+      - description: Usage search
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_usage.SearchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_metering_adapters_http_usage.ListItemResponse'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Search usage buckets
+      tags:
+      - usages
+schemes:
+- http
+swagger: "2.0"

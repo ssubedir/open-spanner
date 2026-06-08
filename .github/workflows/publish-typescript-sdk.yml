@@ -1,0 +1,64 @@
+name: Publish TypeScript SDK
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "sdk-js-v*"
+
+concurrency:
+  group: publish-typescript-sdk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.5"
+          cache: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Use locked npm version
+        run: npm install --global npm@11.6.2
+
+      - name: Install Task
+        run: npm install --global @go-task/cli
+
+      - name: Verify TypeScript SDK
+        run: task sdk:typescript:check
+
+      - name: Verify npm package contents
+        run: task sdk:typescript:pack
+
+      - name: Verify package version matches tag
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#sdk-js-v}"
+          PACKAGE_VERSION="$(node -p "require('./sdk/typescript/package.json').version")"
+          if [ "$TAG_VERSION" != "$PACKAGE_VERSION" ]; then
+            echo "Version mismatch: tag=$TAG_VERSION package.json=$PACKAGE_VERSION"
+            exit 1
+          fi
+
+      - name: Publish TypeScript SDK
+        working-directory: sdk/typescript
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

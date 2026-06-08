@@ -1,17 +1,48 @@
 package meter
 
-type createRequest struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Unit        string `json:"unit"`
-	Aggregation string `json:"aggregation"`
+// CreateRequest creates a meter.
+type CreateRequest struct {
+	Name               string            `json:"name"`
+	Description        string            `json:"description"`
+	Unit               string            `json:"unit"`
+	Aggregation        string            `json:"aggregation"`
+	MetadataSchema     map[string]string `json:"metadata_schema"`
+	EventRetentionDays int               `json:"event_retention_days"`
 }
 
-type response struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
+// UpdateRequest updates a meter.
+type UpdateRequest struct {
 	Description string `json:"description"`
-	Unit        string `json:"unit"`
-	Aggregation string `json:"aggregation"`
-	CreatedAt   string `json:"created_at"`
+}
+
+// Response is a meter.
+type Response struct {
+	ID                 string            `json:"id"`
+	Name               string            `json:"name"`
+	Description        string            `json:"description"`
+	Unit               string            `json:"unit"`
+	Aggregation        string            `json:"aggregation"`
+	MetadataSchema     map[string]string `json:"metadata_schema"`
+	EventRetentionDays int               `json:"event_retention_days"`
+	CreatedAt          string            `json:"created_at"`
+}
+
+// StatsResponse is meter activity stats.
+type StatsResponse struct {
+	Meter              string `json:"meter"`
+	UsageEvents        int    `json:"usage_events"`
+	LastEventAt        string `json:"last_event_at,omitempty"`
+	EventRetentionDays int    `json:"retention_days"`
+}
+
+// ListResponse is a paged meter list.
+type ListResponse struct {
+	Items      []Response `json:"items"`
+	NextCursor string     `json:"next_cursor,omitempty"`
+}
+
+// StatsListResponse is a paged meter stats list.
+type StatsListResponse struct {
+	Items      []StatsResponse `json:"items"`
+	NextCursor string          `json:"next_cursor,omitempty"`
 }
