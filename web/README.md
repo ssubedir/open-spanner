@@ -1,73 +1,62 @@
-# React + TypeScript + Vite
+# Open Spanner Web UI
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React dashboard for Open Spanner. The UI is built with Vite, React, TanStack Router, react-querybuilder, and local shadcn-style components.
 
-Currently, two official plugins are available:
+## Pages
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- `/overview` - system totals, subject activity, and ingestion history
+- `/meters` - create, list, edit, and delete meter definitions
+- `/usage` - create usage events and query bucketed usage with advanced filters
 
-## React Compiler
+`/` redirects to `/overview`. The Go API embeds the built UI and serves these routes from the same origin as the `/v1` API.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Development
 
-## Expanding the ESLint configuration
+Install dependencies:
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```sh
+npm install
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Run the Vite dev server:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```sh
+npm run dev
 ```
+
+From the repository root, the same command is available through Task:
+
+```sh
+task admin:dev
+```
+
+The app uses relative `/v1/...` API calls. For full integration testing, run the Go API with the built UI so the dashboard and API share the same origin.
+
+## Build
+
+Build the embedded UI assets:
+
+```sh
+npm run build
+```
+
+From the repository root:
+
+```sh
+task admin:build
+```
+
+The build output is written to `internal/ui/static` for Go embedding. The build script removes stale asset files before Vite writes the new bundle.
+
+## Checks
+
+```sh
+npm run lint
+npm run build
+```
+
+## Notes
+
+- Keep route paths in sync with `internal/ui/ui.go`.
+- Keep API calls in `src/api.ts` relative unless the backend serving model changes.
+- Advanced usage filtering is powered by `react-querybuilder` and maps to the `/v1/usages/search` request shape.
