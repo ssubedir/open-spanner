@@ -427,8 +427,8 @@ LIMIT 1
 		t.Fatalf("query schema migration version: %v", err)
 	}
 
-	if version != 3 || dirty {
-		t.Fatalf("schema migration version = %d dirty=%v, want version 3 dirty=false", version, dirty)
+	if version != 4 || dirty {
+		t.Fatalf("schema migration version = %d dirty=%v, want version 4 dirty=false", version, dirty)
 	}
 }
 
@@ -439,6 +439,8 @@ func TestIntegrationPostgresStoreCreatesUsagePerformanceIndexes(t *testing.T) {
 	want := map[string]bool{
 		"idx_usage_events_subject_meter_time_quantity": false,
 		"idx_usage_events_prune_meter_time_id":         false,
+		"idx_usage_events_meter_stats":                 false,
+		"idx_usage_events_subject_stats":               false,
 	}
 
 	rows, err := store.db.QueryContext(ctx, `
