@@ -4,7 +4,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>OpenSpanner</PackageId>
-    <Version>0.1.1</Version>
+    <Version>0.1.2</Version>
     <Authors>ssubedir</Authors>
     <Description>Generated C# client for the Open Spanner API.</Description>
     <PackageProjectUrl>https://github.com/ssubedir/open-spanner</PackageProjectUrl>
