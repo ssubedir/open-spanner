@@ -38,10 +38,6 @@ func NewStore(ctx context.Context, path string, poolConfigs ...config.DBPoolConf
 		_ = db.Close()
 		return nil, err
 	}
-	if err := store.ensureColumns(ctx); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
 
 	return store, nil
 }
@@ -64,52 +60,6 @@ func applyPoolConfig(db *sql.DB, poolConfigs ...config.DBPoolConfig) {
 	if pool.ConnMaxIdleTime > 0 {
 		db.SetConnMaxIdleTime(pool.ConnMaxIdleTime)
 	}
-}
-
-func (s *Store) ensureColumns(ctx context.Context) error {
-	hasMetadataSchema, err := s.hasColumn(ctx, "meters", "metadata_schema")
-	if err != nil {
-		return err
-	}
-	if !hasMetadataSchema {
-		if _, err := s.db.ExecContext(ctx, `ALTER TABLE meters ADD COLUMN metadata_schema TEXT NOT NULL DEFAULT '{}'`); err != nil {
-			return err
-		}
-	}
-	hasEventRetentionDays, err := s.hasColumn(ctx, "meters", "event_retention_days")
-	if err != nil {
-		return err
-	}
-	if !hasEventRetentionDays {
-		if _, err := s.db.ExecContext(ctx, `ALTER TABLE meters ADD COLUMN event_retention_days INTEGER NOT NULL DEFAULT 90`); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (s *Store) hasColumn(ctx context.Context, table string, column string) (bool, error) {
-	rows, err := s.db.QueryContext(ctx, "PRAGMA table_info("+table+")")
-	if err != nil {
-		return false, err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var cid int
-		var name string
-		var columnType string
-		var notNull int
-		var defaultValue sql.NullString
-		var primaryKey int
-		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
-			return false, err
-		}
-		if name == column {
-			return true, nil
-		}
-	}
-	return false, rows.Err()
 }
 
 func (s *Store) Close() error {
