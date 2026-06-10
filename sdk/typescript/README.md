@@ -28,4 +28,4 @@ const usage = await client.createUsage({
 console.log(meter.id, usage.id);
 ```
 
-Types are generated from `../../docs/sdk-openapi.json` with `openapi-typescript`. The handwritten code is only a small `fetch` wrapper around those generated OpenAPI types.
+Types are generated from `../../openapi/sdk-openapi.json` with `openapi-typescript`. The handwritten code is only a small `fetch` wrapper around those generated OpenAPI types.

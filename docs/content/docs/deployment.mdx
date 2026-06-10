@@ -1,0 +1,30 @@
+---
+title: Deployment
+description: Practical notes for running Open Spanner.
+---
+
+## Storage
+
+SQLite is the first supported persistent store and is a good fit for local development, demos, and small deployments.
+
+The domain and repository boundaries are designed so additional databases can be added later without changing API handlers or SDKs.
+
+## Dashboard
+
+The React dashboard is built into `internal/ui/static` and embedded by the Go API.
+
+```sh
+task admin:build
+```
+
+## API Docs
+
+Swagger docs and SDK specs are generated from annotations and normalized for client generation.
+
+```sh
+task openapi:sdk
+```
+
+## Background Work
+
+Retention cleanup runs in the API process as a background worker. That keeps the MVP simple while leaving room to split workers into separate binaries later if operating needs change.

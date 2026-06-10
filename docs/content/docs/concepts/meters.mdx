@@ -1,0 +1,37 @@
+---
+title: Meters
+description: Meter definitions describe what Open Spanner accepts and how it aggregates usage.
+---
+
+A meter is the contract for one billable signal.
+
+Common examples:
+
+- `api_requests`
+- `storage_gb`
+- `export_jobs`
+- `seats`
+
+## Fields
+
+- `name` is the stable API name clients send with usage.
+- `description` explains the business meaning.
+- `unit` describes what the quantity represents.
+- `aggregation` controls how events are summarized.
+- `event_retention_days` controls how long raw events are retained.
+- `metadata_schema` optionally constrains metadata accepted for the meter.
+
+## Aggregations
+
+Open Spanner supports:
+
+- `sum`
+- `count`
+- `avg`
+- `min`
+- `max`
+- `first`
+- `last`
+- `rate`
+
+Use `sum` for additive usage, `count` for event counts, `last` for gauge-like values, and `rate` when you need event velocity over the requested window.

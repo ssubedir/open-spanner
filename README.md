@@ -152,9 +152,10 @@ task run:memory
 ```sh
 task test
 task vet
-task docs
-task docs:openapi
-task docs:sdk
+task openapi
+task openapi:convert
+task openapi:sdk
+task docs:build
 task admin:build
 ```
 
@@ -173,6 +174,8 @@ internal/server/http    HTTP server wiring
 internal/ui             Embedded dashboard routes/assets
 internal/metering       Domain, app services, adapters, workers
 web                     React dashboard source
+docs                    Fumadocs documentation site
+openapi                 Generated Swagger/OpenAPI artifacts
 sdk                     Generated SDKs
 examples                SDK examples
 ```

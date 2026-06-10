@@ -1,0 +1,33 @@
+---
+title: Usage Events
+description: Usage events are the raw facts Open Spanner stores before aggregation.
+---
+
+A usage event records who used a metered resource, when it happened, how much was used, and the metadata needed to group or filter it later.
+
+## Event Shape
+
+```json
+{
+  "subject": "org_123",
+  "meter": "api_requests",
+  "quantity": 1,
+  "idempotency_key": "usage_001",
+  "metadata": {
+    "region": "us-east",
+    "plan": "pro"
+  }
+}
+```
+
+## Idempotency
+
+Every usage event should include an `idempotency_key`. This lets clients safely retry writes without double-counting usage.
+
+## Bulk Ingestion
+
+Use `POST /v1/usages/bulk` when clients report batches. Bulk ingestion keeps high-volume reporting efficient while preserving per-event validation.
+
+## Retention
+
+Raw events can be pruned by meter retention policy. Aggregated query results are calculated from retained events, so set retention based on your audit and billing needs.

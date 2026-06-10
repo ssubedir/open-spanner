@@ -1,0 +1,53 @@
+---
+title: Open Spanner
+description: Open-source metering for usage-based products.
+---
+
+Open Spanner is a small metering service for recording usage events and querying usage buckets.
+It is designed around four questions:
+
+- Who used something?
+- When did it happen?
+- How much was used?
+- Where should that usage be grouped or filtered?
+
+The API is intentionally simple at the edge, while the internals keep domain, application, and adapter code separate so storage and SDK generation can evolve without rewriting the product.
+
+## What You Can Do
+
+<Cards>
+  <Card title="Create meters" href="/docs/concepts/meters">
+    Define billable signals such as API requests, seats, storage, or export jobs.
+  </Card>
+  <Card title="Record usage" href="/docs/concepts/usage">
+    Send single events or bulk batches with subject, meter, quantity, timestamp, and metadata.
+  </Card>
+  <Card title="Query buckets" href="/docs/querying">
+    Aggregate usage by time window, bucket size, subject, meter, metadata, and group keys.
+  </Card>
+  <Card title="Use SDKs" href="/docs/sdks">
+    Install generated clients for Go, TypeScript, Python, and C#.
+  </Card>
+</Cards>
+
+## Main Surfaces
+
+- API: `/v1`
+- Swagger UI: `/docs`
+- Dashboard: `/overview`, `/meters`, `/usage`
+- OpenAPI spec: `openapi/openapi.json` in the repository
+
+## Local First
+
+Start with SQLite for development:
+
+```sh
+task run:sqlite
+```
+
+Then open the dashboard or API docs in your browser.
+
+<Cards>
+  <Card title="Quickstart" href="/docs/quickstart" />
+  <Card title="API and SDKs" href="/docs/sdks" />
+</Cards>

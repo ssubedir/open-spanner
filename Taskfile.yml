@@ -46,37 +46,47 @@ tasks:
     cmds:
       - cd web; npm run build
 
-  docs:
+  docs:dev:
+    desc: Run the Fumadocs documentation site dev server
+    cmds:
+      - cd docs; npm run dev
+
+  docs:build:
+    desc: Build the Fumadocs documentation site
+    cmds:
+      - cd docs; npm run build
+
+  openapi:
     desc: Generate Swagger docs
     cmds:
-      - go run github.com/swaggo/swag/cmd/swag@v1.16.6 init -g cmd/api/main.go -o docs --parseDependency --parseInternal
+      - go run github.com/swaggo/swag/cmd/swag@v1.16.6 init -g cmd/api/main.go -o openapi --parseDependency --parseInternal
 
-  docs:check:
+  openapi:check:
     desc: Verify generated Swagger docs are up to date
     cmds:
-      - task: docs
-      - git diff --exit-code docs
+      - task: openapi
+      - git diff --exit-code openapi
 
-  docs:openapi:
+  openapi:convert:
     desc: Generate OpenAPI 3 docs from Swagger docs
     cmds:
-      - task: docs
-      - npx --yes swagger2openapi@7.0.8 docs/swagger.json -o docs/openapi.json --patch
+      - task: openapi
+      - npx --yes swagger2openapi@7.0.8 openapi/swagger.json -o openapi/openapi.json --patch
 
-  docs:sdk:
+  openapi:sdk:
     desc: Generate SDK-friendly API docs
     cmds:
-      - task: docs:openapi
-      - node scripts/normalize-sdk-specs.mjs docs/swagger.json docs/sdk-swagger.json
-      - node scripts/normalize-sdk-specs.mjs docs/openapi.json docs/sdk-openapi.json
+      - task: openapi:convert
+      - node scripts/normalize-sdk-specs.mjs openapi/swagger.json openapi/sdk-swagger.json
+      - node scripts/normalize-sdk-specs.mjs openapi/openapi.json openapi/sdk-openapi.json
 
   sdk:go:
     desc: Generate the Go SDK from Swagger docs
     cmds:
-      - task: docs:sdk
+      - task: openapi:sdk
       - powershell -NoProfile -Command "if (Test-Path 'sdk/go/client') { Remove-Item 'sdk/go/client' -Recurse -Force }"
       - powershell -NoProfile -Command "if (Test-Path 'sdk/go/models') { Remove-Item 'sdk/go/models' -Recurse -Force }"
-      - go run github.com/go-swagger/go-swagger/cmd/swagger@v0.34.1 generate client -f docs/sdk-swagger.json -t sdk/go -A open-spanner --default-scheme http
+      - go run github.com/go-swagger/go-swagger/cmd/swagger@v0.34.1 generate client -f openapi/sdk-swagger.json -t sdk/go -A open-spanner --default-scheme http
       - cd sdk/go; go mod tidy
 
   sdk:go:test:
@@ -88,14 +98,14 @@ tasks:
     desc: Verify generated Go SDK is up to date
     cmds:
       - task: sdk:go
-      - git diff --exit-code docs sdk/go
+      - git diff --exit-code openapi sdk/go
 
   sdk:python:
     desc: Generate the Python SDK from OpenAPI docs
     cmds:
-      - task: docs:sdk
+      - task: openapi:sdk
       - node scripts/remove-paths.mjs sdk/python/open_spanner_client sdk/python/README.md sdk/python/pyproject.toml
-      - uvx --from openapi-python-client==0.29.0 openapi-python-client generate --path docs/sdk-openapi.json --output-path sdk/python --meta uv --config sdk/python-client.yml --overwrite
+      - uvx --from openapi-python-client==0.29.0 openapi-python-client generate --path openapi/sdk-openapi.json --output-path sdk/python --meta uv --config sdk/python-client.yml --overwrite
       - node scripts/finalize-python-sdk.mjs
       - cd sdk/python; uv lock
 
@@ -109,7 +119,7 @@ tasks:
     desc: Verify generated Python SDK is up to date
     cmds:
       - task: sdk:python
-      - git diff --exit-code docs sdk/python sdk/python-client.yml
+      - git diff --exit-code openapi sdk/python sdk/python-client.yml
 
   sdk:python:build:
     desc: Build the Python SDK package
@@ -126,10 +136,10 @@ tasks:
   sdk:csharp:
     desc: Generate and build the C# SDK from OpenAPI docs
     cmds:
-      - task: docs:sdk
+      - task: openapi:sdk
       - dotnet tool restore
       - node scripts/remove-paths.mjs sdk/csharp/src
-      - dotnet tool run kiota -- generate -d docs/sdk-openapi.json -l CSharp -o sdk/csharp/src -n OpenSpanner -c OpenSpannerClient --clean-output --exclude-backward-compatible
+      - dotnet tool run kiota -- generate -d openapi/sdk-openapi.json -l CSharp -o sdk/csharp/src -n OpenSpanner -c OpenSpannerClient --clean-output --exclude-backward-compatible
       - node scripts/remove-paths.mjs sdk/csharp/src/.kiota.log
       - dotnet build sdk/csharp/OpenSpanner.csproj
 
@@ -143,7 +153,7 @@ tasks:
     cmds:
       - task: sdk:csharp
       - task: sdk:csharp:test
-      - git diff --exit-code docs sdk/csharp examples/csharp dotnet-tools.json
+      - git diff --exit-code openapi sdk/csharp examples/csharp dotnet-tools.json
 
   sdk:csharp:pack:
     desc: Verify the C# SDK NuGet package builds
@@ -154,7 +164,7 @@ tasks:
   sdk:typescript:
     desc: Generate and build the TypeScript SDK package
     cmds:
-      - task: docs:sdk
+      - task: openapi:sdk
       - cd sdk/typescript; npm ci
       - cd sdk/typescript; npm run generate
       - cd sdk/typescript; npm run build
@@ -169,7 +179,7 @@ tasks:
     cmds:
       - task: sdk:typescript
       - task: sdk:typescript:test
-      - git diff --exit-code docs sdk/typescript
+      - git diff --exit-code openapi sdk/typescript
 
   sdk:typescript:pack:
     desc: Verify the TypeScript SDK npm package contents

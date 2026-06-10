@@ -7,12 +7,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	swaggerdocs "github.com/ssubedir/open-spanner/docs"
 	"github.com/ssubedir/open-spanner/internal/config"
 	"github.com/ssubedir/open-spanner/internal/metering/bootstrap"
 	"github.com/ssubedir/open-spanner/internal/metering/workers/retention"
 	serverhttp "github.com/ssubedir/open-spanner/internal/server/http"
 	"github.com/ssubedir/open-spanner/internal/ui"
+	swaggerdocs "github.com/ssubedir/open-spanner/openapi"
 )
 
 // @title Open Spanner API

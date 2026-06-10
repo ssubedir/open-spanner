@@ -1,6 +1,6 @@
 {
   "descriptionHash": "F1B4B2BA70E8FE42BFB51EFA9D2C87940C8ACC1A7E2FA1972F6E543EEA5046855B291E15C29FC561D062A537429A2C7C6D5AADB904A4D388044C03B4C3C92AF6",
-  "descriptionLocation": "../../../docs/sdk-openapi.json",
+  "descriptionLocation": "../../../openapi/sdk-openapi.json",
   "lockFileVersion": "1.0.0",
   "kiotaVersion": "1.32.2",
   "clientClassName": "OpenSpannerClient",

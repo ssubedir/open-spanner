@@ -1,0 +1,11 @@
+{
+  "title": "Open Spanner",
+  "pages": [
+    "index",
+    "quickstart",
+    "concepts",
+    "querying",
+    "sdks",
+    "deployment"
+  ]
+}
