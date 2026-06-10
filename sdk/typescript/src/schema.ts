@@ -238,7 +238,10 @@ export interface paths {
         /** List usage buckets */
         get: operations["listUsageBuckets"];
         put?: never;
-        /** Create usage */
+        /**
+         * Create usage
+         * @description Records one usage event. If idempotency_key matches a previously accepted event, the original event is returned. A duplicate event ID is a conflict.
+         */
         post: operations["createUsage"];
         delete?: never;
         options?: never;
@@ -255,7 +258,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Create usage in bulk */
+        /**
+         * Create usage in bulk
+         * @description Records up to 1000 usage events. The Idempotency-Key header replays the original bulk response for the same batch. Per-event idempotency_key values replay existing events as duplicates. Duplicate event IDs are conflicts.
+         */
         post: operations["createUsageBulk"];
         delete?: never;
         options?: never;
@@ -428,6 +434,7 @@ export interface components {
         };
         /** UsageCreateRequest */
         UsageCreateRequest: {
+            /** @description IdempotencyKey replays the original accepted event when reused. */
             idempotency_key?: string;
             metadata?: {
                 [key: string]: unknown;
@@ -1334,13 +1341,13 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Batch idempotency key */
+                /** @description Batch idempotency key. Reusing it returns the original bulk response. */
                 "Idempotency-Key"?: string;
             };
             path?: never;
             cookie?: never;
         };
-        /** @description Usage events */
+        /** @description Usage events. Maximum 1000 items. */
         requestBody: {
             content: {
                 "application/json": components["schemas"]["UsageCreateRequest"][];

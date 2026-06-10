@@ -40,14 +40,22 @@ jobs:
         with:
           dotnet-version: "8.0.x"
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Use locked npm version
+        run: npm install --global npm@11.6.2
+
       - name: Install Task
         run: npm install --global @go-task/cli
 
-      - name: Verify C# SDK
-        run: task sdk:csharp:check
-
-      - name: Build NuGet package
-        run: task sdk:csharp:pack
+      - name: Verify release artifacts
+        run: task release:check
 
       - name: Verify package version matches tag
         run: |

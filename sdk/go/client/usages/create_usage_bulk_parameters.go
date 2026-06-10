@@ -65,13 +65,13 @@ type CreateUsageBulkParams struct {
 
 	/* IdempotencyKey.
 
-	   Batch idempotency key
+	   Batch idempotency key. Reusing it returns the original bulk response.
 	*/
 	IdempotencyKey *string
 
 	/* Request.
 
-	   Usage events
+	   Usage events. Maximum 1000 items.
 	*/
 	Request []*models.UsageCreateRequest
 

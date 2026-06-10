@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ssubedir/open-spanner/internal/config"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
 	domainmeter "github.com/ssubedir/open-spanner/internal/metering/domain/meter"
 	domainusage "github.com/ssubedir/open-spanner/internal/metering/domain/usage"
@@ -607,6 +608,20 @@ WHERE type = 'index'
 		if !found {
 			t.Fatalf("missing sqlite usage_events index %s", name)
 		}
+	}
+}
+
+func TestStoreAppliesPoolConfig(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewStore(ctx, ":memory:", config.DBPoolConfig{MaxOpenConns: 1})
+	if err != nil {
+		t.Fatalf("new sqlite store: %v", err)
+	}
+	defer store.Close()
+
+	stats := store.db.Stats()
+	if stats.MaxOpenConnections != 1 {
+		t.Fatalf("max open connections = %d, want 1", stats.MaxOpenConnections)
 	}
 }
 

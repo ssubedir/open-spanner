@@ -1,0 +1,223 @@
+package postgres
+
+import (
+	"context"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	domainmeter "github.com/ssubedir/open-spanner/internal/metering/domain/meter"
+	domainusage "github.com/ssubedir/open-spanner/internal/metering/domain/usage"
+)
+
+func TestIntegrationPostgresUsageFlow(t *testing.T) {
+	ctx := context.Background()
+	store := newIntegrationStore(t, ctx)
+	meterRepo := NewMeterRepository(store)
+	usageRepo := NewUsageRepository(store)
+
+	meter := newIntegrationMeter(t, "meter-1", "api_calls", time.Date(2026, 6, 8, 9, 0, 0, 0, time.UTC))
+	if _, err := meterRepo.Save(ctx, meter); err != nil {
+		t.Fatalf("save meter: %v", err)
+	}
+
+	eventTime := time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC)
+	first := newIntegrationEvent(t, "event-1", "usage-1", "org_123", "api_calls", 3, eventTime, map[string]any{
+		"region": "us-east-1",
+	})
+	saved, err := usageRepo.Save(ctx, first)
+	if err != nil {
+		t.Fatalf("save usage: %v", err)
+	}
+
+	duplicate := newIntegrationEvent(t, "event-2", "usage-1", "org_123", "api_calls", 9, eventTime, map[string]any{
+		"region": "us-west-2",
+	})
+	replayed, err := usageRepo.Save(ctx, duplicate)
+	if err != nil {
+		t.Fatalf("save duplicate usage: %v", err)
+	}
+	if replayed.ID() != saved.ID() || replayed.Quantity() != saved.Quantity() {
+		t.Fatalf("replayed event = %s/%v, want %s/%v", replayed.ID(), replayed.Quantity(), saved.ID(), saved.Quantity())
+	}
+
+	second := newIntegrationEvent(t, "event-3", "", "org_123", "api_calls", 2, eventTime.Add(time.Hour), map[string]any{
+		"region": "us-east-1",
+	})
+	if _, err := usageRepo.Save(ctx, second); err != nil {
+		t.Fatalf("save second usage: %v", err)
+	}
+
+	filter, err := domainusage.NewFilterCondition("metadata.region", domainusage.FilterOpEqual, "us-east-1", true)
+	if err != nil {
+		t.Fatalf("new filter: %v", err)
+	}
+	query, err := domainusage.NewFilteredQuery(
+		"org_123",
+		"api_calls",
+		time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC),
+		domainusage.BucketDay,
+		domainmeter.AggregationSum,
+		nil,
+		"region",
+		0,
+		filter,
+	)
+	if err != nil {
+		t.Fatalf("new query: %v", err)
+	}
+
+	buckets, err := usageRepo.Query(ctx, query)
+	if err != nil {
+		t.Fatalf("query usage: %v", err)
+	}
+	if len(buckets) != 1 {
+		t.Fatalf("bucket count = %d, want 1", len(buckets))
+	}
+	if buckets[0].Quantity() != 5 {
+		t.Fatalf("bucket quantity = %v, want 5", buckets[0].Quantity())
+	}
+	if buckets[0].Group()["region"] != "us-east-1" {
+		t.Fatalf("bucket group = %#v, want region us-east-1", buckets[0].Group())
+	}
+}
+
+func TestIntegrationPostgresBulkReplayAndEventPagination(t *testing.T) {
+	ctx := context.Background()
+	store := newIntegrationStore(t, ctx)
+	meterRepo := NewMeterRepository(store)
+	usageRepo := NewUsageRepository(store)
+
+	if _, err := meterRepo.Save(ctx, newIntegrationMeter(t, "meter-1", "tokens", time.Now())); err != nil {
+		t.Fatalf("save meter: %v", err)
+	}
+
+	events := []domainusage.Event{
+		newIntegrationEvent(t, "event-1", "usage-1", "org_123", "tokens", 2, time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC), nil),
+		newIntegrationEvent(t, "event-2", "usage-2", "org_123", "tokens", 3, time.Date(2026, 6, 8, 11, 0, 0, 0, time.UTC), nil),
+	}
+	first, err := usageRepo.SaveBulk(ctx, "batch-1", events)
+	if err != nil {
+		t.Fatalf("save bulk: %v", err)
+	}
+
+	second, err := usageRepo.SaveBulk(ctx, "batch-1", []domainusage.Event{
+		newIntegrationEvent(t, "event-3", "usage-3", "org_123", "tokens", 100, time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC), nil),
+	})
+	if err != nil {
+		t.Fatalf("replay bulk: %v", err)
+	}
+	if len(second.Accepted()) != len(first.Accepted()) || len(second.Duplicates()) != 0 {
+		t.Fatalf("replayed bulk = %#v, want accepted replay %#v", second, first)
+	}
+
+	eventQuery, err := domainusage.NewEventQuery(
+		"org_123",
+		"tokens",
+		time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC),
+		1,
+		domainusage.EventCursor{},
+	)
+	if err != nil {
+		t.Fatalf("new event query: %v", err)
+	}
+
+	page, err := usageRepo.FindEvents(ctx, eventQuery)
+	if err != nil {
+		t.Fatalf("find events: %v", err)
+	}
+	if len(page.Events()) != 1 || page.NextCursor().IsZero() {
+		t.Fatalf("page = %#v, want one event and next cursor", page)
+	}
+}
+
+func newIntegrationStore(t *testing.T, ctx context.Context) *Store {
+	t.Helper()
+
+	dsn := os.Getenv("OPEN_SPANNER_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set OPEN_SPANNER_TEST_POSTGRES_DSN to run Postgres integration tests")
+	}
+
+	store, err := NewStore(ctx, dsn)
+	if err != nil {
+		t.Fatalf("new postgres store: %v", err)
+	}
+	t.Cleanup(func() {
+		cleanIntegrationStore(t, ctx, store)
+		if err := store.Close(); err != nil {
+			t.Fatalf("close postgres store: %v", err)
+		}
+	})
+
+	cleanIntegrationStore(t, ctx, store)
+	return store
+}
+
+func cleanIntegrationStore(t *testing.T, ctx context.Context, store *Store) {
+	t.Helper()
+
+	_, err := store.db.ExecContext(ctx, `
+TRUNCATE TABLE usage_ingestions, usage_prune_runs, bulk_usage_ingestions, usage_events, meters RESTART IDENTITY CASCADE
+`)
+	if err != nil {
+		t.Fatalf("clean postgres store: %v", err)
+	}
+}
+
+func newIntegrationMeter(t *testing.T, id string, name string, createdAt time.Time) domainmeter.Meter {
+	t.Helper()
+
+	meter, err := domainmeter.New(id, name, "integration meter", "count", domainmeter.AggregationSum, map[string]domainmeter.MetadataType{}, 0, createdAt)
+	if err != nil {
+		t.Fatalf("new meter: %v", err)
+	}
+	return meter
+}
+
+func newIntegrationEvent(t *testing.T, id string, idempotencyKey string, subject string, meterName string, quantity float64, eventTime time.Time, metadata map[string]any) domainusage.Event {
+	t.Helper()
+
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	for key, value := range map[string]any{"source": "integration"} {
+		if _, exists := metadata[key]; !exists {
+			metadata[key] = value
+		}
+	}
+
+	event, err := domainusage.NewEvent(
+		id,
+		idempotencyKey,
+		subject,
+		meterName,
+		quantity,
+		eventTime,
+		eventTime.Add(time.Second),
+		metadata,
+	)
+	if err != nil {
+		t.Fatalf("new usage event: %v", err)
+	}
+	return event
+}
+
+func TestIntegrationPostgresJSONPathRejectsUnsafeKeys(t *testing.T) {
+	unsafeInputs := []string{
+		"metadata.region'); DROP TABLE meters; --",
+		"metadata.region-name",
+		"metadata.region name",
+	}
+
+	for _, input := range unsafeInputs {
+		t.Run(strings.ReplaceAll(input, " ", "_"), func(t *testing.T) {
+			if _, _, err := filterFieldSQL(input); err == nil {
+				t.Fatalf("filterFieldSQL(%q) error = nil, want rejection", input)
+			}
+		})
+	}
+}

@@ -82,6 +82,9 @@ def sync_detailed(
 ) -> Response[ErrorResponse | UsageEvent]:
     """Create usage
 
+     Records one usage event. If idempotency_key matches a previously accepted event, the original event
+    is returned. A duplicate event ID is a conflict.
+
     Args:
         body (UsageCreateRequest):
 
@@ -111,6 +114,9 @@ def sync(
 ) -> ErrorResponse | UsageEvent | None:
     """Create usage
 
+     Records one usage event. If idempotency_key matches a previously accepted event, the original event
+    is returned. A duplicate event ID is a conflict.
+
     Args:
         body (UsageCreateRequest):
 
@@ -134,6 +140,9 @@ async def asyncio_detailed(
     body: UsageCreateRequest,
 ) -> Response[ErrorResponse | UsageEvent]:
     """Create usage
+
+     Records one usage event. If idempotency_key matches a previously accepted event, the original event
+    is returned. A duplicate event ID is a conflict.
 
     Args:
         body (UsageCreateRequest):
@@ -161,6 +170,9 @@ async def asyncio(
     body: UsageCreateRequest,
 ) -> ErrorResponse | UsageEvent | None:
     """Create usage
+
+     Records one usage event. If idempotency_key matches a previously accepted event, the original event
+    is returned. A duplicate event ID is a conflict.
 
     Args:
         body (UsageCreateRequest):

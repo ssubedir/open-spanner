@@ -14,38 +14,47 @@ func (s *service) PruneEvents(ctx context.Context, cmd PruneCommand) (PruneResul
 	}
 
 	now := s.now()
-	result := PruneResult{DryRun: cmd.DryRun, Meters: make([]PruneMeterResult, 0, len(meters))}
-	runMeters := make([]domainusage.PruneRunMeter, 0, len(meters))
+	queries := make([]domainusage.PruneQuery, 0, len(meters))
 	for _, meter := range meters {
 		before := now.AddDate(0, 0, -meter.EventRetentionDays())
 		query, err := domainusage.NewPruneQuery(meter.Name(), before)
 		if err != nil {
 			return PruneResult{}, err
 		}
-
-		deleted, err := s.prunableEventCount(ctx, query, cmd.DryRun)
-		if err != nil {
-			return PruneResult{}, err
-		}
-
-		result.Deleted += deleted
-		result.Meters = append(result.Meters, PruneMeterResult{
-			MeterName: meter.Name(),
-			Before:    before,
-			Deleted:   deleted,
-		})
-		runMeter, err := domainusage.NewPruneRunMeter(meter.Name(), before, deleted)
-		if err != nil {
-			return PruneResult{}, err
-		}
-		runMeters = append(runMeters, runMeter)
+		queries = append(queries, query)
 	}
 
-	run, err := domainusage.NewPruneRun(newID(), cmd.DryRun, result.Deleted, runMeters, now)
-	if err != nil {
-		return PruneResult{}, err
-	}
-	run, err = s.usageRepo.SavePruneRun(ctx, run)
+	var run domainusage.PruneRun
+	err = s.transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
+		result := PruneResult{DryRun: cmd.DryRun, Meters: make([]PruneMeterResult, 0, len(queries))}
+		runMeters := make([]domainusage.PruneRunMeter, 0, len(queries))
+		for _, query := range queries {
+			deleted, err := s.prunableEventCount(txCtx, query, cmd.DryRun)
+			if err != nil {
+				return err
+			}
+
+			result.Deleted += deleted
+			result.Meters = append(result.Meters, PruneMeterResult{
+				MeterName: query.MeterName(),
+				Before:    query.Before(),
+				Deleted:   deleted,
+			})
+			runMeter, err := domainusage.NewPruneRunMeter(query.MeterName(), query.Before(), deleted)
+			if err != nil {
+				return err
+			}
+			runMeters = append(runMeters, runMeter)
+		}
+
+		var err error
+		run, err = domainusage.NewPruneRun(newID(), cmd.DryRun, result.Deleted, runMeters, now)
+		if err != nil {
+			return err
+		}
+		run, err = s.usageRepo.SavePruneRun(txCtx, run)
+		return err
+	})
 	if err != nil {
 		return PruneResult{}, err
 	}

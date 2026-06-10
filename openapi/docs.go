@@ -840,6 +840,7 @@ const docTemplate = `{
                 }
             },
             "post": {
+                "description": "Records one usage event. If idempotency_key matches a previously accepted event, the original event is returned. A duplicate event ID is a conflict.",
                 "consumes": [
                     "application/json"
                 ],
@@ -898,6 +899,7 @@ const docTemplate = `{
         },
         "/v1/usages/bulk": {
             "post": {
+                "description": "Records up to 1000 usage events. The Idempotency-Key header replays the original bulk response for the same batch. Per-event idempotency_key values replay existing events as duplicates. Duplicate event IDs are conflicts.",
                 "consumes": [
                     "application/json"
                 ],
@@ -912,12 +914,12 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Batch idempotency key",
+                        "description": "Batch idempotency key. Reusing it returns the original bulk response.",
                         "name": "Idempotency-Key",
                         "in": "header"
                     },
                     {
-                        "description": "Usage events",
+                        "description": "Usage events. Maximum 1000 items.",
                         "name": "request",
                         "in": "body",
                         "required": true,
@@ -1381,6 +1383,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "idempotency_key": {
+                    "description": "IdempotencyKey replays the original accepted event when reused.",
                     "type": "string"
                 },
                 "metadata": {

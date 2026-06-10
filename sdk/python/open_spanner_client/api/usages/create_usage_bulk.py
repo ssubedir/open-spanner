@@ -89,6 +89,10 @@ def sync_detailed(
 ) -> Response[ErrorResponse | UsageBulkResult]:
     """Create usage in bulk
 
+     Records up to 1000 usage events. The Idempotency-Key header replays the original bulk response for
+    the same batch. Per-event idempotency_key values replay existing events as duplicates. Duplicate
+    event IDs are conflicts.
+
     Args:
         idempotency_key (str | Unset):
         body (list[UsageCreateRequest]):
@@ -121,6 +125,10 @@ def sync(
 ) -> ErrorResponse | UsageBulkResult | None:
     """Create usage in bulk
 
+     Records up to 1000 usage events. The Idempotency-Key header replays the original bulk response for
+    the same batch. Per-event idempotency_key values replay existing events as duplicates. Duplicate
+    event IDs are conflicts.
+
     Args:
         idempotency_key (str | Unset):
         body (list[UsageCreateRequest]):
@@ -147,6 +155,10 @@ async def asyncio_detailed(
     idempotency_key: str | Unset = UNSET,
 ) -> Response[ErrorResponse | UsageBulkResult]:
     """Create usage in bulk
+
+     Records up to 1000 usage events. The Idempotency-Key header replays the original bulk response for
+    the same batch. Per-event idempotency_key values replay existing events as duplicates. Duplicate
+    event IDs are conflicts.
 
     Args:
         idempotency_key (str | Unset):
@@ -177,6 +189,10 @@ async def asyncio(
     idempotency_key: str | Unset = UNSET,
 ) -> ErrorResponse | UsageBulkResult | None:
     """Create usage in bulk
+
+     Records up to 1000 usage events. The Idempotency-Key header replays the original bulk response for
+    the same batch. Per-event idempotency_key values replay existing events as duplicates. Duplicate
+    event IDs are conflicts.
 
     Args:
         idempotency_key (str | Unset):

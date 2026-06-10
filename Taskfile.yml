@@ -19,22 +19,51 @@ tasks:
     cmds:
       - go run ./cmd/api
 
-  run:memory:
-    desc: Run the API server with in-memory storage
+  run:postgres:
+    desc: Run the API server with Postgres storage
     env:
-      OPEN_SPANNER_DB_DRIVER: memory
+      OPEN_SPANNER_DB_DRIVER: postgres
+      OPEN_SPANNER_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/open_spanner?sslmode=disable
     cmds:
       - go run ./cmd/api
 
+  postgres:up:
+    desc: Start local Postgres for development and integration tests
+    cmds:
+      - docker compose up -d --wait postgres
+
+  postgres:down:
+    desc: Stop local Postgres
+    cmds:
+      - docker compose down
+
+  test:postgres:
+    desc: Run Postgres integration tests
+    cmds:
+      - task: postgres:up
+      - go test ./internal/metering/adapters/postgres -run Integration -count=1
+    env:
+      OPEN_SPANNER_TEST_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/open_spanner?sslmode=disable
+ 
   test:
     desc: Run all Go tests
     cmds:
-      - go test ./...
+      - go test -count=1 ./...
 
   vet:
     desc: Run Go vet
     cmds:
       - go vet ./...
+
+  release:check:
+    desc: Verify tests, generated OpenAPI docs, and all SDK packages before a release
+    cmds:
+      - task: test
+      - task: sdk:go:check
+      - task: sdk:typescript:check
+      - task: sdk:python:pack
+      - task: sdk:csharp:pack
+      - git diff --exit-code openapi sdk/go sdk/typescript sdk/python sdk/python-client.yml sdk/csharp examples/csharp dotnet-tools.json
 
   admin:dev:
     desc: Run the React admin UI dev server
@@ -84,8 +113,7 @@ tasks:
     desc: Generate the Go SDK from Swagger docs
     cmds:
       - task: openapi:sdk
-      - powershell -NoProfile -Command "if (Test-Path 'sdk/go/client') { Remove-Item 'sdk/go/client' -Recurse -Force }"
-      - powershell -NoProfile -Command "if (Test-Path 'sdk/go/models') { Remove-Item 'sdk/go/models' -Recurse -Force }"
+      - node scripts/remove-paths.mjs sdk/go/client sdk/go/models
       - go run github.com/go-swagger/go-swagger/cmd/swagger@v0.34.1 generate client -f openapi/sdk-swagger.json -t sdk/go -A open-spanner --default-scheme http
       - cd sdk/go; go mod tidy
 
@@ -158,7 +186,7 @@ tasks:
   sdk:csharp:pack:
     desc: Verify the C# SDK NuGet package builds
     cmds:
-      - task: sdk:csharp:test
+      - task: sdk:csharp:check
       - dotnet pack sdk/csharp/OpenSpanner.csproj --configuration Release
 
   sdk:typescript:
@@ -184,7 +212,7 @@ tasks:
   sdk:typescript:pack:
     desc: Verify the TypeScript SDK npm package contents
     cmds:
-      - task: sdk:typescript
+      - task: sdk:typescript:check
       - cd sdk/typescript; npm run pack:dry-run
 
   sdk:typescript:publish:

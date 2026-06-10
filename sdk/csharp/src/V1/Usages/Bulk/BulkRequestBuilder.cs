@@ -34,7 +34,7 @@ namespace OpenSpanner.V1.Usages.Bulk
         {
         }
         /// <summary>
-        /// Create usage in bulk
+        /// Records up to 1000 usage events. The Idempotency-Key header replays the original bulk response for the same batch. Per-event idempotency_key values replay existing events as duplicates. Duplicate event IDs are conflicts.
         /// </summary>
         /// <returns>A <see cref="global::OpenSpanner.Models.UsageBulkResult"/></returns>
         /// <param name="body">The request body</param>
@@ -65,7 +65,7 @@ namespace OpenSpanner.V1.Usages.Bulk
             return await RequestAdapter.SendAsync<global::OpenSpanner.Models.UsageBulkResult>(requestInfo, global::OpenSpanner.Models.UsageBulkResult.CreateFromDiscriminatorValue, errorMapping, cancellationToken).ConfigureAwait(false);
         }
         /// <summary>
-        /// Create usage in bulk
+        /// Records up to 1000 usage events. The Idempotency-Key header replays the original bulk response for the same batch. Per-event idempotency_key values replay existing events as duplicates. Duplicate event IDs are conflicts.
         /// </summary>
         /// <returns>A <see cref="RequestInformation"/></returns>
         /// <param name="body">The request body</param>

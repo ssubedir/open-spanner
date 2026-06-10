@@ -21,7 +21,10 @@ import (
 // @BasePath /
 // @schemes http
 func main() {
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("invalid config: %v", err)
+	}
 
 	router := chi.NewRouter()
 	router.Get("/health", health)

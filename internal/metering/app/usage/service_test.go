@@ -6,7 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ssubedir/open-spanner/internal/metering/adapters/memory"
+	"github.com/ssubedir/open-spanner/internal/config"
+	"github.com/ssubedir/open-spanner/internal/metering/adapters/sqlite"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
 	domainmeter "github.com/ssubedir/open-spanner/internal/metering/domain/meter"
 	domainusage "github.com/ssubedir/open-spanner/internal/metering/domain/usage"
@@ -112,6 +113,24 @@ func TestServiceCreateBulkRejectsEmptyBatch(t *testing.T) {
 	_, err := service.CreateBulk(ctx, "", nil)
 	if !errors.Is(err, domain.ErrInvalidInput) {
 		t.Fatalf("empty bulk error = %v, want ErrInvalidInput", err)
+	}
+}
+
+func TestServiceCreateBulkRejectsOverLimitBatch(t *testing.T) {
+	ctx := context.Background()
+	service := newTestService(t, ctx)
+	commands := make([]CreateCommand, MaxBulkEvents+1)
+	for i := range commands {
+		commands[i] = CreateCommand{
+			Subject:   "org_123",
+			MeterName: "api_calls",
+			Quantity:  1,
+		}
+	}
+
+	_, err := service.CreateBulk(ctx, "", commands)
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("over-limit bulk error = %v, want ErrInvalidInput", err)
 	}
 }
 
@@ -342,9 +361,7 @@ func TestServiceListEvents(t *testing.T) {
 
 func TestServicePruneEventsUsesMeterRetention(t *testing.T) {
 	ctx := context.Background()
-	store := memory.NewStore()
-	meterRepo := memory.NewMeterRepository(store)
-	usageRepo := memory.NewUsageRepository(store)
+	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
 
 	meter, err := domainmeter.New(
 		"meter-1",
@@ -363,7 +380,7 @@ func TestServicePruneEventsUsesMeterRetention(t *testing.T) {
 		t.Fatalf("save meter: %v", err)
 	}
 
-	service := NewService(meterRepo, usageRepo).(*service)
+	service := NewService(meterRepo, usageRepo, store).(*service)
 	service.now = func() time.Time {
 		return time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
 	}
@@ -430,9 +447,7 @@ func pruneRunCountByMode(runs []PruneResult, dryRun bool) int {
 
 func TestServiceListUsesMeterAggregation(t *testing.T) {
 	ctx := context.Background()
-	store := memory.NewStore()
-	meterRepo := memory.NewMeterRepository(store)
-	usageRepo := memory.NewUsageRepository(store)
+	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
 
 	meter, err := domainmeter.New(
 		"meter-1",
@@ -451,7 +466,7 @@ func TestServiceListUsesMeterAggregation(t *testing.T) {
 		t.Fatalf("save meter: %v", err)
 	}
 
-	service := NewService(meterRepo, usageRepo)
+	service := NewService(meterRepo, usageRepo, store)
 	for i, quantity := range []float64{100, 300, 500} {
 		_, err := service.Create(ctx, CreateCommand{
 			Subject:   "org_123",
@@ -496,9 +511,7 @@ func TestServiceCreateRejectsMetadataOutsideMeterSchema(t *testing.T) {
 
 func TestServiceCreateAcceptsMetadataMatchingMeterSchema(t *testing.T) {
 	ctx := context.Background()
-	store := memory.NewStore()
-	meterRepo := memory.NewMeterRepository(store)
-	usageRepo := memory.NewUsageRepository(store)
+	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
 
 	meter, err := domainmeter.New(
 		"meter-1",
@@ -520,7 +533,7 @@ func TestServiceCreateAcceptsMetadataMatchingMeterSchema(t *testing.T) {
 		t.Fatalf("save meter: %v", err)
 	}
 
-	service := NewService(meterRepo, usageRepo)
+	service := NewService(meterRepo, usageRepo, store)
 	created, err := service.Create(ctx, CreateCommand{
 		Subject:   "org_123",
 		MeterName: "api_calls",
@@ -537,8 +550,8 @@ func TestServiceCreateAcceptsMetadataMatchingMeterSchema(t *testing.T) {
 
 func TestServiceCreateMissingMeterReturnsNotFound(t *testing.T) {
 	ctx := context.Background()
-	store := memory.NewStore()
-	service := NewService(memory.NewMeterRepository(store), memory.NewUsageRepository(store))
+	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
+	service := NewService(meterRepo, usageRepo, store)
 
 	_, err := service.Create(ctx, CreateCommand{
 		Subject:   "org_123",
@@ -584,9 +597,7 @@ func TestServiceListRejectsWideHourlyRange(t *testing.T) {
 func newTestService(t *testing.T, ctx context.Context) Service {
 	t.Helper()
 
-	store := memory.NewStore()
-	meterRepo := memory.NewMeterRepository(store)
-	usageRepo := memory.NewUsageRepository(store)
+	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
 
 	meter, err := domainmeter.New(
 		"meter-1",
@@ -605,5 +616,16 @@ func newTestService(t *testing.T, ctx context.Context) Service {
 		t.Fatalf("save meter: %v", err)
 	}
 
-	return NewService(meterRepo, usageRepo)
+	return NewService(meterRepo, usageRepo, store)
+}
+
+func newTestRepositories(t *testing.T, ctx context.Context) (*sqlite.Store, *sqlite.MeterRepository, *sqlite.UsageRepository) {
+	t.Helper()
+
+	store, err := sqlite.NewStore(ctx, ":memory:", config.DBPoolConfig{MaxOpenConns: 1})
+	if err != nil {
+		t.Fatalf("new sqlite store: %v", err)
+	}
+
+	return store, sqlite.NewMeterRepository(store), sqlite.NewUsageRepository(store)
 }

@@ -80,7 +80,7 @@ namespace OpenSpanner.V1.Usages
             return collectionResult?.AsList();
         }
         /// <summary>
-        /// Create usage
+        /// Records one usage event. If idempotency_key matches a previously accepted event, the original event is returned. A duplicate event ID is a conflict.
         /// </summary>
         /// <returns>A <see cref="global::OpenSpanner.Models.UsageEvent"/></returns>
         /// <param name="body">The request body</param>
@@ -130,7 +130,7 @@ namespace OpenSpanner.V1.Usages
             return requestInfo;
         }
         /// <summary>
-        /// Create usage
+        /// Records one usage event. If idempotency_key matches a previously accepted event, the original event is returned. A duplicate event ID is a conflict.
         /// </summary>
         /// <returns>A <see cref="RequestInformation"/></returns>
         /// <param name="body">The request body</param>

@@ -1,0 +1,61 @@
+name: Test Postgres
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/test-postgres.yml"
+      - "docker-compose.yml"
+      - "go.mod"
+      - "go.sum"
+      - "internal/metering/adapters/postgres/**"
+      - "internal/metering/domain/**"
+  pull_request:
+    paths:
+      - ".github/workflows/test-postgres.yml"
+      - "docker-compose.yml"
+      - "go.mod"
+      - "go.sum"
+      - "internal/metering/adapters/postgres/**"
+      - "internal/metering/domain/**"
+
+concurrency:
+  group: test-postgres-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Postgres integration tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: open_spanner
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d open_spanner"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.5"
+          cache: true
+
+      - name: Run Postgres integration tests
+        run: go test ./internal/metering/adapters/postgres -run Integration -count=1
+        env:
+          OPEN_SPANNER_TEST_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/open_spanner?sslmode=disable

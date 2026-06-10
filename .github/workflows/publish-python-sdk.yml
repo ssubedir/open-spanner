@@ -41,11 +41,19 @@ jobs:
       - name: Setup uv
         uses: astral-sh/setup-uv@v6
 
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Use locked npm version
+        run: npm install --global npm@11.6.2
+
       - name: Install Task
         run: npm install --global @go-task/cli
 
-      - name: Build Python SDK
-        run: task sdk:python:pack
+      - name: Verify release artifacts
+        run: task release:check
 
       - name: Publish Python SDK
         uses: pypa/gh-action-pypi-publish@release/v1

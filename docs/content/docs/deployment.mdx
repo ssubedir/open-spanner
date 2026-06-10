@@ -5,9 +5,35 @@ description: Practical notes for running Open Spanner.
 
 ## Storage
 
-SQLite is the first supported persistent store and is a good fit for local development, demos, and small deployments.
+SQLite is a good fit for local development, demos, and small deployments.
 
-The domain and repository boundaries are designed so additional databases can be added later without changing API handlers or SDKs.
+Postgres is available for deployments that need a networked database:
+
+```sh
+cp .env.example .env
+task run:postgres
+```
+
+The domain and repository boundaries keep storage isolated from API handlers and SDKs.
+
+Connection pool settings are optional and loaded from environment variables:
+
+```sh
+OPEN_SPANNER_DB_MAX_OPEN_CONNS=25
+OPEN_SPANNER_DB_MAX_IDLE_CONNS=25
+OPEN_SPANNER_DB_CONN_MAX_LIFETIME=30m
+OPEN_SPANNER_DB_CONN_MAX_IDLE_TIME=5m
+```
+
+## Postgres Testing
+
+Start local Postgres and run integration tests:
+
+```sh
+task test:postgres
+```
+
+The test task uses Docker Compose and runs the Postgres adapter against a real database.
 
 ## Dashboard
 

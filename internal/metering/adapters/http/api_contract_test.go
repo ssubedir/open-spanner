@@ -2,20 +2,23 @@ package http_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/csv"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/ssubedir/open-spanner/internal/config"
 	httpmeter "github.com/ssubedir/open-spanner/internal/metering/adapters/http/meter"
 	httpsubject "github.com/ssubedir/open-spanner/internal/metering/adapters/http/subject"
 	httpsystem "github.com/ssubedir/open-spanner/internal/metering/adapters/http/system"
 	httpusage "github.com/ssubedir/open-spanner/internal/metering/adapters/http/usage"
-	"github.com/ssubedir/open-spanner/internal/metering/adapters/memory"
+	"github.com/ssubedir/open-spanner/internal/metering/adapters/sqlite"
 	appmeter "github.com/ssubedir/open-spanner/internal/metering/app/meter"
 	appsubject "github.com/ssubedir/open-spanner/internal/metering/app/subject"
 	appsystem "github.com/ssubedir/open-spanner/internal/metering/app/system"
@@ -420,7 +423,7 @@ func TestUsageEventPruneAPIContract(t *testing.T) {
 
 	for _, event := range []map[string]any{
 		{"subject": "org_123", "meter": "retained_events", "quantity": 1, "timestamp": "2026-01-01T00:00:00Z"},
-		{"subject": "org_123", "meter": "retained_events", "quantity": 2, "timestamp": "2026-06-09T00:00:00Z"},
+		{"subject": "org_123", "meter": "retained_events", "quantity": 2, "timestamp": time.Now().UTC().Format(time.RFC3339)},
 	} {
 		createUsage := requestJSON(t, router, http.MethodPost, "/v1/usages", event)
 		if createUsage.Code != http.StatusCreated {
@@ -1130,7 +1133,7 @@ func TestSystemStatsAPIContract(t *testing.T) {
 
 	for _, event := range []map[string]any{
 		{"subject": "org_123", "meter": "stats_events", "quantity": 1, "timestamp": "2026-01-01T00:00:00Z"},
-		{"subject": "org_123", "meter": "stats_events", "quantity": 2, "timestamp": "2026-06-09T00:00:00Z"},
+		{"subject": "org_123", "meter": "stats_events", "quantity": 2, "timestamp": time.Now().UTC().Format(time.RFC3339)},
 	} {
 		createUsage := requestJSON(t, router, http.MethodPost, "/v1/usages", event)
 		if createUsage.Code != http.StatusCreated {
@@ -1222,12 +1225,15 @@ func TestUsageIngestionHistoryAPIContract(t *testing.T) {
 }
 
 func newTestRouter() http.Handler {
-	store := memory.NewStore()
-	meterRepo := memory.NewMeterRepository(store)
-	usageRepo := memory.NewUsageRepository(store)
+	store, err := sqlite.NewStore(context.Background(), ":memory:", config.DBPoolConfig{MaxOpenConns: 1})
+	if err != nil {
+		panic(err)
+	}
+	meterRepo := sqlite.NewMeterRepository(store)
+	usageRepo := sqlite.NewUsageRepository(store)
 	meterService := appmeter.NewService(meterRepo, usageRepo)
 	subjectService := appsubject.NewService(usageRepo)
-	usageService := appusage.NewService(meterRepo, usageRepo)
+	usageService := appusage.NewService(meterRepo, usageRepo, store)
 	systemService := appsystem.NewService(meterRepo, usageRepo)
 
 	router := chi.NewRouter()

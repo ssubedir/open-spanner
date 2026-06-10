@@ -14,7 +14,7 @@ import (
 // swagger:model UsageCreateRequest
 type UsageCreateRequest struct {
 
-	// idempotency key
+	// IdempotencyKey replays the original accepted event when reused.
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
 
 	// metadata

@@ -1,7 +1,8 @@
 package usage
 
-// CreateRequest creates a usage event.
+// CreateRequest creates a usage event. IdempotencyKey replays a previously accepted event with the same key.
 type CreateRequest struct {
+	// IdempotencyKey replays the original accepted event when reused.
 	IdempotencyKey string         `json:"idempotency_key"`
 	Subject        string         `json:"subject"`
 	Meter          string         `json:"meter"`

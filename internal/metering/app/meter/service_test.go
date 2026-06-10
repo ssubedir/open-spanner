@@ -5,7 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/ssubedir/open-spanner/internal/metering/adapters/memory"
+	"github.com/ssubedir/open-spanner/internal/config"
+	"github.com/ssubedir/open-spanner/internal/metering/adapters/sqlite"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
 	domainmeter "github.com/ssubedir/open-spanner/internal/metering/domain/meter"
 )
@@ -175,6 +176,9 @@ func TestServiceCreateInvalidEventRetentionDaysReturnsInvalidInput(t *testing.T)
 }
 
 func newTestService() Service {
-	store := memory.NewStore()
-	return NewService(memory.NewMeterRepository(store))
+	store, err := sqlite.NewStore(context.Background(), ":memory:", config.DBPoolConfig{MaxOpenConns: 1})
+	if err != nil {
+		panic(err)
+	}
+	return NewService(sqlite.NewMeterRepository(store))
 }

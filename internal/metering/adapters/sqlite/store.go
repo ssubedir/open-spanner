@@ -9,6 +9,7 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	migratesqlite "github.com/golang-migrate/migrate/v4/database/sqlite"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
+	"github.com/ssubedir/open-spanner/internal/config"
 	_ "modernc.org/sqlite"
 )
 
@@ -19,11 +20,14 @@ type Store struct {
 	db *sql.DB
 }
 
-func NewStore(ctx context.Context, path string) (*Store, error) {
+type txContextKey struct{}
+
+func NewStore(ctx context.Context, path string, poolConfigs ...config.DBPoolConfig) (*Store, error) {
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err
 	}
+	applyPoolConfig(db, poolConfigs...)
 
 	store := &Store{db: db}
 	if err := store.configure(ctx); err != nil {
@@ -40,6 +44,26 @@ func NewStore(ctx context.Context, path string) (*Store, error) {
 	}
 
 	return store, nil
+}
+
+func applyPoolConfig(db *sql.DB, poolConfigs ...config.DBPoolConfig) {
+	if len(poolConfigs) == 0 {
+		return
+	}
+
+	pool := poolConfigs[0]
+	if pool.MaxOpenConns > 0 {
+		db.SetMaxOpenConns(pool.MaxOpenConns)
+	}
+	if pool.MaxIdleConns > 0 {
+		db.SetMaxIdleConns(pool.MaxIdleConns)
+	}
+	if pool.ConnMaxLifetime > 0 {
+		db.SetConnMaxLifetime(pool.ConnMaxLifetime)
+	}
+	if pool.ConnMaxIdleTime > 0 {
+		db.SetConnMaxIdleTime(pool.ConnMaxIdleTime)
+	}
 }
 
 func (s *Store) ensureColumns(ctx context.Context) error {
@@ -92,6 +116,25 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+func (s *Store) WithinTransaction(ctx context.Context, fn func(context.Context) error) error {
+	if _, ok := txFromContext(ctx); ok {
+		return fn(ctx)
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	txCtx := context.WithValue(ctx, txContextKey{}, tx)
+	if err := fn(txCtx); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
 func (s *Store) configure(ctx context.Context) error {
 	if _, err := s.db.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil {
 		return err
@@ -130,4 +173,38 @@ func (s *Store) migrate(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (s *Store) exec(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	if tx, ok := txFromContext(ctx); ok {
+		return tx.ExecContext(ctx, query, args...)
+	}
+	return s.db.ExecContext(ctx, query, args...)
+}
+
+func (s *Store) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	return s.exec(ctx, query, args...)
+}
+
+func (s *Store) query(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	if tx, ok := txFromContext(ctx); ok {
+		return tx.QueryContext(ctx, query, args...)
+	}
+	return s.db.QueryContext(ctx, query, args...)
+}
+
+func (s *Store) queryRow(ctx context.Context, query string, args ...any) *sql.Row {
+	if tx, ok := txFromContext(ctx); ok {
+		return tx.QueryRowContext(ctx, query, args...)
+	}
+	return s.db.QueryRowContext(ctx, query, args...)
+}
+
+func (s *Store) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	return s.queryRow(ctx, query, args...)
+}
+
+func txFromContext(ctx context.Context) (*sql.Tx, bool) {
+	tx, ok := ctx.Value(txContextKey{}).(*sql.Tx)
+	return tx, ok
 }

@@ -26,6 +26,7 @@ func NewHandler(service appusage.Service) *Handler {
 // Create creates a usage event.
 //
 // @Summary Create usage
+// @Description Records one usage event. If idempotency_key matches a previously accepted event, the original event is returned. A duplicate event ID is a conflict.
 // @ID createUsage
 // @Tags usages
 // @Accept json
@@ -77,12 +78,13 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 // CreateBulk creates usage events in bulk.
 //
 // @Summary Create usage in bulk
+// @Description Records up to 1000 usage events. The Idempotency-Key header replays the original bulk response for the same batch. Per-event idempotency_key values replay existing events as duplicates. Duplicate event IDs are conflicts.
 // @ID createUsageBulk
 // @Tags usages
 // @Accept json
 // @Produce json
-// @Param Idempotency-Key header string false "Batch idempotency key"
-// @Param request body []CreateRequest true "Usage events"
+// @Param Idempotency-Key header string false "Batch idempotency key. Reusing it returns the original bulk response."
+// @Param request body []CreateRequest true "Usage events. Maximum 1000 items."
 // @Success 201 {object} BulkResponse
 // @Failure 400 {object} respond.ErrorResponse
 // @Failure 404 {object} respond.ErrorResponse
@@ -91,7 +93,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 // @Router /v1/usages/bulk [post]
 func (h *Handler) CreateBulk(w http.ResponseWriter, r *http.Request) {
 	var req []CreateRequest
-	if err := request.DecodeJSONArray(r.Body, &req, func() int { return len(req) }, 1000, "bulk usage event"); err != nil {
+	if err := request.DecodeJSONArray(r.Body, &req, func() int { return len(req) }, appusage.MaxBulkEvents, "bulk usage event"); err != nil {
 		respond.ValidationError(w, err)
 		return
 	}

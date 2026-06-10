@@ -36,17 +36,27 @@ jobs:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
       - name: Use locked npm version
         run: npm install --global npm@11.6.2
 
       - name: Install Task
         run: npm install --global @go-task/cli
 
-      - name: Verify TypeScript SDK
-        run: task sdk:typescript:check
-
-      - name: Verify npm package contents
-        run: task sdk:typescript:pack
+      - name: Verify release artifacts
+        run: task release:check
 
       - name: Verify package version matches tag
         run: |

@@ -112,11 +112,19 @@ type ClientService interface {
 	// ListUsageBucketsContext list usage buckets.
 	ListUsageBucketsContext(ctx context.Context, params *ListUsageBucketsParams, opts ...ClientOption) (*ListUsageBucketsOK, error)
 
+	// SearchUsageBuckets search usage buckets.
+	SearchUsageBuckets(params *SearchUsageBucketsParams, opts ...ClientOption) (*SearchUsageBucketsOK, error)
+
+	// SearchUsageBucketsContext search usage buckets.
+	SearchUsageBucketsContext(ctx context.Context, params *SearchUsageBucketsParams, opts ...ClientOption) (*SearchUsageBucketsOK, error)
+
 	SetTransport(transport runtime.ContextualTransport)
 }
 
 /*
 CreateUsagecreates usage.
+
+Records one usage event. If idempotency_key matches a previously accepted event, the original event is returned. A duplicate event ID is a conflict..
 
 This method does not support injected context.
 However, timeout and opentracing contexts are honored whenever enabled.
@@ -136,6 +144,8 @@ func (a *Client) CreateUsage(params *CreateUsageParams, opts ...ClientOption) (*
 
 /*
 CreateUsageContextcreates usage.
+
+Records one usage event. If idempotency_key matches a previously accepted event, the original event is returned. A duplicate event ID is a conflict..
 
 Do not use the deprecated [CreateUsageParams.Context] with this method: it would be ignored.
 */
@@ -184,6 +194,8 @@ func (a *Client) CreateUsageContext(ctx context.Context, params *CreateUsagePara
 /*
 CreateUsageBulkcreates usage in bulk.
 
+Records up to 1000 usage events. The Idempotency-Key header replays the original bulk response for the same batch. Per-event idempotency_key values replay existing events as duplicates. Duplicate event IDs are conflicts..
+
 This method does not support injected context.
 However, timeout and opentracing contexts are honored whenever enabled.
 
@@ -202,6 +214,8 @@ func (a *Client) CreateUsageBulk(params *CreateUsageBulkParams, opts ...ClientOp
 
 /*
 CreateUsageBulkContextcreates usage in bulk.
+
+Records up to 1000 usage events. The Idempotency-Key header replays the original bulk response for the same batch. Per-event idempotency_key values replay existing events as duplicates. Duplicate event IDs are conflicts..
 
 Do not use the deprecated [CreateUsageBulkParams.Context] with this method: it would be ignored.
 */
@@ -442,6 +456,72 @@ func (a *Client) ListUsageBucketsContext(ctx context.Context, params *ListUsageB
 	//
 	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for listUsageBuckets: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+SearchUsageBucketssearches usage buckets.
+
+This method does not support injected context.
+However, timeout and opentracing contexts are honored whenever enabled.
+
+If you need to pass a specific context, use [Client.SearchUsageBucketsContext] instead.
+*/
+func (a *Client) SearchUsageBuckets(params *SearchUsageBucketsParams, opts ...ClientOption) (*SearchUsageBucketsOK, error) {
+	var ctx context.Context
+	if params.inner.ctx != nil {
+		ctx = params.inner.ctx
+	} else {
+		ctx = context.Background()
+	}
+
+	return a.SearchUsageBucketsContext(ctx, params, opts...)
+}
+
+/*
+SearchUsageBucketsContextsearches usage buckets.
+
+Do not use the deprecated [SearchUsageBucketsParams.Context] with this method: it would be ignored.
+*/
+func (a *Client) SearchUsageBucketsContext(ctx context.Context, params *SearchUsageBucketsParams, opts ...ClientOption) (*SearchUsageBucketsOK, error) {
+	// NOTE: parameters are not validated before sending
+	if params == nil {
+		params = NewSearchUsageBucketsParams()
+	}
+
+	op := &runtime.ClientOperation{
+		ID:                 "searchUsageBuckets",
+		Method:             "POST",
+		PathPattern:        "/v1/usages/search",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http"},
+		Params:             params,
+		Reader:             &SearchUsageBucketsReader{formats: a.formats},
+		Client:             params.HTTPClient,
+	}
+
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.SubmitContext(ctx, op)
+	if err != nil {
+		return nil, err
+	}
+
+	// only one success response has to be checked
+	success, ok := result.(*SearchUsageBucketsOK)
+	if ok {
+		return success, nil
+	}
+
+	// unexpected success response.
+
+	// no default response is defined.
+	//
+	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for searchUsageBuckets: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

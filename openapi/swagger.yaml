@@ -179,6 +179,7 @@ definitions:
   internal_metering_adapters_http_usage.CreateRequest:
     properties:
       idempotency_key:
+        description: IdempotencyKey replays the original accepted event when reused.
         type: string
       metadata:
         additionalProperties: {}
@@ -902,6 +903,9 @@ paths:
     post:
       consumes:
       - application/json
+      description: Records one usage event. If idempotency_key matches a previously
+        accepted event, the original event is returned. A duplicate event ID is a
+        conflict.
       operationId: createUsage
       parameters:
       - description: Usage event
@@ -940,13 +944,16 @@ paths:
     post:
       consumes:
       - application/json
+      description: Records up to 1000 usage events. The Idempotency-Key header replays
+        the original bulk response for the same batch. Per-event idempotency_key values
+        replay existing events as duplicates. Duplicate event IDs are conflicts.
       operationId: createUsageBulk
       parameters:
-      - description: Batch idempotency key
+      - description: Batch idempotency key. Reusing it returns the original bulk response.
         in: header
         name: Idempotency-Key
         type: string
-      - description: Usage events
+      - description: Usage events. Maximum 1000 items.
         in: body
         name: request
         required: true

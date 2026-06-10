@@ -19,7 +19,7 @@ T = TypeVar("T", bound="UsageCreateRequest")
 class UsageCreateRequest:
     """
     Attributes:
-        idempotency_key (str | Unset):
+        idempotency_key (str | Unset): IdempotencyKey replays the original accepted event when reused.
         metadata (UsageCreateRequestMetadata | Unset):
         meter (str | Unset):
         quantity (float | Unset):

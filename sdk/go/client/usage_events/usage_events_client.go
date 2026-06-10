@@ -106,6 +106,12 @@ type ClientService interface {
 	// PruneUsageEventsContext prune usage events.
 	PruneUsageEventsContext(ctx context.Context, params *PruneUsageEventsParams, opts ...ClientOption) (*PruneUsageEventsOK, error)
 
+	// SearchUsageEvents search usage events.
+	SearchUsageEvents(params *SearchUsageEventsParams, opts ...ClientOption) (*SearchUsageEventsOK, error)
+
+	// SearchUsageEventsContext search usage events.
+	SearchUsageEventsContext(ctx context.Context, params *SearchUsageEventsParams, opts ...ClientOption) (*SearchUsageEventsOK, error)
+
 	SetTransport(transport runtime.ContextualTransport)
 }
 
@@ -370,6 +376,72 @@ func (a *Client) PruneUsageEventsContext(ctx context.Context, params *PruneUsage
 	//
 	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for pruneUsageEvents: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+SearchUsageEventssearches usage events.
+
+This method does not support injected context.
+However, timeout and opentracing contexts are honored whenever enabled.
+
+If you need to pass a specific context, use [Client.SearchUsageEventsContext] instead.
+*/
+func (a *Client) SearchUsageEvents(params *SearchUsageEventsParams, opts ...ClientOption) (*SearchUsageEventsOK, error) {
+	var ctx context.Context
+	if params.inner.ctx != nil {
+		ctx = params.inner.ctx
+	} else {
+		ctx = context.Background()
+	}
+
+	return a.SearchUsageEventsContext(ctx, params, opts...)
+}
+
+/*
+SearchUsageEventsContextsearches usage events.
+
+Do not use the deprecated [SearchUsageEventsParams.Context] with this method: it would be ignored.
+*/
+func (a *Client) SearchUsageEventsContext(ctx context.Context, params *SearchUsageEventsParams, opts ...ClientOption) (*SearchUsageEventsOK, error) {
+	// NOTE: parameters are not validated before sending
+	if params == nil {
+		params = NewSearchUsageEventsParams()
+	}
+
+	op := &runtime.ClientOperation{
+		ID:                 "searchUsageEvents",
+		Method:             "POST",
+		PathPattern:        "/v1/usageevents/search",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http"},
+		Params:             params,
+		Reader:             &SearchUsageEventsReader{formats: a.formats},
+		Client:             params.HTTPClient,
+	}
+
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.SubmitContext(ctx, op)
+	if err != nil {
+		return nil, err
+	}
+
+	// only one success response has to be checked
+	success, ok := result.(*SearchUsageEventsOK)
+	if ok {
+		return success, nil
+	}
+
+	// unexpected success response.
+
+	// no default response is defined.
+	//
+	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for searchUsageEvents: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
