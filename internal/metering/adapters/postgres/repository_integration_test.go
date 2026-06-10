@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -135,6 +136,118 @@ func TestIntegrationPostgresBulkReplayAndEventPagination(t *testing.T) {
 	}
 	if len(page.Events()) != 1 || page.NextCursor().IsZero() {
 		t.Fatalf("page = %#v, want one event and next cursor", page)
+	}
+}
+
+func TestIntegrationPostgresSQLAggregationModes(t *testing.T) {
+	ctx := context.Background()
+	store := newIntegrationStore(t, ctx)
+	meterRepo := NewMeterRepository(store)
+	usageRepo := NewUsageRepository(store)
+
+	if _, err := meterRepo.Save(ctx, newIntegrationMeter(t, "meter-1", "tokens", time.Now())); err != nil {
+		t.Fatalf("save meter: %v", err)
+	}
+
+	start := time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC)
+	events := []domainusage.Event{
+		newIntegrationEvent(t, "event-1", "", "org_123", "tokens", 10, start.Add(5*time.Minute), nil),
+		newIntegrationEvent(t, "event-2", "", "org_123", "tokens", 14, start.Add(15*time.Minute), nil),
+		newIntegrationEvent(t, "event-3", "", "org_123", "tokens", 16, start.Add(30*time.Minute), nil),
+	}
+	for _, event := range events {
+		if _, err := usageRepo.Save(ctx, event); err != nil {
+			t.Fatalf("save usage %s: %v", event.ID(), err)
+		}
+	}
+
+	tests := []struct {
+		name        string
+		aggregation domainmeter.Aggregation
+		want        float64
+	}{
+		{"sum", domainmeter.AggregationSum, 40},
+		{"count", domainmeter.AggregationCount, 3},
+		{"avg", domainmeter.AggregationAverage, 40.0 / 3.0},
+		{"min", domainmeter.AggregationMinimum, 10},
+		{"max", domainmeter.AggregationMaximum, 16},
+		{"first", domainmeter.AggregationFirst, 10},
+		{"last", domainmeter.AggregationLast, 16},
+		{"rate", domainmeter.AggregationRate, 3.0 / 3600.0},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			query, err := domainusage.NewQuery(
+				"org_123",
+				"tokens",
+				start,
+				start.Add(time.Hour),
+				domainusage.BucketHour,
+				tc.aggregation,
+				nil,
+				"",
+				0,
+			)
+			if err != nil {
+				t.Fatalf("new query: %v", err)
+			}
+			buckets, err := usageRepo.Query(ctx, query)
+			if err != nil {
+				t.Fatalf("query usage: %v", err)
+			}
+			if len(buckets) != 1 {
+				t.Fatalf("bucket count = %d, want 1", len(buckets))
+			}
+			if math.Abs(buckets[0].Quantity()-tc.want) > 0.000001 {
+				t.Fatalf("bucket quantity = %v, want %v", buckets[0].Quantity(), tc.want)
+			}
+		})
+	}
+}
+
+func TestIntegrationPostgresSQLAggregationMetadataFilters(t *testing.T) {
+	ctx := context.Background()
+	store := newIntegrationStore(t, ctx)
+	meterRepo := NewMeterRepository(store)
+	usageRepo := NewUsageRepository(store)
+
+	if _, err := meterRepo.Save(ctx, newIntegrationMeter(t, "meter-1", "requests", time.Now())); err != nil {
+		t.Fatalf("save meter: %v", err)
+	}
+
+	start := time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC)
+	events := []domainusage.Event{
+		newIntegrationEvent(t, "event-1", "", "org_123", "requests", 2, start.Add(5*time.Minute), map[string]any{"region": "us-east-1"}),
+		newIntegrationEvent(t, "event-2", "", "org_123", "requests", 3, start.Add(15*time.Minute), map[string]any{"region": "us-west-2"}),
+		newIntegrationEvent(t, "event-3", "", "org_123", "requests", 5, start.Add(30*time.Minute), map[string]any{"region": "us-east-1"}),
+	}
+	for _, event := range events {
+		if _, err := usageRepo.Save(ctx, event); err != nil {
+			t.Fatalf("save usage %s: %v", event.ID(), err)
+		}
+	}
+
+	query, err := domainusage.NewQuery(
+		"org_123",
+		"requests",
+		start,
+		start.Add(time.Hour),
+		domainusage.BucketHour,
+		domainmeter.AggregationSum,
+		map[string]string{"region": "us-east-1"},
+		"region",
+		0,
+	)
+	if err != nil {
+		t.Fatalf("new query: %v", err)
+	}
+	buckets, err := usageRepo.Query(ctx, query)
+	if err != nil {
+		t.Fatalf("query usage: %v", err)
+	}
+	if len(buckets) != 1 || buckets[0].Quantity() != 7 || buckets[0].Group()["region"] != "us-east-1" {
+		t.Fatalf("filtered buckets = %#v", buckets)
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
+	domainmeter "github.com/ssubedir/open-spanner/internal/metering/domain/meter"
 	domainusage "github.com/ssubedir/open-spanner/internal/metering/domain/usage"
 )
 
@@ -181,27 +182,48 @@ INSERT INTO usage_events (
 }
 
 func (r *UsageRepository) Query(ctx context.Context, query domainusage.Query) ([]domainusage.Bucket, error) {
+	groupSQL, err := groupValueSQL(query.GroupBy())
+	if err != nil {
+		return nil, err
+	}
+
 	sqlQuery := strings.Builder{}
 	sqlQuery.WriteString(`
-SELECT id, idempotency_key, subject, meter_name, quantity, event_time, received_at, metadata
-FROM usage_events
-`)
+WITH filtered AS (
+	SELECT
+		` + bucketStartSQL(query.BucketSize()) + ` AS bucket_start,
+		` + groupSQL + ` AS group_value,
+		quantity,
+		event_time::timestamptz AS event_at
+	FROM usage_events
+	WHERE subject = `)
 	args := []any{}
-	sqlQuery.WriteString("WHERE subject = " + bindArg(&args, query.Subject()) + "\n")
-	sqlQuery.WriteString("\tAND meter_name = " + bindArg(&args, query.MeterName()) + "\n")
-	sqlQuery.WriteString("\tAND event_time >= " + bindArg(&args, formatTime(query.From())) + "\n")
-	sqlQuery.WriteString("\tAND event_time < " + bindArg(&args, formatTime(query.To())) + "\n")
+	sqlQuery.WriteString(bindArg(&args, query.Subject()))
+	sqlQuery.WriteString("\n")
+	sqlQuery.WriteString("\t\tAND meter_name = " + bindArg(&args, query.MeterName()) + "\n")
+	sqlQuery.WriteString("\t\tAND event_time >= " + bindArg(&args, formatTime(query.From())) + "\n")
+	sqlQuery.WriteString("\t\tAND event_time < " + bindArg(&args, formatTime(query.To())) + "\n")
+	for key, value := range query.Metadata() {
+		if !metadataKeyPattern.MatchString(key) {
+			return nil, fmt.Errorf("unsupported metadata filter key %q", key)
+		}
+		sqlQuery.WriteString("\t\tAND metadata::jsonb #>> " + postgresJSONPath(key) + " = " + bindArg(&args, value) + "\n")
+	}
 	filterSQL, err := filterWhereSQL(query.Filter(), &args)
 	if err != nil {
 		return nil, err
 	}
 	if filterSQL != "" {
-		sqlQuery.WriteString(" AND ")
+		sqlQuery.WriteString("\t\tAND ")
 		sqlQuery.WriteString(filterSQL)
 		sqlQuery.WriteString("\n")
 	}
-	sqlQuery.WriteString(`
-ORDER BY event_time
+	sqlQuery.WriteString(`)
+SELECT bucket_start, group_value, ` + aggregateSQL(query.Aggregation(), query.BucketSize()) + ` AS quantity
+FROM filtered
+GROUP BY bucket_start, group_value
+ORDER BY bucket_start ASC, group_value ASC
+LIMIT ` + bindArg(&args, query.Limit()) + `
 `)
 
 	rows, err := r.store.query(ctx, sqlQuery.String(), args...)
@@ -210,20 +232,86 @@ ORDER BY event_time
 	}
 	defer rows.Close()
 
-	events := []domainusage.Event{}
+	buckets := []domainusage.Bucket{}
 	for rows.Next() {
-		event, err := scanEvent(rows)
-		if err != nil {
+		var bucketStart time.Time
+		var groupValue string
+		var quantity float64
+		if err := rows.Scan(&bucketStart, &groupValue, &quantity); err != nil {
 			return nil, err
 		}
-		events = append(events, event)
+		group := map[string]string{}
+		if query.GroupBy() != "" {
+			group[query.GroupBy()] = groupValue
+		}
+		buckets = append(buckets, domainusage.NewBucketWithGroup(
+			query.Subject(),
+			query.MeterName(),
+			query.BucketSize(),
+			bucketStart,
+			quantity,
+			group,
+		))
 	}
 
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
-	return domainusage.AggregateEvents(query, events), nil
+	return buckets, nil
+}
+
+func bucketStartSQL(size domainusage.BucketSize) string {
+	switch size {
+	case domainusage.BucketHour:
+		return "date_trunc('hour', event_time::timestamptz)"
+	case domainusage.BucketMonth:
+		return "date_trunc('month', event_time::timestamptz)"
+	default:
+		return "date_trunc('day', event_time::timestamptz)"
+	}
+}
+
+func groupValueSQL(groupBy string) (string, error) {
+	if groupBy == "" {
+		return "''", nil
+	}
+	if !metadataKeyPattern.MatchString(groupBy) {
+		return "", fmt.Errorf("unsupported group by field %q", groupBy)
+	}
+	return "COALESCE(metadata::jsonb #>> " + postgresJSONPath(groupBy) + ", '<nil>')", nil
+}
+
+func aggregateSQL(aggregation domainmeter.Aggregation, bucketSize domainusage.BucketSize) string {
+	switch aggregation {
+	case domainmeter.AggregationCount:
+		return "COUNT(*)::double precision"
+	case domainmeter.AggregationAverage:
+		return "AVG(quantity)"
+	case domainmeter.AggregationMinimum:
+		return "MIN(quantity)"
+	case domainmeter.AggregationMaximum:
+		return "MAX(quantity)"
+	case domainmeter.AggregationFirst:
+		return "(array_agg(quantity ORDER BY event_at ASC))[1]"
+	case domainmeter.AggregationLast:
+		return "(array_agg(quantity ORDER BY event_at DESC))[1]"
+	case domainmeter.AggregationRate:
+		return "COUNT(*)::double precision / " + bucketDurationSecondsSQL(bucketSize)
+	default:
+		return "SUM(quantity)"
+	}
+}
+
+func bucketDurationSecondsSQL(size domainusage.BucketSize) string {
+	switch size {
+	case domainusage.BucketHour:
+		return "3600::double precision"
+	case domainusage.BucketMonth:
+		return "EXTRACT(EPOCH FROM (bucket_start + INTERVAL '1 month' - bucket_start))"
+	default:
+		return "86400::double precision"
+	}
 }
 
 func (r *UsageRepository) FindEvents(ctx context.Context, query domainusage.EventQuery) (domainusage.EventPage, error) {
