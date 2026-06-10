@@ -2,19 +2,13 @@
 
 Generated Go client for the Open Spanner API.
 
-Regenerate from the repository root:
+Install:
 
-```powershell
-task sdk:go
+```sh
+go get github.com/ssubedir/open-spanner/sdk/go
 ```
 
-Run SDK tests:
-
-```powershell
-task sdk:go:test
-```
-
-Example:
+Create a meter, then record usage:
 
 ```go
 package main
@@ -61,3 +55,5 @@ func main() {
 	fmt.Println(meter.Payload.ID, usage.Payload.ID)
 }
 ```
+
+Types and clients are generated from `../../openapi/sdk-swagger.json` with `go-swagger`.

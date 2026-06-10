@@ -1,13 +1,15 @@
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 
 const pyprojectPath = "sdk/python/pyproject.toml";
 const readmePath = "sdk/python/README.md";
 
-let pyproject = await import("node:fs").then(({ readFileSync }) => readFileSync(pyprojectPath, "utf8"));
+const normalizeLineEndings = (value) => value.replace(/\r\n?/g, "\n");
+
+let pyproject = normalizeLineEndings(readFileSync(pyprojectPath, "utf8"));
 if (!pyproject.includes('license = "MIT"')) {
-  pyproject = pyproject.replace(/authors = \[\]\r?\n/, 'authors = []\nlicense = "MIT"\n');
-  writeFileSync(pyprojectPath, pyproject);
+  pyproject = pyproject.replace(/authors = \[\]\n/, 'authors = []\nlicense = "MIT"\n');
 }
+writeFileSync(pyprojectPath, pyproject);
 
 writeFileSync(
   readmePath,
