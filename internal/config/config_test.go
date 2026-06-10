@@ -23,6 +23,9 @@ func TestLoadDefaultsToSQLite(t *testing.T) {
 	if cfg.RetentionPruneInterval != time.Hour {
 		t.Fatalf("retention interval = %s, want 1h", cfg.RetentionPruneInterval)
 	}
+	if cfg.RetentionPruneTimeout != 30*time.Minute {
+		t.Fatalf("retention timeout = %s, want 30m", cfg.RetentionPruneTimeout)
+	}
 }
 
 func TestLoadPostgresRequiresDSN(t *testing.T) {
@@ -79,6 +82,16 @@ func TestLoadRejectsInvalidRetentionInterval(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsInvalidRetentionTimeout(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("OPEN_SPANNER_RETENTION_PRUNE_TIMEOUT", "0s")
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "OPEN_SPANNER_RETENTION_PRUNE_TIMEOUT") {
+		t.Fatalf("load error = %v, want retention timeout error", err)
+	}
+}
+
 func clearEnv(t *testing.T) {
 	t.Helper()
 
@@ -93,6 +106,7 @@ func clearEnv(t *testing.T) {
 		"OPEN_SPANNER_DB_CONN_MAX_IDLE_TIME",
 		"OPEN_SPANNER_RETENTION_PRUNE_ENABLED",
 		"OPEN_SPANNER_RETENTION_PRUNE_INTERVAL",
+		"OPEN_SPANNER_RETENTION_PRUNE_TIMEOUT",
 	} {
 		t.Setenv(key, "")
 	}

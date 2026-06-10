@@ -2,6 +2,8 @@ package retention
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -55,7 +57,7 @@ func TestWorkerPrunesWithSQLiteRepositories(t *testing.T) {
 	}
 
 	service := appusage.NewService(meterRepo, usageRepo, store)
-	worker := NewWorker(service, 5*time.Millisecond, func(string, ...any) {})
+	worker := NewWorker(service, 5*time.Millisecond, time.Second, func(string, ...any) {})
 	stop := worker.Start(ctx)
 	t.Cleanup(stop)
 
@@ -113,7 +115,7 @@ func waitFor(t *testing.T, timeout time.Duration, fn func() bool) bool {
 
 func TestWorkerPrunesOnIntervalAndStops(t *testing.T) {
 	pruner := &fakePruner{}
-	worker := NewWorker(pruner, 5*time.Millisecond, func(string, ...any) {})
+	worker := NewWorker(pruner, 5*time.Millisecond, time.Second, func(string, ...any) {})
 
 	stop := worker.Start(context.Background())
 	if !pruner.waitForCalls(1, 200*time.Millisecond) {
@@ -128,9 +130,146 @@ func TestWorkerPrunesOnIntervalAndStops(t *testing.T) {
 	}
 }
 
+func TestWorkerSkipsTickWhenPreviousRunIsActive(t *testing.T) {
+	pruner := newBlockingPruner()
+	logs := &logRecorder{}
+	worker := NewWorker(pruner, 5*time.Millisecond, time.Second, logs.logf)
+
+	stop := worker.Start(context.Background())
+	defer stop()
+
+	if !pruner.waitForCalls(1, 200*time.Millisecond) {
+		t.Fatal("worker did not start prune")
+	}
+	time.Sleep(25 * time.Millisecond)
+	if pruner.calls() != 1 {
+		t.Fatalf("pruner calls = %d, want one active call", pruner.calls())
+	}
+	if !logs.contains("retention prune skipped") {
+		t.Fatalf("logs = %#v, want skipped tick log", logs.entries())
+	}
+
+	pruner.release()
+}
+
+func TestWorkerCancelsPruneAfterTimeout(t *testing.T) {
+	pruner := newBlockingPruner()
+	logs := &logRecorder{}
+	worker := NewWorker(pruner, 5*time.Millisecond, 10*time.Millisecond, logs.logf)
+
+	stop := worker.Start(context.Background())
+	defer stop()
+
+	if !pruner.waitForCancellations(1, 200*time.Millisecond) {
+		t.Fatal("worker did not cancel prune after timeout")
+	}
+	if !logs.contains("retention prune failed") {
+		t.Fatalf("logs = %#v, want failed prune log", logs.entries())
+	}
+}
+
 type fakePruner struct {
 	mu    sync.Mutex
 	count int
+}
+
+type blockingPruner struct {
+	mu        sync.Mutex
+	released  chan struct{}
+	count     int
+	cancelled int
+}
+
+func newBlockingPruner() *blockingPruner {
+	return &blockingPruner{released: make(chan struct{})}
+}
+
+func (p *blockingPruner) PruneEvents(ctx context.Context, cmd appusage.PruneCommand) (appusage.PruneResult, error) {
+	p.mu.Lock()
+	p.count++
+	p.mu.Unlock()
+
+	select {
+	case <-p.released:
+		return appusage.PruneResult{ID: "run-1"}, nil
+	case <-ctx.Done():
+		p.mu.Lock()
+		p.cancelled++
+		p.mu.Unlock()
+		return appusage.PruneResult{}, ctx.Err()
+	}
+}
+
+func (p *blockingPruner) release() {
+	select {
+	case <-p.released:
+	default:
+		close(p.released)
+	}
+}
+
+func (p *blockingPruner) calls() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.count
+}
+
+func (p *blockingPruner) cancellations() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.cancelled
+}
+
+func (p *blockingPruner) waitForCalls(want int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if p.calls() >= want {
+			return true
+		}
+		time.Sleep(time.Millisecond)
+	}
+	return false
+}
+
+func (p *blockingPruner) waitForCancellations(want int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if p.cancellations() >= want {
+			return true
+		}
+		time.Sleep(time.Millisecond)
+	}
+	return false
+}
+
+type logRecorder struct {
+	mu   sync.Mutex
+	logs []string
+}
+
+func (r *logRecorder) logf(format string, args ...any) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.logs = append(r.logs, fmt.Sprintf(format, args...))
+}
+
+func (r *logRecorder) contains(value string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, entry := range r.logs {
+		if strings.Contains(entry, value) {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *logRecorder) entries() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entries := make([]string, len(r.logs))
+	copy(entries, r.logs)
+	return entries
 }
 
 func (p *fakePruner) PruneEvents(ctx context.Context, cmd appusage.PruneCommand) (appusage.PruneResult, error) {

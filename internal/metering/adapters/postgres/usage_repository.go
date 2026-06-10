@@ -18,6 +18,11 @@ var metadataKeyPattern = regexp.MustCompile(`^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*$`)
 
 var errBulkReplay = errors.New("bulk ingestion already exists")
 
+const (
+	pruneAdvisoryLockKey = int64(0x4f535052554e45)
+	pruneDeleteBatchSize = 1000
+)
+
 type UsageRepository struct {
 	store *Store
 }
@@ -494,26 +499,46 @@ LIMIT ` + bindArg(&args, query.Limit()) + `
 	return stats, nil
 }
 
+func (r *UsageRepository) TryPruneLock(ctx context.Context) (bool, error) {
+	var locked bool
+	if err := r.store.queryRow(ctx, `SELECT pg_try_advisory_xact_lock($1)`, pruneAdvisoryLockKey).Scan(&locked); err != nil {
+		return false, err
+	}
+	return locked, nil
+}
+
 func (r *UsageRepository) PruneEvents(ctx context.Context, query domainusage.PruneQuery) (int, error) {
 	return r.pruneEvents(ctx, r.store, query)
 }
 
 func (r *UsageRepository) pruneEvents(ctx context.Context, store eventStore, query domainusage.PruneQuery) (int, error) {
-	result, err := store.ExecContext(ctx, `
+	total := 0
+	for {
+		result, err := store.ExecContext(ctx, `
+WITH deleted AS (
+	SELECT id
+	FROM usage_events
+	WHERE meter_name = $1
+		AND event_time < $2
+	ORDER BY event_time ASC, id ASC
+	LIMIT $3
+)
 DELETE FROM usage_events
-WHERE meter_name = $1
-	AND event_time < $2
-`, query.MeterName(), formatTime(query.Before()))
-	if err != nil {
-		return 0, err
-	}
+WHERE id IN (SELECT id FROM deleted)
+`, query.MeterName(), formatTime(query.Before()), pruneDeleteBatchSize)
+		if err != nil {
+			return 0, err
+		}
 
-	deleted, err := result.RowsAffected()
-	if err != nil {
-		return 0, err
+		deleted, err := result.RowsAffected()
+		if err != nil {
+			return 0, err
+		}
+		total += int(deleted)
+		if deleted < pruneDeleteBatchSize {
+			return total, nil
+		}
 	}
-
-	return int(deleted), nil
 }
 
 func (r *UsageRepository) CountPrunableEvents(ctx context.Context, query domainusage.PruneQuery) (int, error) {

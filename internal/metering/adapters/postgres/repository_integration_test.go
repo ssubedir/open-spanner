@@ -2,11 +2,15 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	appusage "github.com/ssubedir/open-spanner/internal/metering/app/usage"
+	"github.com/ssubedir/open-spanner/internal/metering/domain"
 	domainmeter "github.com/ssubedir/open-spanner/internal/metering/domain/meter"
 	domainusage "github.com/ssubedir/open-spanner/internal/metering/domain/usage"
 )
@@ -131,6 +135,79 @@ func TestIntegrationPostgresBulkReplayAndEventPagination(t *testing.T) {
 	}
 	if len(page.Events()) != 1 || page.NextCursor().IsZero() {
 		t.Fatalf("page = %#v, want one event and next cursor", page)
+	}
+}
+
+func TestIntegrationPostgresPruneEventsDeletesInBatches(t *testing.T) {
+	ctx := context.Background()
+	store := newIntegrationStore(t, ctx)
+	meterRepo := NewMeterRepository(store)
+	usageRepo := NewUsageRepository(store)
+
+	if _, err := meterRepo.Save(ctx, newIntegrationMeter(t, "meter-1", "retained", time.Now())); err != nil {
+		t.Fatalf("save meter: %v", err)
+	}
+
+	before := time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC)
+	for i := 0; i < pruneDeleteBatchSize+5; i++ {
+		event := newIntegrationEvent(t, "old-event-"+strconv.Itoa(i), "", "org_123", "retained", 1, before.Add(-time.Duration(i+1)*time.Minute), nil)
+		if _, err := usageRepo.Save(ctx, event); err != nil {
+			t.Fatalf("save old usage %d: %v", i, err)
+		}
+	}
+	if _, err := usageRepo.Save(ctx, newIntegrationEvent(t, "new-event", "", "org_123", "retained", 2, before.Add(time.Hour), nil)); err != nil {
+		t.Fatalf("save retained usage: %v", err)
+	}
+
+	pruneQuery, err := domainusage.NewPruneQuery("retained", before)
+	if err != nil {
+		t.Fatalf("new prune query: %v", err)
+	}
+	deleted, err := usageRepo.PruneEvents(ctx, pruneQuery)
+	if err != nil {
+		t.Fatalf("prune events: %v", err)
+	}
+	if deleted != pruneDeleteBatchSize+5 {
+		t.Fatalf("deleted = %d, want %d", deleted, pruneDeleteBatchSize+5)
+	}
+
+	count, err := usageRepo.CountEvents(ctx)
+	if err != nil {
+		t.Fatalf("count events: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("event count = %d, want retained event only", count)
+	}
+}
+
+func TestIntegrationPostgresPruneServiceUsesAdvisoryLock(t *testing.T) {
+	ctx := context.Background()
+	store := newIntegrationStore(t, ctx)
+	meterRepo := NewMeterRepository(store)
+	usageRepo := NewUsageRepository(store)
+
+	if _, err := meterRepo.Save(ctx, newIntegrationMeter(t, "meter-1", "locked", time.Now())); err != nil {
+		t.Fatalf("save meter: %v", err)
+	}
+
+	service := appusage.NewService(meterRepo, usageRepo, store)
+	err := store.WithinTransaction(ctx, func(txCtx context.Context) error {
+		locked, err := usageRepo.TryPruneLock(txCtx)
+		if err != nil {
+			return err
+		}
+		if !locked {
+			t.Fatal("initial prune lock = false, want true")
+		}
+
+		_, err = service.PruneEvents(ctx, appusage.PruneCommand{})
+		if !errors.Is(err, domain.ErrConflict) {
+			t.Fatalf("prune error = %v, want ErrConflict", err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("lock transaction: %v", err)
 	}
 }
 
