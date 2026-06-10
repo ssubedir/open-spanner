@@ -29,6 +29,23 @@ const docTemplate = `{
                 }
             }
         },
+        "/ready": {
+            "get": {
+                "tags": [
+                    "health"
+                ],
+                "summary": "Readiness check",
+                "operationId": "readinessCheck",
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "503": {
+                        "description": "Service Unavailable"
+                    }
+                }
+            }
+        },
         "/v1/meters": {
             "get": {
                 "produces": [

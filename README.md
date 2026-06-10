@@ -41,6 +41,7 @@ Open:
 Dashboard: http://localhost:18081/overview
 API docs:  http://localhost:18081/docs
 Health:    http://localhost:18081/health
+Ready:     http://localhost:18081/ready
 ```
 
 ## Basic Flow

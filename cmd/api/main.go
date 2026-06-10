@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -35,6 +36,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to initialize metering: %v", err)
 	}
+	router.Get("/ready", ready(app))
 
 	log.Printf("storage driver: %s", cfg.DBDriver)
 	if cfg.DBDriver == "sqlite" {
@@ -67,6 +69,36 @@ func main() {
 // @Router /health [get]
 func health(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
+}
+
+type readyChecker interface {
+	Ready(ctx context.Context) error
+}
+
+// ready checks whether the API can reach its configured storage.
+//
+// @Summary Readiness check
+// @ID readinessCheck
+// @Tags health
+// @Success 204
+// @Failure 503
+// @Router /ready [get]
+func ready(checker readyChecker) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+
+		if checker == nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		if err := checker.Ready(ctx); err != nil {
+			log.Printf("readiness check failed: %v", err)
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 func swaggerDoc(w http.ResponseWriter, r *http.Request) {

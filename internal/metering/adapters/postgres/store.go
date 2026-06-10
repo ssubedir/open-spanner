@@ -79,6 +79,10 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+func (s *Store) Ping(ctx context.Context) error {
+	return s.db.PingContext(ctx)
+}
+
 func (s *Store) WithinTransaction(ctx context.Context, fn func(context.Context) error) error {
 	if _, ok := txFromContext(ctx); ok {
 		return fn(ctx)
