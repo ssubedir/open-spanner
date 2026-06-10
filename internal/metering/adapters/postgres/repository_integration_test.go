@@ -411,3 +411,63 @@ func TestIntegrationPostgresJSONPathRejectsUnsafeKeys(t *testing.T) {
 		})
 	}
 }
+
+func TestIntegrationPostgresStoreTracksMigrations(t *testing.T) {
+	ctx := context.Background()
+	store := newIntegrationStore(t, ctx)
+
+	var version int
+	var dirty bool
+	err := store.db.QueryRowContext(ctx, `
+SELECT version, dirty
+FROM schema_migrations
+LIMIT 1
+`).Scan(&version, &dirty)
+	if err != nil {
+		t.Fatalf("query schema migration version: %v", err)
+	}
+
+	if version != 3 || dirty {
+		t.Fatalf("schema migration version = %d dirty=%v, want version 3 dirty=false", version, dirty)
+	}
+}
+
+func TestIntegrationPostgresStoreCreatesUsagePerformanceIndexes(t *testing.T) {
+	ctx := context.Background()
+	store := newIntegrationStore(t, ctx)
+
+	want := map[string]bool{
+		"idx_usage_events_subject_meter_time_quantity": false,
+		"idx_usage_events_prune_meter_time_id":         false,
+	}
+
+	rows, err := store.db.QueryContext(ctx, `
+SELECT indexname
+FROM pg_indexes
+WHERE schemaname = current_schema()
+	AND tablename = 'usage_events'
+`)
+	if err != nil {
+		t.Fatalf("query postgres indexes: %v", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatalf("scan postgres index: %v", err)
+		}
+		if _, ok := want[name]; ok {
+			want[name] = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("postgres index rows: %v", err)
+	}
+
+	for name, found := range want {
+		if !found {
+			t.Fatalf("missing postgres usage_events index %s", name)
+		}
+	}
+}
