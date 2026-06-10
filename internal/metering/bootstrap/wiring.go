@@ -11,6 +11,7 @@ import (
 	httpsystem "github.com/ssubedir/open-spanner/internal/metering/adapters/http/system"
 	httpusage "github.com/ssubedir/open-spanner/internal/metering/adapters/http/usage"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/memory"
+	"github.com/ssubedir/open-spanner/internal/metering/adapters/postgres"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/sqlite"
 	appmeter "github.com/ssubedir/open-spanner/internal/metering/app/meter"
 	appsubject "github.com/ssubedir/open-spanner/internal/metering/app/subject"
@@ -58,6 +59,13 @@ func repositories(ctx context.Context, cfg config.Config) (domainmeter.Repositor
 	case "memory":
 		store := memory.NewStore()
 		return memory.NewMeterRepository(store), memory.NewUsageRepository(store), func() error { return nil }, nil
+	case "postgres":
+		store, err := postgres.NewStore(ctx, cfg.PostgresDSN)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		return postgres.NewMeterRepository(store), postgres.NewUsageRepository(store), store.Close, nil
 	default:
 		store, err := sqlite.NewStore(ctx, cfg.SQLitePath)
 		if err != nil {

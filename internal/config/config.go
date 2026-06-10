@@ -4,21 +4,27 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/joho/godotenv"
 )
 
 type Config struct {
 	HTTPAddr               string
 	DBDriver               string
 	SQLitePath             string
+	PostgresDSN            string
 	RetentionPruneEnabled  bool
 	RetentionPruneInterval time.Duration
 }
 
 func Load() Config {
+	_ = godotenv.Load()
+
 	return Config{
 		HTTPAddr:               env("OPEN_SPANNER_HTTP_ADDR", ":18081"),
 		DBDriver:               env("OPEN_SPANNER_DB_DRIVER", "sqlite"),
 		SQLitePath:             env("OPEN_SPANNER_SQLITE_PATH", "open-spanner.db"),
+		PostgresDSN:            env("OPEN_SPANNER_POSTGRES_DSN", ""),
 		RetentionPruneEnabled:  envBool("OPEN_SPANNER_RETENTION_PRUNE_ENABLED", false),
 		RetentionPruneInterval: envDuration("OPEN_SPANNER_RETENTION_PRUNE_INTERVAL", time.Hour),
 	}

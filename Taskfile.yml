@@ -26,6 +26,13 @@ tasks:
     cmds:
       - go run ./cmd/api
 
+  run:postgres:
+    desc: Run the API server with Postgres storage
+    env:
+      OPEN_SPANNER_DB_DRIVER: postgres
+    cmds:
+      - go run ./cmd/api
+
   test:
     desc: Run all Go tests
     cmds:

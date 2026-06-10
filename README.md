@@ -16,7 +16,7 @@ It is API-first and intentionally small. Define meters, ingest usage events, que
 - Single and bulk usage ingestion with idempotency
 - Bucketed usage queries with filtering, grouping, and CSV export
 - Raw usage event search, pagination, CSV export, and retention pruning
-- SQLite storage and in-memory development mode
+- SQLite, Postgres, and in-memory development storage
 - Embedded React dashboard
 - Swagger/OpenAPI docs
 - Generated SDKs for Go, Python, TypeScript, and C#
@@ -136,8 +136,9 @@ task sdk:csharp
 | Variable | Default | Description |
 | --- | --- | --- |
 | `OPEN_SPANNER_HTTP_ADDR` | `:18081` | API listen address |
-| `OPEN_SPANNER_DB_DRIVER` | `sqlite` | Storage driver: `sqlite` or `memory` |
+| `OPEN_SPANNER_DB_DRIVER` | `sqlite` | Storage driver: `sqlite`, `postgres`, or `memory` |
 | `OPEN_SPANNER_SQLITE_PATH` | `open-spanner.db` | SQLite database path |
+| `OPEN_SPANNER_POSTGRES_DSN` | | Postgres connection string when `OPEN_SPANNER_DB_DRIVER=postgres` |
 | `OPEN_SPANNER_RETENTION_PRUNE_ENABLED` | `false` | Enable automatic retention pruning |
 | `OPEN_SPANNER_RETENTION_PRUNE_INTERVAL` | `1h` | Background prune interval |
 
@@ -145,6 +146,13 @@ Run with in-memory storage:
 
 ```sh
 task run:memory
+```
+
+Run with Postgres storage:
+
+```sh
+cp .env.example .env
+task run:postgres
 ```
 
 ## Development
