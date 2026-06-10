@@ -49,26 +49,36 @@ task release:check
 
 ## Tags
 
-SDK publish workflows are tag driven:
+Create a project release tag first:
 
 ```sh
-git tag sdk-js-v0.1.1
-git tag sdk-python-v0.1.1
-git tag sdk-csharp-v0.1.1
-git push origin sdk-js-v0.1.1 sdk-python-v0.1.1 sdk-csharp-v0.1.1
+git tag v0.1.2
+git push origin v0.1.2
+```
+
+This creates a GitHub Release with generated release notes.
+
+SDK publish workflows are also tag driven:
+
+```sh
+git tag sdk-js-v0.1.2
+git tag sdk-python-v0.1.2
+git tag sdk-csharp-v0.1.2
+git push origin sdk-js-v0.1.2 sdk-python-v0.1.2 sdk-csharp-v0.1.2
 ```
 
 For the Go SDK, use a module tag when publishing a new Go module version:
 
 ```sh
-git tag sdk/go/v0.1.1
-git push origin sdk/go/v0.1.1
+git tag sdk/go/v0.1.2
+git push origin sdk/go/v0.1.2
 ```
 
 ## Package Targets
 
 | SDK | Registry | Workflow | Tag |
 | --- | --- | --- | --- |
+| Project | GitHub Releases | `Create GitHub Release` | `v*` |
 | TypeScript | npm `@ssubedir/open-spanner` | `Publish TypeScript SDK` | `sdk-js-v*` |
 | Python | PyPI `open-spanner` | `Publish Python SDK` | `sdk-python-v*` |
 | C# | NuGet `OpenSpanner` | `Publish C# SDK` | `sdk-csharp-v*` |
