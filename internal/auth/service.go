@@ -30,6 +30,7 @@ type Repository interface {
 	FindUserByEmail(ctx context.Context, email string) (User, error)
 	SaveSession(ctx context.Context, session Session) (Session, error)
 	FindSessionByTokenHash(ctx context.Context, tokenHash string, now time.Time) (Session, error)
+	DeleteSessionByTokenHash(ctx context.Context, tokenHash string) error
 }
 
 type User struct {
@@ -186,6 +187,14 @@ func (s Service) AuthenticateSession(ctx context.Context, token string) (UserRes
 	}
 
 	return userResult(user), nil
+}
+
+func (s Service) DeleteSession(ctx context.Context, token string) error {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return nil
+	}
+	return s.repo.DeleteSessionByTokenHash(ctx, HashToken(token))
 }
 
 func HashToken(token string) string {

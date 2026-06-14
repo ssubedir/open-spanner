@@ -142,9 +142,119 @@ svg {
   box-shadow: inset 3px 0 0 #2dd4bf;
 }
 
+.sidebar-session {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: auto;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  padding-top: 14px;
+}
+
+.sidebar-session div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.sidebar-session span {
+  color: var(--sidebar-muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.sidebar-session strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #ffffff;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-session .button {
+  color: #ffffff;
+}
+
 .main {
   min-width: 0;
   padding: 26px;
+}
+
+.auth-page {
+  display: flex;
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  background:
+    linear-gradient(90deg, rgba(23, 29, 37, 0.06) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(23, 29, 37, 0.06) 1px, transparent 1px),
+    var(--background);
+  background-size: 32px 32px;
+}
+
+@supports (min-height: 100svh) {
+  .auth-page {
+    min-height: 100svh;
+  }
+}
+
+@media (max-height: 560px) {
+  .auth-page {
+    align-items: flex-start;
+  }
+}
+
+.auth-panel {
+  display: grid;
+  gap: 18px;
+  width: min(430px, 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+
+.auth-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+}
+
+.auth-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: var(--radius);
+  background: #e6f6f3;
+  color: var(--primary);
+}
+
+.auth-heading h1 {
+  font-size: 24px;
+  line-height: 1.15;
+}
+
+.auth-heading p {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.auth-form {
+  display: grid;
+  gap: 14px;
+}
+
+.auth-form .button {
+  width: 100%;
+  margin-top: 3px;
 }
 
 .page-header {

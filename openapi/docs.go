@@ -46,6 +46,56 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/auth/session": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Get auth session",
+                "operationId": "getAuthSession",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_auth.SessionResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Delete auth session",
+                "operationId": "deleteAuthSession",
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/auth/sessions": {
             "post": {
                 "consumes": [
@@ -1276,12 +1326,14 @@ const docTemplate = `{
                 "expires_at": {
                     "type": "string"
                 },
-                "token": {
-                    "type": "string"
-                },
-                "token_type": {
-                    "type": "string"
-                },
+                "user": {
+                    "$ref": "#/definitions/internal_metering_adapters_http_auth.UserResponse"
+                }
+            }
+        },
+        "internal_metering_adapters_http_auth.SessionResponse": {
+            "type": "object",
+            "properties": {
                 "user": {
                     "$ref": "#/definitions/internal_metering_adapters_http_auth.UserResponse"
                 }

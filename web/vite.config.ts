@@ -9,4 +9,9 @@ export default defineConfig({
     outDir: '../internal/ui/static',
   },
   plugins: [react()],
+  server: {
+    proxy: {
+      '/v1': 'http://127.0.0.1:18083',
+    },
+  },
 })

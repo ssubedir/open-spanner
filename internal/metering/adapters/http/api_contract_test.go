@@ -62,8 +62,43 @@ func TestAuthAPIContract(t *testing.T) {
 
 	var session authSessionResponse
 	decodeJSON(t, login, &session)
-	if session.Token == "" || session.TokenType != "Bearer" || session.ExpiresAt == "" || session.User.ID != created.ID {
+	if session.ExpiresAt == "" || session.User.ID != created.ID {
 		t.Fatalf("session = %#v", session)
+	}
+	if strings.Contains(login.Body.String(), "strong-password") || strings.Contains(login.Body.String(), "token") {
+		t.Fatalf("login response exposed credential material: %s", login.Body.String())
+	}
+
+	cookies := login.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("login cookies = %#v, want session cookie", cookies)
+	}
+	if cookies[0].Name != "open_spanner_session" || cookies[0].Value == "" || !cookies[0].HttpOnly || cookies[0].SameSite != http.SameSiteLaxMode {
+		t.Fatalf("session cookie = %#v", cookies[0])
+	}
+
+	current := requestJSONWithCookies(t, router, http.MethodGet, "/v1/auth/session", nil, cookies)
+	if current.Code != http.StatusOK {
+		t.Fatalf("current session status = %d, want %d: %s", current.Code, http.StatusOK, current.Body.String())
+	}
+	var currentSession authCurrentSessionResponse
+	decodeJSON(t, current, &currentSession)
+	if currentSession.User.ID != created.ID {
+		t.Fatalf("current session = %#v, want user %s", currentSession, created.ID)
+	}
+
+	logout := requestJSONWithCookies(t, router, http.MethodDelete, "/v1/auth/session", nil, cookies)
+	if logout.Code != http.StatusNoContent {
+		t.Fatalf("logout status = %d, want %d: %s", logout.Code, http.StatusNoContent, logout.Body.String())
+	}
+	cleared := logout.Result().Cookies()
+	if len(cleared) != 1 || cleared[0].Name != "open_spanner_session" || cleared[0].MaxAge != -1 {
+		t.Fatalf("logout cookies = %#v, want cleared session cookie", cleared)
+	}
+
+	deleted := requestJSONWithCookies(t, router, http.MethodGet, "/v1/auth/session", nil, cookies)
+	if deleted.Code != http.StatusUnauthorized {
+		t.Fatalf("deleted session status = %d, want %d: %s", deleted.Code, http.StatusUnauthorized, deleted.Body.String())
 	}
 
 	badLogin := requestJSON(t, router, http.MethodPost, "/v1/auth/sessions", map[string]any{
@@ -1305,6 +1340,14 @@ func requestJSON(t *testing.T, handler http.Handler, method string, path string,
 }
 
 func requestJSONWithHeaders(t *testing.T, handler http.Handler, method string, path string, body any, headers map[string]string) *httptest.ResponseRecorder {
+	return requestJSONWithOptions(t, handler, method, path, body, headers, nil)
+}
+
+func requestJSONWithCookies(t *testing.T, handler http.Handler, method string, path string, body any, cookies []*http.Cookie) *httptest.ResponseRecorder {
+	return requestJSONWithOptions(t, handler, method, path, body, nil, cookies)
+}
+
+func requestJSONWithOptions(t *testing.T, handler http.Handler, method string, path string, body any, headers map[string]string, cookies []*http.Cookie) *httptest.ResponseRecorder {
 	t.Helper()
 
 	var payload bytes.Buffer
@@ -1318,6 +1361,9 @@ func requestJSONWithHeaders(t *testing.T, handler http.Handler, method string, p
 	req.Header.Set("Content-Type", "application/json")
 	for key, value := range headers {
 		req.Header.Set(key, value)
+	}
+	for _, cookie := range cookies {
+		req.AddCookie(cookie)
 	}
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
@@ -1476,8 +1522,10 @@ type authUserResponse struct {
 }
 
 type authSessionResponse struct {
-	Token     string           `json:"token"`
-	TokenType string           `json:"token_type"`
 	ExpiresAt string           `json:"expires_at"`
 	User      authUserResponse `json:"user"`
+}
+
+type authCurrentSessionResponse struct {
+	User authUserResponse `json:"user"`
 }

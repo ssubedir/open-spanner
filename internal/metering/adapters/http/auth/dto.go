@@ -17,8 +17,10 @@ type UserResponse struct {
 }
 
 type LoginResponse struct {
-	Token     string       `json:"token"`
-	TokenType string       `json:"token_type"`
 	ExpiresAt string       `json:"expires_at"`
 	User      UserResponse `json:"user"`
+}
+
+type SessionResponse struct {
+	User UserResponse `json:"user"`
 }

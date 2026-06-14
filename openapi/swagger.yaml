@@ -30,10 +30,11 @@ definitions:
     properties:
       expires_at:
         type: string
-      token:
-        type: string
-      token_type:
-        type: string
+      user:
+        $ref: '#/definitions/internal_metering_adapters_http_auth.UserResponse'
+    type: object
+  internal_metering_adapters_http_auth.SessionResponse:
+    properties:
       user:
         $ref: '#/definitions/internal_metering_adapters_http_auth.UserResponse'
     type: object
@@ -411,6 +412,39 @@ paths:
       summary: Readiness check
       tags:
       - health
+  /v1/auth/session:
+    delete:
+      operationId: deleteAuthSession
+      responses:
+        "204":
+          description: No Content
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Delete auth session
+      tags:
+      - auth
+    get:
+      operationId: getAuthSession
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_auth.SessionResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Get auth session
+      tags:
+      - auth
   /v1/auth/sessions:
     post:
       consumes:

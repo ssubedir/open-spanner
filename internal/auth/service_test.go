@@ -73,6 +73,14 @@ func TestLoginCreatesSession(t *testing.T) {
 	if authenticated.ID != created.ID {
 		t.Fatalf("authenticated user = %#v, want %#v", authenticated, created)
 	}
+
+	if err := service.DeleteSession(ctx, login.Token); err != nil {
+		t.Fatalf("delete session: %v", err)
+	}
+	_, err = service.AuthenticateSession(ctx, login.Token)
+	if !errors.Is(err, domain.ErrUnauthorized) {
+		t.Fatalf("deleted session auth error = %v, want ErrUnauthorized", err)
+	}
 }
 
 func TestLoginRejectsInvalidCredentials(t *testing.T) {
@@ -145,4 +153,9 @@ func (r *fakeRepository) FindSessionByTokenHash(_ context.Context, tokenHash str
 		return Session{}, domain.ErrNotFound
 	}
 	return session, nil
+}
+
+func (r *fakeRepository) DeleteSessionByTokenHash(_ context.Context, tokenHash string) error {
+	delete(r.sessionsByHash, tokenHash)
+	return nil
 }

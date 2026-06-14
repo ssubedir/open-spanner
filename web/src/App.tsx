@@ -16,11 +16,14 @@ import {
   Database,
   Gauge,
   Loader2,
+  LogIn,
+  LogOut,
   Pencil,
   Plus,
   RefreshCw,
   Rows3,
   Search,
+  ShieldCheck,
   Trash2,
 } from 'lucide-react'
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
@@ -34,8 +37,10 @@ import {
 import 'react-querybuilder/dist/query-builder.css'
 
 import {
+  createAuthSession,
   createMeter,
   createUsage,
+  deleteAuthSession,
   deleteMeter,
   getSystemStats,
   listIngestions,
@@ -43,7 +48,11 @@ import {
   listMeters,
   listSubjects,
   listUsageBuckets,
+  loadAuthUser,
+  readAuthUser,
+  setAuthUser,
   updateMeter,
+  type AuthUser,
   type IngestionRun,
   type Meter,
   type MeterStats,
@@ -82,36 +91,62 @@ function defaultFilterQuery(): RuleGroupType {
 }
 
 const rootRoute = createRootRoute({
-  component: AppShell,
+  component: RootShell,
 })
 
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
-  beforeLoad: () => {
-    throw redirect({ to: '/overview' })
+  beforeLoad: async () => {
+    throw redirect({ to: await loadAuthUser() ? '/overview' : '/login' })
   },
 })
 
-const overviewRoute = createRoute({
+const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
+  path: '/login',
+  beforeLoad: async () => {
+    if (await loadAuthUser()) {
+      throw redirect({ to: '/overview' })
+    }
+  },
+  component: LoginPage,
+})
+
+const dashboardRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  id: 'dashboard',
+  beforeLoad: async () => {
+    if (!(await loadAuthUser())) {
+      throw redirect({ to: '/login' })
+    }
+  },
+  component: AppShell,
+})
+
+const overviewRoute = createRoute({
+  getParentRoute: () => dashboardRoute,
   path: '/overview',
   component: OverviewPage,
 })
 
 const metersRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => dashboardRoute,
   path: '/meters',
   component: MetersPage,
 })
 
 const usageRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => dashboardRoute,
   path: '/usage',
   component: UsagePage,
 })
 
-const routeTree = rootRoute.addChildren([indexRoute, overviewRoute, metersRoute, usageRoute])
+const routeTree = rootRoute.addChildren([
+  indexRoute,
+  loginRoute,
+  dashboardRoute.addChildren([overviewRoute, metersRoute, usageRoute]),
+])
 
 const router = createRouter({
   routeTree,
@@ -127,7 +162,19 @@ function App() {
   return <RouterProvider router={router} />
 }
 
+function RootShell() {
+  return <Outlet />
+}
+
 function AppShell() {
+  const [user, setUser] = useState<AuthUser | null>(() => readAuthUser())
+
+  async function signOut() {
+    await deleteAuthSession()
+    setUser(null)
+    void router.navigate({ to: '/login' })
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -149,12 +196,75 @@ function AppShell() {
             </Link>
           ))}
         </nav>
+
+        <div className="sidebar-session">
+          <div>
+            <span>Signed in</span>
+            <strong>{user?.email ?? 'Unknown user'}</strong>
+          </div>
+          <Button aria-label="Sign out" onClick={() => void signOut()} size="icon" type="button" variant="ghost">
+            <LogOut aria-hidden="true" />
+          </Button>
+        </div>
       </aside>
 
       <main className="main">
         <Outlet />
       </main>
     </div>
+  )
+}
+
+function LoginPage() {
+  const [status, setStatus] = useState<LoadState>('idle')
+  const [error, setError] = useState('')
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    const email = String(form.get('email') || '')
+    const password = String(form.get('password') || '')
+
+    setStatus('loading')
+    setError('')
+    try {
+      const session = await createAuthSession({ email, password })
+      setAuthUser(session.user)
+      await router.navigate({ to: '/overview' })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to authenticate')
+      setStatus('error')
+    }
+  }
+
+  return (
+    <main className="auth-page">
+      <section className="auth-panel" aria-labelledby="auth-title">
+        <div className="auth-heading">
+          <div className="auth-icon"><ShieldCheck aria-hidden="true" /></div>
+          <div>
+            <h1 id="auth-title">Sign in</h1>
+          </div>
+        </div>
+
+        {error ? <div className="error-banner">{error}</div> : null}
+
+        <form className="auth-form" onSubmit={(event) => void submit(event)}>
+          <label>
+            Email
+            <input autoComplete="email" name="email" placeholder="admin@example.com" required type="email" />
+          </label>
+          <label>
+            Password
+            <input autoComplete="current-password" minLength={8} name="password" required type="password" />
+          </label>
+          <Button disabled={status === 'loading'} type="submit">
+            {status === 'loading' ? <Loader2 className="spin" aria-hidden="true" /> : <LogIn aria-hidden="true" />}
+            Sign in
+          </Button>
+        </form>
+      </section>
+    </main>
   )
 }
 

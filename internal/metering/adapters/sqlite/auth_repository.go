@@ -78,6 +78,14 @@ WHERE token_hash = ? AND expires_at > ?
 `, tokenHash, formatTime(now)))
 }
 
+func (r *AuthRepository) DeleteSessionByTokenHash(ctx context.Context, tokenHash string) error {
+	_, err := r.store.exec(ctx, `
+DELETE FROM auth_sessions
+WHERE token_hash = ?
+`, tokenHash)
+	return err
+}
+
 func (r *AuthRepository) scanUser(scanner interface {
 	Scan(dest ...any) error
 }) (appauth.User, error) {
