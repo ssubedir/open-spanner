@@ -3,10 +3,6 @@
 using Microsoft.Kiota.Abstractions.Extensions;
 using Microsoft.Kiota.Abstractions;
 using OpenSpanner.V1.Meters;
-using OpenSpanner.V1.Subjects;
-using OpenSpanner.V1.System;
-using OpenSpanner.V1.Usageevents;
-using OpenSpanner.V1.Usageingestions;
 using OpenSpanner.V1.Usages;
 using System.Collections.Generic;
 using System.IO;
@@ -24,26 +20,6 @@ namespace OpenSpanner.V1
         public global::OpenSpanner.V1.Meters.MetersRequestBuilder Meters
         {
             get => new global::OpenSpanner.V1.Meters.MetersRequestBuilder(PathParameters, RequestAdapter);
-        }
-        /// <summary>The subjects property</summary>
-        public global::OpenSpanner.V1.Subjects.SubjectsRequestBuilder Subjects
-        {
-            get => new global::OpenSpanner.V1.Subjects.SubjectsRequestBuilder(PathParameters, RequestAdapter);
-        }
-        /// <summary>The system property</summary>
-        public global::OpenSpanner.V1.System.SystemRequestBuilder System
-        {
-            get => new global::OpenSpanner.V1.System.SystemRequestBuilder(PathParameters, RequestAdapter);
-        }
-        /// <summary>The usageevents property</summary>
-        public global::OpenSpanner.V1.Usageevents.UsageeventsRequestBuilder Usageevents
-        {
-            get => new global::OpenSpanner.V1.Usageevents.UsageeventsRequestBuilder(PathParameters, RequestAdapter);
-        }
-        /// <summary>The usageingestions property</summary>
-        public global::OpenSpanner.V1.Usageingestions.UsageingestionsRequestBuilder Usageingestions
-        {
-            get => new global::OpenSpanner.V1.Usageingestions.UsageingestionsRequestBuilder(PathParameters, RequestAdapter);
         }
         /// <summary>The usages property</summary>
         public global::OpenSpanner.V1.Usages.UsagesRequestBuilder Usages

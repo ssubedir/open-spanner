@@ -40,7 +40,7 @@ namespace OpenSpanner.V1.Usages
         /// </summary>
         /// <param name="pathParameters">Path parameters for the request</param>
         /// <param name="requestAdapter">The request adapter to use to execute the requests.</param>
-        public UsagesRequestBuilder(Dictionary<string, object> pathParameters, IRequestAdapter requestAdapter) : base(requestAdapter, "{+baseurl}/v1/usages{?bucket_size*,group_by*,limit*}", pathParameters)
+        public UsagesRequestBuilder(Dictionary<string, object> pathParameters, IRequestAdapter requestAdapter) : base(requestAdapter, "{+baseurl}/v1/usages", pathParameters)
         {
         }
         /// <summary>
@@ -48,36 +48,8 @@ namespace OpenSpanner.V1.Usages
         /// </summary>
         /// <param name="rawUrl">The raw URL to use for the request builder.</param>
         /// <param name="requestAdapter">The request adapter to use to execute the requests.</param>
-        public UsagesRequestBuilder(string rawUrl, IRequestAdapter requestAdapter) : base(requestAdapter, "{+baseurl}/v1/usages{?bucket_size*,group_by*,limit*}", rawUrl)
+        public UsagesRequestBuilder(string rawUrl, IRequestAdapter requestAdapter) : base(requestAdapter, "{+baseurl}/v1/usages", rawUrl)
         {
-        }
-        /// <summary>
-        /// List usage buckets
-        /// </summary>
-        /// <returns>A List&lt;global::OpenSpanner.Models.UsageBucket&gt;</returns>
-        /// <param name="cancellationToken">Cancellation token to use when cancelling requests</param>
-        /// <param name="requestConfiguration">Configuration for the request such as headers, query parameters, and middleware options.</param>
-        /// <exception cref="global::OpenSpanner.Models.ErrorResponse">When receiving a 400 status code</exception>
-        /// <exception cref="global::OpenSpanner.Models.ErrorResponse">When receiving a 404 status code</exception>
-        /// <exception cref="global::OpenSpanner.Models.ErrorResponse">When receiving a 500 status code</exception>
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
-#nullable enable
-        public async Task<List<global::OpenSpanner.Models.UsageBucket>?> GetAsync(Action<RequestConfiguration<global::OpenSpanner.V1.Usages.UsagesRequestBuilder.UsagesRequestBuilderGetQueryParameters>>? requestConfiguration = default, CancellationToken cancellationToken = default)
-        {
-#nullable restore
-#else
-        public async Task<List<global::OpenSpanner.Models.UsageBucket>> GetAsync(Action<RequestConfiguration<global::OpenSpanner.V1.Usages.UsagesRequestBuilder.UsagesRequestBuilderGetQueryParameters>> requestConfiguration = default, CancellationToken cancellationToken = default)
-        {
-#endif
-            var requestInfo = ToGetRequestInformation(requestConfiguration);
-            var errorMapping = new Dictionary<string, ParsableFactory<IParsable>>
-            {
-                { "400", global::OpenSpanner.Models.ErrorResponse.CreateFromDiscriminatorValue },
-                { "404", global::OpenSpanner.Models.ErrorResponse.CreateFromDiscriminatorValue },
-                { "500", global::OpenSpanner.Models.ErrorResponse.CreateFromDiscriminatorValue },
-            };
-            var collectionResult = await RequestAdapter.SendCollectionAsync<global::OpenSpanner.Models.UsageBucket>(requestInfo, global::OpenSpanner.Models.UsageBucket.CreateFromDiscriminatorValue, errorMapping, cancellationToken).ConfigureAwait(false);
-            return collectionResult?.AsList();
         }
         /// <summary>
         /// Records one usage event. If idempotency_key matches a previously accepted event, the original event is returned. A duplicate event ID is a conflict.
@@ -111,25 +83,6 @@ namespace OpenSpanner.V1.Usages
             return await RequestAdapter.SendAsync<global::OpenSpanner.Models.UsageEvent>(requestInfo, global::OpenSpanner.Models.UsageEvent.CreateFromDiscriminatorValue, errorMapping, cancellationToken).ConfigureAwait(false);
         }
         /// <summary>
-        /// List usage buckets
-        /// </summary>
-        /// <returns>A <see cref="RequestInformation"/></returns>
-        /// <param name="requestConfiguration">Configuration for the request such as headers, query parameters, and middleware options.</param>
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
-#nullable enable
-        public RequestInformation ToGetRequestInformation(Action<RequestConfiguration<global::OpenSpanner.V1.Usages.UsagesRequestBuilder.UsagesRequestBuilderGetQueryParameters>>? requestConfiguration = default)
-        {
-#nullable restore
-#else
-        public RequestInformation ToGetRequestInformation(Action<RequestConfiguration<global::OpenSpanner.V1.Usages.UsagesRequestBuilder.UsagesRequestBuilderGetQueryParameters>> requestConfiguration = default)
-        {
-#endif
-            var requestInfo = new RequestInformation(Method.GET, "{+baseurl}/v1/usages?from={from}&meter={meter}&subject={subject}&to={to}{&bucket_size*,group_by*,limit*}", PathParameters);
-            requestInfo.Configure(requestConfiguration);
-            requestInfo.Headers.TryAdd("Accept", "application/json");
-            return requestInfo;
-        }
-        /// <summary>
         /// Records one usage event. If idempotency_key matches a previously accepted event, the original event is returned. A duplicate event ID is a conflict.
         /// </summary>
         /// <returns>A <see cref="RequestInformation"/></returns>
@@ -159,76 +112,6 @@ namespace OpenSpanner.V1.Usages
         public global::OpenSpanner.V1.Usages.UsagesRequestBuilder WithUrl(string rawUrl)
         {
             return new global::OpenSpanner.V1.Usages.UsagesRequestBuilder(rawUrl, RequestAdapter);
-        }
-        /// <summary>
-        /// List usage buckets
-        /// </summary>
-        [global::System.CodeDom.Compiler.GeneratedCode("Kiota", "1.0.0")]
-        public partial class UsagesRequestBuilderGetQueryParameters 
-        {
-            /// <summary>Bucket size: hour, day, month</summary>
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
-#nullable enable
-            [QueryParameter("bucket_size")]
-            public string? BucketSize { get; set; }
-#nullable restore
-#else
-            [QueryParameter("bucket_size")]
-            public string BucketSize { get; set; }
-#endif
-            /// <summary>RFC3339 start time</summary>
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
-#nullable enable
-            [QueryParameter("from")]
-            public string? From { get; set; }
-#nullable restore
-#else
-            [QueryParameter("from")]
-            public string From { get; set; }
-#endif
-            /// <summary>Metadata key to group by</summary>
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
-#nullable enable
-            [QueryParameter("group_by")]
-            public string? GroupBy { get; set; }
-#nullable restore
-#else
-            [QueryParameter("group_by")]
-            public string GroupBy { get; set; }
-#endif
-            /// <summary>Result limit</summary>
-            [QueryParameter("limit")]
-            public int? Limit { get; set; }
-            /// <summary>Meter name</summary>
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
-#nullable enable
-            [QueryParameter("meter")]
-            public string? Meter { get; set; }
-#nullable restore
-#else
-            [QueryParameter("meter")]
-            public string Meter { get; set; }
-#endif
-            /// <summary>Subject</summary>
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
-#nullable enable
-            [QueryParameter("subject")]
-            public string? Subject { get; set; }
-#nullable restore
-#else
-            [QueryParameter("subject")]
-            public string Subject { get; set; }
-#endif
-            /// <summary>RFC3339 end time</summary>
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
-#nullable enable
-            [QueryParameter("to")]
-            public string? To { get; set; }
-#nullable restore
-#else
-            [QueryParameter("to")]
-            public string To { get; set; }
-#endif
         }
     }
 }

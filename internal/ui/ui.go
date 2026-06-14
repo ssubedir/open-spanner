@@ -18,8 +18,9 @@ func RegisterRoutes(router chi.Router) {
 	}
 
 	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/overview", http.StatusFound)
+		http.Redirect(w, r, "/login", http.StatusFound)
 	})
+	router.Get("/login", servePage(staticFiles, "index.html"))
 	router.Get("/overview", servePage(staticFiles, "index.html"))
 	router.Get("/meters", servePage(staticFiles, "index.html"))
 	router.Get("/usage", servePage(staticFiles, "index.html"))

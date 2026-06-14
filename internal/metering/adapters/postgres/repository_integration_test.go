@@ -10,11 +10,115 @@ import (
 	"testing"
 	"time"
 
+	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	appusage "github.com/ssubedir/open-spanner/internal/metering/app/usage"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
 	domainmeter "github.com/ssubedir/open-spanner/internal/metering/domain/meter"
 	domainusage "github.com/ssubedir/open-spanner/internal/metering/domain/usage"
 )
+
+func TestIntegrationPostgresAuthRepositoryUserAndSessionFlow(t *testing.T) {
+	ctx := context.Background()
+	store := newIntegrationStore(t, ctx)
+	repo := NewAuthRepository(store)
+	now := time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)
+
+	user := appauth.User{
+		ID:           "user-1",
+		Email:        "admin@example.com",
+		PasswordHash: "hashed-password",
+		CreatedAt:    now,
+	}
+	if _, err := repo.SaveUser(ctx, user); err != nil {
+		t.Fatalf("save user: %v", err)
+	}
+
+	found, err := repo.FindUserByEmail(ctx, "admin@example.com")
+	if err != nil {
+		t.Fatalf("find user: %v", err)
+	}
+	if found.ID != user.ID || found.PasswordHash != user.PasswordHash {
+		t.Fatalf("found user = %#v, want %#v", found, user)
+	}
+
+	session := appauth.Session{
+		ID:        "session-1",
+		UserID:    user.ID,
+		TokenHash: appauth.HashToken("session-token"),
+		Kind:      appauth.TokenKindAccess,
+		CreatedAt: now,
+		ExpiresAt: now.Add(time.Hour),
+	}
+	if _, err := repo.SaveSession(ctx, session); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+
+	active, err := repo.FindSessionByTokenHash(ctx, session.TokenHash, appauth.TokenKindAccess, now)
+	if err != nil {
+		t.Fatalf("find active session: %v", err)
+	}
+	if active.ID != session.ID || active.UserID != user.ID || active.Kind != appauth.TokenKindAccess {
+		t.Fatalf("active session = %#v, want %#v", active, session)
+	}
+
+	_, err = repo.FindSessionByTokenHash(ctx, session.TokenHash, appauth.TokenKindRefresh, now)
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("wrong kind session error = %v, want ErrNotFound", err)
+	}
+
+	_, err = repo.FindSessionByTokenHash(ctx, session.TokenHash, appauth.TokenKindAccess, now.Add(2*time.Hour))
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expired session error = %v, want ErrNotFound", err)
+	}
+
+	apiKey := appauth.APIKey{
+		ID:        "key-1",
+		UserID:    user.ID,
+		Name:      "sdk",
+		TokenHash: appauth.HashToken("api-key-token"),
+		Prefix:    "osp_sk_test",
+		CreatedAt: now,
+	}
+	if _, err := repo.SaveAPIKey(ctx, apiKey); err != nil {
+		t.Fatalf("save api key: %v", err)
+	}
+
+	keys, err := repo.ListAPIKeys(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("list api keys: %v", err)
+	}
+	if len(keys) != 1 || keys[0].ID != apiKey.ID || keys[0].LastUsedAt != nil {
+		t.Fatalf("api keys = %#v", keys)
+	}
+
+	foundKey, err := repo.FindAPIKeyByTokenHash(ctx, apiKey.TokenHash)
+	if err != nil {
+		t.Fatalf("find api key: %v", err)
+	}
+	if foundKey.ID != apiKey.ID || foundKey.UserID != user.ID {
+		t.Fatalf("found api key = %#v", foundKey)
+	}
+
+	lastUsedAt := now.Add(time.Minute)
+	if err := repo.UpdateAPIKeyLastUsed(ctx, apiKey.ID, lastUsedAt); err != nil {
+		t.Fatalf("update api key last used: %v", err)
+	}
+	usedKey, err := repo.FindAPIKeyByTokenHash(ctx, apiKey.TokenHash)
+	if err != nil {
+		t.Fatalf("find used api key: %v", err)
+	}
+	if usedKey.LastUsedAt == nil || !usedKey.LastUsedAt.Equal(lastUsedAt) {
+		t.Fatalf("last used at = %#v, want %s", usedKey.LastUsedAt, lastUsedAt)
+	}
+
+	if err := repo.DeleteAPIKey(ctx, user.ID, apiKey.ID); err != nil {
+		t.Fatalf("delete api key: %v", err)
+	}
+	_, err = repo.FindAPIKeyByTokenHash(ctx, apiKey.TokenHash)
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("deleted api key error = %v, want ErrNotFound", err)
+	}
+}
 
 func TestIntegrationPostgresUsageFlow(t *testing.T) {
 	ctx := context.Background()
@@ -351,7 +455,7 @@ func cleanIntegrationStore(t *testing.T, ctx context.Context, store *Store) {
 	t.Helper()
 
 	_, err := store.db.ExecContext(ctx, `
-TRUNCATE TABLE usage_ingestions, usage_prune_runs, bulk_usage_ingestions, usage_events, meters RESTART IDENTITY CASCADE
+TRUNCATE TABLE auth_sessions, auth_users, usage_ingestions, usage_prune_runs, bulk_usage_ingestions, usage_events, meters RESTART IDENTITY CASCADE
 `)
 	if err != nil {
 		t.Fatalf("clean postgres store: %v", err)
@@ -427,8 +531,8 @@ LIMIT 1
 		t.Fatalf("query schema migration version: %v", err)
 	}
 
-	if version != 4 || dirty {
-		t.Fatalf("schema migration version = %d dirty=%v, want version 4 dirty=false", version, dirty)
+	if version != 7 || dirty {
+		t.Fatalf("schema migration version = %d dirty=%v, want version 7 dirty=false", version, dirty)
 	}
 }
 

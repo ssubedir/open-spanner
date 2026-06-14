@@ -111,9 +111,10 @@ func TestServiceUpdateDescription(t *testing.T) {
 		t.Fatalf("create meter: %v", err)
 	}
 
+	description := "New description"
 	updated, err := service.Update(ctx, UpdateCommand{
 		ID:          created.ID,
-		Description: "New description",
+		Description: &description,
 	})
 	if err != nil {
 		t.Fatalf("update meter: %v", err)
@@ -123,6 +124,53 @@ func TestServiceUpdateDescription(t *testing.T) {
 	}
 	if updated.Name != created.Name || updated.Unit != created.Unit {
 		t.Fatalf("update changed immutable fields: %#v", updated)
+	}
+}
+
+func TestServiceUpdateDefinitionSettings(t *testing.T) {
+	ctx := context.Background()
+	service := newTestService()
+
+	created, err := service.Create(ctx, CreateCommand{
+		Name:               "api_calls",
+		Description:        "Old description",
+		Unit:               "call",
+		Aggregation:        domainmeter.AggregationSum,
+		EventRetentionDays: 30,
+		MetadataSchema: map[string]domainmeter.MetadataType{
+			"region": domainmeter.MetadataString,
+		},
+	})
+	if err != nil {
+		t.Fatalf("create meter: %v", err)
+	}
+
+	description := "Updated description"
+	unit := "request"
+	aggregation := domainmeter.AggregationCount
+	retention := 365
+	metadataSchema := map[string]domainmeter.MetadataType{
+		"plan": domainmeter.MetadataString,
+	}
+	updated, err := service.Update(ctx, UpdateCommand{
+		ID:                 created.ID,
+		Description:        &description,
+		Unit:               &unit,
+		Aggregation:        &aggregation,
+		EventRetentionDays: &retention,
+		MetadataSchema:     &metadataSchema,
+	})
+	if err != nil {
+		t.Fatalf("update meter: %v", err)
+	}
+	if updated.Name != created.Name {
+		t.Fatalf("updated name = %q, want %q", updated.Name, created.Name)
+	}
+	if updated.Description != description || updated.Unit != unit || updated.Aggregation != string(aggregation) || updated.EventRetentionDays != retention {
+		t.Fatalf("updated meter = %#v", updated)
+	}
+	if updated.MetadataSchema["plan"] != string(domainmeter.MetadataString) || updated.MetadataSchema["region"] != "" {
+		t.Fatalf("updated metadata schema = %#v", updated.MetadataSchema)
 	}
 }
 

@@ -14,8 +14,20 @@ import (
 // swagger:model MeterUpdateRequest
 type MeterUpdateRequest struct {
 
+	// aggregation
+	Aggregation string `json:"aggregation,omitempty"`
+
 	// description
 	Description string `json:"description,omitempty"`
+
+	// event retention days
+	EventRetentionDays int64 `json:"event_retention_days,omitempty"`
+
+	// metadata schema
+	MetadataSchema map[string]string `json:"metadata_schema,omitempty"`
+
+	// unit
+	Unit string `json:"unit,omitempty"`
 }
 
 // Validate validates this meter update request

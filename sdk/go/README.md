@@ -8,7 +8,7 @@ Install:
 go get github.com/ssubedir/open-spanner/sdk/go
 ```
 
-Create a meter, then record usage:
+Record usage for a meter that already exists:
 
 ```go
 package main
@@ -17,34 +17,29 @@ import (
 	"fmt"
 	"time"
 
+	httptransport "github.com/go-openapi/runtime/client"
+	"github.com/go-openapi/strfmt"
+
 	"github.com/ssubedir/open-spanner/sdk/go/client"
-	"github.com/ssubedir/open-spanner/sdk/go/client/meters"
 	"github.com/ssubedir/open-spanner/sdk/go/client/usages"
 	"github.com/ssubedir/open-spanner/sdk/go/models"
 )
 
 func main() {
+	apiKey := "..."
+
 	cfg := client.DefaultTransportConfig().
 		WithHost("api.example.com").
 		WithSchemes([]string{"https"})
 
-	api := client.NewHTTPClientWithConfig(nil, cfg)
-
-	meter, err := api.Meters.CreateMeter(meters.NewCreateMeterParams().WithRequest(&models.MeterCreateRequest{
-		Name:               "api_requests",
-		Description:        "API request counter",
-		Unit:               "request",
-		Aggregation:        "sum",
-		EventRetentionDays: 30,
-	}))
-	if err != nil {
-		panic(err)
-	}
+	transport := httptransport.New(cfg.Host, cfg.BasePath, cfg.Schemes)
+	transport.DefaultAuthentication = httptransport.BearerToken(apiKey)
+	api := client.New(transport, strfmt.Default)
 
 	usage, err := api.Usages.CreateUsage(usages.NewCreateUsageParams().WithRequest(&models.UsageCreateRequest{
 		IdempotencyKey: fmt.Sprintf("api_requests-%d", time.Now().UnixNano()),
 		Subject:        "org_123",
-		Meter:          meter.Payload.Name,
+		Meter:          "api_requests",
 		Quantity:       1,
 		Timestamp:      time.Now().UTC().Format(time.RFC3339),
 	}))
@@ -52,7 +47,7 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Println(meter.Payload.ID, usage.Payload.ID)
+	fmt.Println(usage.Payload.ID)
 }
 ```
 

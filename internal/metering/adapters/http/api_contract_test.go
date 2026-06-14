@@ -13,7 +13,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/config"
+	httpauth "github.com/ssubedir/open-spanner/internal/metering/adapters/http/auth"
 	httpmeter "github.com/ssubedir/open-spanner/internal/metering/adapters/http/meter"
 	httpsubject "github.com/ssubedir/open-spanner/internal/metering/adapters/http/subject"
 	httpsystem "github.com/ssubedir/open-spanner/internal/metering/adapters/http/system"
@@ -24,6 +26,158 @@ import (
 	appsystem "github.com/ssubedir/open-spanner/internal/metering/app/system"
 	appusage "github.com/ssubedir/open-spanner/internal/metering/app/usage"
 )
+
+func TestAuthAPIContract(t *testing.T) {
+	router := newTestRouter()
+
+	create := requestJSON(t, router, http.MethodPost, "/v1/auth/users", map[string]any{
+		"email":    " Admin@Example.COM ",
+		"password": "strong-password",
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create user status = %d, want %d: %s", create.Code, http.StatusCreated, create.Body.String())
+	}
+
+	var created authUserResponse
+	decodeJSON(t, create, &created)
+	if created.ID == "" || created.Email != "admin@example.com" || created.CreatedAt == "" {
+		t.Fatalf("created user = %#v", created)
+	}
+
+	other := requestJSON(t, router, http.MethodPost, "/v1/auth/users", map[string]any{
+		"email":    "other@example.com",
+		"password": "another-password",
+	})
+	if other.Code != http.StatusCreated {
+		t.Fatalf("create second user status = %d, want %d: %s", other.Code, http.StatusCreated, other.Body.String())
+	}
+
+	duplicate := requestJSON(t, router, http.MethodPost, "/v1/auth/users", map[string]any{
+		"email":    "admin@example.com",
+		"password": "another-password",
+	})
+	if duplicate.Code != http.StatusConflict {
+		t.Fatalf("duplicate user status = %d, want %d: %s", duplicate.Code, http.StatusConflict, duplicate.Body.String())
+	}
+
+	login := requestJSON(t, router, http.MethodPost, "/v1/auth/sessions", map[string]any{
+		"email":    "admin@example.com",
+		"password": "strong-password",
+	})
+	if login.Code != http.StatusCreated {
+		t.Fatalf("login status = %d, want %d: %s", login.Code, http.StatusCreated, login.Body.String())
+	}
+
+	var session authSessionResponse
+	decodeJSON(t, login, &session)
+	if session.ExpiresAt == "" || session.User.ID != created.ID {
+		t.Fatalf("session = %#v", session)
+	}
+	if strings.Contains(login.Body.String(), "strong-password") || strings.Contains(login.Body.String(), "token") {
+		t.Fatalf("login response exposed credential material: %s", login.Body.String())
+	}
+
+	cookies := login.Result().Cookies()
+	if len(cookies) != 2 {
+		t.Fatalf("login cookies = %#v, want access and refresh cookies", cookies)
+	}
+	accessCookie := findCookie(cookies, "open_spanner_access")
+	refreshCookie := findCookie(cookies, "open_spanner_refresh")
+	if accessCookie == nil || accessCookie.Value == "" || !accessCookie.HttpOnly || accessCookie.SameSite != http.SameSiteLaxMode {
+		t.Fatalf("access cookie = %#v", accessCookie)
+	}
+	if refreshCookie == nil || refreshCookie.Value == "" || !refreshCookie.HttpOnly || refreshCookie.SameSite != http.SameSiteLaxMode {
+		t.Fatalf("refresh cookie = %#v", refreshCookie)
+	}
+
+	current := requestJSONWithCookies(t, router, http.MethodGet, "/v1/auth/session", nil, cookies)
+	if current.Code != http.StatusOK {
+		t.Fatalf("current session status = %d, want %d: %s", current.Code, http.StatusOK, current.Body.String())
+	}
+	var currentSession authCurrentSessionResponse
+	decodeJSON(t, current, &currentSession)
+	if currentSession.User.ID != created.ID {
+		t.Fatalf("current session = %#v, want user %s", currentSession, created.ID)
+	}
+
+	createKey := requestJSONWithCookies(t, router, http.MethodPost, "/v1/auth/api-keys", map[string]any{
+		"name": "sdk",
+	}, cookies)
+	if createKey.Code != http.StatusCreated {
+		t.Fatalf("create api key status = %d, want %d: %s", createKey.Code, http.StatusCreated, createKey.Body.String())
+	}
+	var createdKey authAPIKeyCreateResponse
+	decodeJSON(t, createKey, &createdKey)
+	if createdKey.ID == "" || createdKey.Name != "sdk" || createdKey.Prefix == "" || createdKey.Key == "" {
+		t.Fatalf("created api key = %#v", createdKey)
+	}
+	if strings.Contains(createKey.Body.String(), "password") {
+		t.Fatalf("api key response exposed password material: %s", createKey.Body.String())
+	}
+
+	listKeys := requestJSONWithCookies(t, router, http.MethodGet, "/v1/auth/api-keys", nil, cookies)
+	if listKeys.Code != http.StatusOK {
+		t.Fatalf("list api keys status = %d, want %d: %s", listKeys.Code, http.StatusOK, listKeys.Body.String())
+	}
+	var keyList authAPIKeyListResponse
+	decodeJSON(t, listKeys, &keyList)
+	if len(keyList.Items) != 1 || keyList.Items[0].ID != createdKey.ID || keyList.Items[0].Key != "" {
+		t.Fatalf("api key list = %#v", keyList)
+	}
+
+	deleteKey := requestJSONWithCookies(t, router, http.MethodDelete, "/v1/auth/api-keys/"+createdKey.ID, nil, cookies)
+	if deleteKey.Code != http.StatusNoContent {
+		t.Fatalf("delete api key status = %d, want %d: %s", deleteKey.Code, http.StatusNoContent, deleteKey.Body.String())
+	}
+
+	refresh := requestJSONWithCookies(t, router, http.MethodPost, "/v1/auth/session/refresh", nil, []*http.Cookie{refreshCookie})
+	if refresh.Code != http.StatusOK {
+		t.Fatalf("refresh status = %d, want %d: %s", refresh.Code, http.StatusOK, refresh.Body.String())
+	}
+	var refreshSession authSessionResponse
+	decodeJSON(t, refresh, &refreshSession)
+	if refreshSession.ExpiresAt == "" || refreshSession.User.ID != created.ID {
+		t.Fatalf("refresh session = %#v", refreshSession)
+	}
+	refreshedCookies := refresh.Result().Cookies()
+	refreshedAccessCookie := findCookie(refreshedCookies, "open_spanner_access")
+	refreshedRefreshCookie := findCookie(refreshedCookies, "open_spanner_refresh")
+	if refreshedAccessCookie == nil || refreshedAccessCookie.Value == accessCookie.Value {
+		t.Fatalf("refreshed access cookie = %#v, original = %#v", refreshedAccessCookie, accessCookie)
+	}
+	if refreshedRefreshCookie == nil || refreshedRefreshCookie.Value == refreshCookie.Value {
+		t.Fatalf("refreshed refresh cookie = %#v, original = %#v", refreshedRefreshCookie, refreshCookie)
+	}
+	reusedRefresh := requestJSONWithCookies(t, router, http.MethodPost, "/v1/auth/session/refresh", nil, []*http.Cookie{refreshCookie})
+	if reusedRefresh.Code != http.StatusUnauthorized {
+		t.Fatalf("reused refresh status = %d, want %d: %s", reusedRefresh.Code, http.StatusUnauthorized, reusedRefresh.Body.String())
+	}
+
+	logoutCookies := []*http.Cookie{refreshedAccessCookie, refreshedRefreshCookie}
+	logout := requestJSONWithCookies(t, router, http.MethodDelete, "/v1/auth/session", nil, logoutCookies)
+	if logout.Code != http.StatusNoContent {
+		t.Fatalf("logout status = %d, want %d: %s", logout.Code, http.StatusNoContent, logout.Body.String())
+	}
+	cleared := logout.Result().Cookies()
+	clearedAccess := findCookie(cleared, "open_spanner_access")
+	clearedRefresh := findCookie(cleared, "open_spanner_refresh")
+	if len(cleared) != 2 || clearedAccess == nil || clearedAccess.MaxAge != -1 || clearedRefresh == nil || clearedRefresh.MaxAge != -1 {
+		t.Fatalf("logout cookies = %#v, want cleared auth cookies", cleared)
+	}
+
+	deleted := requestJSONWithCookies(t, router, http.MethodGet, "/v1/auth/session", nil, logoutCookies)
+	if deleted.Code != http.StatusUnauthorized {
+		t.Fatalf("deleted session status = %d, want %d: %s", deleted.Code, http.StatusUnauthorized, deleted.Body.String())
+	}
+
+	badLogin := requestJSON(t, router, http.MethodPost, "/v1/auth/sessions", map[string]any{
+		"email":    "admin@example.com",
+		"password": "wrong-password",
+	})
+	if badLogin.Code != http.StatusUnauthorized {
+		t.Fatalf("bad login status = %d, want %d: %s", badLogin.Code, http.StatusUnauthorized, badLogin.Body.String())
+	}
+}
 
 func TestMeterAPIContract(t *testing.T) {
 	router := newTestRouter()
@@ -68,14 +222,18 @@ func TestMeterAPIContract(t *testing.T) {
 	}
 
 	update := requestJSON(t, router, http.MethodPut, "/v1/meters/"+created.ID, map[string]any{
-		"description": "Updated API calls",
+		"description":          "Updated API calls",
+		"unit":                 "request",
+		"aggregation":          "count",
+		"event_retention_days": 365,
+		"metadata_schema":      map[string]string{"plan": "string"},
 	})
 	if update.Code != http.StatusOK {
 		t.Fatalf("update meter status = %d, want %d: %s", update.Code, http.StatusOK, update.Body.String())
 	}
 	var updated meterResponse
 	decodeJSON(t, update, &updated)
-	if updated.Description != "Updated API calls" || updated.Name != created.Name {
+	if updated.Description != "Updated API calls" || updated.Name != created.Name || updated.Unit != "request" || updated.Aggregation != "count" || updated.EventRetentionDays != 365 || updated.MetadataSchema["plan"] != "string" {
 		t.Fatalf("updated meter = %#v", updated)
 	}
 
@@ -1231,6 +1389,8 @@ func newTestRouter() http.Handler {
 	}
 	meterRepo := sqlite.NewMeterRepository(store)
 	usageRepo := sqlite.NewUsageRepository(store)
+	authRepo := sqlite.NewAuthRepository(store)
+	authService := appauth.NewService(authRepo)
 	meterService := appmeter.NewService(meterRepo, usageRepo)
 	subjectService := appsubject.NewService(usageRepo)
 	usageService := appusage.NewService(meterRepo, usageRepo, store)
@@ -1238,6 +1398,7 @@ func newTestRouter() http.Handler {
 
 	router := chi.NewRouter()
 	router.Route("/v1", func(r chi.Router) {
+		httpauth.NewHandler(authService).RegisterRoutes(r)
 		httpmeter.NewHandler(meterService).RegisterRoutes(r)
 		httpsubject.NewHandler(subjectService).RegisterRoutes(r)
 		httpusage.NewHandler(usageService).RegisterRoutes(r)
@@ -1252,6 +1413,14 @@ func requestJSON(t *testing.T, handler http.Handler, method string, path string,
 }
 
 func requestJSONWithHeaders(t *testing.T, handler http.Handler, method string, path string, body any, headers map[string]string) *httptest.ResponseRecorder {
+	return requestJSONWithOptions(t, handler, method, path, body, headers, nil)
+}
+
+func requestJSONWithCookies(t *testing.T, handler http.Handler, method string, path string, body any, cookies []*http.Cookie) *httptest.ResponseRecorder {
+	return requestJSONWithOptions(t, handler, method, path, body, nil, cookies)
+}
+
+func requestJSONWithOptions(t *testing.T, handler http.Handler, method string, path string, body any, headers map[string]string, cookies []*http.Cookie) *httptest.ResponseRecorder {
 	t.Helper()
 
 	var payload bytes.Buffer
@@ -1266,6 +1435,9 @@ func requestJSONWithHeaders(t *testing.T, handler http.Handler, method string, p
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
+	for _, cookie := range cookies {
+		req.AddCookie(cookie)
+	}
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 
@@ -1278,6 +1450,15 @@ func decodeJSON(t *testing.T, res *httptest.ResponseRecorder, target any) {
 	if err := json.NewDecoder(res.Body).Decode(target); err != nil {
 		t.Fatalf("decode response body: %v; body = %s", err, res.Body.String())
 	}
+}
+
+func findCookie(cookies []*http.Cookie, name string) *http.Cookie {
+	for _, cookie := range cookies {
+		if cookie.Name == name {
+			return cookie
+		}
+	}
+	return nil
 }
 
 type meterResponse struct {
@@ -1414,4 +1595,32 @@ type errorResponse struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
 	} `json:"error"`
+}
+
+type authUserResponse struct {
+	ID        string `json:"id"`
+	Email     string `json:"email"`
+	CreatedAt string `json:"created_at"`
+}
+
+type authSessionResponse struct {
+	ExpiresAt string           `json:"expires_at"`
+	User      authUserResponse `json:"user"`
+}
+
+type authCurrentSessionResponse struct {
+	User authUserResponse `json:"user"`
+}
+
+type authAPIKeyCreateResponse struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Prefix     string `json:"prefix"`
+	Key        string `json:"key"`
+	CreatedAt  string `json:"created_at"`
+	LastUsedAt string `json:"last_used_at"`
+}
+
+type authAPIKeyListResponse struct {
+	Items []authAPIKeyCreateResponse `json:"items"`
 }

@@ -12,6 +12,88 @@ definitions:
       error:
         $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorBody'
     type: object
+  internal_metering_adapters_http_auth.APIKeyCreateResponse:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      key:
+        type: string
+      last_used_at:
+        type: string
+      name:
+        type: string
+      prefix:
+        type: string
+    type: object
+  internal_metering_adapters_http_auth.APIKeyListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_auth.APIKeyResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_auth.APIKeyResponse:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      last_used_at:
+        type: string
+      name:
+        type: string
+      prefix:
+        type: string
+    type: object
+  internal_metering_adapters_http_auth.CreateAPIKeyRequest:
+    properties:
+      name:
+        type: string
+    type: object
+  internal_metering_adapters_http_auth.CreateUserRequest:
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+    type: object
+  internal_metering_adapters_http_auth.LoginRequest:
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+    type: object
+  internal_metering_adapters_http_auth.LoginResponse:
+    properties:
+      expires_at:
+        type: string
+      user:
+        $ref: '#/definitions/internal_metering_adapters_http_auth.UserResponse'
+    type: object
+  internal_metering_adapters_http_auth.RefreshResponse:
+    properties:
+      expires_at:
+        type: string
+      user:
+        $ref: '#/definitions/internal_metering_adapters_http_auth.UserResponse'
+    type: object
+  internal_metering_adapters_http_auth.SessionResponse:
+    properties:
+      user:
+        $ref: '#/definitions/internal_metering_adapters_http_auth.UserResponse'
+    type: object
+  internal_metering_adapters_http_auth.UserResponse:
+    properties:
+      created_at:
+        type: string
+      email:
+        type: string
+      id:
+        type: string
+    type: object
   internal_metering_adapters_http_meter.CreateRequest:
     properties:
       aggregation:
@@ -81,7 +163,17 @@ definitions:
     type: object
   internal_metering_adapters_http_meter.UpdateRequest:
     properties:
+      aggregation:
+        type: string
       description:
+        type: string
+      event_retention_days:
+        type: integer
+      metadata_schema:
+        additionalProperties:
+          type: string
+        type: object
+      unit:
         type: string
     type: object
   internal_metering_adapters_http_subject.EventResponse:
@@ -355,7 +447,7 @@ info:
   description: Open source metering service for tracking who used what, when, how
     much, and in what context.
   title: Open Spanner API
-  version: 0.1.1
+  version: 0.1.3
 paths:
   /health:
     get:
@@ -377,6 +469,213 @@ paths:
       summary: Readiness check
       tags:
       - health
+  /v1/auth/api-keys:
+    get:
+      operationId: listAPIKeys
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_auth.APIKeyListResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List API keys
+      tags:
+      - auth
+    post:
+      consumes:
+      - application/json
+      operationId: createAPIKey
+      parameters:
+      - description: API key
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_auth.CreateAPIKeyRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_auth.APIKeyCreateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Create API key
+      tags:
+      - auth
+  /v1/auth/api-keys/{id}:
+    delete:
+      operationId: deleteAPIKey
+      parameters:
+      - description: API key ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Delete API key
+      tags:
+      - auth
+  /v1/auth/session:
+    delete:
+      operationId: deleteAuthSession
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Delete auth session
+      tags:
+      - auth
+    get:
+      operationId: getAuthSession
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_auth.SessionResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Get auth session
+      tags:
+      - auth
+  /v1/auth/session/refresh:
+    post:
+      operationId: refreshAuthSession
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_auth.RefreshResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Refresh auth session
+      tags:
+      - auth
+  /v1/auth/sessions:
+    post:
+      consumes:
+      - application/json
+      operationId: createAuthSession
+      parameters:
+      - description: Login credentials
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_auth.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_auth.LoginResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Create auth session
+      tags:
+      - auth
+  /v1/auth/users:
+    post:
+      consumes:
+      - application/json
+      operationId: createAuthUser
+      parameters:
+      - description: User
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_auth.CreateUserRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_auth.UserResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Create auth user
+      tags:
+      - auth
   /v1/meters:
     get:
       operationId: listMeters

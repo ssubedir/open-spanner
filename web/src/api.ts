@@ -75,6 +75,10 @@ export type MeterCreateRequest = {
 
 export type MeterUpdateRequest = {
   description: string
+  unit: string
+  aggregation: string
+  metadata_schema: Record<string, string>
+  event_retention_days: number
 }
 
 export type UsageEvent = {
@@ -134,10 +138,81 @@ export type UsageFilterCondition = {
   value?: unknown
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+export type AuthUser = {
+  id: string
+  email: string
+  created_at: string
+}
+
+export type AuthSession = {
+  expires_at: string
+  user: AuthUser
+}
+
+export type APIKey = {
+  id: string
+  name: string
+  prefix: string
+  created_at: string
+  last_used_at: string | null
+}
+
+export type APIKeyList = {
+  items: APIKey[]
+}
+
+export type APIKeyCreateResponse = APIKey & {
+  key: string
+}
+
+export async function createAuthUser(input: { email: string; password: string }) {
+  return request<AuthUser>('/v1/auth/users', {
+    body: JSON.stringify(input),
+    method: 'POST',
+  })
+}
+
+export async function refreshAuthSession() {
+  const response = await fetch('/v1/auth/session/refresh', {
+    credentials: 'same-origin',
+    method: 'POST',
+  })
+
+  if (response.status === 401) {
+    return null
+  }
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({ error: { message: response.statusText } }))
+    const error = typeof payload.error === 'string' ? payload.error : payload.error?.message
+    throw new Error(error || response.statusText)
+  }
+
+  return response.json() as Promise<AuthSession>
+}
+
+async function fetchWithAuthRefresh(path: string, options: RequestInit = {}, retry = true) {
   const response = await fetch(path, {
-    headers: options.body ? { 'Content-Type': 'application/json', ...(options.headers || {}) } : options.headers,
     ...options,
+    credentials: 'same-origin',
+  })
+
+  if (response.status === 401) {
+    if (retry && path !== '/v1/auth/session/refresh' && await refreshAuthSession()) {
+      return fetchWithAuthRefresh(path, options, false)
+    }
+  }
+  return response
+}
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const headers = new Headers(options.headers)
+  if (options.body && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
+
+  const response = await fetchWithAuthRefresh(path, {
+    ...options,
+    headers,
   })
 
   if (!response.ok) {
@@ -151,6 +226,36 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
 
   return response.json() as Promise<T>
+}
+
+export async function createAuthSession(input: { email: string; password: string }) {
+  return request<AuthSession>('/v1/auth/sessions', {
+    body: JSON.stringify(input),
+    method: 'POST',
+  })
+}
+
+export async function deleteAuthSession() {
+  await request<void>('/v1/auth/session', {
+    method: 'DELETE',
+  })
+}
+
+export async function listAPIKeys() {
+  return request<APIKeyList>('/v1/auth/api-keys')
+}
+
+export async function createAPIKey(input: { name: string }) {
+  return request<APIKeyCreateResponse>('/v1/auth/api-keys', {
+    body: JSON.stringify(input),
+    method: 'POST',
+  })
+}
+
+export async function deleteAPIKey(id: string) {
+  return request<void>(`/v1/auth/api-keys/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  })
 }
 
 export async function getSystemStats() {

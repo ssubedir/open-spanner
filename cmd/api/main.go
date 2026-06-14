@@ -17,7 +17,7 @@ import (
 )
 
 // @title Open Spanner API
-// @version 0.1.1
+// @version 0.1.3
 // @description Open source metering service for tracking who used what, when, how much, and in what context.
 // @BasePath /
 // @schemes http

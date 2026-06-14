@@ -175,8 +175,12 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	meter, err := h.service.Update(r.Context(), appmeter.UpdateCommand{
-		ID:          chi.URLParam(r, "id"),
-		Description: req.Description,
+		ID:                 chi.URLParam(r, "id"),
+		Description:        req.Description,
+		Unit:               req.Unit,
+		Aggregation:        aggregationFromRequest(req.Aggregation),
+		MetadataSchema:     metadataSchemaPointerFromRequest(req.MetadataSchema),
+		EventRetentionDays: req.EventRetentionDays,
 	})
 	if err != nil {
 		respond.ServiceError(w, err)
@@ -238,4 +242,20 @@ func metadataSchemaFromRequest(input map[string]string) map[string]domainmeter.M
 		schema[key] = domainmeter.MetadataType(value)
 	}
 	return schema
+}
+
+func aggregationFromRequest(input *string) *domainmeter.Aggregation {
+	if input == nil {
+		return nil
+	}
+	aggregation := domainmeter.Aggregation(*input)
+	return &aggregation
+}
+
+func metadataSchemaPointerFromRequest(input *map[string]string) *map[string]domainmeter.MetadataType {
+	if input == nil {
+		return nil
+	}
+	schema := metadataSchemaFromRequest(*input)
+	return &schema
 }
