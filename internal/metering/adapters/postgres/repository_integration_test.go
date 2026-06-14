@@ -70,6 +70,54 @@ func TestIntegrationPostgresAuthRepositoryUserAndSessionFlow(t *testing.T) {
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("expired session error = %v, want ErrNotFound", err)
 	}
+
+	apiKey := appauth.APIKey{
+		ID:        "key-1",
+		UserID:    user.ID,
+		Name:      "sdk",
+		TokenHash: appauth.HashToken("api-key-token"),
+		Prefix:    "osp_sk_test",
+		CreatedAt: now,
+	}
+	if _, err := repo.SaveAPIKey(ctx, apiKey); err != nil {
+		t.Fatalf("save api key: %v", err)
+	}
+
+	keys, err := repo.ListAPIKeys(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("list api keys: %v", err)
+	}
+	if len(keys) != 1 || keys[0].ID != apiKey.ID || keys[0].LastUsedAt != nil {
+		t.Fatalf("api keys = %#v", keys)
+	}
+
+	foundKey, err := repo.FindAPIKeyByTokenHash(ctx, apiKey.TokenHash)
+	if err != nil {
+		t.Fatalf("find api key: %v", err)
+	}
+	if foundKey.ID != apiKey.ID || foundKey.UserID != user.ID {
+		t.Fatalf("found api key = %#v", foundKey)
+	}
+
+	lastUsedAt := now.Add(time.Minute)
+	if err := repo.UpdateAPIKeyLastUsed(ctx, apiKey.ID, lastUsedAt); err != nil {
+		t.Fatalf("update api key last used: %v", err)
+	}
+	usedKey, err := repo.FindAPIKeyByTokenHash(ctx, apiKey.TokenHash)
+	if err != nil {
+		t.Fatalf("find used api key: %v", err)
+	}
+	if usedKey.LastUsedAt == nil || !usedKey.LastUsedAt.Equal(lastUsedAt) {
+		t.Fatalf("last used at = %#v, want %s", usedKey.LastUsedAt, lastUsedAt)
+	}
+
+	if err := repo.DeleteAPIKey(ctx, user.ID, apiKey.ID); err != nil {
+		t.Fatalf("delete api key: %v", err)
+	}
+	_, err = repo.FindAPIKeyByTokenHash(ctx, apiKey.TokenHash)
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("deleted api key error = %v, want ErrNotFound", err)
+	}
 }
 
 func TestIntegrationPostgresUsageFlow(t *testing.T) {
@@ -483,8 +531,8 @@ LIMIT 1
 		t.Fatalf("query schema migration version: %v", err)
 	}
 
-	if version != 6 || dirty {
-		t.Fatalf("schema migration version = %d dirty=%v, want version 6 dirty=false", version, dirty)
+	if version != 7 || dirty {
+		t.Fatalf("schema migration version = %d dirty=%v, want version 7 dirty=false", version, dirty)
 	}
 }
 

@@ -28,12 +28,28 @@ func Run(t *testing.T, setup SetupFunc) {
 		if _, err := meterRepo.Save(ctx, meter.WithDescription("updated")); err != nil {
 			t.Fatalf("update meter: %v", err)
 		}
+		updatedDefinition, err := domainmeter.New(
+			meter.ID(),
+			meter.Name(),
+			"updated definition",
+			"request",
+			domainmeter.AggregationCount,
+			map[string]domainmeter.MetadataType{"plan": domainmeter.MetadataString},
+			365,
+			meter.CreatedAt(),
+		)
+		if err != nil {
+			t.Fatalf("new updated meter: %v", err)
+		}
+		if _, err := meterRepo.Save(ctx, updatedDefinition); err != nil {
+			t.Fatalf("update meter definition: %v", err)
+		}
 
 		byID, err := meterRepo.Find(ctx, domainmeter.Query{ID: "meter-1"})
 		if err != nil {
 			t.Fatalf("find meter by id: %v", err)
 		}
-		if len(byID) != 1 || byID[0].Description() != "updated" {
+		if len(byID) != 1 || byID[0].Description() != "updated definition" || byID[0].Unit() != "request" || byID[0].Aggregation() != domainmeter.AggregationCount || byID[0].EventRetentionDays() != 365 || byID[0].MetadataSchema()["plan"] != domainmeter.MetadataString {
 			t.Fatalf("meter by id = %#v", byID)
 		}
 

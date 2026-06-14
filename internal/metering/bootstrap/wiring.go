@@ -69,11 +69,15 @@ func RegisterRoutes(ctx context.Context, router chi.Router, cfg config.Config) (
 	systemService := appsystem.NewService(repos.meter, repos.usage)
 
 	router.Route("/v1", func(r chi.Router) {
-		httpauth.NewHandler(authService).RegisterRoutes(r)
-		httpmeter.NewHandler(meterService).RegisterRoutes(r)
-		httpsubject.NewHandler(subjectService).RegisterRoutes(r)
-		httpusage.NewHandler(usageService).RegisterRoutes(r)
-		httpsystem.NewHandler(systemService).RegisterRoutes(r)
+		authHandler := httpauth.NewHandler(authService)
+		authHandler.RegisterRoutes(r)
+		r.Group(func(protected chi.Router) {
+			protected.Use(authHandler.RequireAuth)
+			httpmeter.NewHandler(meterService).RegisterRoutes(protected)
+			httpsubject.NewHandler(subjectService).RegisterRoutes(protected)
+			httpusage.NewHandler(usageService).RegisterRoutes(protected)
+			httpsystem.NewHandler(systemService).RegisterRoutes(protected)
+		})
 	})
 
 	return &App{UsageService: usageService, ready: repos.ready, cleanup: repos.cleanup}, nil

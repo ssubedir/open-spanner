@@ -1,17 +1,15 @@
 import { useSelector } from '@tanstack/react-store'
-import { BarChart3, Clock, Database, Loader2, Plus, RefreshCw, Rows3, Search } from 'lucide-react'
+import { BarChart3, Loader2, RefreshCw, Search } from 'lucide-react'
 import { type FormEvent, useCallback, useMemo } from 'react'
 
 import { appStore, appStoreActions } from '../app-store'
-import { DataTable, MetricCard, Modal, PageHeader } from '../components/dashboard'
+import { DataTable, PageHeader } from '../components/dashboard'
 import { FilterBuilder } from '../components/filter-builder'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
-import { toInputDateTime } from '../lib/datetime'
 import { formatDate, formatNumber } from '../lib/format'
 import { useInitialLoad } from '../lib/hooks'
-import { parseJSONRecord } from '../lib/metadata'
 import {
   buildFilterFields,
   firstEqualRuleValue,
@@ -19,28 +17,10 @@ import {
 } from '../lib/usage-query'
 
 export function UsagePage() {
-  const { buckets, createOpen, error, filterQuery, groupBy, meters, saving, status } = useSelector(appStore, (state) => state.usage)
+  const { buckets, error, filterQuery, groupBy, meters, status } = useSelector(appStore, (state) => state.usage)
   const load = useCallback(() => appStoreActions.loadUsageControls(), [])
 
   useInitialLoad(load)
-
-  async function submitCreateUsage(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const form = new FormData(event.currentTarget)
-
-    try {
-      await appStoreActions.createUsage({
-        idempotency_key: String(form.get('idempotency_key') || ''),
-        metadata: parseJSONRecord(String(form.get('metadata') || '{}'), 'Metadata'),
-        meter: String(form.get('meter') || ''),
-        quantity: Number(form.get('quantity') || 0),
-        subject: String(form.get('subject') || ''),
-        timestamp: localInputToOptionalISO(String(form.get('timestamp') || '')),
-      }, activeGroupBy)
-    } catch {
-      // Store owns the visible usage error state.
-    }
-  }
 
   async function submitQuery(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -48,7 +28,6 @@ export function UsagePage() {
     await appStoreActions.submitUsageQuery(String(form.get('group_by') || ''), Number(form.get('limit') || 500), String(form.get('bucket_size') || 'day'))
   }
 
-  const total = buckets.reduce((sum, bucket) => sum + Number(bucket.quantity || 0), 0)
   const selectedMeterName = firstEqualRuleValue(filterQuery, 'meter')
   const groupKeys = useMemo(() => selectedMeterSchemaKeys(meters, selectedMeterName), [meters, selectedMeterName])
   const activeGroupBy = groupKeys.includes(groupBy) ? groupBy : ''
@@ -65,28 +44,10 @@ export function UsagePage() {
         icon={<BarChart3 />}
         title="Usage buckets"
         description="Query bucketed usage with a time window, bucket settings, and advanced filters."
-        action={(
-          <div className="header-actions">
-            <Button disabled={status === 'loading'} onClick={() => void load()} type="button" variant="outline">
-              {status === 'loading' ? <Loader2 className="spin" aria-hidden="true" /> : <RefreshCw aria-hidden="true" />}
-              Refresh
-            </Button>
-            <Button onClick={() => appStoreActions.setUsageCreateOpen(true)} type="button">
-              <Plus aria-hidden="true" />
-              Create Usage
-            </Button>
-          </div>
-        )}
+        action={null}
       />
 
       {error ? <div className="error-banner">{error}</div> : null}
-
-      <section className="metric-grid meters-metrics" aria-label="Usage metrics">
-        <MetricCard icon={<Database />} label="Meters" value={meters.length} helper="Available for queries" />
-        <MetricCard icon={<Rows3 />} label="Buckets" value={buckets.length} helper="Rows in current result" />
-        <MetricCard icon={<BarChart3 />} label="Total Quantity" value={Math.round(total)} helper="Sum of visible buckets" />
-        <MetricCard icon={<Clock />} label="Window Days" value={7} helper="Default query range" />
-      </section>
 
       <section className="usage-grid">
         <Card>
@@ -163,51 +124,6 @@ export function UsagePage() {
           </CardContent>
         </Card>
       </section>
-
-      {createOpen ? (
-        <Modal title="Create Usage" onClose={() => appStoreActions.setUsageCreateOpen(false)}>
-          <form className="modal-form usage-create-form" onSubmit={(event) => void submitCreateUsage(event)}>
-            <label>
-              Subject
-              <input name="subject" placeholder="org_123" required />
-            </label>
-            <label>
-              Meter
-              <select aria-label="Meter" name="meter" required>
-                <option value="">Select meter</option>
-                {meters.map((meter) => <option key={meter.id} value={meter.name}>{meter.name}</option>)}
-              </select>
-            </label>
-            <label>
-              Quantity
-              <input defaultValue="1" min="0" name="quantity" required step="0.000001" type="number" />
-            </label>
-            <label>
-              Timestamp
-              <input aria-label="Timestamp" defaultValue={toInputDateTime(new Date())} name="timestamp" type="datetime-local" />
-            </label>
-            <label className="wide">
-              Idempotency Key
-              <input name="idempotency_key" placeholder="Generated if blank" />
-            </label>
-            <label className="wide">
-              Metadata JSON
-              <textarea aria-label="Metadata JSON" defaultValue="{}" name="metadata" rows={5} />
-            </label>
-            <div className="modal-actions">
-              <Button onClick={() => appStoreActions.setUsageCreateOpen(false)} type="button" variant="outline">Cancel</Button>
-              <Button disabled={saving} type="submit">
-                {saving ? <Loader2 className="spin" aria-hidden="true" /> : <Plus aria-hidden="true" />}
-                Create
-              </Button>
-            </div>
-          </form>
-        </Modal>
-      ) : null}
     </>
   )
-}
-
-function localInputToOptionalISO(value: string) {
-  return value ? new Date(value).toISOString() : ''
 }

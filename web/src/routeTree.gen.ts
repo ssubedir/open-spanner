@@ -16,6 +16,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as DashboardUsageRouteRouteImport } from './routes/_dashboard/usage/route'
 import { Route as DashboardOverviewRouteRouteImport } from './routes/_dashboard/overview/route'
 import { Route as DashboardMetersRouteRouteImport } from './routes/_dashboard/meters/route'
+import { Route as DashboardApiKeysRouteRouteImport } from './routes/_dashboard/api-keys/route'
 
 const RegisterRouteRoute = RegisterRouteRouteImport.update({
   id: '/register',
@@ -51,11 +52,17 @@ const DashboardMetersRouteRoute = DashboardMetersRouteRouteImport.update({
   path: '/meters',
   getParentRoute: () => DashboardRouteRoute,
 } as any)
+const DashboardApiKeysRouteRoute = DashboardApiKeysRouteRouteImport.update({
+  id: '/api-keys',
+  path: '/api-keys',
+  getParentRoute: () => DashboardRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRouteRoute
   '/register': typeof RegisterRouteRoute
+  '/api-keys': typeof DashboardApiKeysRouteRoute
   '/meters': typeof DashboardMetersRouteRoute
   '/overview': typeof DashboardOverviewRouteRoute
   '/usage': typeof DashboardUsageRouteRoute
@@ -64,6 +71,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRouteRoute
   '/register': typeof RegisterRouteRoute
+  '/api-keys': typeof DashboardApiKeysRouteRoute
   '/meters': typeof DashboardMetersRouteRoute
   '/overview': typeof DashboardOverviewRouteRoute
   '/usage': typeof DashboardUsageRouteRoute
@@ -74,21 +82,37 @@ export interface FileRoutesById {
   '/_dashboard': typeof DashboardRouteRouteWithChildren
   '/login': typeof LoginRouteRoute
   '/register': typeof RegisterRouteRoute
+  '/_dashboard/api-keys': typeof DashboardApiKeysRouteRoute
   '/_dashboard/meters': typeof DashboardMetersRouteRoute
   '/_dashboard/overview': typeof DashboardOverviewRouteRoute
   '/_dashboard/usage': typeof DashboardUsageRouteRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/register' | '/meters' | '/overview' | '/usage'
+  fullPaths:
+    | '/'
+    | '/login'
+    | '/register'
+    | '/api-keys'
+    | '/meters'
+    | '/overview'
+    | '/usage'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/register' | '/meters' | '/overview' | '/usage'
+  to:
+    | '/'
+    | '/login'
+    | '/register'
+    | '/api-keys'
+    | '/meters'
+    | '/overview'
+    | '/usage'
   id:
     | '__root__'
     | '/'
     | '/_dashboard'
     | '/login'
     | '/register'
+    | '/_dashboard/api-keys'
     | '/_dashboard/meters'
     | '/_dashboard/overview'
     | '/_dashboard/usage'
@@ -152,16 +176,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardMetersRouteRouteImport
       parentRoute: typeof DashboardRouteRoute
     }
+    '/_dashboard/api-keys': {
+      id: '/_dashboard/api-keys'
+      path: '/api-keys'
+      fullPath: '/api-keys'
+      preLoaderRoute: typeof DashboardApiKeysRouteRouteImport
+      parentRoute: typeof DashboardRouteRoute
+    }
   }
 }
 
 interface DashboardRouteRouteChildren {
+  DashboardApiKeysRouteRoute: typeof DashboardApiKeysRouteRoute
   DashboardMetersRouteRoute: typeof DashboardMetersRouteRoute
   DashboardOverviewRouteRoute: typeof DashboardOverviewRouteRoute
   DashboardUsageRouteRoute: typeof DashboardUsageRouteRoute
 }
 
 const DashboardRouteRouteChildren: DashboardRouteRouteChildren = {
+  DashboardApiKeysRouteRoute: DashboardApiKeysRouteRoute,
   DashboardMetersRouteRoute: DashboardMetersRouteRoute,
   DashboardOverviewRouteRoute: DashboardOverviewRouteRoute,
   DashboardUsageRouteRoute: DashboardUsageRouteRoute,

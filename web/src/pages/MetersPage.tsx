@@ -1,10 +1,9 @@
 import { useSelector } from '@tanstack/react-store'
-import { BarChart3, Boxes, Clock, Loader2, Pencil, Plus, RefreshCw, Rows3, Trash2 } from 'lucide-react'
+import { Boxes, Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
 import { type FormEvent, useCallback } from 'react'
 
-import type { Meter, MeterStats } from '../api'
 import { appStore, appStoreActions } from '../app-store'
-import { EmptyRow, MetricCard, Modal, PageHeader } from '../components/dashboard'
+import { EmptyRow, Modal, PageHeader } from '../components/dashboard'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
@@ -16,7 +15,7 @@ import { parseMetadataSchema } from '../lib/metadata'
 const aggregations = ['sum', 'count', 'avg', 'min', 'max', 'first', 'last', 'rate']
 
 export function MetersPage() {
-  const { deleting, editing, error, items: meters, saving, stats, status } = useSelector(appStore, (state) => state.meters)
+  const { deleting, editing, error, items: meters, saving, stats } = useSelector(appStore, (state) => state.meters)
   const load = useCallback(() => appStoreActions.loadMeters(), [])
 
   useInitialLoad(load)
@@ -53,7 +52,13 @@ export function MetersPage() {
     const form = new FormData(event.currentTarget)
 
     try {
-      await appStoreActions.updateEditingMeter({ description: String(form.get('description') || '') })
+      await appStoreActions.updateEditingMeter({
+        aggregation: String(form.get('aggregation') || editing.aggregation),
+        description: String(form.get('description') || ''),
+        event_retention_days: Number(form.get('event_retention_days') || editing.event_retention_days),
+        metadata_schema: parseMetadataSchema(String(form.get('metadata_schema') || '{}')),
+        unit: String(form.get('unit') || ''),
+      })
     } catch {
       // Store owns the visible meters error state.
     }
@@ -74,22 +79,10 @@ export function MetersPage() {
         icon={<Boxes />}
         title="Meter definitions"
         description="Create and maintain the billable signals accepted by the usage API."
-        action={(
-          <Button disabled={status === 'loading'} onClick={() => void load()} type="button" variant="outline">
-            {status === 'loading' ? <Loader2 className="spin" aria-hidden="true" /> : <RefreshCw aria-hidden="true" />}
-            Refresh
-          </Button>
-        )}
+        action={null}
       />
 
       {error ? <div className="error-banner">{error}</div> : null}
-
-      <section className="metric-grid meters-metrics" aria-label="Meter metrics">
-        <MetricCard icon={<Boxes />} label="Meters" value={meters.length} helper="Definitions configured" />
-        <MetricCard icon={<BarChart3 />} label="Usage Events" value={sumMeterEvents(stats)} helper="Events attached to meters" />
-        <MetricCard icon={<Rows3 />} label="Aggregations" value={new Set(meters.map((meter) => meter.aggregation)).size} helper="Aggregation modes in use" />
-        <MetricCard icon={<Clock />} label="Avg Retention" value={averageRetention(meters)} helper="Days across meters" />
-      </section>
 
       <section className="meters-grid">
         <Card>
@@ -205,8 +198,26 @@ export function MetersPage() {
               <input disabled value={editing.name} />
             </label>
             <label>
+              Unit
+              <input defaultValue={editing.unit} name="unit" required />
+            </label>
+            <label>
+              Aggregation
+              <select defaultValue={editing.aggregation} name="aggregation" required>
+                {aggregations.map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
+            </label>
+            <label>
+              Retention Days
+              <input defaultValue={editing.event_retention_days} max="3650" min="1" name="event_retention_days" required type="number" />
+            </label>
+            <label>
               Description
-              <textarea defaultValue={editing.description} name="description" rows={5} />
+              <input defaultValue={editing.description} name="description" />
+            </label>
+            <label>
+              Metadata Schema JSON
+              <textarea defaultValue={JSON.stringify(editing.metadata_schema || {}, null, 2)} name="metadata_schema" rows={5} />
             </label>
             <div className="modal-actions">
               <Button onClick={() => appStoreActions.setMeterEditing(null)} type="button" variant="outline">Cancel</Button>
@@ -227,15 +238,4 @@ export function MetersPage() {
       ) : null}
     </>
   )
-}
-
-function sumMeterEvents(stats: Record<string, MeterStats>) {
-  return Object.values(stats).reduce((sum, item) => sum + Number(item.usage_events || 0), 0)
-}
-
-function averageRetention(meters: Meter[]) {
-  if (meters.length === 0) {
-    return 0
-  }
-  return Math.round(meters.reduce((sum, meter) => sum + meter.event_retention_days, 0) / meters.length)
 }

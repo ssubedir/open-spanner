@@ -23,6 +23,7 @@ const (
 	minPasswordRunes       = 8
 	accessTokenPrefix      = "osp_at_"
 	refreshTokenPrefix     = "osp_rt_"
+	apiKeyPrefix           = "osp_sk_"
 	TokenKindAccess        = "access"
 	TokenKindRefresh       = "refresh"
 )
@@ -34,6 +35,11 @@ type Repository interface {
 	SaveSession(ctx context.Context, session Session) (Session, error)
 	FindSessionByTokenHash(ctx context.Context, tokenHash string, kind string, now time.Time) (Session, error)
 	DeleteSessionByTokenHash(ctx context.Context, tokenHash string) error
+	SaveAPIKey(ctx context.Context, key APIKey) (APIKey, error)
+	ListAPIKeys(ctx context.Context, userID string) ([]APIKey, error)
+	FindAPIKeyByTokenHash(ctx context.Context, tokenHash string) (APIKey, error)
+	UpdateAPIKeyLastUsed(ctx context.Context, id string, lastUsedAt time.Time) error
+	DeleteAPIKey(ctx context.Context, userID string, id string) error
 }
 
 type User struct {
@@ -52,6 +58,16 @@ type Session struct {
 	CreatedAt time.Time
 }
 
+type APIKey struct {
+	ID         string
+	UserID     string
+	Name       string
+	TokenHash  string
+	Prefix     string
+	CreatedAt  time.Time
+	LastUsedAt *time.Time
+}
+
 type CreateUserCommand struct {
 	Email    string
 	Password string
@@ -62,10 +78,28 @@ type LoginCommand struct {
 	Password string
 }
 
+type CreateAPIKeyCommand struct {
+	UserID string
+	Name   string
+}
+
 type UserResult struct {
 	ID        string
 	Email     string
 	CreatedAt time.Time
+}
+
+type APIKeyResult struct {
+	ID         string
+	Name       string
+	Prefix     string
+	CreatedAt  time.Time
+	LastUsedAt *time.Time
+}
+
+type CreateAPIKeyResult struct {
+	APIKeyResult
+	Key string
 }
 
 type LoginResult struct {
@@ -131,6 +165,58 @@ func (s Service) CreateUser(ctx context.Context, cmd CreateUserCommand) (UserRes
 	return userResult(user), nil
 }
 
+func (s Service) CreateAPIKey(ctx context.Context, cmd CreateAPIKeyCommand) (CreateAPIKeyResult, error) {
+	userID := strings.TrimSpace(cmd.UserID)
+	if userID == "" {
+		return CreateAPIKeyResult{}, errors.Join(domain.ErrInvalidInput, errors.New("user id is required"))
+	}
+	name := strings.TrimSpace(cmd.Name)
+	if name == "" {
+		return CreateAPIKeyResult{}, errors.Join(domain.ErrInvalidInput, errors.New("name is required"))
+	}
+
+	token, err := newSessionToken(apiKeyPrefix, s.tokenBytes)
+	if err != nil {
+		return CreateAPIKeyResult{}, err
+	}
+
+	key, err := s.repo.SaveAPIKey(ctx, APIKey{
+		ID:        uuid.NewString(),
+		UserID:    userID,
+		Name:      name,
+		TokenHash: HashToken(token),
+		Prefix:    tokenPrefix(token),
+		CreatedAt: s.now().UTC(),
+	})
+	if err != nil {
+		return CreateAPIKeyResult{}, err
+	}
+
+	result := apiKeyResult(key)
+	return CreateAPIKeyResult{
+		APIKeyResult: result,
+		Key:          token,
+	}, nil
+}
+
+func (s Service) ListAPIKeys(ctx context.Context, userID string) ([]APIKeyResult, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, errors.Join(domain.ErrInvalidInput, errors.New("user id is required"))
+	}
+
+	keys, err := s.repo.ListAPIKeys(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]APIKeyResult, 0, len(keys))
+	for _, key := range keys {
+		results = append(results, apiKeyResult(key))
+	}
+	return results, nil
+}
+
 func (s Service) Login(ctx context.Context, cmd LoginCommand) (LoginResult, error) {
 	email, err := normalizeEmail(cmd.Email)
 	if err != nil {
@@ -193,6 +279,36 @@ func (s Service) Login(ctx context.Context, cmd LoginCommand) (LoginResult, erro
 
 func (s Service) AuthenticateSession(ctx context.Context, token string) (UserResult, error) {
 	return s.authenticateToken(ctx, token, TokenKindAccess)
+}
+
+func (s Service) AuthenticateAPIKey(ctx context.Context, token string) (UserResult, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return UserResult{}, unauthorized()
+	}
+
+	key, err := s.repo.FindAPIKeyByTokenHash(ctx, HashToken(token))
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return UserResult{}, unauthorized()
+		}
+		return UserResult{}, err
+	}
+
+	now := s.now().UTC()
+	if err := s.repo.UpdateAPIKeyLastUsed(ctx, key.ID, now); err != nil {
+		return UserResult{}, err
+	}
+
+	user, err := s.repo.FindUserByID(ctx, key.UserID)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return UserResult{}, unauthorized()
+		}
+		return UserResult{}, err
+	}
+
+	return userResult(user), nil
 }
 
 func (s Service) RefreshSession(ctx context.Context, token string) (RefreshResult, error) {
@@ -281,6 +397,15 @@ func (s Service) DeleteSession(ctx context.Context, token string) error {
 	return s.repo.DeleteSessionByTokenHash(ctx, HashToken(token))
 }
 
+func (s Service) DeleteAPIKey(ctx context.Context, userID string, id string) error {
+	userID = strings.TrimSpace(userID)
+	id = strings.TrimSpace(id)
+	if userID == "" || id == "" {
+		return errors.Join(domain.ErrInvalidInput, errors.New("api key id is required"))
+	}
+	return s.repo.DeleteAPIKey(ctx, userID, id)
+}
+
 func HashToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return base64.RawURLEncoding.EncodeToString(sum[:])
@@ -324,6 +449,13 @@ func newSessionToken(prefix string, byteCount int) (string, error) {
 	return prefix + base64.RawURLEncoding.EncodeToString(data), nil
 }
 
+func tokenPrefix(token string) string {
+	if len(token) <= 18 {
+		return token
+	}
+	return token[:18]
+}
+
 func unauthorized() error {
 	return errors.Join(domain.ErrUnauthorized, errors.New("invalid credentials"))
 }
@@ -333,5 +465,15 @@ func userResult(user User) UserResult {
 		ID:        user.ID,
 		Email:     user.Email,
 		CreatedAt: user.CreatedAt,
+	}
+}
+
+func apiKeyResult(key APIKey) APIKeyResult {
+	return APIKeyResult{
+		ID:         key.ID,
+		Name:       key.Name,
+		Prefix:     key.Prefix,
+		CreatedAt:  key.CreatedAt,
+		LastUsedAt: key.LastUsedAt,
 	}
 }

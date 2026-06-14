@@ -75,6 +75,10 @@ export type MeterCreateRequest = {
 
 export type MeterUpdateRequest = {
   description: string
+  unit: string
+  aggregation: string
+  metadata_schema: Record<string, string>
+  event_retention_days: number
 }
 
 export type UsageEvent = {
@@ -143,6 +147,22 @@ export type AuthUser = {
 export type AuthSession = {
   expires_at: string
   user: AuthUser
+}
+
+export type APIKey = {
+  id: string
+  name: string
+  prefix: string
+  created_at: string
+  last_used_at: string | null
+}
+
+export type APIKeyList = {
+  items: APIKey[]
+}
+
+export type APIKeyCreateResponse = APIKey & {
+  key: string
 }
 
 export async function createAuthUser(input: { email: string; password: string }) {
@@ -217,6 +237,23 @@ export async function createAuthSession(input: { email: string; password: string
 
 export async function deleteAuthSession() {
   await request<void>('/v1/auth/session', {
+    method: 'DELETE',
+  })
+}
+
+export async function listAPIKeys() {
+  return request<APIKeyList>('/v1/auth/api-keys')
+}
+
+export async function createAPIKey(input: { name: string }) {
+  return request<APIKeyCreateResponse>('/v1/auth/api-keys', {
+    body: JSON.stringify(input),
+    method: 'POST',
+  })
+}
+
+export async function deleteAPIKey(id: string) {
+  return request<void>(`/v1/auth/api-keys/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   })
 }

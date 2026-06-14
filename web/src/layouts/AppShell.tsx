@@ -9,6 +9,7 @@ const navItems = [
   { to: '/overview', label: 'Overview' },
   { to: '/meters', label: 'Meters' },
   { to: '/usage', label: 'Usage' },
+  { to: '/api-keys', label: 'API Keys' },
 ] as const
 
 export function AppShell() {

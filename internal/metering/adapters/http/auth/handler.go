@@ -3,7 +3,10 @@ package auth
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 
 	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/http/internal/request"
@@ -93,6 +96,102 @@ func (h *Handler) CreateSession(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ListAPIKeys lists API keys for the current user.
+//
+// @Summary List API keys
+// @ID listAPIKeys
+// @Tags auth
+// @Produce json
+// @Success 200 {object} APIKeyListResponse
+// @Failure 401 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/auth/api-keys [get]
+func (h *Handler) ListAPIKeys(w http.ResponseWriter, r *http.Request) {
+	user, err := h.currentUser(r)
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+
+	keys, err := h.service.ListAPIKeys(r.Context(), user.ID)
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+
+	res := make([]APIKeyResponse, 0, len(keys))
+	for _, key := range keys {
+		res = append(res, apiKeyResponse(key))
+	}
+	respond.JSON(w, http.StatusOK, APIKeyListResponse{Items: res})
+}
+
+// CreateAPIKey creates an API key for SDK access.
+//
+// @Summary Create API key
+// @ID createAPIKey
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param request body CreateAPIKeyRequest true "API key"
+// @Success 201 {object} APIKeyCreateResponse
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 401 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/auth/api-keys [post]
+func (h *Handler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
+	user, err := h.currentUser(r)
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+
+	var req CreateAPIKeyRequest
+	if err := request.DecodeJSON(r.Body, &req); err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+
+	key, err := h.service.CreateAPIKey(r.Context(), appauth.CreateAPIKeyCommand{
+		UserID: user.ID,
+		Name:   req.Name,
+	})
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+
+	respond.JSON(w, http.StatusCreated, APIKeyCreateResponse{
+		APIKeyResponse: apiKeyResponse(key.APIKeyResult),
+		Key:            key.Key,
+	})
+}
+
+// DeleteAPIKey deletes an API key for the current user.
+//
+// @Summary Delete API key
+// @ID deleteAPIKey
+// @Tags auth
+// @Param id path string true "API key ID"
+// @Success 204
+// @Failure 401 {object} respond.ErrorResponse
+// @Failure 404 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/auth/api-keys/{id} [delete]
+func (h *Handler) DeleteAPIKey(w http.ResponseWriter, r *http.Request) {
+	user, err := h.currentUser(r)
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+
+	if err := h.service.DeleteAPIKey(r.Context(), user.ID, chi.URLParam(r, "id")); err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // RefreshSession rotates auth cookies with the current refresh token.
 //
 // @Summary Refresh auth session
@@ -177,11 +276,34 @@ func (h *Handler) DeleteSession(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *Handler) currentUser(r *http.Request) (appauth.UserResult, error) {
+	token, err := tokenFromCookie(r, accessCookieName)
+	if err != nil {
+		return appauth.UserResult{}, err
+	}
+	return h.service.AuthenticateSession(r.Context(), token)
+}
+
 func userResponse(user appauth.UserResult) UserResponse {
 	return UserResponse{
 		ID:        user.ID,
 		Email:     user.Email,
 		CreatedAt: user.CreatedAt.Format(time.RFC3339),
+	}
+}
+
+func apiKeyResponse(key appauth.APIKeyResult) APIKeyResponse {
+	var lastUsedAt *string
+	if key.LastUsedAt != nil {
+		formatted := key.LastUsedAt.Format(time.RFC3339)
+		lastUsedAt = &formatted
+	}
+	return APIKeyResponse{
+		ID:         key.ID,
+		Name:       key.Name,
+		Prefix:     key.Prefix,
+		CreatedAt:  key.CreatedAt.Format(time.RFC3339),
+		LastUsedAt: lastUsedAt,
 	}
 }
 
@@ -197,6 +319,40 @@ func tokenFromCookie(r *http.Request, name string) (string, error) {
 		return "", domain.ErrUnauthorized
 	}
 	return cookie.Value, nil
+}
+
+func (h *Handler) AuthenticateRequest(r *http.Request) error {
+	if token := apiKeyFromRequest(r); token != "" {
+		_, err := h.service.AuthenticateAPIKey(r.Context(), token)
+		return err
+	}
+
+	token, err := tokenFromCookie(r, accessCookieName)
+	if err != nil {
+		return err
+	}
+	_, err = h.service.AuthenticateSession(r.Context(), token)
+	return err
+}
+
+func apiKeyFromRequest(r *http.Request) string {
+	if key := strings.TrimSpace(r.Header.Get("X-Open-Spanner-API-Key")); key != "" {
+		return key
+	}
+	if key := strings.TrimSpace(r.Header.Get("X-API-Key")); key != "" {
+		return key
+	}
+	auth := strings.TrimSpace(r.Header.Get("Authorization"))
+	if auth == "" {
+		return ""
+	}
+	if token, ok := strings.CutPrefix(auth, "Bearer "); ok {
+		return strings.TrimSpace(token)
+	}
+	if token, ok := strings.CutPrefix(auth, "bearer "); ok {
+		return strings.TrimSpace(token)
+	}
+	return ""
 }
 
 func setAuthCookie(w http.ResponseWriter, r *http.Request, name string, token string, expiresAt time.Time) {

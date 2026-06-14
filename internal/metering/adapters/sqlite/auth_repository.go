@@ -86,6 +86,77 @@ WHERE token_hash = ?
 	return err
 }
 
+func (r *AuthRepository) SaveAPIKey(ctx context.Context, key appauth.APIKey) (appauth.APIKey, error) {
+	_, err := r.store.exec(ctx, `
+INSERT INTO auth_api_keys (id, user_id, name, token_hash, prefix, created_at, last_used_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+`, key.ID, key.UserID, key.Name, key.TokenHash, key.Prefix, formatTime(key.CreatedAt), formatOptionalTime(key.LastUsedAt))
+	if err != nil {
+		if isUniqueConstraint(err) {
+			return appauth.APIKey{}, errors.Join(domain.ErrConflict, err)
+		}
+		return appauth.APIKey{}, err
+	}
+	return key, nil
+}
+
+func (r *AuthRepository) ListAPIKeys(ctx context.Context, userID string) ([]appauth.APIKey, error) {
+	rows, err := r.store.query(ctx, `
+SELECT id, user_id, name, token_hash, prefix, created_at, last_used_at
+FROM auth_api_keys
+WHERE user_id = ?
+ORDER BY created_at DESC, id DESC
+`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	keys := []appauth.APIKey{}
+	for rows.Next() {
+		key, err := scanAPIKey(rows)
+		if err != nil {
+			return nil, err
+		}
+		keys = append(keys, key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return keys, nil
+}
+
+func (r *AuthRepository) FindAPIKeyByTokenHash(ctx context.Context, tokenHash string) (appauth.APIKey, error) {
+	return scanAPIKey(r.store.queryRow(ctx, `
+SELECT id, user_id, name, token_hash, prefix, created_at, last_used_at
+FROM auth_api_keys
+WHERE token_hash = ?
+`, tokenHash))
+}
+
+func (r *AuthRepository) UpdateAPIKeyLastUsed(ctx context.Context, id string, lastUsedAt time.Time) error {
+	_, err := r.store.exec(ctx, `
+UPDATE auth_api_keys
+SET last_used_at = ?
+WHERE id = ?
+`, formatTime(lastUsedAt), id)
+	return err
+}
+
+func (r *AuthRepository) DeleteAPIKey(ctx context.Context, userID string, id string) error {
+	res, err := r.store.exec(ctx, `
+DELETE FROM auth_api_keys
+WHERE id = ? AND user_id = ?
+`, id, userID)
+	if err != nil {
+		return err
+	}
+	if rows, err := res.RowsAffected(); err == nil && rows == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
 func (r *AuthRepository) scanUser(scanner interface {
 	Scan(dest ...any) error
 }) (appauth.User, error) {
@@ -104,6 +175,34 @@ func (r *AuthRepository) scanUser(scanner interface {
 	}
 	user.CreatedAt = parsedCreatedAt
 	return user, nil
+}
+
+func scanAPIKey(scanner interface {
+	Scan(dest ...any) error
+}) (appauth.APIKey, error) {
+	var key appauth.APIKey
+	var createdAt string
+	var lastUsedAt sql.NullString
+	if err := scanner.Scan(&key.ID, &key.UserID, &key.Name, &key.TokenHash, &key.Prefix, &createdAt, &lastUsedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return appauth.APIKey{}, domain.ErrNotFound
+		}
+		return appauth.APIKey{}, err
+	}
+
+	parsedCreatedAt, err := time.Parse(time.RFC3339Nano, createdAt)
+	if err != nil {
+		return appauth.APIKey{}, err
+	}
+	key.CreatedAt = parsedCreatedAt
+	if lastUsedAt.Valid {
+		parsedLastUsedAt, err := time.Parse(time.RFC3339Nano, lastUsedAt.String)
+		if err != nil {
+			return appauth.APIKey{}, err
+		}
+		key.LastUsedAt = &parsedLastUsedAt
+	}
+	return key, nil
 }
 
 func scanSession(scanner interface {
@@ -130,4 +229,11 @@ func scanSession(scanner interface {
 	session.ExpiresAt = parsedExpiresAt
 	session.CreatedAt = parsedCreatedAt
 	return session, nil
+}
+
+func formatOptionalTime(value *time.Time) any {
+	if value == nil {
+		return nil
+	}
+	return formatTime(*value)
 }

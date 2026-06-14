@@ -30,7 +30,11 @@ func (r *MeterRepository) Save(ctx context.Context, meter domainmeter.Meter) (do
 INSERT INTO meters (id, name, description, unit, aggregation, metadata_schema, event_retention_days, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
-	description = excluded.description
+	description = excluded.description,
+	unit = excluded.unit,
+	aggregation = excluded.aggregation,
+	metadata_schema = excluded.metadata_schema,
+	event_retention_days = excluded.event_retention_days
 `, meter.ID(), meter.Name(), meter.Description(), meter.Unit(), string(meter.Aggregation()), metadataSchema, meter.EventRetentionDays(), formatTime(meter.CreatedAt()))
 	if err != nil {
 		if isUniqueConstraint(err) {

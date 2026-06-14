@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -112,10 +113,62 @@ func TestLoginRejectsInvalidCredentials(t *testing.T) {
 	}
 }
 
+func TestAPIKeyFlow(t *testing.T) {
+	ctx := context.Background()
+	repo := newFakeRepository()
+	service := NewService(repo)
+	now := time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+
+	user, err := service.CreateUser(ctx, CreateUserCommand{Email: "admin@example.com", Password: "strong-password"})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	created, err := service.CreateAPIKey(ctx, CreateAPIKeyCommand{UserID: user.ID, Name: "sdk"})
+	if err != nil {
+		t.Fatalf("create api key: %v", err)
+	}
+	if created.ID == "" || created.Name != "sdk" || created.Key == "" || created.Prefix == "" {
+		t.Fatalf("created key = %#v", created)
+	}
+	if !strings.HasPrefix(created.Key, created.Prefix) {
+		t.Fatalf("prefix looks wrong: %q key %q", created.Prefix, created.Key)
+	}
+
+	keys, err := service.ListAPIKeys(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("list api keys: %v", err)
+	}
+	if len(keys) != 1 || keys[0].ID != created.ID || keys[0].LastUsedAt != nil {
+		t.Fatalf("keys = %#v", keys)
+	}
+
+	authenticated, err := service.AuthenticateAPIKey(ctx, created.Key)
+	if err != nil {
+		t.Fatalf("authenticate api key: %v", err)
+	}
+	if authenticated.ID != user.ID {
+		t.Fatalf("authenticated = %#v, want user %s", authenticated, user.ID)
+	}
+	if repo.apiKeysByID[created.ID].LastUsedAt == nil {
+		t.Fatal("last used was not updated")
+	}
+
+	if err := service.DeleteAPIKey(ctx, user.ID, created.ID); err != nil {
+		t.Fatalf("delete api key: %v", err)
+	}
+	if _, err := service.AuthenticateAPIKey(ctx, created.Key); !errors.Is(err, domain.ErrUnauthorized) {
+		t.Fatalf("deleted api key auth error = %v, want ErrUnauthorized", err)
+	}
+}
+
 type fakeRepository struct {
 	usersByID        map[string]User
 	userIDByEmail    map[string]string
 	sessionsByHash   map[string]Session
+	apiKeysByID      map[string]APIKey
+	apiKeyIDByHash   map[string]string
 	saveSessionError error
 }
 
@@ -124,6 +177,8 @@ func newFakeRepository() *fakeRepository {
 		usersByID:      map[string]User{},
 		userIDByEmail:  map[string]string{},
 		sessionsByHash: map[string]Session{},
+		apiKeysByID:    map[string]APIKey{},
+		apiKeyIDByHash: map[string]string{},
 	}
 }
 
@@ -167,5 +222,49 @@ func (r *fakeRepository) FindSessionByTokenHash(_ context.Context, tokenHash str
 
 func (r *fakeRepository) DeleteSessionByTokenHash(_ context.Context, tokenHash string) error {
 	delete(r.sessionsByHash, tokenHash)
+	return nil
+}
+
+func (r *fakeRepository) SaveAPIKey(_ context.Context, key APIKey) (APIKey, error) {
+	r.apiKeysByID[key.ID] = key
+	r.apiKeyIDByHash[key.TokenHash] = key.ID
+	return key, nil
+}
+
+func (r *fakeRepository) ListAPIKeys(_ context.Context, userID string) ([]APIKey, error) {
+	keys := []APIKey{}
+	for _, key := range r.apiKeysByID {
+		if key.UserID == userID {
+			keys = append(keys, key)
+		}
+	}
+	return keys, nil
+}
+
+func (r *fakeRepository) FindAPIKeyByTokenHash(_ context.Context, tokenHash string) (APIKey, error) {
+	id, ok := r.apiKeyIDByHash[tokenHash]
+	if !ok {
+		return APIKey{}, domain.ErrNotFound
+	}
+	return r.apiKeysByID[id], nil
+}
+
+func (r *fakeRepository) UpdateAPIKeyLastUsed(_ context.Context, id string, lastUsedAt time.Time) error {
+	key, ok := r.apiKeysByID[id]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	key.LastUsedAt = &lastUsedAt
+	r.apiKeysByID[id] = key
+	return nil
+}
+
+func (r *fakeRepository) DeleteAPIKey(_ context.Context, userID string, id string) error {
+	key, ok := r.apiKeysByID[id]
+	if !ok || key.UserID != userID {
+		return domain.ErrNotFound
+	}
+	delete(r.apiKeyIDByHash, key.TokenHash)
+	delete(r.apiKeysByID, id)
 	return nil
 }

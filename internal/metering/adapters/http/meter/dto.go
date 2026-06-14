@@ -12,7 +12,11 @@ type CreateRequest struct {
 
 // UpdateRequest updates a meter.
 type UpdateRequest struct {
-	Description string `json:"description"`
+	Description        *string            `json:"description,omitempty"`
+	Unit               *string            `json:"unit,omitempty"`
+	Aggregation        *string            `json:"aggregation,omitempty"`
+	MetadataSchema     *map[string]string `json:"metadata_schema,omitempty"`
+	EventRetentionDays *int               `json:"event_retention_days,omitempty"`
 }
 
 // Response is a meter.

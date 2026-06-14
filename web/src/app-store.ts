@@ -2,13 +2,15 @@ import { createStore } from '@tanstack/react-store'
 import type { RuleGroupType } from 'react-querybuilder'
 
 import {
+  createAPIKey as createAPIKeyRequest,
   createAuthSession,
   createAuthUser,
   createMeter as createMeterRequest,
-  createUsage as createUsageRequest,
+  deleteAPIKey as deleteAPIKeyRequest,
   deleteAuthSession,
   deleteMeter as deleteMeterRequest,
   getSystemStats,
+  listAPIKeys,
   listIngestions,
   listMeterStats,
   listMeters,
@@ -16,13 +18,14 @@ import {
   listUsageBuckets,
   refreshAuthSession,
   updateMeter as updateMeterRequest,
+  type APIKey,
+  type APIKeyCreateResponse,
   type AuthSession,
   type Meter,
   type MeterCreateRequest,
   type MeterStats,
   type MeterUpdateRequest,
   type UsageBucket,
-  type UsageCreateRequest,
   type IngestionRun,
   type SubjectStats,
   type SystemStats,
@@ -44,6 +47,14 @@ type AppState = {
     registerError: string
     session: AuthSession | null
   }
+  apiKeys: {
+    createdKey: APIKeyCreateResponse | null
+    deleting: APIKey | null
+    error: string
+    items: APIKey[]
+    saving: boolean
+    status: LoadState
+  }
   meters: {
     deleting: Meter | null
     editing: Meter | null
@@ -62,12 +73,10 @@ type AppState = {
   }
   usage: {
     buckets: UsageBucket[]
-    createOpen: boolean
     error: string
     filterQuery: RuleGroupType
     groupBy: string
     meters: Meter[]
-    saving: boolean
     status: LoadState
   }
 }
@@ -79,6 +88,14 @@ export const appStore = createStore<AppState>({
     loginError: '',
     registerError: '',
     session: null,
+  },
+  apiKeys: {
+    createdKey: null,
+    deleting: null,
+    error: '',
+    items: [],
+    saving: false,
+    status: 'idle',
   },
   meters: {
     deleting: null,
@@ -98,17 +115,32 @@ export const appStore = createStore<AppState>({
   },
   usage: {
     buckets: [],
-    createOpen: false,
     error: '',
     filterQuery: defaultFilterQuery(),
     groupBy: '',
     meters: [],
-    saving: false,
     status: 'idle',
   },
 })
 
 export const appStoreActions = {
+  clearCreatedAPIKey() {
+    setAPIKeysState({ createdKey: null })
+  },
+  async createAPIKey(input: { name: string }) {
+    setAPIKeysState({ createdKey: null, error: '', saving: true })
+    try {
+      const createdKey = await createAPIKeyRequest(input)
+      setAPIKeysState({ createdKey })
+      await appStoreActions.loadAPIKeys()
+      return createdKey
+    } catch (err) {
+      setAPIKeysState({ error: errorMessage(err, 'Unable to create API key') })
+      throw err
+    } finally {
+      setAPIKeysState({ saving: false })
+    }
+  },
   async createMeter(input: MeterCreateRequest) {
     setMetersState({ error: '', saving: true })
     try {
@@ -119,19 +151,6 @@ export const appStoreActions = {
       throw err
     } finally {
       setMetersState({ saving: false })
-    }
-  },
-  async createUsage(input: UsageCreateRequest, groupByValue: string) {
-    setUsageState({ error: '', saving: true })
-    try {
-      await createUsageRequest(input)
-      setUsageState({ createOpen: false })
-      await appStoreActions.submitUsageQuery(groupByValue)
-    } catch (err) {
-      setUsageState({ error: errorMessage(err, 'Unable to create usage') })
-      throw err
-    } finally {
-      setUsageState({ saving: false })
     }
   },
   async deleteSelectedMeter() {
@@ -152,6 +171,27 @@ export const appStoreActions = {
       setMetersState({ saving: false })
     }
   },
+  async deleteSelectedAPIKey() {
+    const deleting = appStore.state.apiKeys.deleting
+    if (!deleting) {
+      return
+    }
+
+    setAPIKeysState({ error: '', saving: true })
+    try {
+      await deleteAPIKeyRequest(deleting.id)
+      setAPIKeysState((state) => ({
+        createdKey: state.createdKey?.id === deleting.id ? null : state.createdKey,
+        deleting: null,
+        items: state.items.filter((item) => item.id !== deleting.id),
+      }))
+    } catch (err) {
+      setAPIKeysState({ error: errorMessage(err, 'Unable to delete API key') })
+      throw err
+    } finally {
+      setAPIKeysState({ saving: false })
+    }
+  },
   async ensureAuthUser() {
     const auth = appStore.state.auth
     if (auth.checked) {
@@ -166,6 +206,15 @@ export const appStoreActions = {
     } catch {
       setAuthState({ checked: true, loading: false, session: null })
       return null
+    }
+  },
+  async loadAPIKeys() {
+    setAPIKeysState({ error: '', status: 'loading' })
+    try {
+      const keys = await listAPIKeys()
+      setAPIKeysState({ items: keys.items, status: 'ready' })
+    } catch (err) {
+      setAPIKeysState({ error: errorMessage(err, 'Unable to load API keys'), status: 'error' })
     }
   },
   async loadMeters() {
@@ -263,11 +312,11 @@ export const appStoreActions = {
   setMeterDeleting(deleting: Meter | null) {
     setMetersState({ deleting })
   },
+  setAPIKeyDeleting(deleting: APIKey | null) {
+    setAPIKeysState({ deleting })
+  },
   setMeterEditing(editing: Meter | null) {
     setMetersState({ editing })
-  },
-  setUsageCreateOpen(createOpen: boolean) {
-    setUsageState({ createOpen })
   },
   setUsageFilterQuery(filterQuery: RuleGroupType) {
     setUsageState({ filterQuery })
@@ -327,6 +376,16 @@ function setAuthState(update: Partial<AppState['auth']>) {
     auth: {
       ...state.auth,
       ...update,
+    },
+  }))
+}
+
+function setAPIKeysState(update: Partial<AppState['apiKeys']> | ((state: AppState['apiKeys']) => Partial<AppState['apiKeys']>)) {
+  appStore.setState((state) => ({
+    ...state,
+    apiKeys: {
+      ...state.apiKeys,
+      ...(typeof update === 'function' ? update(state.apiKeys) : update),
     },
   }))
 }

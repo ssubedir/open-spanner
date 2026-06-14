@@ -100,6 +100,36 @@ func TestAuthAPIContract(t *testing.T) {
 		t.Fatalf("current session = %#v, want user %s", currentSession, created.ID)
 	}
 
+	createKey := requestJSONWithCookies(t, router, http.MethodPost, "/v1/auth/api-keys", map[string]any{
+		"name": "sdk",
+	}, cookies)
+	if createKey.Code != http.StatusCreated {
+		t.Fatalf("create api key status = %d, want %d: %s", createKey.Code, http.StatusCreated, createKey.Body.String())
+	}
+	var createdKey authAPIKeyCreateResponse
+	decodeJSON(t, createKey, &createdKey)
+	if createdKey.ID == "" || createdKey.Name != "sdk" || createdKey.Prefix == "" || createdKey.Key == "" {
+		t.Fatalf("created api key = %#v", createdKey)
+	}
+	if strings.Contains(createKey.Body.String(), "password") {
+		t.Fatalf("api key response exposed password material: %s", createKey.Body.String())
+	}
+
+	listKeys := requestJSONWithCookies(t, router, http.MethodGet, "/v1/auth/api-keys", nil, cookies)
+	if listKeys.Code != http.StatusOK {
+		t.Fatalf("list api keys status = %d, want %d: %s", listKeys.Code, http.StatusOK, listKeys.Body.String())
+	}
+	var keyList authAPIKeyListResponse
+	decodeJSON(t, listKeys, &keyList)
+	if len(keyList.Items) != 1 || keyList.Items[0].ID != createdKey.ID || keyList.Items[0].Key != "" {
+		t.Fatalf("api key list = %#v", keyList)
+	}
+
+	deleteKey := requestJSONWithCookies(t, router, http.MethodDelete, "/v1/auth/api-keys/"+createdKey.ID, nil, cookies)
+	if deleteKey.Code != http.StatusNoContent {
+		t.Fatalf("delete api key status = %d, want %d: %s", deleteKey.Code, http.StatusNoContent, deleteKey.Body.String())
+	}
+
 	refresh := requestJSONWithCookies(t, router, http.MethodPost, "/v1/auth/session/refresh", nil, []*http.Cookie{refreshCookie})
 	if refresh.Code != http.StatusOK {
 		t.Fatalf("refresh status = %d, want %d: %s", refresh.Code, http.StatusOK, refresh.Body.String())
@@ -192,14 +222,18 @@ func TestMeterAPIContract(t *testing.T) {
 	}
 
 	update := requestJSON(t, router, http.MethodPut, "/v1/meters/"+created.ID, map[string]any{
-		"description": "Updated API calls",
+		"description":          "Updated API calls",
+		"unit":                 "request",
+		"aggregation":          "count",
+		"event_retention_days": 365,
+		"metadata_schema":      map[string]string{"plan": "string"},
 	})
 	if update.Code != http.StatusOK {
 		t.Fatalf("update meter status = %d, want %d: %s", update.Code, http.StatusOK, update.Body.String())
 	}
 	var updated meterResponse
 	decodeJSON(t, update, &updated)
-	if updated.Description != "Updated API calls" || updated.Name != created.Name {
+	if updated.Description != "Updated API calls" || updated.Name != created.Name || updated.Unit != "request" || updated.Aggregation != "count" || updated.EventRetentionDays != 365 || updated.MetadataSchema["plan"] != "string" {
 		t.Fatalf("updated meter = %#v", updated)
 	}
 
@@ -1576,4 +1610,17 @@ type authSessionResponse struct {
 
 type authCurrentSessionResponse struct {
 	User authUserResponse `json:"user"`
+}
+
+type authAPIKeyCreateResponse struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Prefix     string `json:"prefix"`
+	Key        string `json:"key"`
+	CreatedAt  string `json:"created_at"`
+	LastUsedAt string `json:"last_used_at"`
+}
+
+type authAPIKeyListResponse struct {
+	Items []authAPIKeyCreateResponse `json:"items"`
 }
