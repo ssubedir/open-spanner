@@ -18,6 +18,7 @@ type Config struct {
 	DBPool                 DBPoolConfig
 	RetentionPruneEnabled  bool
 	RetentionPruneInterval time.Duration
+	RetentionPruneTimeout  time.Duration
 }
 
 type DBPoolConfig struct {
@@ -42,6 +43,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	retentionTimeout, err := envDuration("OPEN_SPANNER_RETENTION_PRUNE_TIMEOUT", 30*time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
 
 	cfg := Config{
 		HTTPAddr:               env("OPEN_SPANNER_HTTP_ADDR", ":18081"),
@@ -51,6 +56,7 @@ func Load() (Config, error) {
 		DBPool:                 pool,
 		RetentionPruneEnabled:  retentionEnabled,
 		RetentionPruneInterval: retentionInterval,
+		RetentionPruneTimeout:  retentionTimeout,
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -92,6 +98,9 @@ func (cfg Config) Validate() error {
 	}
 	if cfg.RetentionPruneInterval <= 0 {
 		return fmt.Errorf("OPEN_SPANNER_RETENTION_PRUNE_INTERVAL must be greater than zero")
+	}
+	if cfg.RetentionPruneTimeout <= 0 {
+		return fmt.Errorf("OPEN_SPANNER_RETENTION_PRUNE_TIMEOUT must be greater than zero")
 	}
 
 	return nil

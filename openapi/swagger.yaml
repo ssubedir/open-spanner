@@ -366,6 +366,17 @@ paths:
       summary: Health check
       tags:
       - health
+  /ready:
+    get:
+      operationId: readinessCheck
+      responses:
+        "204":
+          description: No Content
+        "503":
+          description: Service Unavailable
+      summary: Readiness check
+      tags:
+      - health
   /v1/meters:
     get:
       operationId: listMeters

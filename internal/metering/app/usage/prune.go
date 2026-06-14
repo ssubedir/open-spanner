@@ -2,10 +2,18 @@ package usage
 
 import (
 	"context"
+	"errors"
 
+	"github.com/ssubedir/open-spanner/internal/metering/domain"
 	domainmeter "github.com/ssubedir/open-spanner/internal/metering/domain/meter"
 	domainusage "github.com/ssubedir/open-spanner/internal/metering/domain/usage"
 )
+
+var errPruneAlreadyRunning = errors.New("retention prune already running")
+
+type pruneLockRepository interface {
+	TryPruneLock(ctx context.Context) (bool, error)
+}
 
 func (s *service) PruneEvents(ctx context.Context, cmd PruneCommand) (PruneResult, error) {
 	meters, err := s.meterRepo.Find(ctx, domainmeter.Query{Limit: domainmeter.MaxLimit})
@@ -26,6 +34,16 @@ func (s *service) PruneEvents(ctx context.Context, cmd PruneCommand) (PruneResul
 
 	var run domainusage.PruneRun
 	err = s.transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
+		if locker, ok := s.usageRepo.(pruneLockRepository); ok {
+			locked, err := locker.TryPruneLock(txCtx)
+			if err != nil {
+				return err
+			}
+			if !locked {
+				return errors.Join(domain.ErrConflict, errPruneAlreadyRunning)
+			}
+		}
+
 		result := PruneResult{DryRun: cmd.DryRun, Meters: make([]PruneMeterResult, 0, len(queries))}
 		runMeters := make([]domainusage.PruneRunMeter, 0, len(queries))
 		for _, query := range queries {

@@ -23,7 +23,19 @@ import (
 
 type App struct {
 	UsageService appusage.Service
+	ready        func(context.Context) error
 	cleanup      func() error
+}
+
+type readinessChecker interface {
+	Ping(ctx context.Context) error
+}
+
+func (a *App) Ready(ctx context.Context) error {
+	if a == nil || a.ready == nil {
+		return nil
+	}
+	return a.ready(ctx)
 }
 
 func (a *App) Cleanup() error {
@@ -34,7 +46,7 @@ func (a *App) Cleanup() error {
 }
 
 func RegisterRoutes(ctx context.Context, router chi.Router, cfg config.Config) (*App, error) {
-	meterRepo, usageRepo, transactor, cleanup, err := repositories(ctx, cfg)
+	meterRepo, usageRepo, transactor, ready, cleanup, err := repositories(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -51,24 +63,28 @@ func RegisterRoutes(ctx context.Context, router chi.Router, cfg config.Config) (
 		httpsystem.NewHandler(systemService).RegisterRoutes(r)
 	})
 
-	return &App{UsageService: usageService, cleanup: cleanup}, nil
+	return &App{UsageService: usageService, ready: ready, cleanup: cleanup}, nil
 }
 
-func repositories(ctx context.Context, cfg config.Config) (domainmeter.Repository, domainusage.Repository, apptransaction.Transactor, func() error, error) {
+func repositories(ctx context.Context, cfg config.Config) (domainmeter.Repository, domainusage.Repository, apptransaction.Transactor, func(context.Context) error, func() error, error) {
 	switch cfg.DBDriver {
 	case "postgres":
 		store, err := postgres.NewStore(ctx, cfg.PostgresDSN, cfg.DBPool)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, nil, nil, err
 		}
 
-		return postgres.NewMeterRepository(store), postgres.NewUsageRepository(store), store, store.Close, nil
+		return postgres.NewMeterRepository(store), postgres.NewUsageRepository(store), store, readiness(store), store.Close, nil
 	default:
 		store, err := sqlite.NewStore(ctx, cfg.SQLitePath, cfg.DBPool)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, nil, nil, err
 		}
 
-		return sqlite.NewMeterRepository(store), sqlite.NewUsageRepository(store), store, store.Close, nil
+		return sqlite.NewMeterRepository(store), sqlite.NewUsageRepository(store), store, readiness(store), store.Close, nil
 	}
+}
+
+func readiness(checker readinessChecker) func(context.Context) error {
+	return checker.Ping
 }

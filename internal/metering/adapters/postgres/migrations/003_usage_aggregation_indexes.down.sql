@@ -1,0 +1,2 @@
+DROP INDEX IF EXISTS idx_usage_events_prune_meter_time_id;
+DROP INDEX IF EXISTS idx_usage_events_subject_meter_time_quantity;

@@ -38,10 +38,6 @@ func NewStore(ctx context.Context, dsn string, poolConfigs ...config.DBPoolConfi
 		_ = db.Close()
 		return nil, err
 	}
-	if err := store.ensureColumns(ctx); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
 
 	return store, nil
 }
@@ -66,17 +62,12 @@ func applyPoolConfig(db *sql.DB, poolConfigs ...config.DBPoolConfig) {
 	}
 }
 
-func (s *Store) ensureColumns(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, `ALTER TABLE meters ADD COLUMN IF NOT EXISTS metadata_schema TEXT NOT NULL DEFAULT '{}'`)
-	if err != nil {
-		return err
-	}
-	_, err = s.db.ExecContext(ctx, `ALTER TABLE meters ADD COLUMN IF NOT EXISTS event_retention_days INTEGER NOT NULL DEFAULT 90`)
-	return err
-}
-
 func (s *Store) Close() error {
 	return s.db.Close()
+}
+
+func (s *Store) Ping(ctx context.Context) error {
+	return s.db.PingContext(ctx)
 }
 
 func (s *Store) WithinTransaction(ctx context.Context, fn func(context.Context) error) error {
