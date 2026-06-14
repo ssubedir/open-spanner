@@ -247,7 +247,7 @@ export const appStoreActions = {
       setAuthState({
         checked: true,
         loading: false,
-        registerError: registrationErrorMessage(err),
+        registerError: errorMessage(err, 'Unable to register'),
         session: null,
       })
       throw err
@@ -319,14 +319,6 @@ export const appStoreActions = {
 
 function errorMessage(err: unknown, fallback: string) {
   return err instanceof Error ? err.message : fallback
-}
-
-function registrationErrorMessage(err: unknown) {
-  const message = errorMessage(err, 'Unable to register')
-  if (message.includes('user creation requires authentication')) {
-    return 'Registration is only available before an admin account exists'
-  }
-  return message
 }
 
 function setAuthState(update: Partial<AppState['auth']>) {

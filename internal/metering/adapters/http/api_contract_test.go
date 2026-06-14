@@ -44,12 +44,20 @@ func TestAuthAPIContract(t *testing.T) {
 		t.Fatalf("created user = %#v", created)
 	}
 
-	duplicate := requestJSON(t, router, http.MethodPost, "/v1/auth/users", map[string]any{
+	other := requestJSON(t, router, http.MethodPost, "/v1/auth/users", map[string]any{
 		"email":    "other@example.com",
 		"password": "another-password",
 	})
+	if other.Code != http.StatusCreated {
+		t.Fatalf("create second user status = %d, want %d: %s", other.Code, http.StatusCreated, other.Body.String())
+	}
+
+	duplicate := requestJSON(t, router, http.MethodPost, "/v1/auth/users", map[string]any{
+		"email":    "admin@example.com",
+		"password": "another-password",
+	})
 	if duplicate.Code != http.StatusConflict {
-		t.Fatalf("duplicate bootstrap status = %d, want %d: %s", duplicate.Code, http.StatusConflict, duplicate.Body.String())
+		t.Fatalf("duplicate user status = %d, want %d: %s", duplicate.Code, http.StatusConflict, duplicate.Body.String())
 	}
 
 	login := requestJSON(t, router, http.MethodPost, "/v1/auth/sessions", map[string]any{

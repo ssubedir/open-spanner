@@ -28,7 +28,6 @@ const (
 )
 
 type Repository interface {
-	CountUsers(ctx context.Context) (int, error)
 	SaveUser(ctx context.Context, user User) (User, error)
 	FindUserByID(ctx context.Context, id string) (User, error)
 	FindUserByEmail(ctx context.Context, email string) (User, error)
@@ -112,14 +111,6 @@ func (s Service) CreateUser(ctx context.Context, cmd CreateUserCommand) (UserRes
 	}
 	if err := validatePassword(cmd.Password); err != nil {
 		return UserResult{}, err
-	}
-
-	count, err := s.repo.CountUsers(ctx)
-	if err != nil {
-		return UserResult{}, err
-	}
-	if count > 0 {
-		return UserResult{}, errors.Join(domain.ErrConflict, errors.New("user creation requires authentication"))
 	}
 
 	passwordHash, err := hashPassword(cmd.Password)

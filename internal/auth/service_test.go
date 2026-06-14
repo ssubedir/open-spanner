@@ -32,7 +32,7 @@ func TestCreateUserCreatesFirstUser(t *testing.T) {
 	}
 }
 
-func TestCreateUserRequiresEmptyUserStore(t *testing.T) {
+func TestCreateUserAllowsAdditionalUsers(t *testing.T) {
 	ctx := context.Background()
 	repo := newFakeRepository()
 	service := NewService(repo)
@@ -41,9 +41,12 @@ func TestCreateUserRequiresEmptyUserStore(t *testing.T) {
 		t.Fatalf("create first user: %v", err)
 	}
 
-	_, err := service.CreateUser(ctx, CreateUserCommand{Email: "other@example.com", Password: "password-two"})
-	if !errors.Is(err, domain.ErrConflict) {
-		t.Fatalf("second bootstrap error = %v, want ErrConflict", err)
+	other, err := service.CreateUser(ctx, CreateUserCommand{Email: "other@example.com", Password: "password-two"})
+	if err != nil {
+		t.Fatalf("create second user: %v", err)
+	}
+	if other.ID == "" || other.Email != "other@example.com" {
+		t.Fatalf("second user = %#v", other)
 	}
 }
 
@@ -122,10 +125,6 @@ func newFakeRepository() *fakeRepository {
 		userIDByEmail:  map[string]string{},
 		sessionsByHash: map[string]Session{},
 	}
-}
-
-func (r *fakeRepository) CountUsers(context.Context) (int, error) {
-	return len(r.usersByID), nil
 }
 
 func (r *fakeRepository) SaveUser(_ context.Context, user User) (User, error) {
