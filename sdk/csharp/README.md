@@ -10,7 +10,8 @@ using Microsoft.Kiota.Http.HttpClientLibrary;
 using OpenSpanner;
 using OpenSpanner.Models;
 
-var authProvider = new BaseBearerTokenAuthenticationProvider(new EnvironmentApiKeyProvider());
+var apiKey = "...";
+var authProvider = new BaseBearerTokenAuthenticationProvider(new ApiKeyProvider(apiKey));
 var adapter = new HttpClientRequestAdapter(authProvider)
 {
     BaseUrl = "https://api.example.com",
@@ -28,7 +29,7 @@ var usage = await client.V1.Usages.PostAsync(new UsageCreateRequest
 
 Console.WriteLine(usage?.Id);
 
-sealed class EnvironmentApiKeyProvider : IAccessTokenProvider
+sealed class ApiKeyProvider(string apiKey) : IAccessTokenProvider
 {
     public AllowedHostsValidator AllowedHostsValidator { get; } = new();
 
@@ -37,7 +38,7 @@ sealed class EnvironmentApiKeyProvider : IAccessTokenProvider
         Dictionary<string, object>? additionalAuthenticationContext = null,
         CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(Environment.GetEnvironmentVariable("OPEN_SPANNER_API_KEY") ?? "");
+        return Task.FromResult(apiKey);
     }
 }
 ```

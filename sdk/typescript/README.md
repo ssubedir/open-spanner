@@ -5,10 +5,12 @@ Generated TypeScript/JavaScript client for Open Spanner.
 ```ts
 import { client, createUsage } from "@ssubedir/open-spanner";
 
+const apiKey = "...";
+
 client.setConfig({
   baseUrl: "https://api.example.com",
   headers: {
-    Authorization: `Bearer ${process.env.OPEN_SPANNER_API_KEY}`,
+    Authorization: `Bearer ${apiKey}`,
   },
 });
 

@@ -12,16 +12,17 @@ Record usage for a meter that already exists:
 
 ```python
 from datetime import UTC, datetime
-import os
 from uuid import uuid4
 
 from open_spanner_client import AuthenticatedClient
 from open_spanner_client.api.usages import create_usage
 from open_spanner_client.models.usage_create_request import UsageCreateRequest
 
+api_key = "..."
+
 client = AuthenticatedClient(
     base_url="https://api.example.com",
-    token=os.environ["OPEN_SPANNER_API_KEY"],
+    token=api_key,
     raise_on_unexpected_status=True,
 )
 

@@ -15,7 +15,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"time"
 
 	httptransport "github.com/go-openapi/runtime/client"
@@ -27,12 +26,14 @@ import (
 )
 
 func main() {
+	apiKey := "..."
+
 	cfg := client.DefaultTransportConfig().
 		WithHost("api.example.com").
 		WithSchemes([]string{"https"})
 
 	transport := httptransport.New(cfg.Host, cfg.BasePath, cfg.Schemes)
-	transport.DefaultAuthentication = httptransport.BearerToken(os.Getenv("OPEN_SPANNER_API_KEY"))
+	transport.DefaultAuthentication = httptransport.BearerToken(apiKey)
 	api := client.New(transport, strfmt.Default)
 
 	usage, err := api.Usages.CreateUsage(usages.NewCreateUsageParams().WithRequest(&models.UsageCreateRequest{
