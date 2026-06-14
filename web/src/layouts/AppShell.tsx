@@ -1,8 +1,8 @@
 import { Link, Outlet, useRouter } from '@tanstack/react-router'
+import { useSelector } from '@tanstack/react-store'
 import { Gauge, LogOut } from 'lucide-react'
-import { useState } from 'react'
 
-import { deleteAuthSession, readAuthUser, type AuthUser } from '../api'
+import { appStore, appStoreActions } from '../app-store'
 import { Button } from '../components/ui/button'
 
 const navItems = [
@@ -13,11 +13,11 @@ const navItems = [
 
 export function AppShell() {
   const router = useRouter()
-  const [user, setUser] = useState<AuthUser | null>(() => readAuthUser())
+  const session = useSelector(appStore, (state) => state.auth.session)
+  const user = session?.user ?? null
 
   async function signOut() {
-    await deleteAuthSession()
-    setUser(null)
+    await appStoreActions.logout()
     void router.navigate({ to: '/login' })
   }
 

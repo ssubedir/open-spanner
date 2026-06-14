@@ -1,41 +1,19 @@
 import { Link } from '@tanstack/react-router'
+import { useSelector } from '@tanstack/react-store'
 import { Activity, BarChart3, Boxes, CheckCircle2, Clock, Database, Loader2, RefreshCw, Rows3 } from 'lucide-react'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo } from 'react'
 
-import { getSystemStats, listIngestions, listSubjects, type IngestionRun, type SubjectStats, type SystemStats } from '../api'
+import { appStore, appStoreActions } from '../app-store'
 import { DataTable, MetricCard, PageHeader, SnapshotItem } from '../components/dashboard'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { formatDate, formatNumber } from '../lib/format'
 import { useInitialLoad } from '../lib/hooks'
-import type { LoadState } from '../types'
 
 export function OverviewPage() {
-  const [status, setStatus] = useState<LoadState>('idle')
-  const [error, setError] = useState('')
-  const [stats, setStats] = useState<SystemStats | null>(null)
-  const [subjects, setSubjects] = useState<SubjectStats[]>([])
-  const [ingestions, setIngestions] = useState<IngestionRun[]>([])
-
-  const load = useCallback(async () => {
-    setStatus('loading')
-    setError('')
-    try {
-      const [nextStats, nextSubjects, nextIngestions] = await Promise.all([
-        getSystemStats(),
-        listSubjects(),
-        listIngestions(),
-      ])
-      setStats(nextStats)
-      setSubjects(nextSubjects.items)
-      setIngestions(nextIngestions.items)
-      setStatus('ready')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load overview')
-      setStatus('error')
-    }
-  }, [])
+  const { error, ingestions, stats, status, subjects } = useSelector(appStore, (state) => state.overview)
+  const load = useCallback(() => appStoreActions.loadOverview(), [])
 
   useInitialLoad(load)
 

@@ -11,7 +11,10 @@ import (
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
 )
 
-const sessionCookieName = "open_spanner_session"
+const (
+	accessCookieName  = "open_spanner_access"
+	refreshCookieName = "open_spanner_refresh"
+)
 
 type Handler struct {
 	service appauth.Service
@@ -82,9 +85,41 @@ func (h *Handler) CreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setSessionCookie(w, r, session.Token, session.ExpiresAt)
+	setAuthCookie(w, r, accessCookieName, session.AccessToken, session.AccessExpiresAt)
+	setAuthCookie(w, r, refreshCookieName, session.RefreshToken, session.RefreshExpiresAt)
 	respond.JSON(w, http.StatusCreated, LoginResponse{
-		ExpiresAt: session.ExpiresAt.Format(time.RFC3339),
+		ExpiresAt: session.AccessExpiresAt.Format(time.RFC3339),
+		User:      userResponse(session.User),
+	})
+}
+
+// RefreshSession rotates auth cookies with the current refresh token.
+//
+// @Summary Refresh auth session
+// @ID refreshAuthSession
+// @Tags auth
+// @Produce json
+// @Success 200 {object} RefreshResponse
+// @Failure 401 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/auth/session/refresh [post]
+func (h *Handler) RefreshSession(w http.ResponseWriter, r *http.Request) {
+	token, err := tokenFromCookie(r, refreshCookieName)
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+
+	session, err := h.service.RefreshSession(r.Context(), token)
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+
+	setAuthCookie(w, r, accessCookieName, session.AccessToken, session.AccessExpiresAt)
+	setAuthCookie(w, r, refreshCookieName, session.RefreshToken, session.RefreshExpiresAt)
+	respond.JSON(w, http.StatusOK, RefreshResponse{
+		ExpiresAt: session.AccessExpiresAt.Format(time.RFC3339),
 		User:      userResponse(session.User),
 	})
 }
@@ -100,7 +135,7 @@ func (h *Handler) CreateSession(w http.ResponseWriter, r *http.Request) {
 // @Failure 500 {object} respond.ErrorResponse
 // @Router /v1/auth/session [get]
 func (h *Handler) GetSession(w http.ResponseWriter, r *http.Request) {
-	token, err := sessionTokenFromCookie(r)
+	token, err := tokenFromCookie(r, accessCookieName)
 	if err != nil {
 		respond.ServiceError(w, err)
 		return
@@ -124,14 +159,21 @@ func (h *Handler) GetSession(w http.ResponseWriter, r *http.Request) {
 // @Failure 500 {object} respond.ErrorResponse
 // @Router /v1/auth/session [delete]
 func (h *Handler) DeleteSession(w http.ResponseWriter, r *http.Request) {
-	if token, err := sessionTokenFromCookie(r); err == nil {
+	if token, err := tokenFromCookie(r, accessCookieName); err == nil {
+		if err := h.service.DeleteSession(r.Context(), token); err != nil {
+			respond.ServiceError(w, err)
+			return
+		}
+	}
+	if token, err := tokenFromCookie(r, refreshCookieName); err == nil {
 		if err := h.service.DeleteSession(r.Context(), token); err != nil {
 			respond.ServiceError(w, err)
 			return
 		}
 	}
 
-	clearSessionCookie(w, r)
+	clearAuthCookie(w, r, accessCookieName)
+	clearAuthCookie(w, r, refreshCookieName)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -143,8 +185,8 @@ func userResponse(user appauth.UserResult) UserResponse {
 	}
 }
 
-func sessionTokenFromCookie(r *http.Request) (string, error) {
-	cookie, err := r.Cookie(sessionCookieName)
+func tokenFromCookie(r *http.Request, name string) (string, error) {
+	cookie, err := r.Cookie(name)
 	if err != nil {
 		if errors.Is(err, http.ErrNoCookie) {
 			return "", domain.ErrUnauthorized
@@ -157,9 +199,9 @@ func sessionTokenFromCookie(r *http.Request) (string, error) {
 	return cookie.Value, nil
 }
 
-func setSessionCookie(w http.ResponseWriter, r *http.Request, token string, expiresAt time.Time) {
+func setAuthCookie(w http.ResponseWriter, r *http.Request, name string, token string, expiresAt time.Time) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     sessionCookieName,
+		Name:     name,
 		Value:    token,
 		Path:     "/",
 		Expires:  expiresAt,
@@ -169,9 +211,9 @@ func setSessionCookie(w http.ResponseWriter, r *http.Request, token string, expi
 	})
 }
 
-func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
+func clearAuthCookie(w http.ResponseWriter, r *http.Request, name string) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     sessionCookieName,
+		Name:     name,
 		Value:    "",
 		Path:     "/",
 		Expires:  time.Unix(0, 0),

@@ -62,11 +62,11 @@ func TestLoginCreatesSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("login: %v", err)
 	}
-	if login.Token == "" || login.TokenType != "Bearer" || !login.ExpiresAt.After(service.now()) {
+	if login.AccessToken == "" || login.RefreshToken == "" || login.TokenType != "Bearer" || !login.AccessExpiresAt.After(service.now()) || !login.RefreshExpiresAt.After(login.AccessExpiresAt) {
 		t.Fatalf("login = %#v", login)
 	}
 
-	authenticated, err := service.AuthenticateSession(ctx, login.Token)
+	authenticated, err := service.AuthenticateSession(ctx, login.AccessToken)
 	if err != nil {
 		t.Fatalf("authenticate session: %v", err)
 	}
@@ -74,10 +74,21 @@ func TestLoginCreatesSession(t *testing.T) {
 		t.Fatalf("authenticated user = %#v, want %#v", authenticated, created)
 	}
 
-	if err := service.DeleteSession(ctx, login.Token); err != nil {
+	refreshed, err := service.RefreshSession(ctx, login.RefreshToken)
+	if err != nil {
+		t.Fatalf("refresh session: %v", err)
+	}
+	if refreshed.AccessToken == "" || refreshed.RefreshToken == "" || refreshed.AccessToken == login.AccessToken || refreshed.RefreshToken == login.RefreshToken {
+		t.Fatalf("refreshed session = %#v, original = %#v", refreshed, login)
+	}
+	if _, err := service.RefreshSession(ctx, login.RefreshToken); !errors.Is(err, domain.ErrUnauthorized) {
+		t.Fatalf("reused refresh token error = %v, want ErrUnauthorized", err)
+	}
+
+	if err := service.DeleteSession(ctx, refreshed.AccessToken); err != nil {
 		t.Fatalf("delete session: %v", err)
 	}
-	_, err = service.AuthenticateSession(ctx, login.Token)
+	_, err = service.AuthenticateSession(ctx, refreshed.AccessToken)
 	if !errors.Is(err, domain.ErrUnauthorized) {
 		t.Fatalf("deleted session auth error = %v, want ErrUnauthorized", err)
 	}
@@ -147,9 +158,9 @@ func (r *fakeRepository) SaveSession(_ context.Context, session Session) (Sessio
 	return session, nil
 }
 
-func (r *fakeRepository) FindSessionByTokenHash(_ context.Context, tokenHash string, now time.Time) (Session, error) {
+func (r *fakeRepository) FindSessionByTokenHash(_ context.Context, tokenHash string, kind string, now time.Time) (Session, error) {
 	session, ok := r.sessionsByHash[tokenHash]
-	if !ok || !session.ExpiresAt.After(now) {
+	if !ok || session.Kind != kind || !session.ExpiresAt.After(now) {
 		return Session{}, domain.ErrNotFound
 	}
 	return session, nil

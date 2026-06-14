@@ -257,6 +257,21 @@ svg {
   margin-top: 3px;
 }
 
+.auth-switch {
+  color: var(--muted);
+  font-size: 14px;
+  text-align: center;
+}
+
+.auth-switch a {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.auth-switch a:hover {
+  text-decoration: underline;
+}
+
 .page-header {
   display: flex;
   align-items: flex-start;

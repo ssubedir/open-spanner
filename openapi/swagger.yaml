@@ -33,6 +33,13 @@ definitions:
       user:
         $ref: '#/definitions/internal_metering_adapters_http_auth.UserResponse'
     type: object
+  internal_metering_adapters_http_auth.RefreshResponse:
+    properties:
+      expires_at:
+        type: string
+      user:
+        $ref: '#/definitions/internal_metering_adapters_http_auth.UserResponse'
+    type: object
   internal_metering_adapters_http_auth.SessionResponse:
     properties:
       user:
@@ -443,6 +450,27 @@ paths:
           schema:
             $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
       summary: Get auth session
+      tags:
+      - auth
+  /v1/auth/session/refresh:
+    post:
+      operationId: refreshAuthSession
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_auth.RefreshResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Refresh auth session
       tags:
       - auth
   /v1/auth/sessions:

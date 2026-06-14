@@ -1,9 +1,9 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
-import { loadAuthUser } from '../api'
+import { appStoreActions } from '../app-store'
 
 export const Route = createFileRoute('/')({
   beforeLoad: async () => {
-    throw redirect({ to: await loadAuthUser() ? '/overview' : '/login' })
+    throw redirect({ to: await appStoreActions.ensureAuthUser() ? '/overview' : '/login' })
   },
 })

@@ -17,10 +17,14 @@ import (
 )
 
 const (
-	defaultSessionTTL  = 24 * time.Hour
-	defaultTokenBytes  = 32
-	minPasswordRunes   = 8
-	sessionTokenPrefix = "osp_"
+	defaultAccessTokenTTL  = 15 * time.Minute
+	defaultRefreshTokenTTL = 30 * 24 * time.Hour
+	defaultTokenBytes      = 32
+	minPasswordRunes       = 8
+	accessTokenPrefix      = "osp_at_"
+	refreshTokenPrefix     = "osp_rt_"
+	TokenKindAccess        = "access"
+	TokenKindRefresh       = "refresh"
 )
 
 type Repository interface {
@@ -29,7 +33,7 @@ type Repository interface {
 	FindUserByID(ctx context.Context, id string) (User, error)
 	FindUserByEmail(ctx context.Context, email string) (User, error)
 	SaveSession(ctx context.Context, session Session) (Session, error)
-	FindSessionByTokenHash(ctx context.Context, tokenHash string, now time.Time) (Session, error)
+	FindSessionByTokenHash(ctx context.Context, tokenHash string, kind string, now time.Time) (Session, error)
 	DeleteSessionByTokenHash(ctx context.Context, tokenHash string) error
 }
 
@@ -44,6 +48,7 @@ type Session struct {
 	ID        string
 	UserID    string
 	TokenHash string
+	Kind      string
 	ExpiresAt time.Time
 	CreatedAt time.Time
 }
@@ -65,25 +70,38 @@ type UserResult struct {
 }
 
 type LoginResult struct {
-	Token     string
-	TokenType string
-	ExpiresAt time.Time
-	User      UserResult
+	AccessToken      string
+	AccessExpiresAt  time.Time
+	RefreshToken     string
+	RefreshExpiresAt time.Time
+	TokenType        string
+	User             UserResult
+}
+
+type RefreshResult struct {
+	AccessToken      string
+	AccessExpiresAt  time.Time
+	RefreshToken     string
+	RefreshExpiresAt time.Time
+	TokenType        string
+	User             UserResult
 }
 
 type Service struct {
-	repo       Repository
-	now        func() time.Time
-	sessionTTL time.Duration
-	tokenBytes int
+	repo            Repository
+	now             func() time.Time
+	accessTokenTTL  time.Duration
+	refreshTokenTTL time.Duration
+	tokenBytes      int
 }
 
 func NewService(repo Repository) Service {
 	return Service{
-		repo:       repo,
-		now:        time.Now,
-		sessionTTL: defaultSessionTTL,
-		tokenBytes: defaultTokenBytes,
+		repo:            repo,
+		now:             time.Now,
+		accessTokenTTL:  defaultAccessTokenTTL,
+		refreshTokenTTL: defaultRefreshTokenTTL,
+		tokenBytes:      defaultTokenBytes,
 	}
 }
 
@@ -139,38 +157,113 @@ func (s Service) Login(ctx context.Context, cmd LoginCommand) (LoginResult, erro
 		return LoginResult{}, unauthorized()
 	}
 
-	token, err := newSessionToken(s.tokenBytes)
+	accessToken, err := newSessionToken(accessTokenPrefix, s.tokenBytes)
+	if err != nil {
+		return LoginResult{}, err
+	}
+	refreshToken, err := newSessionToken(refreshTokenPrefix, s.tokenBytes)
 	if err != nil {
 		return LoginResult{}, err
 	}
 
 	now := s.now().UTC()
-	session, err := s.repo.SaveSession(ctx, Session{
+	accessSession, err := s.repo.SaveSession(ctx, Session{
 		ID:        uuid.NewString(),
 		UserID:    user.ID,
-		TokenHash: HashToken(token),
+		TokenHash: HashToken(accessToken),
+		Kind:      TokenKindAccess,
 		CreatedAt: now,
-		ExpiresAt: now.Add(s.sessionTTL),
+		ExpiresAt: now.Add(s.accessTokenTTL),
+	})
+	if err != nil {
+		return LoginResult{}, err
+	}
+	refreshSession, err := s.repo.SaveSession(ctx, Session{
+		ID:        uuid.NewString(),
+		UserID:    user.ID,
+		TokenHash: HashToken(refreshToken),
+		Kind:      TokenKindRefresh,
+		CreatedAt: now,
+		ExpiresAt: now.Add(s.refreshTokenTTL),
 	})
 	if err != nil {
 		return LoginResult{}, err
 	}
 
 	return LoginResult{
-		Token:     token,
-		TokenType: "Bearer",
-		ExpiresAt: session.ExpiresAt,
-		User:      userResult(user),
+		AccessToken:      accessToken,
+		AccessExpiresAt:  accessSession.ExpiresAt,
+		RefreshToken:     refreshToken,
+		RefreshExpiresAt: refreshSession.ExpiresAt,
+		TokenType:        "Bearer",
+		User:             userResult(user),
 	}, nil
 }
 
 func (s Service) AuthenticateSession(ctx context.Context, token string) (UserResult, error) {
+	return s.authenticateToken(ctx, token, TokenKindAccess)
+}
+
+func (s Service) RefreshSession(ctx context.Context, token string) (RefreshResult, error) {
+	user, err := s.authenticateToken(ctx, token, TokenKindRefresh)
+	if err != nil {
+		return RefreshResult{}, err
+	}
+
+	if err := s.DeleteSession(ctx, token); err != nil {
+		return RefreshResult{}, err
+	}
+
+	accessToken, err := newSessionToken(accessTokenPrefix, s.tokenBytes)
+	if err != nil {
+		return RefreshResult{}, err
+	}
+	refreshToken, err := newSessionToken(refreshTokenPrefix, s.tokenBytes)
+	if err != nil {
+		return RefreshResult{}, err
+	}
+
+	now := s.now().UTC()
+	accessSession, err := s.repo.SaveSession(ctx, Session{
+		ID:        uuid.NewString(),
+		UserID:    user.ID,
+		TokenHash: HashToken(accessToken),
+		Kind:      TokenKindAccess,
+		CreatedAt: now,
+		ExpiresAt: now.Add(s.accessTokenTTL),
+	})
+	if err != nil {
+		return RefreshResult{}, err
+	}
+	refreshSession, err := s.repo.SaveSession(ctx, Session{
+		ID:        uuid.NewString(),
+		UserID:    user.ID,
+		TokenHash: HashToken(refreshToken),
+		Kind:      TokenKindRefresh,
+		CreatedAt: now,
+		ExpiresAt: now.Add(s.refreshTokenTTL),
+	})
+	if err != nil {
+		return RefreshResult{}, err
+	}
+
+	return RefreshResult{
+		AccessToken:      accessToken,
+		AccessExpiresAt:  accessSession.ExpiresAt,
+		RefreshToken:     refreshToken,
+		RefreshExpiresAt: refreshSession.ExpiresAt,
+		TokenType:        "Bearer",
+		User:             user,
+	}, nil
+}
+
+func (s Service) authenticateToken(ctx context.Context, token string, kind string) (UserResult, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
 		return UserResult{}, unauthorized()
 	}
 
-	session, err := s.repo.FindSessionByTokenHash(ctx, HashToken(token), s.now().UTC())
+	session, err := s.repo.FindSessionByTokenHash(ctx, HashToken(token), kind, s.now().UTC())
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return UserResult{}, unauthorized()
@@ -229,7 +322,7 @@ func verifyPassword(hash string, password string) error {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 }
 
-func newSessionToken(byteCount int) (string, error) {
+func newSessionToken(prefix string, byteCount int) (string, error) {
 	if byteCount <= 0 {
 		byteCount = defaultTokenBytes
 	}
@@ -237,7 +330,7 @@ func newSessionToken(byteCount int) (string, error) {
 	if _, err := rand.Read(data); err != nil {
 		return "", err
 	}
-	return sessionTokenPrefix + base64.RawURLEncoding.EncodeToString(data), nil
+	return prefix + base64.RawURLEncoding.EncodeToString(data), nil
 }
 
 func unauthorized() error {

@@ -54,6 +54,7 @@ func TestAuthRepositoryUserAndSessionFlow(t *testing.T) {
 		ID:        "session-1",
 		UserID:    user.ID,
 		TokenHash: appauth.HashToken("session-token"),
+		Kind:      appauth.TokenKindAccess,
 		CreatedAt: now,
 		ExpiresAt: now.Add(time.Hour),
 	}
@@ -61,15 +62,20 @@ func TestAuthRepositoryUserAndSessionFlow(t *testing.T) {
 		t.Fatalf("save session: %v", err)
 	}
 
-	active, err := repo.FindSessionByTokenHash(ctx, session.TokenHash, now)
+	active, err := repo.FindSessionByTokenHash(ctx, session.TokenHash, appauth.TokenKindAccess, now)
 	if err != nil {
 		t.Fatalf("find active session: %v", err)
 	}
-	if active.ID != session.ID || active.UserID != user.ID {
+	if active.ID != session.ID || active.UserID != user.ID || active.Kind != appauth.TokenKindAccess {
 		t.Fatalf("active session = %#v, want %#v", active, session)
 	}
 
-	_, err = repo.FindSessionByTokenHash(ctx, session.TokenHash, now.Add(2*time.Hour))
+	_, err = repo.FindSessionByTokenHash(ctx, session.TokenHash, appauth.TokenKindRefresh, now)
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("wrong kind session error = %v, want ErrNotFound", err)
+	}
+
+	_, err = repo.FindSessionByTokenHash(ctx, session.TokenHash, appauth.TokenKindAccess, now.Add(2*time.Hour))
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("expired session error = %v, want ErrNotFound", err)
 	}

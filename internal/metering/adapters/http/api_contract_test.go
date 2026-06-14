@@ -70,11 +70,16 @@ func TestAuthAPIContract(t *testing.T) {
 	}
 
 	cookies := login.Result().Cookies()
-	if len(cookies) != 1 {
-		t.Fatalf("login cookies = %#v, want session cookie", cookies)
+	if len(cookies) != 2 {
+		t.Fatalf("login cookies = %#v, want access and refresh cookies", cookies)
 	}
-	if cookies[0].Name != "open_spanner_session" || cookies[0].Value == "" || !cookies[0].HttpOnly || cookies[0].SameSite != http.SameSiteLaxMode {
-		t.Fatalf("session cookie = %#v", cookies[0])
+	accessCookie := findCookie(cookies, "open_spanner_access")
+	refreshCookie := findCookie(cookies, "open_spanner_refresh")
+	if accessCookie == nil || accessCookie.Value == "" || !accessCookie.HttpOnly || accessCookie.SameSite != http.SameSiteLaxMode {
+		t.Fatalf("access cookie = %#v", accessCookie)
+	}
+	if refreshCookie == nil || refreshCookie.Value == "" || !refreshCookie.HttpOnly || refreshCookie.SameSite != http.SameSiteLaxMode {
+		t.Fatalf("refresh cookie = %#v", refreshCookie)
 	}
 
 	current := requestJSONWithCookies(t, router, http.MethodGet, "/v1/auth/session", nil, cookies)
@@ -87,16 +92,42 @@ func TestAuthAPIContract(t *testing.T) {
 		t.Fatalf("current session = %#v, want user %s", currentSession, created.ID)
 	}
 
-	logout := requestJSONWithCookies(t, router, http.MethodDelete, "/v1/auth/session", nil, cookies)
+	refresh := requestJSONWithCookies(t, router, http.MethodPost, "/v1/auth/session/refresh", nil, []*http.Cookie{refreshCookie})
+	if refresh.Code != http.StatusOK {
+		t.Fatalf("refresh status = %d, want %d: %s", refresh.Code, http.StatusOK, refresh.Body.String())
+	}
+	var refreshSession authSessionResponse
+	decodeJSON(t, refresh, &refreshSession)
+	if refreshSession.ExpiresAt == "" || refreshSession.User.ID != created.ID {
+		t.Fatalf("refresh session = %#v", refreshSession)
+	}
+	refreshedCookies := refresh.Result().Cookies()
+	refreshedAccessCookie := findCookie(refreshedCookies, "open_spanner_access")
+	refreshedRefreshCookie := findCookie(refreshedCookies, "open_spanner_refresh")
+	if refreshedAccessCookie == nil || refreshedAccessCookie.Value == accessCookie.Value {
+		t.Fatalf("refreshed access cookie = %#v, original = %#v", refreshedAccessCookie, accessCookie)
+	}
+	if refreshedRefreshCookie == nil || refreshedRefreshCookie.Value == refreshCookie.Value {
+		t.Fatalf("refreshed refresh cookie = %#v, original = %#v", refreshedRefreshCookie, refreshCookie)
+	}
+	reusedRefresh := requestJSONWithCookies(t, router, http.MethodPost, "/v1/auth/session/refresh", nil, []*http.Cookie{refreshCookie})
+	if reusedRefresh.Code != http.StatusUnauthorized {
+		t.Fatalf("reused refresh status = %d, want %d: %s", reusedRefresh.Code, http.StatusUnauthorized, reusedRefresh.Body.String())
+	}
+
+	logoutCookies := []*http.Cookie{refreshedAccessCookie, refreshedRefreshCookie}
+	logout := requestJSONWithCookies(t, router, http.MethodDelete, "/v1/auth/session", nil, logoutCookies)
 	if logout.Code != http.StatusNoContent {
 		t.Fatalf("logout status = %d, want %d: %s", logout.Code, http.StatusNoContent, logout.Body.String())
 	}
 	cleared := logout.Result().Cookies()
-	if len(cleared) != 1 || cleared[0].Name != "open_spanner_session" || cleared[0].MaxAge != -1 {
-		t.Fatalf("logout cookies = %#v, want cleared session cookie", cleared)
+	clearedAccess := findCookie(cleared, "open_spanner_access")
+	clearedRefresh := findCookie(cleared, "open_spanner_refresh")
+	if len(cleared) != 2 || clearedAccess == nil || clearedAccess.MaxAge != -1 || clearedRefresh == nil || clearedRefresh.MaxAge != -1 {
+		t.Fatalf("logout cookies = %#v, want cleared auth cookies", cleared)
 	}
 
-	deleted := requestJSONWithCookies(t, router, http.MethodGet, "/v1/auth/session", nil, cookies)
+	deleted := requestJSONWithCookies(t, router, http.MethodGet, "/v1/auth/session", nil, logoutCookies)
 	if deleted.Code != http.StatusUnauthorized {
 		t.Fatalf("deleted session status = %d, want %d: %s", deleted.Code, http.StatusUnauthorized, deleted.Body.String())
 	}
@@ -1377,6 +1408,15 @@ func decodeJSON(t *testing.T, res *httptest.ResponseRecorder, target any) {
 	if err := json.NewDecoder(res.Body).Decode(target); err != nil {
 		t.Fatalf("decode response body: %v; body = %s", err, res.Body.String())
 	}
+}
+
+func findCookie(cookies []*http.Cookie, name string) *http.Cookie {
+	for _, cookie := range cookies {
+		if cookie.Name == name {
+			return cookie
+		}
+	}
+	return nil
 }
 
 type meterResponse struct {

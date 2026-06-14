@@ -145,27 +145,20 @@ export type AuthSession = {
   user: AuthUser
 }
 
-export type CurrentAuthSession = {
-  user: AuthUser
+export async function createAuthUser(input: { email: string; password: string }) {
+  return request<AuthUser>('/v1/auth/users', {
+    body: JSON.stringify(input),
+    method: 'POST',
+  })
 }
 
-let currentAuthUser: AuthUser | null = null
-
-export function readAuthUser() {
-  return currentAuthUser
-}
-
-export function setAuthUser(user: AuthUser | null) {
-  currentAuthUser = user
-}
-
-export async function loadAuthUser() {
-  const response = await fetch('/v1/auth/session', {
+export async function refreshAuthSession() {
+  const response = await fetch('/v1/auth/session/refresh', {
     credentials: 'same-origin',
+    method: 'POST',
   })
 
   if (response.status === 401) {
-    currentAuthUser = null
     return null
   }
   if (!response.ok) {
@@ -174,9 +167,21 @@ export async function loadAuthUser() {
     throw new Error(error || response.statusText)
   }
 
-  const session = await response.json() as CurrentAuthSession
-  currentAuthUser = session.user
-  return session.user
+  return response.json() as Promise<AuthSession>
+}
+
+async function fetchWithAuthRefresh(path: string, options: RequestInit = {}, retry = true) {
+  const response = await fetch(path, {
+    ...options,
+    credentials: 'same-origin',
+  })
+
+  if (response.status === 401) {
+    if (retry && path !== '/v1/auth/session/refresh' && await refreshAuthSession()) {
+      return fetchWithAuthRefresh(path, options, false)
+    }
+  }
+  return response
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -185,16 +190,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers.set('Content-Type', 'application/json')
   }
 
-  const response = await fetch(path, {
+  const response = await fetchWithAuthRefresh(path, {
     ...options,
-    credentials: 'same-origin',
     headers,
   })
 
   if (!response.ok) {
-    if (response.status === 401) {
-      currentAuthUser = null
-    }
     const payload = await response.json().catch(() => ({ error: { message: response.statusText } }))
     const error = typeof payload.error === 'string' ? payload.error : payload.error?.message
     throw new Error(error || response.statusText)
@@ -208,19 +209,16 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export async function createAuthSession(input: { email: string; password: string }) {
-  const session = await request<AuthSession>('/v1/auth/sessions', {
+  return request<AuthSession>('/v1/auth/sessions', {
     body: JSON.stringify(input),
     method: 'POST',
   })
-  currentAuthUser = session.user
-  return session
 }
 
 export async function deleteAuthSession() {
   await request<void>('/v1/auth/session', {
     method: 'DELETE',
   })
-  currentAuthUser = null
 }
 
 export async function getSystemStats() {

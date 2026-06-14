@@ -1,7 +1,9 @@
+import { useSelector } from '@tanstack/react-store'
 import { BarChart3, Boxes, Clock, Loader2, Pencil, Plus, RefreshCw, Rows3, Trash2 } from 'lucide-react'
-import { type FormEvent, useCallback, useState } from 'react'
+import { type FormEvent, useCallback } from 'react'
 
-import { createMeter, deleteMeter, listMeterStats, listMeters, updateMeter, type Meter, type MeterStats } from '../api'
+import type { Meter, MeterStats } from '../api'
+import { appStore, appStoreActions } from '../app-store'
 import { EmptyRow, MetricCard, Modal, PageHeader } from '../components/dashboard'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
@@ -10,44 +12,22 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { formatDate, formatNumber } from '../lib/format'
 import { useInitialLoad } from '../lib/hooks'
 import { parseMetadataSchema } from '../lib/metadata'
-import type { LoadState } from '../types'
 
 const aggregations = ['sum', 'count', 'avg', 'min', 'max', 'first', 'last', 'rate']
 
 export function MetersPage() {
-  const [status, setStatus] = useState<LoadState>('idle')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-  const [meters, setMeters] = useState<Meter[]>([])
-  const [stats, setStats] = useState<Record<string, MeterStats>>({})
-  const [editing, setEditing] = useState<Meter | null>(null)
-  const [deleting, setDeleting] = useState<Meter | null>(null)
-
-  const load = useCallback(async () => {
-    setStatus('loading')
-    setError('')
-    try {
-      const [nextMeters, nextStats] = await Promise.all([listMeters(), listMeterStats()])
-      setMeters(nextMeters.items)
-      setStats(Object.fromEntries(nextStats.items.map((item) => [item.meter, item])))
-      setStatus('ready')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load meters')
-      setStatus('error')
-    }
-  }, [])
+  const { deleting, editing, error, items: meters, saving, stats, status } = useSelector(appStore, (state) => state.meters)
+  const load = useCallback(() => appStoreActions.loadMeters(), [])
 
   useInitialLoad(load)
 
   async function submitCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const formElement = event.currentTarget
-    setSaving(true)
-    setError('')
     const form = new FormData(formElement)
 
     try {
-      await createMeter({
+      await appStoreActions.createMeter({
         aggregation: String(form.get('aggregation') || 'sum'),
         description: String(form.get('description') || ''),
         event_retention_days: Number(form.get('event_retention_days') || 90),
@@ -60,11 +40,8 @@ export function MetersPage() {
       if (metadata instanceof HTMLTextAreaElement) {
         metadata.value = '{}'
       }
-      await load()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to create meter')
-    } finally {
-      setSaving(false)
+    } catch {
+      // Store owns the visible meters error state.
     }
   }
 
@@ -73,36 +50,20 @@ export function MetersPage() {
     if (!editing) {
       return
     }
-    setSaving(true)
-    setError('')
     const form = new FormData(event.currentTarget)
 
     try {
-      await updateMeter(editing.id, { description: String(form.get('description') || '') })
-      setEditing(null)
-      await load()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to update meter')
-    } finally {
-      setSaving(false)
+      await appStoreActions.updateEditingMeter({ description: String(form.get('description') || '') })
+    } catch {
+      // Store owns the visible meters error state.
     }
   }
 
   async function confirmDelete() {
-    if (!deleting) {
-      return
-    }
-    setSaving(true)
-    setError('')
-
     try {
-      await deleteMeter(deleting.id)
-      setDeleting(null)
-      await load()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to delete meter')
-    } finally {
-      setSaving(false)
+      await appStoreActions.deleteSelectedMeter()
+    } catch {
+      // Store owns the visible meters error state.
     }
   }
 
@@ -218,10 +179,10 @@ export function MetersPage() {
                         <TableCell className="mono truncate">{JSON.stringify(meter.metadata_schema || {})}</TableCell>
                         <TableCell>
                           <div className="table-actions">
-                            <Button aria-label={`Edit ${meter.name}`} onClick={() => setEditing(meter)} size="icon" type="button" variant="ghost">
+                            <Button aria-label={`Edit ${meter.name}`} onClick={() => appStoreActions.setMeterEditing(meter)} size="icon" type="button" variant="ghost">
                               <Pencil aria-hidden="true" />
                             </Button>
-                            <Button aria-label={`Delete ${meter.name}`} onClick={() => setDeleting(meter)} size="icon" type="button" variant="ghost">
+                            <Button aria-label={`Delete ${meter.name}`} onClick={() => appStoreActions.setMeterDeleting(meter)} size="icon" type="button" variant="ghost">
                               <Trash2 aria-hidden="true" />
                             </Button>
                           </div>
@@ -237,7 +198,7 @@ export function MetersPage() {
       </section>
 
       {editing ? (
-        <Modal title="Edit Meter" onClose={() => setEditing(null)}>
+        <Modal title="Edit Meter" onClose={() => appStoreActions.setMeterEditing(null)}>
           <form className="modal-form" onSubmit={(event) => void submitEdit(event)}>
             <label>
               Name
@@ -248,7 +209,7 @@ export function MetersPage() {
               <textarea defaultValue={editing.description} name="description" rows={5} />
             </label>
             <div className="modal-actions">
-              <Button onClick={() => setEditing(null)} type="button" variant="outline">Cancel</Button>
+              <Button onClick={() => appStoreActions.setMeterEditing(null)} type="button" variant="outline">Cancel</Button>
               <Button disabled={saving} type="submit">Save</Button>
             </div>
           </form>
@@ -256,10 +217,10 @@ export function MetersPage() {
       ) : null}
 
       {deleting ? (
-        <Modal title="Delete Meter" onClose={() => setDeleting(null)}>
+        <Modal title="Delete Meter" onClose={() => appStoreActions.setMeterDeleting(null)}>
           <div className="modal-copy">Delete <strong>{deleting.name}</strong>?</div>
           <div className="modal-actions">
-            <Button onClick={() => setDeleting(null)} type="button" variant="outline">Cancel</Button>
+            <Button onClick={() => appStoreActions.setMeterDeleting(null)} type="button" variant="outline">Cancel</Button>
             <Button disabled={saving} onClick={() => void confirmDelete()} type="button">Delete</Button>
           </div>
         </Modal>

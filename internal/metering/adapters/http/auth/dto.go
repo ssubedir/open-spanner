@@ -21,6 +21,11 @@ type LoginResponse struct {
 	User      UserResponse `json:"user"`
 }
 
+type RefreshResponse struct {
+	ExpiresAt string       `json:"expires_at"`
+	User      UserResponse `json:"user"`
+}
+
 type SessionResponse struct {
 	User UserResponse `json:"user"`
 }

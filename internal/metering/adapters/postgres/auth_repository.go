@@ -58,9 +58,9 @@ WHERE email = $1
 
 func (r *AuthRepository) SaveSession(ctx context.Context, session appauth.Session) (appauth.Session, error) {
 	_, err := r.store.exec(ctx, `
-INSERT INTO auth_sessions (id, user_id, token_hash, expires_at, created_at)
-VALUES ($1, $2, $3, $4, $5)
-`, session.ID, session.UserID, session.TokenHash, formatTime(session.ExpiresAt), formatTime(session.CreatedAt))
+INSERT INTO auth_sessions (id, user_id, token_hash, kind, expires_at, created_at)
+VALUES ($1, $2, $3, $4, $5, $6)
+`, session.ID, session.UserID, session.TokenHash, session.Kind, formatTime(session.ExpiresAt), formatTime(session.CreatedAt))
 	if err != nil {
 		if isUniqueConstraint(err) {
 			return appauth.Session{}, errors.Join(domain.ErrConflict, err)
@@ -70,12 +70,12 @@ VALUES ($1, $2, $3, $4, $5)
 	return session, nil
 }
 
-func (r *AuthRepository) FindSessionByTokenHash(ctx context.Context, tokenHash string, now time.Time) (appauth.Session, error) {
+func (r *AuthRepository) FindSessionByTokenHash(ctx context.Context, tokenHash string, kind string, now time.Time) (appauth.Session, error) {
 	return scanSession(r.store.queryRow(ctx, `
-SELECT id, user_id, token_hash, expires_at, created_at
+SELECT id, user_id, token_hash, kind, expires_at, created_at
 FROM auth_sessions
-WHERE token_hash = $1 AND expires_at > $2
-`, tokenHash, formatTime(now)))
+WHERE token_hash = $1 AND kind = $2 AND expires_at > $3
+`, tokenHash, kind, formatTime(now)))
 }
 
 func (r *AuthRepository) DeleteSessionByTokenHash(ctx context.Context, tokenHash string) error {
@@ -112,7 +112,7 @@ func scanSession(scanner interface {
 	var session appauth.Session
 	var expiresAt string
 	var createdAt string
-	if err := scanner.Scan(&session.ID, &session.UserID, &session.TokenHash, &expiresAt, &createdAt); err != nil {
+	if err := scanner.Scan(&session.ID, &session.UserID, &session.TokenHash, &session.Kind, &expiresAt, &createdAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return appauth.Session{}, domain.ErrNotFound
 		}

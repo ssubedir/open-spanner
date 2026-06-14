@@ -1,8 +1,8 @@
+import { useSelector } from '@tanstack/react-store'
 import { BarChart3, Clock, Database, Loader2, Plus, RefreshCw, Rows3, Search } from 'lucide-react'
-import { type FormEvent, useCallback, useMemo, useState } from 'react'
-import type { RuleGroupType } from 'react-querybuilder'
+import { type FormEvent, useCallback, useMemo } from 'react'
 
-import { createUsage, listMeters, listUsageBuckets, type Meter, type UsageBucket } from '../api'
+import { appStore, appStoreActions } from '../app-store'
 import { DataTable, MetricCard, Modal, PageHeader } from '../components/dashboard'
 import { FilterBuilder } from '../components/filter-builder'
 import { Badge } from '../components/ui/badge'
@@ -14,95 +14,38 @@ import { useInitialLoad } from '../lib/hooks'
 import { parseJSONRecord } from '../lib/metadata'
 import {
   buildFilterFields,
-  defaultFilterQuery,
   firstEqualRuleValue,
-  queryWithAvailableMeter,
   selectedMeterSchemaKeys,
-  usageFilterFromQuery,
-  usageScopeFromQuery,
-  usageTimeRangeFromQuery,
 } from '../lib/usage-query'
-import type { LoadState } from '../types'
 
 export function UsagePage() {
-  const [status, setStatus] = useState<LoadState>('idle')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-  const [meters, setMeters] = useState<Meter[]>([])
-  const [buckets, setBuckets] = useState<UsageBucket[]>([])
-  const [createOpen, setCreateOpen] = useState(false)
-  const [groupBy, setGroupBy] = useState('')
-  const [filterQuery, setFilterQuery] = useState<RuleGroupType>(() => defaultFilterQuery())
-
-  const load = useCallback(async () => {
-    setStatus('loading')
-    setError('')
-    try {
-      const nextMeters = await listMeters()
-      setMeters(nextMeters.items)
-      setFilterQuery((query) => queryWithAvailableMeter(query, nextMeters.items))
-      setStatus('ready')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load usage controls')
-      setStatus('error')
-    }
-  }, [])
+  const { buckets, createOpen, error, filterQuery, groupBy, meters, saving, status } = useSelector(appStore, (state) => state.usage)
+  const load = useCallback(() => appStoreActions.loadUsageControls(), [])
 
   useInitialLoad(load)
 
   async function submitCreateUsage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    setSaving(true)
-    setError('')
     const form = new FormData(event.currentTarget)
 
     try {
-      await createUsage({
+      await appStoreActions.createUsage({
         idempotency_key: String(form.get('idempotency_key') || ''),
         metadata: parseJSONRecord(String(form.get('metadata') || '{}'), 'Metadata'),
         meter: String(form.get('meter') || ''),
         quantity: Number(form.get('quantity') || 0),
         subject: String(form.get('subject') || ''),
         timestamp: localInputToOptionalISO(String(form.get('timestamp') || '')),
-      })
-      setCreateOpen(false)
-      await submitQueryFromState(activeGroupBy)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to create usage')
-    } finally {
-      setSaving(false)
+      }, activeGroupBy)
+    } catch {
+      // Store owns the visible usage error state.
     }
   }
 
   async function submitQuery(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
-    await submitQueryFromState(String(form.get('group_by') || ''), Number(form.get('limit') || 500), String(form.get('bucket_size') || 'day'))
-  }
-
-  async function submitQueryFromState(groupByValue: string, limit = 500, bucketSize = 'day') {
-    setStatus('loading')
-    setError('')
-    try {
-      const scope = usageScopeFromQuery(filterQuery)
-      const timeRange = usageTimeRangeFromQuery(filterQuery)
-      const filter = usageFilterFromQuery(filterQuery)
-      const nextBuckets = await listUsageBuckets({
-        bucket_size: bucketSize,
-        filter,
-        from: timeRange.from,
-        group_by: groupByValue || undefined,
-        limit,
-        meter: scope.meter,
-        subject: scope.subject,
-        to: timeRange.to,
-      })
-      setBuckets(nextBuckets)
-      setStatus('ready')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to query usage')
-      setStatus('error')
-    }
+    await appStoreActions.submitUsageQuery(String(form.get('group_by') || ''), Number(form.get('limit') || 500), String(form.get('bucket_size') || 'day'))
   }
 
   const total = buckets.reduce((sum, bucket) => sum + Number(bucket.quantity || 0), 0)
@@ -112,8 +55,7 @@ export function UsagePage() {
   const filterFields = useMemo(() => buildFilterFields(groupKeys, meters), [groupKeys, meters])
 
   function resetQuery() {
-    setGroupBy('')
-    setFilterQuery(queryWithAvailableMeter(defaultFilterQuery(), meters))
+    appStoreActions.resetUsageQuery()
   }
 
   return (
@@ -129,7 +71,7 @@ export function UsagePage() {
               {status === 'loading' ? <Loader2 className="spin" aria-hidden="true" /> : <RefreshCw aria-hidden="true" />}
               Refresh
             </Button>
-            <Button onClick={() => setCreateOpen(true)} type="button">
+            <Button onClick={() => appStoreActions.setUsageCreateOpen(true)} type="button">
               <Plus aria-hidden="true" />
               Create Usage
             </Button>
@@ -158,7 +100,7 @@ export function UsagePage() {
             <form className="form-grid usage-query-form" onSubmit={(event) => void submitQuery(event)}>
               <FilterBuilder
                 fields={filterFields}
-                onChange={setFilterQuery}
+                onChange={appStoreActions.setUsageFilterQuery}
                 query={filterQuery}
               />
               <div className="query-controls wide">
@@ -172,7 +114,7 @@ export function UsagePage() {
                 </label>
                 <label>
                   Group By
-                  <select aria-label="Group By" name="group_by" value={activeGroupBy} onChange={(event) => setGroupBy(event.target.value)}>
+                  <select aria-label="Group By" name="group_by" value={activeGroupBy} onChange={(event) => appStoreActions.setUsageGroupBy(event.target.value)}>
                     <option value="">None</option>
                     {groupKeys.map((key) => <option key={key} value={key}>{key}</option>)}
                   </select>
@@ -223,7 +165,7 @@ export function UsagePage() {
       </section>
 
       {createOpen ? (
-        <Modal title="Create Usage" onClose={() => setCreateOpen(false)}>
+        <Modal title="Create Usage" onClose={() => appStoreActions.setUsageCreateOpen(false)}>
           <form className="modal-form usage-create-form" onSubmit={(event) => void submitCreateUsage(event)}>
             <label>
               Subject
@@ -253,7 +195,7 @@ export function UsagePage() {
               <textarea aria-label="Metadata JSON" defaultValue="{}" name="metadata" rows={5} />
             </label>
             <div className="modal-actions">
-              <Button onClick={() => setCreateOpen(false)} type="button" variant="outline">Cancel</Button>
+              <Button onClick={() => appStoreActions.setUsageCreateOpen(false)} type="button" variant="outline">Cancel</Button>
               <Button disabled={saving} type="submit">
                 {saving ? <Loader2 className="spin" aria-hidden="true" /> : <Plus aria-hidden="true" />}
                 Create

@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as RegisterRouteRouteImport } from './routes/register/route'
 import { Route as LoginRouteRouteImport } from './routes/login/route'
 import { Route as DashboardRouteRouteImport } from './routes/_dashboard/route'
 import { Route as IndexRouteImport } from './routes/index'
@@ -16,6 +17,11 @@ import { Route as DashboardUsageRouteRouteImport } from './routes/_dashboard/usa
 import { Route as DashboardOverviewRouteRouteImport } from './routes/_dashboard/overview/route'
 import { Route as DashboardMetersRouteRouteImport } from './routes/_dashboard/meters/route'
 
+const RegisterRouteRoute = RegisterRouteRouteImport.update({
+  id: '/register',
+  path: '/register',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoginRouteRoute = LoginRouteRouteImport.update({
   id: '/login',
   path: '/login',
@@ -49,6 +55,7 @@ const DashboardMetersRouteRoute = DashboardMetersRouteRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRouteRoute
+  '/register': typeof RegisterRouteRoute
   '/meters': typeof DashboardMetersRouteRoute
   '/overview': typeof DashboardOverviewRouteRoute
   '/usage': typeof DashboardUsageRouteRoute
@@ -56,6 +63,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRouteRoute
+  '/register': typeof RegisterRouteRoute
   '/meters': typeof DashboardMetersRouteRoute
   '/overview': typeof DashboardOverviewRouteRoute
   '/usage': typeof DashboardUsageRouteRoute
@@ -65,20 +73,22 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_dashboard': typeof DashboardRouteRouteWithChildren
   '/login': typeof LoginRouteRoute
+  '/register': typeof RegisterRouteRoute
   '/_dashboard/meters': typeof DashboardMetersRouteRoute
   '/_dashboard/overview': typeof DashboardOverviewRouteRoute
   '/_dashboard/usage': typeof DashboardUsageRouteRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/meters' | '/overview' | '/usage'
+  fullPaths: '/' | '/login' | '/register' | '/meters' | '/overview' | '/usage'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/meters' | '/overview' | '/usage'
+  to: '/' | '/login' | '/register' | '/meters' | '/overview' | '/usage'
   id:
     | '__root__'
     | '/'
     | '/_dashboard'
     | '/login'
+    | '/register'
     | '/_dashboard/meters'
     | '/_dashboard/overview'
     | '/_dashboard/usage'
@@ -88,10 +98,18 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   DashboardRouteRoute: typeof DashboardRouteRouteWithChildren
   LoginRouteRoute: typeof LoginRouteRoute
+  RegisterRouteRoute: typeof RegisterRouteRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/register': {
+      id: '/register'
+      path: '/register'
+      fullPath: '/register'
+      preLoaderRoute: typeof RegisterRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/login': {
       id: '/login'
       path: '/login'
@@ -157,6 +175,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DashboardRouteRoute: DashboardRouteRouteWithChildren,
   LoginRouteRoute: LoginRouteRoute,
+  RegisterRouteRoute: RegisterRouteRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
