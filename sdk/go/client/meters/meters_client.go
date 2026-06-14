@@ -76,12 +76,6 @@ type ClientService interface {
 	// GetMeterContext get meter.
 	GetMeterContext(ctx context.Context, params *GetMeterParams, opts ...ClientOption) (*GetMeterOK, error)
 
-	// ListMeterStats list meter stats.
-	ListMeterStats(params *ListMeterStatsParams, opts ...ClientOption) (*ListMeterStatsOK, error)
-
-	// ListMeterStatsContext list meter stats.
-	ListMeterStatsContext(ctx context.Context, params *ListMeterStatsParams, opts ...ClientOption) (*ListMeterStatsOK, error)
-
 	// ListMeters list meters.
 	ListMeters(params *ListMetersParams, opts ...ClientOption) (*ListMetersOK, error)
 
@@ -292,72 +286,6 @@ func (a *Client) GetMeterContext(ctx context.Context, params *GetMeterParams, op
 	//
 	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for getMeter: API contract not enforced by server. Client expected to get an error, but got: %T", result)
-	panic(msg)
-}
-
-/*
-ListMeterStatslists meter stats.
-
-This method does not support injected context.
-However, timeout and opentracing contexts are honored whenever enabled.
-
-If you need to pass a specific context, use [Client.ListMeterStatsContext] instead.
-*/
-func (a *Client) ListMeterStats(params *ListMeterStatsParams, opts ...ClientOption) (*ListMeterStatsOK, error) {
-	var ctx context.Context
-	if params.inner.ctx != nil {
-		ctx = params.inner.ctx
-	} else {
-		ctx = context.Background()
-	}
-
-	return a.ListMeterStatsContext(ctx, params, opts...)
-}
-
-/*
-ListMeterStatsContextlists meter stats.
-
-Do not use the deprecated [ListMeterStatsParams.Context] with this method: it would be ignored.
-*/
-func (a *Client) ListMeterStatsContext(ctx context.Context, params *ListMeterStatsParams, opts ...ClientOption) (*ListMeterStatsOK, error) {
-	// NOTE: parameters are not validated before sending
-	if params == nil {
-		params = NewListMeterStatsParams()
-	}
-
-	op := &runtime.ClientOperation{
-		ID:                 "listMeterStats",
-		Method:             "GET",
-		PathPattern:        "/v1/meters/stats",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json"},
-		Schemes:            []string{"http"},
-		Params:             params,
-		Reader:             &ListMeterStatsReader{formats: a.formats},
-		Client:             params.HTTPClient,
-	}
-
-	for _, opt := range opts {
-		opt(op)
-	}
-
-	result, err := a.transport.SubmitContext(ctx, op)
-	if err != nil {
-		return nil, err
-	}
-
-	// only one success response has to be checked
-	success, ok := result.(*ListMeterStatsOK)
-	if ok {
-		return success, nil
-	}
-
-	// unexpected success response.
-
-	// no default response is defined.
-	//
-	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for listMeterStats: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

@@ -5,7 +5,6 @@ using Microsoft.Kiota.Abstractions.Serialization;
 using Microsoft.Kiota.Abstractions;
 using OpenSpanner.Models;
 using OpenSpanner.V1.Meters.Item;
-using OpenSpanner.V1.Meters.Stats;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
@@ -19,11 +18,6 @@ namespace OpenSpanner.V1.Meters
     [global::System.CodeDom.Compiler.GeneratedCode("Kiota", "1.0.0")]
     public partial class MetersRequestBuilder : BaseRequestBuilder
     {
-        /// <summary>The stats property</summary>
-        public global::OpenSpanner.V1.Meters.Stats.StatsRequestBuilder Stats
-        {
-            get => new global::OpenSpanner.V1.Meters.Stats.StatsRequestBuilder(PathParameters, RequestAdapter);
-        }
         /// <summary>Gets an item from the OpenSpanner.v1.meters.item collection</summary>
         /// <param name="position">Meter ID</param>
         /// <returns>A <see cref="global::OpenSpanner.V1.Meters.Item.MetersItemRequestBuilder"/></returns>

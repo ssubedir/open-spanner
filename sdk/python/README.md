@@ -8,29 +8,21 @@ Install from PyPI:
 pip install open-spanner
 ```
 
-Create a meter, then record usage:
+Record usage for a meter that already exists:
 
 ```python
 from datetime import UTC, datetime
+import os
 from uuid import uuid4
 
-from open_spanner_client import Client
-from open_spanner_client.api.meters import create_meter
+from open_spanner_client import AuthenticatedClient
 from open_spanner_client.api.usages import create_usage
-from open_spanner_client.models.meter_create_request import MeterCreateRequest
 from open_spanner_client.models.usage_create_request import UsageCreateRequest
 
-client = Client(base_url="https://api.example.com", raise_on_unexpected_status=True)
-
-meter = create_meter.sync(
-    client=client,
-    body=MeterCreateRequest(
-        name="api_requests",
-        description="API request counter",
-        unit="request",
-        aggregation="sum",
-        event_retention_days=30,
-    ),
+client = AuthenticatedClient(
+    base_url="https://api.example.com",
+    token=os.environ["OPEN_SPANNER_API_KEY"],
+    raise_on_unexpected_status=True,
 )
 
 usage = create_usage.sync(
@@ -38,11 +30,11 @@ usage = create_usage.sync(
     body=UsageCreateRequest(
         idempotency_key=str(uuid4()),
         subject="org_123",
-        meter=meter.name,
+        meter="api_requests",
         quantity=1,
         timestamp=datetime.now(UTC).isoformat(),
     ),
 )
 
-print(meter.id, usage.id)
+print(usage.id)
 ```

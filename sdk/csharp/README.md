@@ -2,7 +2,7 @@
 
 Generated C# client for the Open Spanner API.
 
-Create a meter, then record usage:
+Record usage for a meter that already exists:
 
 ```csharp
 using Microsoft.Kiota.Abstractions.Authentication;
@@ -10,30 +10,34 @@ using Microsoft.Kiota.Http.HttpClientLibrary;
 using OpenSpanner;
 using OpenSpanner.Models;
 
-var authProvider = new AnonymousAuthenticationProvider();
+var authProvider = new BaseBearerTokenAuthenticationProvider(new EnvironmentApiKeyProvider());
 var adapter = new HttpClientRequestAdapter(authProvider)
 {
     BaseUrl = "https://api.example.com",
 };
 var client = new OpenSpannerClient(adapter);
 
-var meter = await client.V1.Meters.PostAsync(new MeterCreateRequest
-{
-    Name = "api_requests",
-    Description = "API request counter",
-    Unit = "request",
-    Aggregation = "sum",
-    EventRetentionDays = 30,
-});
-
 var usage = await client.V1.Usages.PostAsync(new UsageCreateRequest
 {
     IdempotencyKey = Guid.NewGuid().ToString(),
     Subject = "org_123",
-    Meter = meter?.Name,
+    Meter = "api_requests",
     Quantity = 1,
     Timestamp = DateTimeOffset.UtcNow.ToString("O"),
 });
 
-Console.WriteLine($"{meter?.Id} {usage?.Id}");
+Console.WriteLine(usage?.Id);
+
+sealed class EnvironmentApiKeyProvider : IAccessTokenProvider
+{
+    public AllowedHostsValidator AllowedHostsValidator { get; } = new();
+
+    public Task<string> GetAuthorizationTokenAsync(
+        Uri uri,
+        Dictionary<string, object>? additionalAuthenticationContext = null,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(Environment.GetEnvironmentVariable("OPEN_SPANNER_API_KEY") ?? "");
+    }
+}
 ```

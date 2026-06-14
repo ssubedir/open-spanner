@@ -10,9 +10,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/ssubedir/open-spanner/sdk/go/client/health"
 	"github.com/ssubedir/open-spanner/sdk/go/client/meters"
-	"github.com/ssubedir/open-spanner/sdk/go/client/subjects"
-	"github.com/ssubedir/open-spanner/sdk/go/client/system"
-	"github.com/ssubedir/open-spanner/sdk/go/client/usage_events"
 	"github.com/ssubedir/open-spanner/sdk/go/client/usages"
 )
 
@@ -61,9 +58,6 @@ func New(transport runtime.ContextualTransport, formats strfmt.Registry) *OpenSp
 	cli.Transport = transport
 	cli.Health = health.New(transport, formats)
 	cli.Meters = meters.New(transport, formats)
-	cli.Subjects = subjects.New(transport, formats)
-	cli.System = system.New(transport, formats)
-	cli.UsageEvents = usage_events.New(transport, formats)
 	cli.Usages = usages.New(transport, formats)
 
 	return cli
@@ -128,12 +122,6 @@ type OpenSpanner struct {
 
 	Meters meters.ClientService
 
-	Subjects subjects.ClientService
-
-	System system.ClientService
-
-	UsageEvents usage_events.ClientService
-
 	Usages usages.ClientService
 
 	Transport runtime.ContextualTransport
@@ -144,8 +132,5 @@ func (c *OpenSpanner) SetTransport(transport runtime.ContextualTransport) {
 	c.Transport = transport
 	c.Health.SetTransport(transport)
 	c.Meters.SetTransport(transport)
-	c.Subjects.SetTransport(transport)
-	c.System.SetTransport(transport)
-	c.UsageEvents.SetTransport(transport)
 	c.Usages.SetTransport(transport)
 }

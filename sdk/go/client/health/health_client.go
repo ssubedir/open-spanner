@@ -64,6 +64,12 @@ type ClientService interface {
 	// HealthCheckContext health check.
 	HealthCheckContext(ctx context.Context, params *HealthCheckParams, opts ...ClientOption) (*HealthCheckNoContent, error)
 
+	// ReadinessCheck readiness check.
+	ReadinessCheck(params *ReadinessCheckParams, opts ...ClientOption) (*ReadinessCheckNoContent, error)
+
+	// ReadinessCheckContext readiness check.
+	ReadinessCheckContext(ctx context.Context, params *ReadinessCheckParams, opts ...ClientOption) (*ReadinessCheckNoContent, error)
+
 	SetTransport(transport runtime.ContextualTransport)
 }
 
@@ -130,6 +136,72 @@ func (a *Client) HealthCheckContext(ctx context.Context, params *HealthCheckPara
 	//
 	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for healthCheck: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+ReadinessCheckreadinesses check.
+
+This method does not support injected context.
+However, timeout and opentracing contexts are honored whenever enabled.
+
+If you need to pass a specific context, use [Client.ReadinessCheckContext] instead.
+*/
+func (a *Client) ReadinessCheck(params *ReadinessCheckParams, opts ...ClientOption) (*ReadinessCheckNoContent, error) {
+	var ctx context.Context
+	if params.inner.ctx != nil {
+		ctx = params.inner.ctx
+	} else {
+		ctx = context.Background()
+	}
+
+	return a.ReadinessCheckContext(ctx, params, opts...)
+}
+
+/*
+ReadinessCheckContextreadinesses check.
+
+Do not use the deprecated [ReadinessCheckParams.Context] with this method: it would be ignored.
+*/
+func (a *Client) ReadinessCheckContext(ctx context.Context, params *ReadinessCheckParams, opts ...ClientOption) (*ReadinessCheckNoContent, error) {
+	// NOTE: parameters are not validated before sending
+	if params == nil {
+		params = NewReadinessCheckParams()
+	}
+
+	op := &runtime.ClientOperation{
+		ID:                 "readinessCheck",
+		Method:             "GET",
+		PathPattern:        "/ready",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http"},
+		Params:             params,
+		Reader:             &ReadinessCheckReader{formats: a.formats},
+		Client:             params.HTTPClient,
+	}
+
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.SubmitContext(ctx, op)
+	if err != nil {
+		return nil, err
+	}
+
+	// only one success response has to be checked
+	success, ok := result.(*ReadinessCheckNoContent)
+	if ok {
+		return success, nil
+	}
+
+	// unexpected success response.
+
+	// no default response is defined.
+	//
+	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for readinessCheck: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

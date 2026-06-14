@@ -8,6 +8,16 @@ if (!inputPath || !outputPath) {
 }
 
 const schemaNames = new Map([
+  ["internal_metering_adapters_http_auth.APIKeyCreateResponse", "APIKeyCreateResponse"],
+  ["internal_metering_adapters_http_auth.APIKeyListResponse", "APIKeyListResponse"],
+  ["internal_metering_adapters_http_auth.APIKeyResponse", "APIKey"],
+  ["internal_metering_adapters_http_auth.CreateAPIKeyRequest", "APIKeyCreateRequest"],
+  ["internal_metering_adapters_http_auth.CreateUserRequest", "AuthUserCreateRequest"],
+  ["internal_metering_adapters_http_auth.LoginRequest", "AuthLoginRequest"],
+  ["internal_metering_adapters_http_auth.LoginResponse", "AuthLoginResponse"],
+  ["internal_metering_adapters_http_auth.RefreshResponse", "AuthRefreshResponse"],
+  ["internal_metering_adapters_http_auth.SessionResponse", "AuthSessionResponse"],
+  ["internal_metering_adapters_http_auth.UserResponse", "AuthUser"],
   ["internal_metering_adapters_http_meter.CreateRequest", "MeterCreateRequest"],
   ["internal_metering_adapters_http_meter.ListResponse", "MeterListResponse"],
   ["internal_metering_adapters_http_meter.Response", "Meter"],
@@ -37,6 +47,35 @@ const schemaNames = new Map([
 ]);
 
 const spec = JSON.parse(fs.readFileSync(inputPath, "utf8"));
+
+const sdkOperations = new Map([
+  ["/health", new Set(["get"])],
+  ["/ready", new Set(["get"])],
+  ["/v1/meters", new Set(["get", "post"])],
+  ["/v1/meters/{id}", new Set(["delete", "get", "put"])],
+  ["/v1/usages", new Set(["post"])],
+  ["/v1/usages/bulk", new Set(["post"])],
+  ["/v1/usages/export", new Set(["get"])],
+  ["/v1/usages/search", new Set(["post"])],
+]);
+
+for (const [path, pathItem] of Object.entries(spec.paths ?? {})) {
+  const allowedMethods = sdkOperations.get(path);
+  if (!allowedMethods) {
+    delete spec.paths[path];
+    continue;
+  }
+
+  for (const key of Object.keys(pathItem)) {
+    if (isHTTPMethod(key) && !allowedMethods.has(key)) {
+      delete pathItem[key];
+    }
+  }
+
+  if (!Object.keys(pathItem).some(isHTTPMethod)) {
+    delete spec.paths[path];
+  }
+}
 
 function rewriteRefs(value) {
   if (Array.isArray(value)) {
@@ -88,5 +127,73 @@ function renameSchemaContainer(container) {
 renameSchemaContainer(spec.definitions);
 renameSchemaContainer(spec.components?.schemas);
 rewriteRefs(spec);
+pruneUnreferencedSchemas(spec);
 
 fs.writeFileSync(outputPath, `${JSON.stringify(spec, null, 2)}\n`);
+
+function pruneUnreferencedSchemas(document) {
+  const container = document.definitions ?? document.components?.schemas;
+  if (!container) {
+    return;
+  }
+
+  const refs = new Set();
+  const queue = [];
+
+  collectRefs(document.paths, refs, queue);
+
+  for (let index = 0; index < queue.length; index += 1) {
+    const name = queue[index];
+    if (container[name]) {
+      collectRefs(container[name], refs, queue);
+    }
+  }
+
+  for (const name of Object.keys(container)) {
+    if (!refs.has(name)) {
+      delete container[name];
+    }
+  }
+}
+
+function collectRefs(value, refs, queue) {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectRefs(item, refs, queue);
+    }
+    return;
+  }
+  if (!value || typeof value !== "object") {
+    return;
+  }
+
+  if (typeof value.$ref === "string") {
+    const name = schemaNameFromRef(value.$ref);
+    if (name && !refs.has(name)) {
+      refs.add(name);
+      queue.push(name);
+    }
+  }
+
+  for (const nested of Object.values(value)) {
+    collectRefs(nested, refs, queue);
+  }
+}
+
+function schemaNameFromRef(ref) {
+  const definitionsPrefix = "#/definitions/";
+  if (ref.startsWith(definitionsPrefix)) {
+    return ref.slice(definitionsPrefix.length);
+  }
+
+  const schemasPrefix = "#/components/schemas/";
+  if (ref.startsWith(schemasPrefix)) {
+    return ref.slice(schemasPrefix.length);
+  }
+
+  return undefined;
+}
+
+function isHTTPMethod(key) {
+  return ["delete", "get", "head", "options", "patch", "post", "put", "trace"].includes(key);
+}

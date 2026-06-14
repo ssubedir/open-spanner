@@ -7,6 +7,7 @@ using Microsoft.Kiota.Serialization.Json;
 using Microsoft.Kiota.Serialization.Multipart;
 using Microsoft.Kiota.Serialization.Text;
 using OpenSpanner.Health;
+using OpenSpanner.Ready;
 using OpenSpanner.V1;
 using System.Collections.Generic;
 using System.IO;
@@ -24,6 +25,11 @@ namespace OpenSpanner
         public global::OpenSpanner.Health.HealthRequestBuilder Health
         {
             get => new global::OpenSpanner.Health.HealthRequestBuilder(PathParameters, RequestAdapter);
+        }
+        /// <summary>The ready property</summary>
+        public global::OpenSpanner.Ready.ReadyRequestBuilder Ready
+        {
+            get => new global::OpenSpanner.Ready.ReadyRequestBuilder(PathParameters, RequestAdapter);
         }
         /// <summary>The v1 property</summary>
         public global::OpenSpanner.V1.V1RequestBuilder V1

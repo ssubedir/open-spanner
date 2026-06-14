@@ -14,6 +14,14 @@ namespace OpenSpanner.Models
     {
         /// <summary>Stores additional data not described in the OpenAPI description found when deserializing. Can be used for serialization as well.</summary>
         public IDictionary<string, object> AdditionalData { get; set; }
+        /// <summary>The aggregation property</summary>
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
+#nullable enable
+        public string? Aggregation { get; set; }
+#nullable restore
+#else
+        public string Aggregation { get; set; }
+#endif
         /// <summary>The description property</summary>
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
 #nullable enable
@@ -21,6 +29,24 @@ namespace OpenSpanner.Models
 #nullable restore
 #else
         public string Description { get; set; }
+#endif
+        /// <summary>The event_retention_days property</summary>
+        public int? EventRetentionDays { get; set; }
+        /// <summary>The metadata_schema property</summary>
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
+#nullable enable
+        public global::OpenSpanner.Models.MeterUpdateRequest_metadata_schema? MetadataSchema { get; set; }
+#nullable restore
+#else
+        public global::OpenSpanner.Models.MeterUpdateRequest_metadata_schema MetadataSchema { get; set; }
+#endif
+        /// <summary>The unit property</summary>
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
+#nullable enable
+        public string? Unit { get; set; }
+#nullable restore
+#else
+        public string Unit { get; set; }
 #endif
         /// <summary>
         /// Instantiates a new <see cref="global::OpenSpanner.Models.MeterUpdateRequest"/> and sets the default values.
@@ -47,7 +73,11 @@ namespace OpenSpanner.Models
         {
             return new Dictionary<string, Action<IParseNode>>
             {
+                { "aggregation", n => { Aggregation = n.GetStringValue(); } },
                 { "description", n => { Description = n.GetStringValue(); } },
+                { "event_retention_days", n => { EventRetentionDays = n.GetIntValue(); } },
+                { "metadata_schema", n => { MetadataSchema = n.GetObjectValue<global::OpenSpanner.Models.MeterUpdateRequest_metadata_schema>(global::OpenSpanner.Models.MeterUpdateRequest_metadata_schema.CreateFromDiscriminatorValue); } },
+                { "unit", n => { Unit = n.GetStringValue(); } },
             };
         }
         /// <summary>
@@ -57,7 +87,11 @@ namespace OpenSpanner.Models
         public virtual void Serialize(ISerializationWriter writer)
         {
             if(ReferenceEquals(writer, null)) throw new ArgumentNullException(nameof(writer));
+            writer.WriteStringValue("aggregation", Aggregation);
             writer.WriteStringValue("description", Description);
+            writer.WriteIntValue("event_retention_days", EventRetentionDays);
+            writer.WriteObjectValue<global::OpenSpanner.Models.MeterUpdateRequest_metadata_schema>("metadata_schema", MetadataSchema);
+            writer.WriteStringValue("unit", Unit);
             writer.WriteAdditionalData(AdditionalData);
         }
     }

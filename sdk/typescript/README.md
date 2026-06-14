@@ -1,31 +1,29 @@
 # Open Spanner TypeScript SDK
 
-Small TypeScript/JavaScript client stub for Open Spanner.
+Generated TypeScript/JavaScript client for Open Spanner.
 
 ```ts
-import { OpenSpannerClient } from "@ssubedir/open-spanner";
+import { client, createUsage } from "@ssubedir/open-spanner";
 
-const client = new OpenSpannerClient({
+client.setConfig({
   baseUrl: "https://api.example.com",
+  headers: {
+    Authorization: `Bearer ${process.env.OPEN_SPANNER_API_KEY}`,
+  },
 });
 
-const meter = await client.createMeter({
-  name: "api_requests",
-  description: "API request counter",
-  unit: "request",
-  aggregation: "sum",
-  event_retention_days: 30,
+const { data: usage } = await createUsage({
+  body: {
+    idempotency_key: crypto.randomUUID(),
+    subject: "org_123",
+    meter: "api_requests",
+    quantity: 1,
+    timestamp: new Date().toISOString(),
+  },
+  throwOnError: true,
 });
 
-const usage = await client.createUsage({
-  idempotency_key: crypto.randomUUID(),
-  subject: "org_123",
-  meter: meter.name,
-  quantity: 1,
-  timestamp: new Date().toISOString(),
-});
-
-console.log(meter.id, usage.id);
+console.log(usage.id);
 ```
 
-Types are generated from `../../openapi/sdk-openapi.json` with `openapi-typescript`. The handwritten code is only a small `fetch` wrapper around those generated OpenAPI types.
+The SDK source is generated from `../../openapi/sdk-openapi.json` with `@hey-api/openapi-ts`.

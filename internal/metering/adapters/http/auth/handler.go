@@ -172,6 +172,7 @@ func (h *Handler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 // @Summary Delete API key
 // @ID deleteAPIKey
 // @Tags auth
+// @Produce json
 // @Param id path string true "API key ID"
 // @Success 204
 // @Failure 401 {object} respond.ErrorResponse
@@ -254,6 +255,7 @@ func (h *Handler) GetSession(w http.ResponseWriter, r *http.Request) {
 // @Summary Delete auth session
 // @ID deleteAuthSession
 // @Tags auth
+// @Produce json
 // @Success 204
 // @Failure 500 {object} respond.ErrorResponse
 // @Router /v1/auth/session [delete]
