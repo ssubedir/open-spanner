@@ -13,7 +13,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/config"
+	httpauth "github.com/ssubedir/open-spanner/internal/metering/adapters/http/auth"
 	httpmeter "github.com/ssubedir/open-spanner/internal/metering/adapters/http/meter"
 	httpsubject "github.com/ssubedir/open-spanner/internal/metering/adapters/http/subject"
 	httpsystem "github.com/ssubedir/open-spanner/internal/metering/adapters/http/system"
@@ -24,6 +26,54 @@ import (
 	appsystem "github.com/ssubedir/open-spanner/internal/metering/app/system"
 	appusage "github.com/ssubedir/open-spanner/internal/metering/app/usage"
 )
+
+func TestAuthAPIContract(t *testing.T) {
+	router := newTestRouter()
+
+	create := requestJSON(t, router, http.MethodPost, "/v1/auth/users", map[string]any{
+		"email":    " Admin@Example.COM ",
+		"password": "strong-password",
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create user status = %d, want %d: %s", create.Code, http.StatusCreated, create.Body.String())
+	}
+
+	var created authUserResponse
+	decodeJSON(t, create, &created)
+	if created.ID == "" || created.Email != "admin@example.com" || created.CreatedAt == "" {
+		t.Fatalf("created user = %#v", created)
+	}
+
+	duplicate := requestJSON(t, router, http.MethodPost, "/v1/auth/users", map[string]any{
+		"email":    "other@example.com",
+		"password": "another-password",
+	})
+	if duplicate.Code != http.StatusConflict {
+		t.Fatalf("duplicate bootstrap status = %d, want %d: %s", duplicate.Code, http.StatusConflict, duplicate.Body.String())
+	}
+
+	login := requestJSON(t, router, http.MethodPost, "/v1/auth/sessions", map[string]any{
+		"email":    "admin@example.com",
+		"password": "strong-password",
+	})
+	if login.Code != http.StatusCreated {
+		t.Fatalf("login status = %d, want %d: %s", login.Code, http.StatusCreated, login.Body.String())
+	}
+
+	var session authSessionResponse
+	decodeJSON(t, login, &session)
+	if session.Token == "" || session.TokenType != "Bearer" || session.ExpiresAt == "" || session.User.ID != created.ID {
+		t.Fatalf("session = %#v", session)
+	}
+
+	badLogin := requestJSON(t, router, http.MethodPost, "/v1/auth/sessions", map[string]any{
+		"email":    "admin@example.com",
+		"password": "wrong-password",
+	})
+	if badLogin.Code != http.StatusUnauthorized {
+		t.Fatalf("bad login status = %d, want %d: %s", badLogin.Code, http.StatusUnauthorized, badLogin.Body.String())
+	}
+}
 
 func TestMeterAPIContract(t *testing.T) {
 	router := newTestRouter()
@@ -1231,6 +1281,8 @@ func newTestRouter() http.Handler {
 	}
 	meterRepo := sqlite.NewMeterRepository(store)
 	usageRepo := sqlite.NewUsageRepository(store)
+	authRepo := sqlite.NewAuthRepository(store)
+	authService := appauth.NewService(authRepo)
 	meterService := appmeter.NewService(meterRepo, usageRepo)
 	subjectService := appsubject.NewService(usageRepo)
 	usageService := appusage.NewService(meterRepo, usageRepo, store)
@@ -1238,6 +1290,7 @@ func newTestRouter() http.Handler {
 
 	router := chi.NewRouter()
 	router.Route("/v1", func(r chi.Router) {
+		httpauth.NewHandler(authService).RegisterRoutes(r)
 		httpmeter.NewHandler(meterService).RegisterRoutes(r)
 		httpsubject.NewHandler(subjectService).RegisterRoutes(r)
 		httpusage.NewHandler(usageService).RegisterRoutes(r)
@@ -1414,4 +1467,17 @@ type errorResponse struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
 	} `json:"error"`
+}
+
+type authUserResponse struct {
+	ID        string `json:"id"`
+	Email     string `json:"email"`
+	CreatedAt string `json:"created_at"`
+}
+
+type authSessionResponse struct {
+	Token     string           `json:"token"`
+	TokenType string           `json:"token_type"`
+	ExpiresAt string           `json:"expires_at"`
+	User      authUserResponse `json:"user"`
 }

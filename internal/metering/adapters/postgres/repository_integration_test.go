@@ -10,11 +10,61 @@ import (
 	"testing"
 	"time"
 
+	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	appusage "github.com/ssubedir/open-spanner/internal/metering/app/usage"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
 	domainmeter "github.com/ssubedir/open-spanner/internal/metering/domain/meter"
 	domainusage "github.com/ssubedir/open-spanner/internal/metering/domain/usage"
 )
+
+func TestIntegrationPostgresAuthRepositoryUserAndSessionFlow(t *testing.T) {
+	ctx := context.Background()
+	store := newIntegrationStore(t, ctx)
+	repo := NewAuthRepository(store)
+	now := time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)
+
+	user := appauth.User{
+		ID:           "user-1",
+		Email:        "admin@example.com",
+		PasswordHash: "hashed-password",
+		CreatedAt:    now,
+	}
+	if _, err := repo.SaveUser(ctx, user); err != nil {
+		t.Fatalf("save user: %v", err)
+	}
+
+	found, err := repo.FindUserByEmail(ctx, "admin@example.com")
+	if err != nil {
+		t.Fatalf("find user: %v", err)
+	}
+	if found.ID != user.ID || found.PasswordHash != user.PasswordHash {
+		t.Fatalf("found user = %#v, want %#v", found, user)
+	}
+
+	session := appauth.Session{
+		ID:        "session-1",
+		UserID:    user.ID,
+		TokenHash: appauth.HashToken("session-token"),
+		CreatedAt: now,
+		ExpiresAt: now.Add(time.Hour),
+	}
+	if _, err := repo.SaveSession(ctx, session); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+
+	active, err := repo.FindSessionByTokenHash(ctx, session.TokenHash, now)
+	if err != nil {
+		t.Fatalf("find active session: %v", err)
+	}
+	if active.ID != session.ID || active.UserID != user.ID {
+		t.Fatalf("active session = %#v, want %#v", active, session)
+	}
+
+	_, err = repo.FindSessionByTokenHash(ctx, session.TokenHash, now.Add(2*time.Hour))
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expired session error = %v, want ErrNotFound", err)
+	}
+}
 
 func TestIntegrationPostgresUsageFlow(t *testing.T) {
 	ctx := context.Background()
@@ -351,7 +401,7 @@ func cleanIntegrationStore(t *testing.T, ctx context.Context, store *Store) {
 	t.Helper()
 
 	_, err := store.db.ExecContext(ctx, `
-TRUNCATE TABLE usage_ingestions, usage_prune_runs, bulk_usage_ingestions, usage_events, meters RESTART IDENTITY CASCADE
+TRUNCATE TABLE auth_sessions, auth_users, usage_ingestions, usage_prune_runs, bulk_usage_ingestions, usage_events, meters RESTART IDENTITY CASCADE
 `)
 	if err != nil {
 		t.Fatalf("clean postgres store: %v", err)
@@ -427,8 +477,8 @@ LIMIT 1
 		t.Fatalf("query schema migration version: %v", err)
 	}
 
-	if version != 4 || dirty {
-		t.Fatalf("schema migration version = %d dirty=%v, want version 4 dirty=false", version, dirty)
+	if version != 5 || dirty {
+		t.Fatalf("schema migration version = %d dirty=%v, want version 5 dirty=false", version, dirty)
 	}
 }
 

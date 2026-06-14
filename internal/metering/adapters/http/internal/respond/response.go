@@ -24,6 +24,8 @@ func ServiceError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, domain.ErrInvalidInput):
 		Error(w, http.StatusBadRequest, "invalid_input", err.Error())
+	case errors.Is(err, domain.ErrUnauthorized):
+		Error(w, http.StatusUnauthorized, "unauthorized", err.Error())
 	case errors.Is(err, domain.ErrNotFound):
 		Error(w, http.StatusNotFound, "not_found", err.Error())
 	case errors.Is(err, domain.ErrConflict):

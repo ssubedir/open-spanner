@@ -5,7 +5,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/config"
+	httpauth "github.com/ssubedir/open-spanner/internal/metering/adapters/http/auth"
 	httpmeter "github.com/ssubedir/open-spanner/internal/metering/adapters/http/meter"
 	httpsubject "github.com/ssubedir/open-spanner/internal/metering/adapters/http/subject"
 	httpsystem "github.com/ssubedir/open-spanner/internal/metering/adapters/http/system"
@@ -31,6 +33,15 @@ type readinessChecker interface {
 	Ping(ctx context.Context) error
 }
 
+type repositorySet struct {
+	auth       appauth.Repository
+	meter      domainmeter.Repository
+	usage      domainusage.Repository
+	transactor apptransaction.Transactor
+	ready      func(context.Context) error
+	cleanup    func() error
+}
+
 func (a *App) Ready(ctx context.Context) error {
 	if a == nil || a.ready == nil {
 		return nil
@@ -46,42 +57,58 @@ func (a *App) Cleanup() error {
 }
 
 func RegisterRoutes(ctx context.Context, router chi.Router, cfg config.Config) (*App, error) {
-	meterRepo, usageRepo, transactor, ready, cleanup, err := repositories(ctx, cfg)
+	repos, err := repositories(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	meterService := appmeter.NewService(meterRepo, usageRepo)
-	subjectService := appsubject.NewService(usageRepo)
-	usageService := appusage.NewService(meterRepo, usageRepo, transactor)
-	systemService := appsystem.NewService(meterRepo, usageRepo)
+	authService := appauth.NewService(repos.auth)
+	meterService := appmeter.NewService(repos.meter, repos.usage)
+	subjectService := appsubject.NewService(repos.usage)
+	usageService := appusage.NewService(repos.meter, repos.usage, repos.transactor)
+	systemService := appsystem.NewService(repos.meter, repos.usage)
 
 	router.Route("/v1", func(r chi.Router) {
+		httpauth.NewHandler(authService).RegisterRoutes(r)
 		httpmeter.NewHandler(meterService).RegisterRoutes(r)
 		httpsubject.NewHandler(subjectService).RegisterRoutes(r)
 		httpusage.NewHandler(usageService).RegisterRoutes(r)
 		httpsystem.NewHandler(systemService).RegisterRoutes(r)
 	})
 
-	return &App{UsageService: usageService, ready: ready, cleanup: cleanup}, nil
+	return &App{UsageService: usageService, ready: repos.ready, cleanup: repos.cleanup}, nil
 }
 
-func repositories(ctx context.Context, cfg config.Config) (domainmeter.Repository, domainusage.Repository, apptransaction.Transactor, func(context.Context) error, func() error, error) {
+func repositories(ctx context.Context, cfg config.Config) (repositorySet, error) {
 	switch cfg.DBDriver {
 	case "postgres":
 		store, err := postgres.NewStore(ctx, cfg.PostgresDSN, cfg.DBPool)
 		if err != nil {
-			return nil, nil, nil, nil, nil, err
+			return repositorySet{}, err
 		}
 
-		return postgres.NewMeterRepository(store), postgres.NewUsageRepository(store), store, readiness(store), store.Close, nil
+		return repositorySet{
+			auth:       postgres.NewAuthRepository(store),
+			meter:      postgres.NewMeterRepository(store),
+			usage:      postgres.NewUsageRepository(store),
+			transactor: store,
+			ready:      readiness(store),
+			cleanup:    store.Close,
+		}, nil
 	default:
 		store, err := sqlite.NewStore(ctx, cfg.SQLitePath, cfg.DBPool)
 		if err != nil {
-			return nil, nil, nil, nil, nil, err
+			return repositorySet{}, err
 		}
 
-		return sqlite.NewMeterRepository(store), sqlite.NewUsageRepository(store), store, readiness(store), store.Close, nil
+		return repositorySet{
+			auth:       sqlite.NewAuthRepository(store),
+			meter:      sqlite.NewMeterRepository(store),
+			usage:      sqlite.NewUsageRepository(store),
+			transactor: store,
+			ready:      readiness(store),
+			cleanup:    store.Close,
+		}, nil
 	}
 }
 
