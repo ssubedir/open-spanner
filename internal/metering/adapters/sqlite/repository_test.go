@@ -477,6 +477,57 @@ func TestUsageRepositoryQueryGroupsBuckets(t *testing.T) {
 	}
 }
 
+func TestUsageRepositoryQueryAppliesMetadataFilters(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t, ctx)
+	meterRepo := NewMeterRepository(store)
+	usageRepo := NewUsageRepository(store)
+
+	if _, err := meterRepo.Save(ctx, newTestMeter(t, "meter-1", "api_calls", time.Now())); err != nil {
+		t.Fatalf("save meter: %v", err)
+	}
+
+	inputs := []struct {
+		id       string
+		region   string
+		quantity float64
+	}{
+		{"event-1", "us-east-1", 2},
+		{"event-2", "us-west-2", 3},
+		{"event-3", "us-east-1", 5},
+	}
+	for _, input := range inputs {
+		event := newTestEvent(t, input.id, "", "org_123", "api_calls", input.quantity, time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC))
+		event.Metadata()["region"] = input.region
+		if _, err := usageRepo.Save(ctx, event); err != nil {
+			t.Fatalf("save event %s: %v", input.id, err)
+		}
+	}
+
+	query, err := domainusage.NewQuery(
+		"org_123",
+		"api_calls",
+		time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC),
+		domainusage.BucketDay,
+		domainmeter.AggregationSum,
+		map[string]string{"region": "us-east-1"},
+		"region",
+		0,
+	)
+	if err != nil {
+		t.Fatalf("new usage query: %v", err)
+	}
+
+	buckets, err := usageRepo.Query(ctx, query)
+	if err != nil {
+		t.Fatalf("query usage: %v", err)
+	}
+	if len(buckets) != 1 || buckets[0].Quantity() != 7 || buckets[0].Group()["region"] != "us-east-1" {
+		t.Fatalf("filtered buckets = %#v", buckets)
+	}
+}
+
 func TestUsageRepositoryAggregationModes(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t, ctx)
