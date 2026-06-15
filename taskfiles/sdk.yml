@@ -27,6 +27,7 @@ tasks:
       - node scripts/remove-paths.mjs sdk/python/open_spanner_client sdk/python/README.md sdk/python/pyproject.toml
       - uvx --from openapi-python-client==0.29.0 openapi-python-client generate --path openapi/sdk-openapi.json --output-path sdk/python --meta uv --config sdk/python-client.yml --overwrite
       - node scripts/finalize-python-sdk.mjs
+      - node scripts/trim-trailing-whitespace.mjs sdk/python/open_spanner_client
       - cd sdk/python; uv lock
 
   sdk:python:test:
@@ -60,6 +61,7 @@ tasks:
       - dotnet tool restore
       - node scripts/remove-paths.mjs sdk/csharp/src
       - dotnet tool run kiota -- generate -d openapi/sdk-openapi.json -l CSharp -o sdk/csharp/src -n OpenSpanner -c OpenSpannerClient --clean-output --exclude-backward-compatible
+      - node scripts/trim-trailing-whitespace.mjs sdk/csharp/src
       - node scripts/remove-paths.mjs sdk/csharp/src/.kiota.log
       - dotnet build sdk/csharp/OpenSpanner.csproj
 

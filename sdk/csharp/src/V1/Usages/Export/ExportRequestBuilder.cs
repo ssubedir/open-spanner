@@ -82,7 +82,7 @@ namespace OpenSpanner.V1.Usages.Export
         /// Export usage buckets
         /// </summary>
         [global::System.CodeDom.Compiler.GeneratedCode("Kiota", "1.0.0")]
-        public partial class ExportRequestBuilderGetQueryParameters 
+        public partial class ExportRequestBuilderGetQueryParameters
         {
             /// <summary>Bucket size: hour, day, month</summary>
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER

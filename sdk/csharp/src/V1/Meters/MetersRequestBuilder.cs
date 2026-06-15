@@ -154,7 +154,7 @@ namespace OpenSpanner.V1.Meters
         /// List meters
         /// </summary>
         [global::System.CodeDom.Compiler.GeneratedCode("Kiota", "1.0.0")]
-        public partial class MetersRequestBuilderGetQueryParameters 
+        public partial class MetersRequestBuilderGetQueryParameters
         {
             /// <summary>Pagination cursor</summary>
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
