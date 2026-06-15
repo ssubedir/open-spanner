@@ -1,0 +1,176 @@
+name: Release Orchestrator
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, for example 0.1.4"
+        required: true
+        type: string
+
+concurrency:
+  group: release-orchestrator-${{ inputs.version }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Validate and tag release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Require main branch
+        if: github.ref_name != 'main'
+        run: |
+          echo "Run this workflow from main after merging the release branch."
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.5"
+          cache: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Use locked npm version
+        run: npm install --global npm@11.6.2
+
+      - name: Install Task
+        run: npm install --global @go-task/cli
+
+      - name: Resolve release version
+        id: release
+        shell: bash
+        run: |
+          VERSION="${{ inputs.version }}"
+          VERSION="${VERSION#v}"
+
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Version must look like 0.1.4 or 0.1.4-rc.1"
+            exit 1
+          fi
+
+          {
+            echo "version=$VERSION"
+            echo "app_tag=v$VERSION"
+            echo "go_tag=sdk/go/v$VERSION"
+            echo "js_tag=sdk-js-v$VERSION"
+            echo "python_tag=sdk-python-v$VERSION"
+            echo "csharp_tag=sdk-csharp-v$VERSION"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Validate Taskfile includes
+        run: task --list
+
+      - name: Verify release artifacts
+        run: task release:check
+
+      - name: Verify SDK versions
+        shell: bash
+        run: |
+          VERSION="${{ steps.release.outputs.version }}"
+          TYPESCRIPT_VERSION="$(node -p "require('./sdk/typescript/package.json').version")"
+          PYTHON_VERSION="$(python -c "import tomllib; print(tomllib.load(open('sdk/python/pyproject.toml', 'rb'))['project']['version'])")"
+          CSHARP_VERSION="$(dotnet msbuild sdk/csharp/OpenSpanner.csproj -getProperty:Version)"
+
+          if [ "$TYPESCRIPT_VERSION" != "$VERSION" ]; then
+            echo "TypeScript SDK version mismatch: package.json=$TYPESCRIPT_VERSION release=$VERSION"
+            exit 1
+          fi
+
+          if [ "$PYTHON_VERSION" != "$VERSION" ]; then
+            echo "Python SDK version mismatch: pyproject.toml=$PYTHON_VERSION release=$VERSION"
+            exit 1
+          fi
+
+          if [ "$CSHARP_VERSION" != "$VERSION" ]; then
+            echo "C# SDK version mismatch: csproj=$CSHARP_VERSION release=$VERSION"
+            exit 1
+          fi
+
+      - name: Verify tags do not exist
+        shell: bash
+        run: |
+          TAGS=(
+            "${{ steps.release.outputs.app_tag }}"
+            "${{ steps.release.outputs.go_tag }}"
+            "${{ steps.release.outputs.js_tag }}"
+            "${{ steps.release.outputs.python_tag }}"
+            "${{ steps.release.outputs.csharp_tag }}"
+          )
+
+          for tag in "${TAGS[@]}"; do
+            if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+              echo "Tag already exists locally: ${tag}"
+              exit 1
+            fi
+
+            if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+              echo "Tag already exists on origin: ${tag}"
+              exit 1
+            fi
+          done
+
+      - name: Configure release token
+        shell: bash
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          if [ -z "$RELEASE_TOKEN" ]; then
+            echo "::error title=Missing RELEASE_TOKEN::Set RELEASE_TOKEN to a token with contents:write so tag pushes trigger the downstream publish workflows."
+            exit 1
+          fi
+
+          git remote set-url origin "https://x-access-token:${RELEASE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+      - name: Create and push release tags
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          TAGS=(
+            "${{ steps.release.outputs.app_tag }}"
+            "${{ steps.release.outputs.go_tag }}"
+            "${{ steps.release.outputs.js_tag }}"
+            "${{ steps.release.outputs.python_tag }}"
+            "${{ steps.release.outputs.csharp_tag }}"
+          )
+
+          for tag in "${TAGS[@]}"; do
+            git tag -a "$tag" -m "$tag"
+            git push origin "refs/tags/${tag}"
+            sleep 5
+          done
+
+          {
+            echo "### Release tags created"
+            echo
+            for tag in "${TAGS[@]}"; do
+              echo "- \`${tag}\`"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
