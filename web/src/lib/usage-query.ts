@@ -108,9 +108,9 @@ export function firstEqualRuleValue(query: RuleGroupType, field: string): string
 export function selectedMeterSchemaKeys(meters: Meter[], selectedMeterName?: string) {
   const selectedMeter = meters.find((meter) => meter.name === selectedMeterName)
   if (selectedMeter) {
-    return meterDimensions(selectedMeter).map((dimension) => dimension.name).sort()
+    return activeMeterDimensions(selectedMeter).map((dimension) => dimension.name).sort()
   }
-  return Array.from(new Set(meters.flatMap((meter) => meterDimensions(meter).map((dimension) => dimension.name)))).sort()
+  return Array.from(new Set(meters.flatMap((meter) => activeMeterDimensions(meter).map((dimension) => dimension.name)))).sort()
 }
 
 export function metadataTypesByField(meters: Meter[], selectedMeterName?: string): MetadataTypes {
@@ -316,10 +316,15 @@ function meterDimensions(meter?: Meter) {
   return Object.entries(meter.metadata_schema || {}).map(([name, type]) => ({
     description: '',
     display_name: humanizeField(name),
+    deprecated: false,
     name,
     required: true,
     type,
   }))
+}
+
+function activeMeterDimensions(meter?: Meter) {
+  return meterDimensions(meter).filter((dimension) => !dimension.deprecated)
 }
 
 function humanizeField(key: string) {

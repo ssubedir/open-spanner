@@ -528,13 +528,17 @@ func TestServiceCreateValidatesMeterDimensions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new retry dimension: %v", err)
 	}
+	legacy, err := domainmeter.NewDimension("legacy_code", domainmeter.MetadataString, "Legacy code", "", true, true)
+	if err != nil {
+		t.Fatalf("new legacy dimension: %v", err)
+	}
 	meter, err := domainmeter.NewWithDimensions(
 		"meter-1",
 		"api_calls",
 		"API calls",
 		"call",
 		domainmeter.AggregationSum,
-		[]domainmeter.Dimension{region, status, retry},
+		[]domainmeter.Dimension{region, status, retry, legacy},
 		0,
 		time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC),
 	)
@@ -563,6 +567,7 @@ func TestServiceCreateValidatesMeterDimensions(t *testing.T) {
 		"missing required dimension": {"status": 200},
 		"wrong number dimension":     {"region": "us-east-1", "status": "200"},
 		"wrong boolean dimension":    {"region": "us-east-1", "retry": "false"},
+		"wrong deprecated dimension": {"region": "us-east-1", "legacy_code": 123},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := service.Create(ctx, CreateCommand{

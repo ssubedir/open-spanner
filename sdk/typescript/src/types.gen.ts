@@ -42,6 +42,7 @@ export type MeterCreateRequest = {
  * MeterDimensionRequest
  */
 export type MeterDimensionRequest = {
+    deprecated?: boolean;
     description?: string;
     display_name?: string;
     name?: string;
@@ -53,6 +54,7 @@ export type MeterDimensionRequest = {
  * MeterDimension
  */
 export type MeterDimension = {
+    deprecated?: boolean;
     description?: string;
     display_name?: string;
     name?: string;

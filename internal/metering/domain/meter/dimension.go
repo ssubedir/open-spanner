@@ -14,12 +14,17 @@ type Dimension struct {
 	description  string
 	metadataType MetadataType
 	required     bool
+	deprecated   bool
 }
 
-func NewDimension(name string, metadataType MetadataType, displayName string, description string, required bool) (Dimension, error) {
+func NewDimension(name string, metadataType MetadataType, displayName string, description string, required bool, deprecated ...bool) (Dimension, error) {
 	name = strings.TrimSpace(name)
 	displayName = strings.TrimSpace(displayName)
 	description = strings.TrimSpace(description)
+	isDeprecated := false
+	if len(deprecated) > 0 {
+		isDeprecated = deprecated[0]
+	}
 
 	if name == "" {
 		return Dimension{}, fmt.Errorf("%w: dimension name is required", domain.ErrInvalidInput)
@@ -37,6 +42,7 @@ func NewDimension(name string, metadataType MetadataType, displayName string, de
 		description:  description,
 		metadataType: metadataType,
 		required:     required,
+		deprecated:   isDeprecated,
 	}, nil
 }
 
@@ -67,6 +73,7 @@ func normalizeDimensions(dimensions []Dimension) ([]Dimension, map[string]Metada
 			dimension.DisplayName(),
 			dimension.Description(),
 			dimension.Required(),
+			dimension.Deprecated(),
 		)
 		if err != nil {
 			return nil, nil, err
@@ -113,4 +120,12 @@ func (d Dimension) Type() MetadataType {
 
 func (d Dimension) Required() bool {
 	return d.required
+}
+
+func (d Dimension) RequiresValue() bool {
+	return d.required && !d.deprecated
+}
+
+func (d Dimension) Deprecated() bool {
+	return d.deprecated
 }

@@ -121,12 +121,12 @@ func (s *service) validateDimensionUpdate(ctx context.Context, existing domainme
 		if updated.Type() != current.Type() {
 			return fmt.Errorf("%w: dimension %q type cannot change after usage has been recorded", domain.ErrConflict, name)
 		}
-		if !current.Required() && updated.Required() {
+		if !current.RequiresValue() && updated.RequiresValue() {
 			return fmt.Errorf("%w: dimension %q cannot become required after usage has been recorded", domain.ErrConflict, name)
 		}
 	}
 	for name, dimension := range nextByName {
-		if _, exists := existingByName[name]; !exists && dimension.Required() {
+		if _, exists := existingByName[name]; !exists && dimension.RequiresValue() {
 			return fmt.Errorf("%w: required dimension %q cannot be added after usage has been recorded", domain.ErrConflict, name)
 		}
 	}

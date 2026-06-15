@@ -15,6 +15,7 @@ T = TypeVar("T", bound="MeterDimensionRequest")
 class MeterDimensionRequest:
     """
     Attributes:
+        deprecated (bool | Unset):
         description (str | Unset):
         display_name (str | Unset):
         name (str | Unset):
@@ -22,6 +23,7 @@ class MeterDimensionRequest:
         type_ (str | Unset):
     """
 
+    deprecated: bool | Unset = UNSET
     description: str | Unset = UNSET
     display_name: str | Unset = UNSET
     name: str | Unset = UNSET
@@ -30,6 +32,8 @@ class MeterDimensionRequest:
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        deprecated = self.deprecated
+
         description = self.description
 
         display_name = self.display_name
@@ -43,6 +47,8 @@ class MeterDimensionRequest:
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
+        if deprecated is not UNSET:
+            field_dict["deprecated"] = deprecated
         if description is not UNSET:
             field_dict["description"] = description
         if display_name is not UNSET:
@@ -59,6 +65,8 @@ class MeterDimensionRequest:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
+        deprecated = d.pop("deprecated", UNSET)
+
         description = d.pop("description", UNSET)
 
         display_name = d.pop("display_name", UNSET)
@@ -70,6 +78,7 @@ class MeterDimensionRequest:
         type_ = d.pop("type", UNSET)
 
         meter_dimension_request = cls(
+            deprecated=deprecated,
             description=description,
             display_name=display_name,
             name=name,

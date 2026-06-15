@@ -258,6 +258,7 @@ func dimensionsResponseFromResult(input []appmeter.DimensionResult) []DimensionR
 			Description: dimension.Description,
 			Type:        dimension.Type,
 			Required:    dimension.Required,
+			Deprecated:  dimension.Deprecated,
 		})
 	}
 	return dimensions
@@ -278,7 +279,7 @@ func dimensionsFromRequest(input []DimensionRequest) ([]domainmeter.Dimension, e
 		if item.Required != nil {
 			required = *item.Required
 		}
-		dimension, err := domainmeter.NewDimension(item.Name, domainmeter.MetadataType(item.Type), item.DisplayName, item.Description, required)
+		dimension, err := domainmeter.NewDimension(item.Name, domainmeter.MetadataType(item.Type), item.DisplayName, item.Description, required, item.Deprecated)
 		if err != nil {
 			return nil, err
 		}

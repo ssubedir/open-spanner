@@ -285,7 +285,7 @@ function lockedDimensionDraftError(rows: MeterDimensionDraft[]) {
       if (!row.name.trim()) {
         continue
       }
-      if (row.required) {
+      if (row.required && !row.deprecated) {
         return 'New dimensions must be optional after usage has been recorded.'
       }
       continue
@@ -297,7 +297,7 @@ function lockedDimensionDraftError(rows: MeterDimensionDraft[]) {
     if (row.originalType && row.type !== row.originalType) {
       return 'Existing dimension types cannot change after usage has been recorded.'
     }
-    if (row.originalRequired === false && row.required) {
+    if ((row.originalRequired === false || row.originalDeprecated) && row.required && !row.deprecated) {
       return 'Optional dimensions cannot become required after usage has been recorded.'
     }
   }
@@ -338,7 +338,7 @@ function DimensionSchemaEditor({
         {rows.map((row) => {
           const isExisting = Boolean(row.originalName)
           const existingLocked = lockedByUsage && isExisting
-          const requiredLocked = lockedByUsage && (!isExisting || row.originalRequired === false)
+          const requiredLocked = lockedByUsage && (!isExisting || row.originalRequired === false || row.originalDeprecated)
           const identityLockTitle = existingLocked ? 'Existing dimension identity is locked after usage exists' : undefined
           const requiredLockTitle = requiredLocked ? 'New dimensions and previously optional dimensions cannot become required after usage exists' : undefined
           return (
@@ -385,6 +385,14 @@ function DimensionSchemaEditor({
                 />
                 Required
               </label>
+              <label className="schema-required schema-deprecated">
+                <input
+                  checked={row.deprecated}
+                  onChange={(event) => onUpdate(row.id, { deprecated: event.currentTarget.checked })}
+                  type="checkbox"
+                />
+                Deprecated
+              </label>
               <Button
                 aria-label={`Remove ${row.name || 'dimension'}`}
                 disabled={existingLocked}
@@ -424,7 +432,7 @@ function DimensionChips({ meter }: { meter: Meter }) {
       {dimensions.map((dimension) => (
         <span className="schema-chip" key={dimension.name}>
           <span>{dimension.display_name || humanizeField(dimension.name)}</span>
-          <strong>{dimension.required ? dimension.type : `${dimension.type} optional`}</strong>
+          <strong>{dimension.deprecated ? `${dimension.type} deprecated` : dimension.required ? dimension.type : `${dimension.type} optional`}</strong>
         </span>
       ))}
     </div>
@@ -440,6 +448,7 @@ function normalizedMeterDimensions(meter: Meter): MeterDimension[] {
     .map(([name, type]) => ({
       description: '',
       display_name: humanizeField(name),
+      deprecated: false,
       name,
       required: true,
       type,

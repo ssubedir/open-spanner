@@ -63,10 +63,12 @@ import { downloadBlob, safeDownloadName } from './lib/download'
 import type { LoadState } from './types'
 
 export type MeterDimensionDraft = {
+  deprecated: boolean
   description: string
   displayName: string
   id: string
   name: string
+  originalDeprecated?: boolean
   originalName?: string
   originalRequired?: boolean
   originalType?: string
@@ -992,14 +994,17 @@ function newMeterDimensionDraft(
   displayName = '',
   description = '',
   required = true,
-  original?: { name: string; required: boolean; type: string },
+  deprecated = false,
+  original?: { deprecated: boolean; name: string; required: boolean; type: string },
 ): MeterDimensionDraft {
   meterDimensionID += 1
   return {
+    deprecated,
     description,
     displayName,
     id: `meter-dimension-${meterDimensionID}`,
     name,
+    originalDeprecated: original?.deprecated,
     originalName: original?.name,
     originalRequired: original?.required,
     originalType: original?.type,
@@ -1017,7 +1022,9 @@ function meterDimensionDraftsFromMeter(meter: Meter, lockedByUsage = false) {
       dimension.display_name,
       dimension.description,
       dimension.required,
+      dimension.deprecated,
       {
+        deprecated: dimension.deprecated,
         name: dimension.name,
         required: dimension.required,
         type: dimension.type,
@@ -1030,7 +1037,8 @@ function meterDimensionDraftsFromMeter(meter: Meter, lockedByUsage = false) {
 function meterDimensionDraftsFromSchema(schema: Record<string, string>, lockedByUsage = false) {
   const rows = Object.entries(schema || {})
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([name, type]) => newMeterDimensionDraft(name, type, '', '', true, {
+    .map(([name, type]) => newMeterDimensionDraft(name, type, '', '', true, false, {
+      deprecated: false,
       name,
       required: true,
       type,
@@ -1047,6 +1055,7 @@ function normalizedMeterDimensions(meter: Meter): MeterDimension[] {
     .map(([name, type]) => ({
       description: '',
       display_name: humanizeDimensionName(name),
+      deprecated: false,
       name,
       required: true,
       type,

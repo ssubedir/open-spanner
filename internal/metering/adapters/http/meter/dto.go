@@ -28,6 +28,7 @@ type DimensionRequest struct {
 	Description string `json:"description,omitempty"`
 	Type        string `json:"type"`
 	Required    *bool  `json:"required,omitempty"`
+	Deprecated  bool   `json:"deprecated,omitempty"`
 }
 
 // Response is a meter.
@@ -50,6 +51,7 @@ type DimensionResponse struct {
 	Description string `json:"description"`
 	Type        string `json:"type"`
 	Required    bool   `json:"required"`
+	Deprecated  bool   `json:"deprecated"`
 }
 
 // StatsResponse is meter activity stats.

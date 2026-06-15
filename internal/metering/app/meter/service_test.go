@@ -230,8 +230,9 @@ func TestServiceUpdateDimensionsAllowsSafeChangesWithUsage(t *testing.T) {
 	recordUsage(t, ctx, usageRepo, created.Name, map[string]any{"region": "us-east", "status": 200})
 
 	dimensions := []domainmeter.Dimension{
-		mustDimension(t, "region", domainmeter.MetadataString, "Serving region", "Updated display metadata", false),
+		mustDimension(t, "region", domainmeter.MetadataString, "Serving region", "Updated display metadata", true, true),
 		mustDimension(t, "status", domainmeter.MetadataNumber, "HTTP status", "Response status code", false),
+		mustDimension(t, "legacy", domainmeter.MetadataString, "Legacy", "Deprecated required dimension", true, true),
 		mustDimension(t, "plan", domainmeter.MetadataString, "Plan", "Optional billing plan", false),
 	}
 	updated, err := service.Update(ctx, UpdateCommand{
@@ -241,8 +242,11 @@ func TestServiceUpdateDimensionsAllowsSafeChangesWithUsage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("update safe dimensions: %v", err)
 	}
-	if len(updated.Dimensions) != 3 || updated.Dimensions[0].Name != "region" || updated.Dimensions[0].Required {
+	if len(updated.Dimensions) != 4 || updated.Dimensions[0].Name != "region" || !updated.Dimensions[0].Required || !updated.Dimensions[0].Deprecated {
 		t.Fatalf("updated dimensions = %#v", updated.Dimensions)
+	}
+	if !updated.Dimensions[2].Deprecated {
+		t.Fatalf("deprecated dimension not preserved: %#v", updated.Dimensions)
 	}
 	if updated.MetadataSchema["plan"] != "string" {
 		t.Fatalf("updated metadata schema = %#v", updated.MetadataSchema)
@@ -389,10 +393,10 @@ func recordUsage(t *testing.T, ctx context.Context, usageRepo *sqlite.UsageRepos
 	}
 }
 
-func mustDimension(t *testing.T, name string, metadataType domainmeter.MetadataType, displayName string, description string, required bool) domainmeter.Dimension {
+func mustDimension(t *testing.T, name string, metadataType domainmeter.MetadataType, displayName string, description string, required bool, deprecated ...bool) domainmeter.Dimension {
 	t.Helper()
 
-	dimension, err := domainmeter.NewDimension(name, metadataType, displayName, description, required)
+	dimension, err := domainmeter.NewDimension(name, metadataType, displayName, description, required, deprecated...)
 	if err != nil {
 		t.Fatalf("new dimension: %v", err)
 	}

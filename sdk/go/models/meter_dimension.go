@@ -14,6 +14,9 @@ import (
 // swagger:model MeterDimension
 type MeterDimension struct {
 
+	// deprecated
+	Deprecated bool `json:"deprecated,omitempty"`
+
 	// description
 	Description string `json:"description,omitempty"`
 

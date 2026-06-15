@@ -24,6 +24,7 @@ export function metadataSchemaFromDimensions(dimensions: Array<{ name: string; t
 }
 
 export function meterDimensionsFromRows(rows: Array<{
+  deprecated?: boolean
   description?: string
   displayName?: string
   name: string
@@ -49,6 +50,7 @@ export function meterDimensionsFromRows(rows: Array<{
     }
     names.add(name)
     dimensions.push({
+      deprecated: row.deprecated ?? false,
       description: row.description?.trim() || '',
       display_name: row.displayName?.trim() || '',
       name,

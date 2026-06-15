@@ -203,6 +203,7 @@ type dimensionPayload struct {
 	Description string `json:"description,omitempty"`
 	Type        string `json:"type"`
 	Required    bool   `json:"required"`
+	Deprecated  bool   `json:"deprecated,omitempty"`
 }
 
 func marshalDimensions(dimensions []domainmeter.Dimension) (string, error) {
@@ -214,6 +215,7 @@ func marshalDimensions(dimensions []domainmeter.Dimension) (string, error) {
 			Description: dimension.Description(),
 			Type:        string(dimension.Type()),
 			Required:    dimension.Required(),
+			Deprecated:  dimension.Deprecated(),
 		})
 	}
 	data, err := json.Marshal(payload)
@@ -237,7 +239,7 @@ func unmarshalDimensions(payload string, fallbackSchema map[string]domainmeter.M
 
 	dimensions := make([]domainmeter.Dimension, 0, len(values))
 	for _, value := range values {
-		dimension, err := domainmeter.NewDimension(value.Name, domainmeter.MetadataType(value.Type), value.DisplayName, value.Description, value.Required)
+		dimension, err := domainmeter.NewDimension(value.Name, domainmeter.MetadataType(value.Type), value.DisplayName, value.Description, value.Required, value.Deprecated)
 		if err != nil {
 			return nil, err
 		}

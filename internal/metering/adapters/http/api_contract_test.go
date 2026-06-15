@@ -194,6 +194,7 @@ func TestMeterAPIContract(t *testing.T) {
 				"description":  "Deployment region",
 				"type":         "string",
 				"required":     true,
+				"deprecated":   true,
 			},
 		},
 		"event_retention_days": 30,
@@ -207,7 +208,7 @@ func TestMeterAPIContract(t *testing.T) {
 	if created.ID == "" || created.Name != "api_calls" || created.EventRetentionDays != 30 {
 		t.Fatalf("created meter = %#v", created)
 	}
-	if created.MetadataSchema["region"] != "string" || len(created.Dimensions) != 1 || created.Dimensions[0].DisplayName != "Region" {
+	if created.MetadataSchema["region"] != "string" || len(created.Dimensions) != 1 || created.Dimensions[0].DisplayName != "Region" || !created.Dimensions[0].Deprecated {
 		t.Fatalf("created meter dimensions = %#v metadata=%#v", created.Dimensions, created.MetadataSchema)
 	}
 
@@ -245,6 +246,7 @@ func TestMeterAPIContract(t *testing.T) {
 				"description":  "Billing plan",
 				"type":         "string",
 				"required":     false,
+				"deprecated":   true,
 			},
 		},
 	})
@@ -253,7 +255,7 @@ func TestMeterAPIContract(t *testing.T) {
 	}
 	var updated meterResponse
 	decodeJSON(t, update, &updated)
-	if updated.Description != "Updated API calls" || updated.Name != created.Name || updated.Unit != "request" || updated.Aggregation != "count" || updated.EventRetentionDays != 365 || updated.MetadataSchema["plan"] != "string" || len(updated.Dimensions) != 1 || updated.Dimensions[0].DisplayName != "Plan" || updated.Dimensions[0].Required {
+	if updated.Description != "Updated API calls" || updated.Name != created.Name || updated.Unit != "request" || updated.Aggregation != "count" || updated.EventRetentionDays != 365 || updated.MetadataSchema["plan"] != "string" || len(updated.Dimensions) != 1 || updated.Dimensions[0].DisplayName != "Plan" || updated.Dimensions[0].Required || !updated.Dimensions[0].Deprecated {
 		t.Fatalf("updated meter = %#v", updated)
 	}
 
@@ -1888,6 +1890,7 @@ type meterDimensionResponse struct {
 	Description string `json:"description"`
 	Type        string `json:"type"`
 	Required    bool   `json:"required"`
+	Deprecated  bool   `json:"deprecated"`
 }
 
 type meterListResponse struct {

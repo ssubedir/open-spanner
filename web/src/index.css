@@ -1026,7 +1026,7 @@ svg {
 
 .schema-row {
   display: grid;
-  grid-template-columns: minmax(130px, 1fr) minmax(130px, 1fr) minmax(105px, 130px) minmax(96px, auto) 36px;
+  grid-template-columns: minmax(130px, 1fr) minmax(130px, 1fr) minmax(105px, 130px) minmax(96px, auto) minmax(120px, auto) 36px;
   gap: 8px;
   align-items: center;
   min-width: 0;
@@ -1078,6 +1078,10 @@ svg {
 .modal-form .schema-row > label:nth-child(2),
 .modal-form .schema-required {
   grid-column: 2;
+}
+
+.modal-form .schema-deprecated {
+  grid-column: 1;
 }
 
 .modal-form .schema-row > .button {

@@ -32,3 +32,21 @@ func TestMeterDimensionsValidateOptionalMetadata(t *testing.T) {
 		t.Fatalf("validate missing required metadata error = %v, want ErrInvalidInput", err)
 	}
 }
+
+func TestMeterDimensionsTreatDeprecatedAsOptional(t *testing.T) {
+	region, err := NewDimension("region", MetadataString, "Region", "Deployment region", true, true)
+	if err != nil {
+		t.Fatalf("new deprecated region dimension: %v", err)
+	}
+	meter, err := NewWithDimensions("meter-1", "api_calls", "", "request", AggregationSum, []Dimension{region}, 90, time.Now())
+	if err != nil {
+		t.Fatalf("new meter: %v", err)
+	}
+
+	if err := meter.ValidateMetadata(map[string]any{}); err != nil {
+		t.Fatalf("validate without deprecated required metadata: %v", err)
+	}
+	if err := meter.ValidateMetadata(map[string]any{"region": 12}); !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("validate wrong deprecated metadata type error = %v, want ErrInvalidInput", err)
+	}
+}

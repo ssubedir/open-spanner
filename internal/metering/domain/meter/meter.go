@@ -199,7 +199,7 @@ func (m Meter) ValidateMetadata(metadata map[string]any) error {
 		expected := dimension.Type()
 		value, exists := metadata[key]
 		if !exists {
-			if dimension.Required() {
+			if dimension.RequiresValue() {
 				return fmt.Errorf("%w: dimension %q is required", domain.ErrInvalidInput, key)
 			}
 			continue
