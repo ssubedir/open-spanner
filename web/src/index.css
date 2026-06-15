@@ -1459,6 +1459,13 @@ input:disabled {
   padding: 16px;
 }
 
+.subject-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .subject-snapshot {
   display: grid;
   grid-template-columns: 1fr;

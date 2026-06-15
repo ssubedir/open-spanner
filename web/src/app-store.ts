@@ -49,6 +49,7 @@ import {
   queryFromSavedValue,
   queryWithBreakdownFilter,
   queryWithAvailableMeter,
+  queryWithSubject,
   selectedMeterSchemaKeys,
   usageFilterFromQuery,
   usageScopeFromQuery,
@@ -345,11 +346,11 @@ export const appStoreActions = {
       setOverviewState({ error: errorMessage(err, 'Unable to load overview'), status: 'error' })
     }
   },
-  async loadSubjects() {
+  async loadSubjects(preferredSubject = '') {
     setSubjectsState({ error: '', status: 'loading' })
     try {
       const subjects = await listSubjects(50)
-      const selectedSubject = selectedSubjectForList(appStore.state.subjects.selectedSubject, subjects.items)
+      const selectedSubject = preferredSubject.trim() || selectedSubjectForList(appStore.state.subjects.selectedSubject, subjects.items)
       setSubjectsState({
         items: subjects.items,
         selectedSubject,
@@ -534,6 +535,21 @@ export const appStoreActions = {
       savedQueryName: '',
       selectedSavedQueryID: '',
     })
+  },
+  prepareUsageForSubject(subject: string) {
+    const normalizedSubject = subject.trim()
+    if (!normalizedSubject) {
+      return
+    }
+
+    setUsageState((state) => ({
+      buckets: [],
+      error: '',
+      filterQuery: queryWithSubject(state.filterQuery, normalizedSubject),
+      savedQueryName: '',
+      selectedSavedQueryID: '',
+      status: 'idle',
+    }))
   },
   addMeterCreateDimension() {
     setMetersState((state) => ({

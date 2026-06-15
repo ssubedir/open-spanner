@@ -240,6 +240,10 @@ export function queryWithBreakdownFilter(query: RuleGroupType, field: string, va
   return replaceRuleValue(query, filterField, () => value)
 }
 
+export function queryWithSubject(query: RuleGroupType, subject: string): RuleGroupType {
+  return replaceRuleValue(query, 'subject', () => subject)
+}
+
 function metadataFilterField(key: string, values: UsageDimensionValue[], metadataType?: string, label?: string): Field {
   const options = values.map((item) => ({
     name: item.value,

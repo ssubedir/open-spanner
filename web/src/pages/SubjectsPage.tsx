@@ -1,3 +1,4 @@
+import { useParams, useRouter } from '@tanstack/react-router'
 import { useSelector } from '@tanstack/react-store'
 import { BarChart3, Clock, Database, Hash, Search, Users } from 'lucide-react'
 import type React from 'react'
@@ -12,7 +13,18 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { formatDate, formatNumber } from '../lib/format'
 import { useInitialLoad } from '../lib/hooks'
 
-export function SubjectsPage() {
+type SubjectsPageProps = {
+  routeSubject?: string
+}
+
+export function SubjectRoutePage() {
+  const { subject } = useParams({ from: '/_dashboard/subjects_/$subject' })
+
+  return <SubjectsPage routeSubject={subject} />
+}
+
+export function SubjectsPage({ routeSubject = '' }: SubjectsPageProps) {
+  const router = useRouter()
   const {
     detailStatus,
     error,
@@ -22,7 +34,8 @@ export function SubjectsPage() {
     selectedSubject,
     status,
   } = useSelector(appStore, (state) => state.subjects)
-  const load = useCallback(() => appStoreActions.loadSubjects(), [])
+  const selectedRouteSubject = routeSubject.trim()
+  const load = useCallback(() => appStoreActions.loadSubjects(selectedRouteSubject), [selectedRouteSubject])
 
   useInitialLoad(load)
 
@@ -32,6 +45,19 @@ export function SubjectsPage() {
   )
   const selectedStats = items.find((subject) => subject.subject === selectedSubject) ?? null
   const meterSummaries = useMemo(() => summarizeMeters(events), [events])
+
+  function selectSubject(subject: string) {
+    void router.navigate({ to: '/subjects/$subject', params: { subject } })
+    void appStoreActions.loadSubjectEvents(subject)
+  }
+
+  function openUsageForSubject() {
+    if (!selectedSubject) {
+      return
+    }
+    appStoreActions.prepareUsageForSubject(selectedSubject)
+    void router.navigate({ to: '/usage' })
+  }
 
   return (
     <>
@@ -83,7 +109,7 @@ export function SubjectsPage() {
               rows={visibleSubjects.map((subject) => [
                 <SubjectSelectButton
                   active={subject.subject === selectedSubject}
-                  onSelect={() => void appStoreActions.loadSubjectEvents(subject.subject)}
+                  onSelect={() => selectSubject(subject.subject)}
                   subject={subject.subject}
                 />,
                 formatNumber(subject.usage_events),
@@ -98,11 +124,17 @@ export function SubjectsPage() {
           <CardHeader>
             <div>
               <CardTitle>{selectedSubject || 'No subject selected'}</CardTitle>
-              <CardDescription>{detailDescription(selectedStats, detailStatus)}</CardDescription>
+              <CardDescription>{detailDescription(selectedStats, detailStatus, selectedSubject)}</CardDescription>
             </div>
-            <Badge variant={detailStatus === 'loading' ? 'muted' : selectedSubject ? 'success' : 'muted'}>
-              {detailStatus === 'loading' ? 'Loading' : selectedSubject ? 'Selected' : 'Idle'}
-            </Badge>
+            <div className="subject-detail-actions">
+              <Button disabled={!selectedSubject} onClick={openUsageForSubject} type="button" variant="outline">
+                <BarChart3 aria-hidden="true" />
+                Open Usage
+              </Button>
+              <Badge variant={detailStatus === 'loading' ? 'muted' : selectedSubject ? 'success' : 'muted'}>
+                {detailStatus === 'loading' ? 'Loading' : selectedSubject ? 'Selected' : 'Idle'}
+              </Badge>
+            </div>
           </CardHeader>
           <CardContent className="subject-detail-content">
             {selectedStats ? (
@@ -234,12 +266,15 @@ function sumSubjects(subjects: SubjectStats[], field: 'meters' | 'usage_events')
   return subjects.reduce((sum, subject) => sum + subject[field], 0)
 }
 
-function detailDescription(subject: SubjectStats | null, status: string) {
+function detailDescription(subject: SubjectStats | null, status: string, selectedSubject: string) {
   if (status === 'loading') {
     return 'Loading recent activity.'
   }
-  if (!subject) {
+  if (!selectedSubject) {
     return 'Choose a subject from the list.'
+  }
+  if (!subject) {
+    return 'Recent activity for the linked subject.'
   }
   return `${formatNumber(subject.usage_events)} events across ${formatNumber(subject.meters)} meters.`
 }
