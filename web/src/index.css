@@ -594,6 +594,92 @@ svg {
   gap: 10px;
 }
 
+.dimension-picker {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+}
+
+.dimension-picker > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.dimension-options {
+  display: flex;
+  min-height: 42px;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px;
+  background: #fff;
+}
+
+.dimension-options small,
+.muted {
+  color: var(--muted);
+}
+
+.dimension-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  background: var(--card);
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.dimension-option input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+
+.dimension-values {
+  display: flex;
+  max-width: 360px;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.dimension-value {
+  display: inline-flex;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.dimension-value span,
+.dimension-value strong {
+  min-width: 0;
+  overflow: hidden;
+  padding: 6px 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dimension-value span {
+  max-width: 120px;
+  background: #f8fafc;
+  color: var(--muted);
+}
+
+.dimension-value strong {
+  max-width: 150px;
+  color: var(--foreground);
+}
+
 .filter-builder {
   display: grid;
   gap: 8px;

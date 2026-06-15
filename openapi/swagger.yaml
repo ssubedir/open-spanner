@@ -432,7 +432,9 @@ definitions:
       from:
         type: string
       group_by:
-        type: string
+        items:
+          type: string
+        type: array
       limit:
         type: integer
       meter:
@@ -1178,10 +1180,14 @@ paths:
         in: query
         name: bucket_size
         type: string
-      - description: Metadata key to group by
+      - collectionFormat: multi
+        description: Metadata keys to group by. Repeat the parameter or use comma-separated
+          values.
         in: query
+        items:
+          type: string
         name: group_by
-        type: string
+        type: array
       - description: Result limit
         in: query
         name: limit
@@ -1325,10 +1331,14 @@ paths:
         in: query
         name: bucket_size
         type: string
-      - description: Metadata key to group by
+      - collectionFormat: multi
+        description: Metadata keys to group by. Repeat the parameter or use comma-separated
+          values.
         in: query
+        items:
+          type: string
         name: group_by
-        type: string
+        type: array
       - description: Result limit
         in: query
         name: limit

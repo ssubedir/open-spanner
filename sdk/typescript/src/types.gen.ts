@@ -16,7 +16,7 @@ export type InternalMeteringAdaptersHttpUsageSearchRequest = {
     bucket_size?: string;
     filter?: InternalMeteringAdaptersHttpUsageFilterRequest;
     from?: string;
-    group_by?: string;
+    group_by?: Array<string>;
     limit?: number;
     meter?: string;
     subject?: string;
@@ -500,9 +500,9 @@ export type ExportUsageBucketsData = {
          */
         bucket_size?: string;
         /**
-         * Metadata key to group by
+         * Metadata keys to group by. Repeat the parameter or use comma-separated values.
          */
-        group_by?: string;
+        group_by?: Array<string>;
         /**
          * Result limit
          */

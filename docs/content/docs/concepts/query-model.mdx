@@ -13,7 +13,7 @@ A bucket has:
 - Meter
 - Unit
 - Aggregated value
-- Optional group value
+- Optional dimension group values
 
 The meter's aggregation mode decides how the value is calculated.
 
@@ -35,7 +35,7 @@ Use `POST /v1/usages/search` when you need nested filter groups or grouping:
   "from": "2026-06-01T00:00:00Z",
   "to": "2026-06-10T00:00:00Z",
   "bucket_size": "day",
-  "group_by": "region",
+  "group_by": ["region", "plan"],
   "filter": {
     "type": "group",
     "op": "and",

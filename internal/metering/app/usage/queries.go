@@ -17,7 +17,7 @@ type ListQuery struct {
 	To         time.Time
 	BucketSize domainusage.BucketSize
 	Metadata   map[string]string
-	GroupBy    string
+	GroupBy    []string
 	Limit      int
 	Filter     domainusage.Filter
 }
@@ -111,13 +111,17 @@ func (s *service) List(ctx context.Context, input ListQuery) ([]ListItemResult, 
 		return nil, domain.ErrNotFound
 	}
 	meter := meters[0]
-	if input.GroupBy != "" {
-		if _, exists := meter.MetadataSchema()[input.GroupBy]; !exists {
+	groupBy, err := domainusage.NormalizeGroupBy(input.GroupBy)
+	if err != nil {
+		return nil, err
+	}
+	for _, field := range groupBy {
+		if _, exists := meter.MetadataSchema()[field]; !exists {
 			return nil, domain.ErrInvalidInput
 		}
 	}
 
-	query, err := domainusage.NewFilteredQuery(
+	query, err := domainusage.NewGroupedFilteredQuery(
 		input.Subject,
 		meter.Name(),
 		input.From,
@@ -125,7 +129,7 @@ func (s *service) List(ctx context.Context, input ListQuery) ([]ListItemResult, 
 		input.BucketSize,
 		meter.Aggregation(),
 		input.Metadata,
-		input.GroupBy,
+		groupBy,
 		input.Limit,
 		input.Filter,
 	)

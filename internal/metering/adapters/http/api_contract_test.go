@@ -1027,16 +1027,17 @@ func TestUsageAPIGroupByMetadata(t *testing.T) {
 		"description":     "API calls",
 		"unit":            "call",
 		"aggregation":     "sum",
-		"metadata_schema": map[string]string{"region": "string"},
+		"metadata_schema": map[string]string{"plan": "string", "region": "string"},
 	})
 	if createMeter.Code != http.StatusCreated {
 		t.Fatalf("create meter status = %d: %s", createMeter.Code, createMeter.Body.String())
 	}
 
 	events := []map[string]any{
-		{"subject": "org_123", "meter": "api_calls", "quantity": 2, "timestamp": "2026-06-08T10:00:00Z", "metadata": map[string]any{"region": "us-east-1"}},
-		{"subject": "org_123", "meter": "api_calls", "quantity": 3, "timestamp": "2026-06-08T11:00:00Z", "metadata": map[string]any{"region": "us-west-2"}},
-		{"subject": "org_123", "meter": "api_calls", "quantity": 5, "timestamp": "2026-06-08T12:00:00Z", "metadata": map[string]any{"region": "us-east-1"}},
+		{"subject": "org_123", "meter": "api_calls", "quantity": 2, "timestamp": "2026-06-08T10:00:00Z", "metadata": map[string]any{"plan": "free", "region": "us-east-1"}},
+		{"subject": "org_123", "meter": "api_calls", "quantity": 3, "timestamp": "2026-06-08T11:00:00Z", "metadata": map[string]any{"plan": "pro", "region": "us-east-1"}},
+		{"subject": "org_123", "meter": "api_calls", "quantity": 5, "timestamp": "2026-06-08T12:00:00Z", "metadata": map[string]any{"plan": "free", "region": "us-west-2"}},
+		{"subject": "org_123", "meter": "api_calls", "quantity": 7, "timestamp": "2026-06-08T13:00:00Z", "metadata": map[string]any{"plan": "free", "region": "us-east-1"}},
 	}
 	for _, event := range events {
 		createUsage := requestJSON(t, router, http.MethodPost, "/v1/usages", event)
@@ -1045,29 +1046,66 @@ func TestUsageAPIGroupByMetadata(t *testing.T) {
 		}
 	}
 
-	list := requestJSON(t, router, http.MethodGet, "/v1/usages?subject=org_123&meter=api_calls&from=2026-06-08T00:00:00Z&to=2026-06-09T00:00:00Z&bucket_size=day&group_by=region", nil)
+	list := requestJSON(t, router, http.MethodGet, "/v1/usages?subject=org_123&meter=api_calls&from=2026-06-08T00:00:00Z&to=2026-06-09T00:00:00Z&bucket_size=day&group_by=region&group_by=plan", nil)
 	if list.Code != http.StatusOK {
 		t.Fatalf("list usages status = %d, want %d: %s", list.Code, http.StatusOK, list.Body.String())
 	}
 
 	var buckets []usageListItemResponse
 	decodeJSON(t, list, &buckets)
-	if len(buckets) != 2 {
-		t.Fatalf("bucket count = %d, want 2", len(buckets))
+	if len(buckets) != 3 {
+		t.Fatalf("bucket count = %d, want 3", len(buckets))
 	}
-	if buckets[0].Group["region"] != "us-east-1" || buckets[0].Quantity != 7 {
+	if buckets[0].Group["region"] != "us-east-1" || buckets[0].Group["plan"] != "free" || buckets[0].Quantity != 9 {
 		t.Fatalf("first grouped bucket = %#v", buckets[0])
 	}
-	if buckets[1].Group["region"] != "us-west-2" || buckets[1].Quantity != 3 {
+	if buckets[1].Group["region"] != "us-east-1" || buckets[1].Group["plan"] != "pro" || buckets[1].Quantity != 3 {
 		t.Fatalf("second grouped bucket = %#v", buckets[1])
 	}
+	if buckets[2].Group["region"] != "us-west-2" || buckets[2].Group["plan"] != "free" || buckets[2].Quantity != 5 {
+		t.Fatalf("third grouped bucket = %#v", buckets[2])
+	}
 
-	export := requestJSON(t, router, http.MethodGet, "/v1/usages/export?subject=org_123&meter=api_calls&from=2026-06-08T00:00:00Z&to=2026-06-09T00:00:00Z&bucket_size=day&group_by=region", nil)
+	search := requestJSON(t, router, http.MethodPost, "/v1/usages/search", map[string]any{
+		"subject":     "org_123",
+		"meter":       "api_calls",
+		"from":        "2026-06-08T00:00:00Z",
+		"to":          "2026-06-09T00:00:00Z",
+		"bucket_size": "day",
+		"group_by":    "region",
+	})
+	if search.Code != http.StatusOK {
+		t.Fatalf("search usages status = %d, want %d: %s", search.Code, http.StatusOK, search.Body.String())
+	}
+	var legacyBuckets []usageListItemResponse
+	decodeJSON(t, search, &legacyBuckets)
+	if len(legacyBuckets) != 2 || legacyBuckets[0].Group["region"] != "us-east-1" || legacyBuckets[0].Quantity != 12 || legacyBuckets[1].Group["region"] != "us-west-2" || legacyBuckets[1].Quantity != 5 {
+		t.Fatalf("legacy grouped buckets = %#v", legacyBuckets)
+	}
+
+	arraySearch := requestJSON(t, router, http.MethodPost, "/v1/usages/search", map[string]any{
+		"subject":     "org_123",
+		"meter":       "api_calls",
+		"from":        "2026-06-08T00:00:00Z",
+		"to":          "2026-06-09T00:00:00Z",
+		"bucket_size": "day",
+		"group_by":    []string{"region", "plan"},
+	})
+	if arraySearch.Code != http.StatusOK {
+		t.Fatalf("array search usages status = %d, want %d: %s", arraySearch.Code, http.StatusOK, arraySearch.Body.String())
+	}
+	var arrayBuckets []usageListItemResponse
+	decodeJSON(t, arraySearch, &arrayBuckets)
+	if len(arrayBuckets) != 3 || arrayBuckets[0].Group["plan"] != "free" || arrayBuckets[0].Quantity != 9 {
+		t.Fatalf("array grouped buckets = %#v", arrayBuckets)
+	}
+
+	export := requestJSON(t, router, http.MethodGet, "/v1/usages/export?subject=org_123&meter=api_calls&from=2026-06-08T00:00:00Z&to=2026-06-09T00:00:00Z&bucket_size=day&group_by=region,plan", nil)
 	if export.Code != http.StatusOK {
 		t.Fatalf("export status = %d, want %d: %s", export.Code, http.StatusOK, export.Body.String())
 	}
 
-	want := "bucket_start,subject,meter,bucket_size,aggregation,unit,quantity,region\n2026-06-08T00:00:00Z,org_123,api_calls,day,sum,call,7,us-east-1\n2026-06-08T00:00:00Z,org_123,api_calls,day,sum,call,3,us-west-2\n"
+	want := "bucket_start,subject,meter,bucket_size,aggregation,unit,quantity,region,plan\n2026-06-08T00:00:00Z,org_123,api_calls,day,sum,call,9,us-east-1,free\n2026-06-08T00:00:00Z,org_123,api_calls,day,sum,call,3,us-east-1,pro\n2026-06-08T00:00:00Z,org_123,api_calls,day,sum,call,5,us-west-2,free\n"
 	if export.Body.String() != want {
 		t.Fatalf("csv = %q, want %q", export.Body.String(), want)
 	}

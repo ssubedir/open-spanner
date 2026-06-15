@@ -75,7 +75,7 @@ type AppState = {
     buckets: UsageBucket[]
     error: string
     filterQuery: RuleGroupType
-    groupBy: string
+    groupBy: string[]
     meters: Meter[]
     status: LoadState
   }
@@ -117,7 +117,7 @@ export const appStore = createStore<AppState>({
     buckets: [],
     error: '',
     filterQuery: defaultFilterQuery(),
-    groupBy: '',
+    groupBy: [],
     meters: [],
     status: 'idle',
   },
@@ -306,7 +306,7 @@ export const appStoreActions = {
     const meters = appStore.state.usage.meters
     setUsageState({
       filterQuery: queryWithAvailableMeter(defaultFilterQuery(), meters),
-      groupBy: '',
+      groupBy: [],
     })
   },
   setMeterDeleting(deleting: Meter | null) {
@@ -321,21 +321,30 @@ export const appStoreActions = {
   setUsageFilterQuery(filterQuery: RuleGroupType) {
     setUsageState({ filterQuery })
   },
-  setUsageGroupBy(groupBy: string) {
+  setUsageGroupBy(groupBy: string[]) {
     setUsageState({ groupBy })
   },
-  async submitUsageQuery(groupByValue: string, limit = 500, bucketSize = 'day') {
+  toggleUsageGroupBy(field: string) {
+    setUsageState((state) => {
+      const groupBy = state.groupBy.includes(field)
+        ? state.groupBy.filter((item) => item !== field)
+        : [...state.groupBy, field]
+      return { groupBy }
+    })
+  },
+  async submitUsageQuery(groupByValue: string[], limit = 500, bucketSize = 'day') {
     setUsageState({ error: '', status: 'loading' })
     try {
       const query = appStore.state.usage.filterQuery
       const scope = usageScopeFromQuery(query)
       const timeRange = usageTimeRangeFromQuery(query)
       const filter = usageFilterFromQuery(query)
+      const groupBy = groupByValue.filter(Boolean)
       const buckets = await listUsageBuckets({
         bucket_size: bucketSize,
         filter,
         from: timeRange.from,
-        group_by: groupByValue || undefined,
+        group_by: groupBy.length > 0 ? groupBy : undefined,
         limit,
         meter: scope.meter,
         subject: scope.subject,

@@ -18,6 +18,7 @@ const (
 
 	DefaultLimit = 100
 	MaxLimit     = 1000
+	MaxGroupBy   = 5
 
 	MaxHourRange  = 31 * 24 * time.Hour
 	MaxDayRange   = 366 * 24 * time.Hour
@@ -32,7 +33,7 @@ type Query struct {
 	bucketSize  BucketSize
 	aggregation domainmeter.Aggregation
 	metadata    map[string]string
-	groupBy     string
+	groupBy     []string
 	limit       int
 	filter      Filter
 }
@@ -167,9 +168,20 @@ func NewQuery(subject, meterName string, from, to time.Time, bucketSize BucketSi
 }
 
 func NewFilteredQuery(subject, meterName string, from, to time.Time, bucketSize BucketSize, aggregation domainmeter.Aggregation, metadata map[string]string, groupBy string, limit int, filter Filter) (Query, error) {
+	return NewGroupedFilteredQuery(subject, meterName, from, to, bucketSize, aggregation, metadata, SplitGroupBy(groupBy), limit, filter)
+}
+
+func NewGroupedQuery(subject, meterName string, from, to time.Time, bucketSize BucketSize, aggregation domainmeter.Aggregation, metadata map[string]string, groupBy []string, limit int) (Query, error) {
+	return NewGroupedFilteredQuery(subject, meterName, from, to, bucketSize, aggregation, metadata, groupBy, limit, EmptyFilter())
+}
+
+func NewGroupedFilteredQuery(subject, meterName string, from, to time.Time, bucketSize BucketSize, aggregation domainmeter.Aggregation, metadata map[string]string, groupBy []string, limit int, filter Filter) (Query, error) {
 	subject = strings.TrimSpace(subject)
 	meterName = strings.TrimSpace(meterName)
-	groupBy = strings.TrimSpace(groupBy)
+	groupByFields, err := NormalizeGroupBy(groupBy)
+	if err != nil {
+		return Query{}, err
+	}
 
 	if subject == "" {
 		return Query{}, fmt.Errorf("%w: subject is required", domain.ErrInvalidInput)
@@ -219,7 +231,7 @@ func NewFilteredQuery(subject, meterName string, from, to time.Time, bucketSize 
 		bucketSize:  bucketSize,
 		aggregation: aggregation,
 		metadata:    metadataFilters,
-		groupBy:     groupBy,
+		groupBy:     groupByFields,
 		limit:       limit,
 		filter:      filter,
 	}, nil
@@ -251,6 +263,49 @@ func NormalizeLimit(limit int) int {
 		return MaxLimit
 	}
 	return limit
+}
+
+func SplitGroupBy(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+
+	parts := strings.Split(value, ",")
+	fields := make([]string, 0, len(parts))
+	for _, part := range parts {
+		fields = append(fields, part)
+	}
+	return fields
+}
+
+func SplitGroupByValues(values []string) []string {
+	fields := []string{}
+	for _, value := range values {
+		fields = append(fields, SplitGroupBy(value)...)
+	}
+	return fields
+}
+
+func NormalizeGroupBy(fields []string) ([]string, error) {
+	normalized := []string{}
+	seen := map[string]struct{}{}
+	for _, field := range fields {
+		for _, part := range SplitGroupBy(field) {
+			key := strings.TrimSpace(part)
+			if key == "" {
+				continue
+			}
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			normalized = append(normalized, key)
+		}
+	}
+	if len(normalized) > MaxGroupBy {
+		return nil, fmt.Errorf("%w: group_by supports up to %d fields", domain.ErrInvalidInput, MaxGroupBy)
+	}
+	return normalized, nil
 }
 
 func NewBucket(subject, meterName string, bucketSize BucketSize, bucketStart time.Time, quantity float64) Bucket {
@@ -396,7 +451,16 @@ func (q Query) Metadata() map[string]string {
 }
 
 func (q Query) GroupBy() string {
-	return q.groupBy
+	if len(q.groupBy) == 0 {
+		return ""
+	}
+	return q.groupBy[0]
+}
+
+func (q Query) GroupByFields() []string {
+	fields := make([]string, len(q.groupBy))
+	copy(fields, q.groupBy)
+	return fields
 }
 
 func (q Query) Limit() int {

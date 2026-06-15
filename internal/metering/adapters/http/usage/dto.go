@@ -1,5 +1,12 @@
 package usage
 
+import (
+	"encoding/json"
+	"fmt"
+
+	domainusage "github.com/ssubedir/open-spanner/internal/metering/domain/usage"
+)
+
 // CreateRequest creates a usage event. IdempotencyKey replays a previously accepted event with the same key.
 type CreateRequest struct {
 	// IdempotencyKey replays the original accepted event when reused.
@@ -27,9 +34,39 @@ type SearchRequest struct {
 	From       string         `json:"from"`
 	To         string         `json:"to"`
 	BucketSize string         `json:"bucket_size"`
-	GroupBy    string         `json:"group_by,omitempty"`
+	GroupBy    GroupByRequest `json:"group_by,omitempty" swaggertype:"array,string"`
 	Limit      int            `json:"limit,omitempty"`
 	Filter     *FilterRequest `json:"filter,omitempty"`
+}
+
+// GroupByRequest accepts a single metadata key or an ordered list of metadata keys.
+type GroupByRequest []string
+
+func (g *GroupByRequest) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		*g = nil
+		return nil
+	}
+
+	var values []string
+	if err := json.Unmarshal(data, &values); err == nil {
+		*g = GroupByRequest(domainusage.SplitGroupByValues(values))
+		return nil
+	}
+
+	var value string
+	if err := json.Unmarshal(data, &value); err == nil {
+		*g = GroupByRequest(domainusage.SplitGroupBy(value))
+		return nil
+	}
+
+	return fmt.Errorf("group_by must be a string or array of strings")
+}
+
+func (g GroupByRequest) Fields() []string {
+	fields := make([]string, len(g))
+	copy(fields, g)
+	return fields
 }
 
 // EventSearchRequest searches raw usage events with an advanced filter.

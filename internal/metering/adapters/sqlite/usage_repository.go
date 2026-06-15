@@ -178,10 +178,13 @@ INSERT INTO usage_events (
 
 func (r *UsageRepository) Query(ctx context.Context, query domainusage.Query) ([]domainusage.Bucket, error) {
 	args := []any{}
-	groupSQL, err := groupValueSQL(query.GroupBy(), &args)
+	groupBy := query.GroupByFields()
+	groupSelectSQL, groupAliases, err := groupValueSelectSQL(groupBy, &args)
 	if err != nil {
 		return nil, err
 	}
+	partitionColumns := groupPartitionColumns(groupAliases)
+	selectColumns := groupResultColumns(groupAliases)
 
 	sqlQuery := strings.Builder{}
 	sqlQuery.WriteString(`
@@ -189,7 +192,7 @@ WITH filtered AS (
 	SELECT
 		id,
 		` + bucketStartSQL(query.BucketSize()) + ` AS bucket_start,
-		` + groupSQL + ` AS group_value,
+` + groupSelectSQL + `
 		quantity,
 		event_time AS event_at
 	FROM usage_events
@@ -222,16 +225,16 @@ WITH filtered AS (
 ranked AS (
 	SELECT
 		bucket_start,
-		group_value,
+` + groupColumnSelectSQL(groupAliases) + `
 		quantity,
-		ROW_NUMBER() OVER (PARTITION BY bucket_start, group_value ORDER BY event_at ASC, id ASC) AS first_rank,
-		ROW_NUMBER() OVER (PARTITION BY bucket_start, group_value ORDER BY event_at DESC, id DESC) AS last_rank
+		ROW_NUMBER() OVER (PARTITION BY ` + partitionColumns + ` ORDER BY event_at ASC, id ASC) AS first_rank,
+		ROW_NUMBER() OVER (PARTITION BY ` + partitionColumns + ` ORDER BY event_at DESC, id DESC) AS last_rank
 	FROM filtered
 )
-SELECT bucket_start, group_value, ` + aggregateSQL(query.Aggregation(), query.BucketSize()) + ` AS quantity
+SELECT ` + selectColumns + `, ` + aggregateSQL(query.Aggregation(), query.BucketSize()) + ` AS quantity
 FROM ranked
-GROUP BY bucket_start, group_value
-ORDER BY bucket_start ASC, group_value ASC
+GROUP BY ` + partitionColumns + `
+ORDER BY ` + groupOrderColumns(groupAliases) + `
 LIMIT ?
 `)
 	args = append(args, query.Limit())
@@ -245,9 +248,14 @@ LIMIT ?
 	buckets := []domainusage.Bucket{}
 	for rows.Next() {
 		var bucketStartText string
-		var groupValue string
+		groupValues := make([]string, len(groupBy))
 		var quantity float64
-		if err := rows.Scan(&bucketStartText, &groupValue, &quantity); err != nil {
+		scanTargets := []any{&bucketStartText}
+		for i := range groupValues {
+			scanTargets = append(scanTargets, &groupValues[i])
+		}
+		scanTargets = append(scanTargets, &quantity)
+		if err := rows.Scan(scanTargets...); err != nil {
 			return nil, err
 		}
 		bucketStart, err := time.Parse(time.RFC3339Nano, bucketStartText)
@@ -255,8 +263,8 @@ LIMIT ?
 			return nil, err
 		}
 		group := map[string]string{}
-		if query.GroupBy() != "" {
-			group[query.GroupBy()] = groupValue
+		for index, field := range groupBy {
+			group[field] = groupValues[index]
 		}
 		buckets = append(buckets, domainusage.NewBucketWithGroup(
 			query.Subject(),
@@ -286,11 +294,48 @@ func bucketStartSQL(size domainusage.BucketSize) string {
 	}
 }
 
-func groupValueSQL(groupBy string, args *[]any) (string, error) {
-	if groupBy == "" {
-		return "''", nil
+func groupValueSelectSQL(groupBy []string, args *[]any) (string, []string, error) {
+	columns := strings.Builder{}
+	aliases := make([]string, 0, len(groupBy))
+	for index, field := range groupBy {
+		valueSQL, err := metadataTextSQL(field, args)
+		if err != nil {
+			return "", nil, err
+		}
+		alias := fmt.Sprintf("group_%d", index)
+		columns.WriteString("\t\t")
+		columns.WriteString(valueSQL)
+		columns.WriteString(" AS ")
+		columns.WriteString(alias)
+		columns.WriteString(",\n")
+		aliases = append(aliases, alias)
 	}
-	return metadataTextSQL(groupBy, args)
+	return columns.String(), aliases, nil
+}
+
+func groupColumnSelectSQL(aliases []string) string {
+	if len(aliases) == 0 {
+		return ""
+	}
+
+	return "\t\t" + strings.Join(aliases, ",\n\t\t") + ","
+}
+
+func groupPartitionColumns(aliases []string) string {
+	columns := append([]string{"bucket_start"}, aliases...)
+	return strings.Join(columns, ", ")
+}
+
+func groupResultColumns(aliases []string) string {
+	return groupPartitionColumns(aliases)
+}
+
+func groupOrderColumns(aliases []string) string {
+	columns := []string{"bucket_start ASC"}
+	for _, alias := range aliases {
+		columns = append(columns, alias+" ASC")
+	}
+	return strings.Join(columns, ", ")
 }
 
 func metadataTextSQL(key string, args *[]any) (string, error) {

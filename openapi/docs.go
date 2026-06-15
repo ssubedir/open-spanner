@@ -1129,8 +1129,12 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
-                        "type": "string",
-                        "description": "Metadata key to group by",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "Metadata keys to group by. Repeat the parameter or use comma-separated values.",
                         "name": "group_by",
                         "in": "query"
                     },
@@ -1343,8 +1347,12 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
-                        "type": "string",
-                        "description": "Metadata key to group by",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "Metadata keys to group by. Repeat the parameter or use comma-separated values.",
                         "name": "group_by",
                         "in": "query"
                     },
@@ -2103,7 +2111,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "group_by": {
-                    "type": "string"
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "limit": {
                     "type": "integer"

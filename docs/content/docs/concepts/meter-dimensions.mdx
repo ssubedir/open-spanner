@@ -64,14 +64,27 @@ curl "http://localhost:18081/v1/usages?subject=org_123&meter=api_requests&from=2
   -H "Authorization: Bearer $OPEN_SPANNER_API_KEY"
 ```
 
-Use `group_by` to split buckets by one dimension:
+Use `group_by` to split buckets by one or more dimensions. Repeat the query parameter or send a comma-separated list:
 
 ```sh
-curl "http://localhost:18081/v1/usages?subject=org_123&meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z&bucket_size=day&group_by=region" \
+curl "http://localhost:18081/v1/usages?subject=org_123&meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z&bucket_size=day&group_by=region&group_by=plan" \
   -H "Authorization: Bearer $OPEN_SPANNER_API_KEY"
 ```
 
-The dashboard usage page uses the same dimension fields for filtering and grouping.
+The search endpoint accepts the same grouping as an array:
+
+```json
+{
+  "subject": "org_123",
+  "meter": "api_requests",
+  "from": "2026-06-01T00:00:00Z",
+  "to": "2026-06-10T00:00:00Z",
+  "bucket_size": "day",
+  "group_by": ["region", "plan"]
+}
+```
+
+The dashboard usage page uses the same dimension fields for filtering and grouping. Grouping by several fields returns one bucket per unique dimension combination.
 
 ## Good Dimension Names
 

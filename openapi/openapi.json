@@ -1385,11 +1385,15 @@
                         }
                     },
                     {
-                        "description": "Metadata key to group by",
+                        "description": "Metadata keys to group by. Repeat the parameter or use comma-separated values.",
                         "name": "group_by",
                         "in": "query",
+                        "explode": true,
                         "schema": {
-                            "type": "string"
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
                         }
                     },
                     {
@@ -1658,11 +1662,15 @@
                         }
                     },
                     {
-                        "description": "Metadata key to group by",
+                        "description": "Metadata keys to group by. Repeat the parameter or use comma-separated values.",
                         "name": "group_by",
                         "in": "query",
+                        "explode": true,
                         "schema": {
-                            "type": "string"
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
                         }
                     },
                     {
@@ -2454,7 +2462,10 @@
                         "type": "string"
                     },
                     "group_by": {
-                        "type": "string"
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
                     },
                     "limit": {
                         "type": "integer"

@@ -16,6 +16,8 @@ import {
   selectedMeterSchemaKeys,
 } from '../lib/usage-query'
 
+const maxGroupByFields = 5
+
 export function UsagePage() {
   const { buckets, error, filterQuery, groupBy, meters, status } = useSelector(appStore, (state) => state.usage)
   const load = useCallback(() => appStoreActions.loadUsageControls(), [])
@@ -25,12 +27,12 @@ export function UsagePage() {
   async function submitQuery(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
-    await appStoreActions.submitUsageQuery(String(form.get('group_by') || ''), Number(form.get('limit') || 500), String(form.get('bucket_size') || 'day'))
+    await appStoreActions.submitUsageQuery(activeGroupBy, Number(form.get('limit') || 500), String(form.get('bucket_size') || 'day'))
   }
 
   const selectedMeterName = firstEqualRuleValue(filterQuery, 'meter')
   const groupKeys = useMemo(() => selectedMeterSchemaKeys(meters, selectedMeterName), [meters, selectedMeterName])
-  const activeGroupBy = groupKeys.includes(groupBy) ? groupBy : ''
+  const activeGroupBy = useMemo(() => groupBy.filter((key) => groupKeys.includes(key)), [groupBy, groupKeys])
   const filterFields = useMemo(() => buildFilterFields(groupKeys, meters), [groupKeys, meters])
 
   function resetQuery() {
@@ -73,13 +75,25 @@ export function UsagePage() {
                     <option value="month">Month</option>
                   </select>
                 </label>
-                <label>
-                  Group By
-                  <select aria-label="Group By" name="group_by" value={activeGroupBy} onChange={(event) => appStoreActions.setUsageGroupBy(event.target.value)}>
-                    <option value="">None</option>
-                    {groupKeys.map((key) => <option key={key} value={key}>{key}</option>)}
-                  </select>
-                </label>
+                <div className="dimension-picker">
+                  <span>Dimensions</span>
+                  <div className="dimension-options">
+                    {groupKeys.length === 0 ? <small>No dimensions</small> : groupKeys.map((key) => {
+                      const active = activeGroupBy.includes(key)
+                      return (
+                        <label className="dimension-option" key={key}>
+                          <input
+                            checked={active}
+                            disabled={!active && activeGroupBy.length >= maxGroupByFields}
+                            onChange={() => appStoreActions.toggleUsageGroupBy(key)}
+                            type="checkbox"
+                          />
+                          <span>{key}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
                 <label>
                   Limit
                   <input defaultValue="500" max="1000" min="1" name="limit" type="number" />
@@ -117,7 +131,7 @@ export function UsagePage() {
                 bucket.meter,
                 <Badge variant="muted">{bucket.aggregation}</Badge>,
                 bucket.unit,
-                <span className="mono truncate">{JSON.stringify(bucket.group || {})}</span>,
+                <GroupValues group={bucket.group} />,
                 formatNumber(bucket.quantity),
               ])}
             />
@@ -125,5 +139,23 @@ export function UsagePage() {
         </Card>
       </section>
     </>
+  )
+}
+
+function GroupValues({ group }: { group?: Record<string, string> }) {
+  const entries = Object.entries(group || {})
+  if (entries.length === 0) {
+    return <span className="muted">none</span>
+  }
+
+  return (
+    <div className="dimension-values">
+      {entries.map(([key, value]) => (
+        <span className="dimension-value" key={key}>
+          <span>{key}</span>
+          <strong>{value}</strong>
+        </span>
+      ))}
+    </div>
   )
 }

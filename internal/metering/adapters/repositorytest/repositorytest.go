@@ -235,6 +235,38 @@ func Run(t *testing.T, setup SetupFunc) {
 		}
 	})
 
+	t.Run("usage groups by multiple metadata dimensions", func(t *testing.T) {
+		ctx := context.Background()
+		meterRepo, usageRepo, _ := setup(t, ctx)
+		saveMeter(t, ctx, meterRepo, "meter-1", "dimensioned")
+
+		events := []domainusage.Event{
+			newEvent(t, "event-1", "", "org_123", "dimensioned", 2, time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC), map[string]any{"region": "us-east-1", "plan": "free"}),
+			newEvent(t, "event-2", "", "org_123", "dimensioned", 3, time.Date(2026, 6, 8, 11, 0, 0, 0, time.UTC), map[string]any{"region": "us-east-1", "plan": "pro"}),
+			newEvent(t, "event-3", "", "org_123", "dimensioned", 5, time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC), map[string]any{"region": "us-east-1", "plan": "free"}),
+		}
+		for _, event := range events {
+			if _, err := usageRepo.Save(ctx, event); err != nil {
+				t.Fatalf("save usage %s: %v", event.ID(), err)
+			}
+		}
+
+		query := newGroupedQuery(t, "org_123", "dimensioned", domainusage.BucketDay, domainmeter.AggregationSum, domainusage.EmptyFilter(), []string{"region", "plan"})
+		buckets, err := usageRepo.Query(ctx, query)
+		if err != nil {
+			t.Fatalf("query grouped usage: %v", err)
+		}
+		if len(buckets) != 2 {
+			t.Fatalf("bucket count = %d, want 2: %#v", len(buckets), buckets)
+		}
+		if buckets[0].Group()["region"] != "us-east-1" || buckets[0].Group()["plan"] != "free" || buckets[0].Quantity() != 7 {
+			t.Fatalf("first grouped bucket = %#v", buckets[0])
+		}
+		if buckets[1].Group()["region"] != "us-east-1" || buckets[1].Group()["plan"] != "pro" || buckets[1].Quantity() != 3 {
+			t.Fatalf("second grouped bucket = %#v", buckets[1])
+		}
+	})
+
 	t.Run("prune transaction rollback", func(t *testing.T) {
 		ctx := context.Background()
 		meterRepo, usageRepo, transactor := setup(t, ctx)
@@ -365,6 +397,26 @@ func newQuery(t *testing.T, subject string, meterName string, bucketSize domainu
 	)
 	if err != nil {
 		t.Fatalf("new query: %v", err)
+	}
+	return query
+}
+
+func newGroupedQuery(t *testing.T, subject string, meterName string, bucketSize domainusage.BucketSize, aggregation domainmeter.Aggregation, filter domainusage.Filter, groupBy []string) domainusage.Query {
+	t.Helper()
+	query, err := domainusage.NewGroupedFilteredQuery(
+		subject,
+		meterName,
+		time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC),
+		bucketSize,
+		aggregation,
+		nil,
+		groupBy,
+		0,
+		filter,
+	)
+	if err != nil {
+		t.Fatalf("new grouped query: %v", err)
 	}
 	return query
 }

@@ -509,7 +509,7 @@ func TestIntegrationPostgresJSONPathRejectsUnsafeKeys(t *testing.T) {
 
 	for _, input := range unsafeInputs {
 		t.Run(strings.ReplaceAll(input, " ", "_"), func(t *testing.T) {
-			if _, _, err := filterFieldSQL(input); err == nil {
+			if _, err := filterFieldSQL(input); err == nil {
 				t.Fatalf("filterFieldSQL(%q) error = nil, want rejection", input)
 			}
 		})
@@ -531,8 +531,8 @@ LIMIT 1
 		t.Fatalf("query schema migration version: %v", err)
 	}
 
-	if version != 7 || dirty {
-		t.Fatalf("schema migration version = %d dirty=%v, want version 7 dirty=false", version, dirty)
+	if version != 8 || dirty {
+		t.Fatalf("schema migration version = %d dirty=%v, want version 8 dirty=false", version, dirty)
 	}
 }
 
@@ -545,6 +545,7 @@ func TestIntegrationPostgresStoreCreatesUsagePerformanceIndexes(t *testing.T) {
 		"idx_usage_events_prune_meter_time_id":         false,
 		"idx_usage_events_meter_stats":                 false,
 		"idx_usage_events_subject_stats":               false,
+		"idx_usage_events_metadata_gin":                false,
 	}
 
 	rows, err := store.db.QueryContext(ctx, `
@@ -575,5 +576,26 @@ WHERE schemaname = current_schema()
 		if !found {
 			t.Fatalf("missing postgres usage_events index %s", name)
 		}
+	}
+}
+
+func TestIntegrationPostgresStoreUsesJSONBMetadata(t *testing.T) {
+	ctx := context.Background()
+	store := newIntegrationStore(t, ctx)
+
+	var dataType string
+	err := store.db.QueryRowContext(ctx, `
+SELECT data_type
+FROM information_schema.columns
+WHERE table_schema = current_schema()
+	AND table_name = 'usage_events'
+	AND column_name = 'metadata'
+`).Scan(&dataType)
+	if err != nil {
+		t.Fatalf("query usage metadata column: %v", err)
+	}
+
+	if dataType != "jsonb" {
+		t.Fatalf("usage metadata data type = %s, want jsonb", dataType)
 	}
 }

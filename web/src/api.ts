@@ -118,7 +118,7 @@ export type UsageBucketQuery = {
   from: string
   to: string
   bucket_size: string
-  group_by?: string
+  group_by?: string[]
   limit?: number
   filter?: UsageFilter
 }
@@ -311,7 +311,7 @@ export async function listUsageBuckets(query: UsageBucketQuery) {
       bucket_size: query.bucket_size,
       filter: query.filter,
       from: query.from,
-      group_by: query.group_by || undefined,
+      group_by: query.group_by && query.group_by.length > 0 ? query.group_by : undefined,
       limit: query.limit,
       meter: query.meter,
       subject: query.subject,

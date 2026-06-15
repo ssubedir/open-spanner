@@ -548,6 +548,63 @@ func TestServiceCreateAcceptsMetadataMatchingMeterSchema(t *testing.T) {
 	}
 }
 
+func TestServiceListGroupsByMultipleMetadataFields(t *testing.T) {
+	ctx := context.Background()
+	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
+
+	meter, err := domainmeter.New(
+		"meter-1",
+		"api_calls",
+		"API calls",
+		"call",
+		domainmeter.AggregationSum,
+		map[string]domainmeter.MetadataType{
+			"region": domainmeter.MetadataString,
+			"plan":   domainmeter.MetadataString,
+		},
+		0,
+		time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatalf("new meter: %v", err)
+	}
+	if _, err := meterRepo.Save(ctx, meter); err != nil {
+		t.Fatalf("save meter: %v", err)
+	}
+
+	service := NewService(meterRepo, usageRepo, store)
+	for _, event := range []CreateCommand{
+		{Subject: "org_123", MeterName: "api_calls", Quantity: 2, EventTime: time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC), Metadata: map[string]any{"region": "us-east-1", "plan": "free"}},
+		{Subject: "org_123", MeterName: "api_calls", Quantity: 3, EventTime: time.Date(2026, 6, 8, 11, 0, 0, 0, time.UTC), Metadata: map[string]any{"region": "us-east-1", "plan": "pro"}},
+		{Subject: "org_123", MeterName: "api_calls", Quantity: 5, EventTime: time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC), Metadata: map[string]any{"region": "us-east-1", "plan": "free"}},
+	} {
+		if _, err := service.Create(ctx, event); err != nil {
+			t.Fatalf("create usage: %v", err)
+		}
+	}
+
+	buckets, err := service.List(ctx, ListQuery{
+		Subject:    "org_123",
+		MeterName:  "api_calls",
+		From:       time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC),
+		To:         time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC),
+		BucketSize: domainusage.BucketDay,
+		GroupBy:    []string{"region", "plan"},
+	})
+	if err != nil {
+		t.Fatalf("list usage: %v", err)
+	}
+	if len(buckets) != 2 {
+		t.Fatalf("bucket count = %d, want 2: %#v", len(buckets), buckets)
+	}
+	if buckets[0].Group["region"] != "us-east-1" || buckets[0].Group["plan"] != "free" || buckets[0].Quantity != 7 {
+		t.Fatalf("first grouped bucket = %#v", buckets[0])
+	}
+	if buckets[1].Group["region"] != "us-east-1" || buckets[1].Group["plan"] != "pro" || buckets[1].Quantity != 3 {
+		t.Fatalf("second grouped bucket = %#v", buckets[1])
+	}
+}
+
 func TestServiceCreateMissingMeterReturnsNotFound(t *testing.T) {
 	ctx := context.Background()
 	store, meterRepo, usageRepo := newTestRepositories(t, ctx)

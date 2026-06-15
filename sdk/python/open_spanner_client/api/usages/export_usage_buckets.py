@@ -16,7 +16,7 @@ def _get_kwargs(
     from_: str,
     to: str,
     bucket_size: str | Unset = UNSET,
-    group_by: str | Unset = UNSET,
+    group_by: list[str] | Unset = UNSET,
     limit: int | Unset = UNSET,
 ) -> dict[str, Any]:
 
@@ -32,7 +32,11 @@ def _get_kwargs(
 
     params["bucket_size"] = bucket_size
 
-    params["group_by"] = group_by
+    json_group_by: list[str] | Unset = UNSET
+    if not isinstance(group_by, Unset):
+        json_group_by = group_by
+
+    params["group_by"] = json_group_by
 
     params["limit"] = limit
 
@@ -90,7 +94,7 @@ def sync_detailed(
     from_: str,
     to: str,
     bucket_size: str | Unset = UNSET,
-    group_by: str | Unset = UNSET,
+    group_by: list[str] | Unset = UNSET,
     limit: int | Unset = UNSET,
 ) -> Response[ErrorResponse | str]:
     """Export usage buckets
@@ -101,7 +105,7 @@ def sync_detailed(
         from_ (str):
         to (str):
         bucket_size (str | Unset):
-        group_by (str | Unset):
+        group_by (list[str] | Unset):
         limit (int | Unset):
 
     Raises:
@@ -137,7 +141,7 @@ def sync(
     from_: str,
     to: str,
     bucket_size: str | Unset = UNSET,
-    group_by: str | Unset = UNSET,
+    group_by: list[str] | Unset = UNSET,
     limit: int | Unset = UNSET,
 ) -> ErrorResponse | str | None:
     """Export usage buckets
@@ -148,7 +152,7 @@ def sync(
         from_ (str):
         to (str):
         bucket_size (str | Unset):
-        group_by (str | Unset):
+        group_by (list[str] | Unset):
         limit (int | Unset):
 
     Raises:
@@ -179,7 +183,7 @@ async def asyncio_detailed(
     from_: str,
     to: str,
     bucket_size: str | Unset = UNSET,
-    group_by: str | Unset = UNSET,
+    group_by: list[str] | Unset = UNSET,
     limit: int | Unset = UNSET,
 ) -> Response[ErrorResponse | str]:
     """Export usage buckets
@@ -190,7 +194,7 @@ async def asyncio_detailed(
         from_ (str):
         to (str):
         bucket_size (str | Unset):
-        group_by (str | Unset):
+        group_by (list[str] | Unset):
         limit (int | Unset):
 
     Raises:
@@ -224,7 +228,7 @@ async def asyncio(
     from_: str,
     to: str,
     bucket_size: str | Unset = UNSET,
-    group_by: str | Unset = UNSET,
+    group_by: list[str] | Unset = UNSET,
     limit: int | Unset = UNSET,
 ) -> ErrorResponse | str | None:
     """Export usage buckets
@@ -235,7 +239,7 @@ async def asyncio(
         from_ (str):
         to (str):
         bucket_size (str | Unset):
-        group_by (str | Unset):
+        group_by (list[str] | Unset):
         limit (int | Unset):
 
     Raises:

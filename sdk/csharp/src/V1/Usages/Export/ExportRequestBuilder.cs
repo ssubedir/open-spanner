@@ -104,15 +104,15 @@ namespace OpenSpanner.V1.Usages.Export
             [QueryParameter("from")]
             public string From { get; set; }
 #endif
-            /// <summary>Metadata key to group by</summary>
+            /// <summary>Metadata keys to group by. Repeat the parameter or use comma-separated values.</summary>
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
 #nullable enable
             [QueryParameter("group_by")]
-            public string? GroupBy { get; set; }
+            public string[]? GroupBy { get; set; }
 #nullable restore
 #else
             [QueryParameter("group_by")]
-            public string GroupBy { get; set; }
+            public string[] GroupBy { get; set; }
 #endif
             /// <summary>Result limit</summary>
             [QueryParameter("limit")]
