@@ -77,7 +77,7 @@ export function SubjectsPage({ routeSubject = '' }: SubjectsPageProps) {
 
       {error ? <div className="error-banner">{error}</div> : null}
 
-      <section className="metric-grid" aria-label="Subject metrics">
+      <section className="metric-grid subject-metrics" aria-label="Subject metrics">
         <MetricCard icon={<Users />} label="Subjects" value={items.length} helper="Subjects with usage" />
         <MetricCard icon={<Hash />} label="Usage Events" value={sumSubjects(items, 'usage_events')} helper="Events in subject index" />
         <MetricCard icon={<Database />} label="Meter Links" value={sumSubjects(items, 'meters')} helper="Distinct subject meters" />
@@ -85,7 +85,7 @@ export function SubjectsPage({ routeSubject = '' }: SubjectsPageProps) {
 
       <section className="subject-grid">
         <Card className="subject-list-card">
-          <CardHeader>
+          <CardHeader className="subject-card-header">
             <div>
               <CardTitle>Subjects</CardTitle>
               <CardDescription>Recent activity ordered by last event.</CardDescription>
@@ -127,7 +127,7 @@ export function SubjectsPage({ routeSubject = '' }: SubjectsPageProps) {
         </Card>
 
         <Card className="subject-detail-card">
-          <CardHeader>
+          <CardHeader className="subject-card-header">
             <div>
               <CardTitle>{selectedSubject || 'No subject selected'}</CardTitle>
               <CardDescription>{detailDescription(selectedStats, detailStatus, selectedSubject)}</CardDescription>
@@ -182,8 +182,8 @@ export function SubjectsPage({ routeSubject = '' }: SubjectsPageProps) {
           </CardContent>
         </Card>
 
-        <Card className="span">
-          <CardHeader>
+        <Card className="span subject-events-card">
+          <CardHeader className="subject-card-header">
             <div>
               <CardTitle>Recent Events</CardTitle>
               <CardDescription>{selectedSubject ? `Latest usage for ${selectedSubject}` : 'Latest usage for the selected subject.'}</CardDescription>
