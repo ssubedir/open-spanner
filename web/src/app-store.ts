@@ -2,6 +2,7 @@ import { createStore } from '@tanstack/react-store'
 import type { RuleGroupType } from 'react-querybuilder'
 
 import {
+  APIError,
   createAPIKey as createAPIKeyRequest,
   createAuthSession,
   createAuthUser,
@@ -528,7 +529,7 @@ export const appStoreActions = {
       setAuthState({
         checked: true,
         loading: false,
-        loginError: errorMessage(err, 'Unable to authenticate'),
+        loginError: authErrorMessage(err, 'Unable to sign in'),
         session: null,
       })
       throw err
@@ -553,7 +554,7 @@ export const appStoreActions = {
       setAuthState({
         checked: true,
         loading: false,
-        registerError: errorMessage(err, 'Unable to register'),
+        registerError: registerErrorMessage(err, 'Unable to create account'),
         session: null,
       })
       throw err
@@ -845,6 +846,32 @@ export const appStoreActions = {
 
 function errorMessage(err: unknown, fallback: string) {
   return err instanceof Error ? err.message : fallback
+}
+
+function authErrorMessage(err: unknown, fallback: string) {
+  if (err instanceof APIError && (err.status === 401 || err.code === 'unauthorized')) {
+    return 'Email or password is incorrect.'
+  }
+
+  return errorMessage(err, fallback)
+}
+
+function registerErrorMessage(err: unknown, fallback: string) {
+  if (err instanceof APIError && (err.status === 409 || err.code === 'conflict')) {
+    return 'An account with this email already exists.'
+  }
+  if (err instanceof APIError && (err.status === 400 || err.code === 'invalid_input')) {
+    const message = err.message.toLowerCase()
+    if (message.includes('password')) {
+      return 'Password must be at least 8 characters.'
+    }
+    if (message.includes('email')) {
+      return 'Enter a valid email address.'
+    }
+    return 'Check your email and password, then try again.'
+  }
+
+  return errorMessage(err, fallback)
 }
 
 function setAuthState(update: Partial<AppState['auth']>) {

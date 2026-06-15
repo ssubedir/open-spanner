@@ -1,16 +1,31 @@
 import { Link, Outlet, useRouter } from '@tanstack/react-router'
 import { useSelector } from '@tanstack/react-store'
-import { Gauge, LogOut } from 'lucide-react'
+import { BarChart3, Boxes, Gauge, KeyRound, LayoutDashboard, LogOut, Users } from 'lucide-react'
 
 import { appStore, appStoreActions } from '../app-store'
 import { Button } from '../components/ui/button'
 
-const navItems = [
-  { to: '/overview', label: 'Overview' },
-  { to: '/meters', label: 'Meters' },
-  { to: '/subjects', label: 'Subjects' },
-  { to: '/usage', label: 'Usage' },
-  { to: '/api-keys', label: 'API Keys' },
+const navGroups = [
+  {
+    label: 'Workspace',
+    items: [
+      { description: 'Health and activity', icon: LayoutDashboard, label: 'Overview', to: '/overview' },
+    ],
+  },
+  {
+    label: 'Metering',
+    items: [
+      { description: 'Definitions', icon: Boxes, label: 'Meters', to: '/meters' },
+      { description: 'Accounts and customers', icon: Users, label: 'Subjects', to: '/subjects' },
+      { description: 'Query and breakdowns', icon: BarChart3, label: 'Usage', to: '/usage' },
+    ],
+  },
+  {
+    label: 'Access',
+    items: [
+      { description: 'SDK credentials', icon: KeyRound, label: 'API Keys', to: '/api-keys' },
+    ],
+  },
 ] as const
 
 export function AppShell() {
@@ -30,18 +45,34 @@ export function AppShell() {
           <span className="brand-mark"><Gauge aria-hidden="true" /></span>
           <span>
             <strong>Open Spanner</strong>
+            <small>Admin</small>
           </span>
         </Link>
 
         <nav className="nav" aria-label="Admin navigation">
-          {navItems.map((item) => (
-            <Link
-              activeProps={{ className: 'active' }}
-              key={item.to}
-              to={item.to}
-            >
-              {item.label}
-            </Link>
+          {navGroups.map((group) => (
+            <div className="nav-group" key={group.label}>
+              <span className="nav-group-label">{group.label}</span>
+              <div className="nav-group-links">
+                {group.items.map((item) => {
+                  const Icon = item.icon
+                  return (
+                    <Link
+                      activeProps={{ className: 'nav-link active' }}
+                      className="nav-link"
+                      key={item.to}
+                      to={item.to}
+                    >
+                      <Icon aria-hidden="true" />
+                      <span>
+                        <strong>{item.label}</strong>
+                        <small>{item.description}</small>
+                      </span>
+                    </Link>
+                  )
+                })}
+              </div>
+            </div>
           ))}
         </nav>
 

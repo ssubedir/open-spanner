@@ -40,14 +40,14 @@ export function OverviewPage() {
 
       {error ? <div className="error-banner">{error}</div> : null}
 
-      <section className="metric-grid" aria-label="Operational metrics">
+      <section className="metric-grid overview-metrics" aria-label="Operational metrics">
         <MetricCard icon={<Boxes />} label="Meters" value={stats?.meters ?? 0} helper="Configured billable signals" />
         <MetricCard icon={<BarChart3 />} label="Usage Events" value={stats?.usage_events ?? 0} helper="Raw events accepted" />
         <MetricCard icon={<Clock />} label={lastPruneLabel} value={lastPrune?.deleted ?? 0} helper={lastPruneHelper} />
       </section>
 
       {pinnedUsageQueries.length > 0 ? (
-        <section className="pinned-query-grid" aria-label="Pinned usage queries">
+        <section className="pinned-query-grid overview-pinned-grid" aria-label="Pinned usage queries">
           {pinnedUsageQueries.map((summary) => (
             <PinnedQueryCard
               key={summary.query.id}
@@ -58,9 +58,9 @@ export function OverviewPage() {
         </section>
       ) : null}
 
-      <section className="content-grid">
-        <Card className="activity-card span">
-          <CardHeader>
+      <section className="overview-grid">
+        <Card className="activity-card overview-card">
+          <CardHeader className="overview-card-header">
             <div>
               <CardTitle>Subjects</CardTitle>
               <CardDescription>Highest recent subject activity.</CardDescription>
@@ -80,8 +80,8 @@ export function OverviewPage() {
           </CardContent>
         </Card>
 
-        <Card className="activity-card span">
-          <CardHeader>
+        <Card className="activity-card overview-card">
+          <CardHeader className="overview-card-header">
             <div>
               <CardTitle>Ingestion History</CardTitle>
               <CardDescription>Recent single and bulk ingestion runs.</CardDescription>

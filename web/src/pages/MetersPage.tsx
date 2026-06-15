@@ -1,6 +1,6 @@
 import { useSelector } from '@tanstack/react-store'
-import { Boxes, Loader2, Lock, Pencil, Plus, Trash2 } from 'lucide-react'
-import { type FormEvent, useCallback } from 'react'
+import { Boxes, ChevronDown, Loader2, Lock, Pencil, Plus, Trash2 } from 'lucide-react'
+import { type FormEvent, useCallback, useState } from 'react'
 
 import { appStore, appStoreActions, type MeterDimensionDraft } from '../app-store'
 import type { Meter, MeterDimension } from '../api'
@@ -109,15 +109,15 @@ export function MetersPage() {
       {error ? <div className="error-banner">{error}</div> : null}
 
       <section className="meters-grid">
-        <Card>
-          <CardHeader>
+        <Card className="meter-create-card">
+          <CardHeader className="meter-card-header">
             <div>
               <CardTitle>Create Meter</CardTitle>
               <CardDescription>Define a signal, its unit, aggregation, and metadata contract.</CardDescription>
             </div>
           </CardHeader>
-          <CardContent className="form-card">
-            <form className="form-grid" onSubmit={(event) => void submitCreate(event)}>
+          <CardContent className="form-card meter-create-content">
+            <form className="form-grid meter-create-form" onSubmit={(event) => void submitCreate(event)}>
               <label>
                 Name
                 <input id="meter-name" name="name" placeholder="api_calls" required />
@@ -145,8 +145,9 @@ export function MetersPage() {
                 onAdd={() => appStoreActions.addMeterCreateDimension()}
                 onRemove={(id) => appStoreActions.removeMeterCreateDimension(id)}
                 onUpdate={(id, update) => appStoreActions.updateMeterCreateDimension(id, update)}
+                showDeprecated={false}
               />
-              <Button disabled={saving} type="submit">
+              <Button className="meter-submit-button" disabled={saving} type="submit">
                 {saving ? <Loader2 className="spin" aria-hidden="true" /> : <Plus aria-hidden="true" />}
                 Create
               </Button>
@@ -155,7 +156,7 @@ export function MetersPage() {
         </Card>
 
         <Card className="meter-table-card">
-          <CardHeader>
+          <CardHeader className="meter-card-header">
             <div>
               <CardTitle>Meters</CardTitle>
               <CardDescription>Configured meter definitions and current activity.</CardDescription>
@@ -310,6 +311,7 @@ function DimensionSchemaEditor({
   onRemove,
   onUpdate,
   rows,
+  showDeprecated = true,
   usageEvents = 0,
 }: {
   lockedByUsage?: boolean
@@ -317,16 +319,55 @@ function DimensionSchemaEditor({
   onRemove: (id: string) => void
   onUpdate: (id: string, update: Partial<Omit<MeterDimensionDraft, 'id'>>) => void
   rows: MeterDimensionDraft[]
+  showDeprecated?: boolean
   usageEvents?: number
 }) {
+  const [expanded, setExpanded] = useState(false)
+  const dimensionCount = rows.filter((row) => row.name.trim()).length
+  const requiredCount = rows.filter((row) => row.name.trim() && row.required && !row.deprecated).length
+  const deprecatedCount = rows.filter((row) => row.name.trim() && row.deprecated).length
+  const summary =
+    dimensionCount === 0
+      ? 'No dimensions'
+      : [
+          `${formatNumber(dimensionCount)} ${dimensionCount === 1 ? 'dimension' : 'dimensions'}`,
+          `${formatNumber(requiredCount)} required`,
+          deprecatedCount > 0 ? `${formatNumber(deprecatedCount)} deprecated` : '',
+        ]
+          .filter(Boolean)
+          .join(' · ')
+
   return (
     <div className="schema-builder wide">
       <div className="schema-builder-header">
-        <span>Dimensions</span>
-        <Button onClick={onAdd} size="sm" type="button" variant="outline">
-          <Plus aria-hidden="true" />
-          Add
-        </Button>
+        <button
+          aria-expanded={expanded}
+          className="schema-toggle"
+          data-testid="meter-dimensions-toggle"
+          onClick={() => setExpanded((current) => !current)}
+          type="button"
+        >
+          <ChevronDown aria-hidden="true" />
+          <span>Dimensions</span>
+          <small>{summary}</small>
+        </button>
+        <div className="schema-builder-actions">
+          <Button onClick={() => setExpanded((current) => !current)} size="sm" type="button" variant="outline">
+            {expanded ? 'Hide' : 'Edit'}
+          </Button>
+          <Button
+            onClick={() => {
+              onAdd()
+              setExpanded(true)
+            }}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <Plus aria-hidden="true" />
+            Add
+          </Button>
+        </div>
       </div>
       {lockedByUsage ? (
         <div className="schema-lock-note">
@@ -334,7 +375,7 @@ function DimensionSchemaEditor({
           <span>{formatNumber(usageEvents)} usage events recorded. Existing dimension identity is locked.</span>
         </div>
       ) : null}
-      <div className="schema-rows">
+      <div className="schema-rows" hidden={!expanded}>
         {rows.map((row) => {
           const isExisting = Boolean(row.originalName)
           const existingLocked = lockedByUsage && isExisting
@@ -385,14 +426,16 @@ function DimensionSchemaEditor({
                 />
                 Required
               </label>
-              <label className="schema-required schema-deprecated">
-                <input
-                  checked={row.deprecated}
-                  onChange={(event) => onUpdate(row.id, { deprecated: event.currentTarget.checked })}
-                  type="checkbox"
-                />
-                Deprecated
-              </label>
+              {showDeprecated ? (
+                <label className="schema-required schema-deprecated">
+                  <input
+                    checked={row.deprecated}
+                    onChange={(event) => onUpdate(row.id, { deprecated: event.currentTarget.checked })}
+                    type="checkbox"
+                  />
+                  Deprecated
+                </label>
+              ) : null}
               <Button
                 aria-label={`Remove ${row.name || 'dimension'}`}
                 disabled={existingLocked}
