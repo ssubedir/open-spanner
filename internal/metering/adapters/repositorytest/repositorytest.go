@@ -353,6 +353,66 @@ func Run(t *testing.T, setup SetupFunc) {
 		}
 	})
 
+	t.Run("usage finds breakdowns", func(t *testing.T) {
+		ctx := context.Background()
+		meterRepo, usageRepo, _ := setup(t, ctx)
+		saveMeter(t, ctx, meterRepo, "meter-1", "breakdowns")
+
+		events := []domainusage.Event{
+			newEvent(t, "event-1", "", "org_123", "breakdowns", 2, time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC), map[string]any{"endpoint": "/orders"}),
+			newEvent(t, "event-2", "", "org_123", "breakdowns", 3, time.Date(2026, 6, 8, 11, 0, 0, 0, time.UTC), map[string]any{"endpoint": "/users"}),
+			newEvent(t, "event-3", "", "org_456", "breakdowns", 7, time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC), map[string]any{"endpoint": "/orders"}),
+			newEvent(t, "event-4", "", "org_789", "breakdowns", 1, time.Date(2026, 6, 8, 13, 0, 0, 0, time.UTC), map[string]any{"endpoint": "/users"}),
+		}
+		for _, event := range events {
+			if _, err := usageRepo.Save(ctx, event); err != nil {
+				t.Fatalf("save usage %s: %v", event.ID(), err)
+			}
+		}
+
+		subjectQuery := newBreakdownQuery(t, "", "breakdowns", domainusage.GroupBySubject, domainmeter.AggregationSum, domainusage.EmptyFilter())
+		subjects, err := usageRepo.FindBreakdown(ctx, subjectQuery)
+		if err != nil {
+			t.Fatalf("find subject breakdown: %v", err)
+		}
+		if len(subjects) != 3 {
+			t.Fatalf("subject breakdowns = %#v, want three items", subjects)
+		}
+		if subjects[0].Value() != "org_456" || subjects[0].Quantity() != 7 || subjects[0].UsageEvents() != 1 {
+			t.Fatalf("first subject breakdown = %#v", subjects[0])
+		}
+		if subjects[1].Value() != "org_123" || subjects[1].Quantity() != 5 || subjects[1].UsageEvents() != 2 {
+			t.Fatalf("second subject breakdown = %#v", subjects[1])
+		}
+		if subjects[2].Value() != "org_789" || subjects[2].Quantity() != 1 || subjects[2].UsageEvents() != 1 {
+			t.Fatalf("third subject breakdown = %#v", subjects[2])
+		}
+
+		endpointQuery := newBreakdownQuery(t, "", "breakdowns", "endpoint", domainmeter.AggregationSum, domainusage.EmptyFilter())
+		endpoints, err := usageRepo.FindBreakdown(ctx, endpointQuery)
+		if err != nil {
+			t.Fatalf("find endpoint breakdown: %v", err)
+		}
+		if len(endpoints) != 2 {
+			t.Fatalf("endpoint breakdowns = %#v, want two items", endpoints)
+		}
+		if endpoints[0].Value() != "/orders" || endpoints[0].Quantity() != 9 || endpoints[0].UsageEvents() != 2 {
+			t.Fatalf("first endpoint breakdown = %#v", endpoints[0])
+		}
+		if endpoints[1].Value() != "/users" || endpoints[1].Quantity() != 4 || endpoints[1].UsageEvents() != 2 {
+			t.Fatalf("second endpoint breakdown = %#v", endpoints[1])
+		}
+
+		scopedQuery := newBreakdownQuery(t, "org_123", "breakdowns", "endpoint", domainmeter.AggregationSum, domainusage.EmptyFilter())
+		scoped, err := usageRepo.FindBreakdown(ctx, scopedQuery)
+		if err != nil {
+			t.Fatalf("find scoped endpoint breakdown: %v", err)
+		}
+		if len(scoped) != 2 || scoped[0].Value() != "/users" || scoped[0].Quantity() != 3 || scoped[1].Value() != "/orders" || scoped[1].Quantity() != 2 {
+			t.Fatalf("scoped endpoint breakdowns = %#v", scoped)
+		}
+	})
+
 	t.Run("prune transaction rollback", func(t *testing.T) {
 		ctx := context.Background()
 		meterRepo, usageRepo, transactor := setup(t, ctx)
@@ -503,6 +563,24 @@ func newGroupedQuery(t *testing.T, subject string, meterName string, bucketSize 
 	)
 	if err != nil {
 		t.Fatalf("new grouped query: %v", err)
+	}
+	return query
+}
+
+func newBreakdownQuery(t *testing.T, subject string, meterName string, field string, aggregation domainmeter.Aggregation, filter domainusage.Filter) domainusage.BreakdownQuery {
+	t.Helper()
+	query, err := domainusage.NewBreakdownQuery(
+		meterName,
+		field,
+		subject,
+		time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC),
+		aggregation,
+		0,
+		filter,
+	)
+	if err != nil {
+		t.Fatalf("new breakdown query: %v", err)
 	}
 	return query
 }

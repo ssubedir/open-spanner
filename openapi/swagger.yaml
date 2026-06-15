@@ -238,6 +238,45 @@ definitions:
       usage_events:
         type: integer
     type: object
+  internal_metering_adapters_http_usage.BreakdownListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_usage.BreakdownResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_usage.BreakdownRequest:
+    properties:
+      field:
+        type: string
+      filter:
+        $ref: '#/definitions/internal_metering_adapters_http_usage.FilterRequest'
+      from:
+        type: string
+      limit:
+        type: integer
+      meter:
+        type: string
+      subject:
+        type: string
+      to:
+        type: string
+    type: object
+  internal_metering_adapters_http_usage.BreakdownResponse:
+    properties:
+      aggregation:
+        type: string
+      events:
+        type: integer
+      field:
+        type: string
+      quantity:
+        type: number
+      unit:
+        type: string
+      value:
+        type: string
+    type: object
   internal_metering_adapters_http_usage.BulkFailureResponse:
     properties:
       code:
@@ -1269,6 +1308,40 @@ paths:
           schema:
             $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
       summary: Create usage
+      tags:
+      - usages
+  /v1/usages/breakdowns/search:
+    post:
+      consumes:
+      - application/json
+      operationId: searchUsageBreakdown
+      parameters:
+      - description: Usage breakdown search
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_usage.BreakdownRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_usage.BreakdownListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Search usage breakdown
       tags:
       - usages
   /v1/usages/bulk:

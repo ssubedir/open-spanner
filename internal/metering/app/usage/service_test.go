@@ -710,6 +710,96 @@ func TestServiceListDimensionValues(t *testing.T) {
 	}
 }
 
+func TestServiceListBreakdown(t *testing.T) {
+	ctx := context.Background()
+	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
+
+	meter, err := domainmeter.New(
+		"meter-1",
+		"api_calls",
+		"API calls",
+		"call",
+		domainmeter.AggregationSum,
+		map[string]domainmeter.MetadataType{
+			"endpoint": domainmeter.MetadataString,
+		},
+		0,
+		time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatalf("new meter: %v", err)
+	}
+	if _, err := meterRepo.Save(ctx, meter); err != nil {
+		t.Fatalf("save meter: %v", err)
+	}
+
+	service := NewService(meterRepo, usageRepo, store)
+	for _, event := range []CreateCommand{
+		{Subject: "org_123", MeterName: "api_calls", Quantity: 2, EventTime: time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC), Metadata: map[string]any{"endpoint": "/orders"}},
+		{Subject: "org_123", MeterName: "api_calls", Quantity: 3, EventTime: time.Date(2026, 6, 8, 11, 0, 0, 0, time.UTC), Metadata: map[string]any{"endpoint": "/users"}},
+		{Subject: "org_456", MeterName: "api_calls", Quantity: 7, EventTime: time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC), Metadata: map[string]any{"endpoint": "/orders"}},
+	} {
+		if _, err := service.Create(ctx, event); err != nil {
+			t.Fatalf("create usage: %v", err)
+		}
+	}
+
+	subjects, err := service.ListBreakdown(ctx, BreakdownListQuery{
+		MeterName: "api_calls",
+		Field:     domainusage.GroupBySubject,
+		From:      time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC),
+		To:        time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC),
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("list subject breakdown: %v", err)
+	}
+	if len(subjects.Items) != 2 {
+		t.Fatalf("subject breakdowns = %#v, want two items", subjects.Items)
+	}
+	if subjects.Items[0].Field != domainusage.GroupBySubject || subjects.Items[0].Value != "org_456" || subjects.Items[0].Quantity != 7 || subjects.Items[0].UsageEvents != 1 || subjects.Items[0].Aggregation != "sum" || subjects.Items[0].Unit != "call" {
+		t.Fatalf("first subject breakdown = %#v", subjects.Items[0])
+	}
+	if subjects.Items[1].Value != "org_123" || subjects.Items[1].Quantity != 5 || subjects.Items[1].UsageEvents != 2 {
+		t.Fatalf("second subject breakdown = %#v", subjects.Items[1])
+	}
+
+	endpoints, err := service.ListBreakdown(ctx, BreakdownListQuery{
+		MeterName: "api_calls",
+		Field:     "metadata.endpoint",
+		From:      time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC),
+		To:        time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC),
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("list endpoint breakdown: %v", err)
+	}
+	if len(endpoints.Items) != 2 {
+		t.Fatalf("endpoint breakdowns = %#v, want two items", endpoints.Items)
+	}
+	if endpoints.Items[0].Field != "endpoint" || endpoints.Items[0].Value != "/orders" || endpoints.Items[0].Quantity != 9 || endpoints.Items[0].UsageEvents != 2 {
+		t.Fatalf("first endpoint breakdown = %#v", endpoints.Items[0])
+	}
+	if endpoints.Items[1].Value != "/users" || endpoints.Items[1].Quantity != 3 || endpoints.Items[1].UsageEvents != 1 {
+		t.Fatalf("second endpoint breakdown = %#v", endpoints.Items[1])
+	}
+}
+
+func TestServiceListBreakdownRejectsUnknownField(t *testing.T) {
+	ctx := context.Background()
+	service := newTestService(t, ctx)
+
+	_, err := service.ListBreakdown(ctx, BreakdownListQuery{
+		MeterName: "api_calls",
+		Field:     "endpoint",
+		From:      time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC),
+		To:        time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC),
+	})
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("breakdown field error = %v, want ErrInvalidInput", err)
+	}
+}
+
 func TestServiceListDimensionValuesRejectsUnknownField(t *testing.T) {
 	ctx := context.Background()
 	service := newTestService(t, ctx)

@@ -15,6 +15,7 @@ import {
   listMeterStats,
   listMeters,
   listSubjects,
+  listUsageBreakdowns,
   listUsageBuckets,
   listUsageDimensionValues,
   refreshAuthSession,
@@ -27,6 +28,7 @@ import {
   type MeterStats,
   type MeterUpdateRequest,
   type UsageBucket,
+  type UsageBreakdown,
   type UsageDimensionValue,
   type IngestionRun,
   type SubjectStats,
@@ -85,6 +87,9 @@ type AppState = {
     subjects: SubjectStats[]
   }
   usage: {
+    breakdownError: string
+    breakdowns: Record<string, UsageBreakdown[]>
+    breakdownStatus: LoadState
     buckets: UsageBucket[]
     dimensionValues: Record<string, UsageDimensionValue[]>
     error: string
@@ -96,6 +101,7 @@ type AppState = {
 }
 
 let meterDimensionID = 0
+const domainSubjectField = 'subject'
 
 export const appStore = createStore<AppState>({
   auth: {
@@ -132,6 +138,9 @@ export const appStore = createStore<AppState>({
     subjects: [],
   },
   usage: {
+    breakdownError: '',
+    breakdowns: {},
+    breakdownStatus: 'idle',
     buckets: [],
     dimensionValues: {},
     error: '',
@@ -316,6 +325,50 @@ export const appStoreActions = {
       setUsageState({ dimensionValues: Object.fromEntries(values) })
     } catch {
       setUsageState({ dimensionValues: {} })
+    }
+  },
+  async loadUsageBreakdowns() {
+    const query = appStore.state.usage.filterQuery
+    const meters = appStore.state.usage.meters
+
+    let scope: ReturnType<typeof usageScopeFromQuery>
+    let timeRange: ReturnType<typeof usageTimeRangeFromQuery>
+    try {
+      scope = usageScopeFromQuery(query)
+      timeRange = usageTimeRangeFromQuery(query)
+    } catch {
+      setUsageState({ breakdownError: '', breakdowns: {}, breakdownStatus: 'idle' })
+      return
+    }
+
+    const fields = [domainSubjectField, ...selectedMeterSchemaKeys(meters, scope.meter)].slice(0, 5)
+    if (fields.length === 0) {
+      setUsageState({ breakdownError: '', breakdowns: {}, breakdownStatus: 'idle' })
+      return
+    }
+
+    setUsageState({ breakdownError: '', breakdownStatus: 'loading' })
+    try {
+      const filter = usageFilterFromQuery(query, metadataTypesByField(meters, scope.meter))
+      const breakdowns = await Promise.all(fields.map(async (field) => {
+        const response = await listUsageBreakdowns({
+          field,
+          filter,
+          from: timeRange.from,
+          limit: 5,
+          meter: scope.meter,
+          subject: scope.subject || undefined,
+          to: timeRange.to,
+        })
+        return [field, response.items] as const
+      }))
+      setUsageState({ breakdowns: Object.fromEntries(breakdowns), breakdownStatus: 'ready' })
+    } catch (err) {
+      setUsageState({
+        breakdownError: errorMessage(err, 'Unable to load usage breakdowns'),
+        breakdowns: {},
+        breakdownStatus: 'error',
+      })
     }
   },
   async login(input: { email: string; password: string }) {

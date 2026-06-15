@@ -414,6 +414,68 @@
         }
       }
     },
+    "/v1/usages/breakdowns/search": {
+      "post": {
+        "tags": [
+          "usages"
+        ],
+        "summary": "Search usage breakdown",
+        "operationId": "searchUsageBreakdown",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UsageBreakdownRequest"
+              }
+            }
+          },
+          "description": "Usage breakdown search",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageBreakdownListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/usages/bulk": {
       "post": {
         "description": "Records up to 1000 usage events. The Idempotency-Key header replays the original bulk response for the same batch. Per-event idempotency_key values replay existing events as duplicates. Duplicate event IDs are conflicts.",
@@ -991,6 +1053,69 @@
           }
         },
         "title": "UsageBulkResult"
+      },
+      "UsageBreakdownListResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UsageBreakdown"
+            }
+          }
+        },
+        "title": "UsageBreakdownListResponse"
+      },
+      "UsageBreakdownRequest": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "filter": {
+            "$ref": "#/components/schemas/internal_metering_adapters_http_usage.FilterRequest"
+          },
+          "from": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "meter": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "title": "UsageBreakdownRequest"
+      },
+      "UsageBreakdown": {
+        "type": "object",
+        "properties": {
+          "aggregation": {
+            "type": "string"
+          },
+          "events": {
+            "type": "integer"
+          },
+          "field": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "number"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "title": "UsageBreakdown"
       },
       "UsageCreateRequest": {
         "type": "object",

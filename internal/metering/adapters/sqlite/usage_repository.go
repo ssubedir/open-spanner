@@ -351,6 +351,86 @@ func (r *UsageRepository) FindDimensionValues(ctx context.Context, query domainu
 	return values, nil
 }
 
+func (r *UsageRepository) FindBreakdown(ctx context.Context, query domainusage.BreakdownQuery) ([]domainusage.BreakdownItem, error) {
+	args := []any{}
+	valueSQL, err := breakdownValueSQL(query.Field(), &args)
+	if err != nil {
+		return nil, err
+	}
+
+	sqlQuery := strings.Builder{}
+	sqlQuery.WriteString(`
+WITH filtered AS (
+	SELECT
+		id,
+		` + valueSQL + ` AS value,
+		quantity,
+		event_time AS event_at
+	FROM usage_events
+	WHERE meter_name = ?
+		AND event_time >= ?
+		AND event_time < ?
+`)
+	args = append(args, query.MeterName(), formatTime(query.From()), formatTime(query.To()))
+	if query.Subject() != "" {
+		sqlQuery.WriteString("\t\tAND subject = ?\n")
+		args = append(args, query.Subject())
+	}
+	filterSQL, filterArgs, err := filterWhereSQL(query.Filter())
+	if err != nil {
+		return nil, err
+	}
+	if filterSQL != "" {
+		sqlQuery.WriteString("\t\tAND ")
+		sqlQuery.WriteString(filterSQL)
+		sqlQuery.WriteString("\n")
+		args = append(args, filterArgs...)
+	}
+	sqlQuery.WriteString(`
+),
+ranked AS (
+	SELECT
+		value,
+		quantity,
+		ROW_NUMBER() OVER (PARTITION BY value ORDER BY event_at ASC, id ASC) AS first_rank,
+		ROW_NUMBER() OVER (PARTITION BY value ORDER BY event_at DESC, id DESC) AS last_rank
+	FROM filtered
+	WHERE value IS NOT NULL AND value != ''
+)
+SELECT
+	value,
+	` + breakdownAggregateSQL(query.Aggregation(), &args, query.To().Sub(query.From()).Seconds()) + ` AS quantity,
+	CAST(COUNT(*) AS INTEGER) AS usage_events
+FROM ranked
+GROUP BY value
+ORDER BY quantity DESC, value ASC
+LIMIT ?
+`)
+	args = append(args, query.Limit())
+
+	rows, err := r.store.db.QueryContext(ctx, sqlQuery.String(), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := []domainusage.BreakdownItem{}
+	for rows.Next() {
+		var value string
+		var quantity float64
+		var usageEvents int
+		if err := rows.Scan(&value, &quantity, &usageEvents); err != nil {
+			return nil, err
+		}
+		items = append(items, domainusage.NewBreakdownItem(query.Field(), value, quantity, usageEvents))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
 func bucketStartSQL(size domainusage.BucketSize) string {
 	switch size {
 	case domainusage.BucketHour:
@@ -428,6 +508,13 @@ func metadataValueSQL(key string, args *[]any) (string, error) {
 	return "CASE json_type(metadata, ?) WHEN 'true' THEN 'true' WHEN 'false' THEN 'false' ELSE CAST(json_extract(metadata, ?) AS TEXT) END", nil
 }
 
+func breakdownValueSQL(field string, args *[]any) (string, error) {
+	if domainusage.IsSubjectGroupBy(field) {
+		return "subject", nil
+	}
+	return metadataValueSQL(field, args)
+}
+
 func sqliteJSONPath(key string) (string, error) {
 	if !metadataKeyPattern.MatchString(key) {
 		return "", fmt.Errorf("unsupported metadata key %q", key)
@@ -451,6 +538,28 @@ func aggregateSQL(aggregation domainmeter.Aggregation, bucketSize domainusage.Bu
 		return "MAX(CASE WHEN last_rank = 1 THEN quantity END)"
 	case domainmeter.AggregationRate:
 		return "CAST(COUNT(*) AS REAL) / " + bucketDurationSecondsSQL(bucketSize)
+	default:
+		return "SUM(quantity)"
+	}
+}
+
+func breakdownAggregateSQL(aggregation domainmeter.Aggregation, args *[]any, durationSeconds float64) string {
+	switch aggregation {
+	case domainmeter.AggregationCount:
+		return "CAST(COUNT(*) AS REAL)"
+	case domainmeter.AggregationAverage:
+		return "AVG(quantity)"
+	case domainmeter.AggregationMinimum:
+		return "MIN(quantity)"
+	case domainmeter.AggregationMaximum:
+		return "MAX(quantity)"
+	case domainmeter.AggregationFirst:
+		return "MAX(CASE WHEN first_rank = 1 THEN quantity END)"
+	case domainmeter.AggregationLast:
+		return "MAX(CASE WHEN last_rank = 1 THEN quantity END)"
+	case domainmeter.AggregationRate:
+		*args = append(*args, durationSeconds)
+		return "CAST(COUNT(*) AS REAL) / ?"
 	default:
 		return "SUM(quantity)"
 	}

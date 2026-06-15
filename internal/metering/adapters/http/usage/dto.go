@@ -39,6 +39,17 @@ type SearchRequest struct {
 	Filter     *FilterRequest `json:"filter,omitempty"`
 }
 
+// BreakdownRequest searches top usage breakdown values.
+type BreakdownRequest struct {
+	Subject string         `json:"subject,omitempty"`
+	Meter   string         `json:"meter"`
+	Field   string         `json:"field"`
+	From    string         `json:"from"`
+	To      string         `json:"to"`
+	Limit   int            `json:"limit,omitempty"`
+	Filter  *FilterRequest `json:"filter,omitempty"`
+}
+
 // GroupByRequest accepts a single metadata key or an ordered list of metadata keys.
 type GroupByRequest []string
 
@@ -108,6 +119,21 @@ type DimensionValueResponse struct {
 // DimensionValueListResponse is a list of discovered metadata dimension values.
 type DimensionValueListResponse struct {
 	Items []DimensionValueResponse `json:"items"`
+}
+
+// BreakdownResponse is an aggregated usage breakdown item.
+type BreakdownResponse struct {
+	Field       string  `json:"field"`
+	Value       string  `json:"value"`
+	Quantity    float64 `json:"quantity"`
+	UsageEvents int     `json:"events"`
+	Aggregation string  `json:"aggregation"`
+	Unit        string  `json:"unit"`
+}
+
+// BreakdownListResponse is a list of aggregated usage breakdown items.
+type BreakdownListResponse struct {
+	Items []BreakdownResponse `json:"items"`
 }
 
 // PruneListResponse is a paged prune run list.

@@ -642,6 +642,118 @@ func TestUsageDimensionValuesAPIContract(t *testing.T) {
 	}
 }
 
+func TestUsageBreakdownAPIContract(t *testing.T) {
+	router := newTestRouter()
+
+	createMeter := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name":            "requests",
+		"description":     "Requests",
+		"unit":            "request",
+		"aggregation":     "sum",
+		"metadata_schema": map[string]string{"endpoint": "string"},
+	})
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create meter status = %d: %s", createMeter.Code, createMeter.Body.String())
+	}
+
+	for _, event := range []map[string]any{
+		{
+			"idempotency_key": "breakdown-1",
+			"subject":         "org_123",
+			"meter":           "requests",
+			"quantity":        2,
+			"timestamp":       "2026-06-08T10:00:00Z",
+			"metadata":        map[string]any{"endpoint": "/orders"},
+		},
+		{
+			"idempotency_key": "breakdown-2",
+			"subject":         "org_123",
+			"meter":           "requests",
+			"quantity":        3,
+			"timestamp":       "2026-06-08T11:00:00Z",
+			"metadata":        map[string]any{"endpoint": "/users"},
+		},
+		{
+			"idempotency_key": "breakdown-3",
+			"subject":         "org_456",
+			"meter":           "requests",
+			"quantity":        7,
+			"timestamp":       "2026-06-08T12:00:00Z",
+			"metadata":        map[string]any{"endpoint": "/orders"},
+		},
+		{
+			"idempotency_key": "breakdown-4",
+			"subject":         "org_789",
+			"meter":           "requests",
+			"quantity":        1,
+			"timestamp":       "2026-06-08T13:00:00Z",
+			"metadata":        map[string]any{"endpoint": "/users"},
+		},
+	} {
+		createUsage := requestJSON(t, router, http.MethodPost, "/v1/usages", event)
+		if createUsage.Code != http.StatusCreated {
+			t.Fatalf("create usage status = %d: %s", createUsage.Code, createUsage.Body.String())
+		}
+	}
+
+	subjectBreakdown := requestJSON(t, router, http.MethodPost, "/v1/usages/breakdowns/search", map[string]any{
+		"meter": "requests",
+		"field": "subject",
+		"from":  "2026-06-08T00:00:00Z",
+		"to":    "2026-06-09T00:00:00Z",
+		"limit": 10,
+	})
+	if subjectBreakdown.Code != http.StatusOK {
+		t.Fatalf("subject breakdown status = %d, want %d: %s", subjectBreakdown.Code, http.StatusOK, subjectBreakdown.Body.String())
+	}
+
+	var subjects breakdownListResponse
+	decodeJSON(t, subjectBreakdown, &subjects)
+	if len(subjects.Items) != 3 {
+		t.Fatalf("subject breakdowns = %#v, want three items", subjects.Items)
+	}
+	if subjects.Items[0].Field != "subject" || subjects.Items[0].Value != "org_456" || subjects.Items[0].Quantity != 7 || subjects.Items[0].UsageEvents != 1 || subjects.Items[0].Aggregation != "sum" || subjects.Items[0].Unit != "request" {
+		t.Fatalf("first subject breakdown = %#v", subjects.Items[0])
+	}
+	if subjects.Items[1].Value != "org_123" || subjects.Items[1].Quantity != 5 || subjects.Items[1].UsageEvents != 2 {
+		t.Fatalf("second subject breakdown = %#v", subjects.Items[1])
+	}
+
+	endpointBreakdown := requestJSON(t, router, http.MethodPost, "/v1/usages/breakdowns/search", map[string]any{
+		"subject": "org_123",
+		"meter":   "requests",
+		"field":   "metadata.endpoint",
+		"from":    "2026-06-08T00:00:00Z",
+		"to":      "2026-06-09T00:00:00Z",
+		"limit":   10,
+	})
+	if endpointBreakdown.Code != http.StatusOK {
+		t.Fatalf("endpoint breakdown status = %d, want %d: %s", endpointBreakdown.Code, http.StatusOK, endpointBreakdown.Body.String())
+	}
+
+	var endpoints breakdownListResponse
+	decodeJSON(t, endpointBreakdown, &endpoints)
+	if len(endpoints.Items) != 2 {
+		t.Fatalf("endpoint breakdowns = %#v, want two items", endpoints.Items)
+	}
+	if endpoints.Items[0].Field != "endpoint" || endpoints.Items[0].Value != "/users" || endpoints.Items[0].Quantity != 3 || endpoints.Items[0].UsageEvents != 1 {
+		t.Fatalf("first endpoint breakdown = %#v", endpoints.Items[0])
+	}
+	if endpoints.Items[1].Value != "/orders" || endpoints.Items[1].Quantity != 2 || endpoints.Items[1].UsageEvents != 1 {
+		t.Fatalf("second endpoint breakdown = %#v", endpoints.Items[1])
+	}
+
+	unknown := requestJSON(t, router, http.MethodPost, "/v1/usages/breakdowns/search", map[string]any{
+		"meter": "requests",
+		"field": "plan",
+		"from":  "2026-06-08T00:00:00Z",
+		"to":    "2026-06-09T00:00:00Z",
+	})
+	if unknown.Code != http.StatusBadRequest {
+		t.Fatalf("unknown breakdown status = %d, want %d: %s", unknown.Code, http.StatusBadRequest, unknown.Body.String())
+	}
+}
+
 func TestUsageEventPruneAPIContract(t *testing.T) {
 	router := newTestRouter()
 
@@ -1708,6 +1820,19 @@ type dimensionValueResponse struct {
 
 type dimensionValueListResponse struct {
 	Items []dimensionValueResponse `json:"items"`
+}
+
+type breakdownResponse struct {
+	Field       string  `json:"field"`
+	Value       string  `json:"value"`
+	Quantity    float64 `json:"quantity"`
+	UsageEvents int     `json:"events"`
+	Aggregation string  `json:"aggregation"`
+	Unit        string  `json:"unit"`
+}
+
+type breakdownListResponse struct {
+	Items []breakdownResponse `json:"items"`
 }
 
 type bulkResponse struct {

@@ -366,6 +366,71 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 	respond.JSON(w, http.StatusOK, res)
 }
 
+// SearchBreakdown searches top aggregated usage breakdown values.
+//
+// @Summary Search usage breakdown
+// @ID searchUsageBreakdown
+// @Tags usages
+// @Accept json
+// @Produce json
+// @Param request body BreakdownRequest true "Usage breakdown search"
+// @Success 200 {object} BreakdownListResponse
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 404 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/usages/breakdowns/search [post]
+func (h *Handler) SearchBreakdown(w http.ResponseWriter, r *http.Request) {
+	var req BreakdownRequest
+	if err := request.DecodeJSON(r.Body, &req); err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+
+	from, err := request.RequiredTime("from", req.From)
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+	to, err := request.RequiredTime("to", req.To)
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+	filter, err := filterFromRequest(req.Filter)
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+
+	breakdown, err := h.service.ListBreakdown(r.Context(), appusage.BreakdownListQuery{
+		Subject:   req.Subject,
+		MeterName: req.Meter,
+		Field:     req.Field,
+		From:      from,
+		To:        to,
+		Limit:     req.Limit,
+		Filter:    filter,
+	})
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+
+	res := make([]BreakdownResponse, 0, len(breakdown.Items))
+	for _, item := range breakdown.Items {
+		res = append(res, BreakdownResponse{
+			Field:       item.Field,
+			Value:       item.Value,
+			Quantity:    item.Quantity,
+			UsageEvents: item.UsageEvents,
+			Aggregation: item.Aggregation,
+			Unit:        item.Unit,
+		})
+	}
+
+	respond.JSON(w, http.StatusOK, BreakdownListResponse{Items: res})
+}
+
 // ListDimensionValues lists discovered values for a meter metadata dimension.
 //
 // @Summary List usage dimension values

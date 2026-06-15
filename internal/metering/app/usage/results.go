@@ -43,6 +43,19 @@ type DimensionValueListResult struct {
 	Items []DimensionValueResult
 }
 
+type BreakdownResult struct {
+	Field       string
+	Value       string
+	Quantity    float64
+	UsageEvents int
+	Aggregation string
+	Unit        string
+}
+
+type BreakdownListResult struct {
+	Items []BreakdownResult
+}
+
 type PruneRunListResult struct {
 	Items      []PruneResult
 	NextCursor string
@@ -126,6 +139,17 @@ func dimensionValueResultFromDomain(value domainusage.DimensionValue) DimensionV
 		Field:       value.Field(),
 		Value:       value.Value(),
 		UsageEvents: value.UsageEvents(),
+	}
+}
+
+func breakdownResultFromDomain(item domainusage.BreakdownItem, aggregation string, unit string) BreakdownResult {
+	return BreakdownResult{
+		Field:       item.Field(),
+		Value:       item.Value(),
+		Quantity:    item.Quantity(),
+		UsageEvents: item.UsageEvents(),
+		Aggregation: aggregation,
+		Unit:        unit,
 	}
 }
 

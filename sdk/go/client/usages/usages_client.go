@@ -106,6 +106,12 @@ type ClientService interface {
 	// ListUsageDimensionValuesContext list usage dimension values.
 	ListUsageDimensionValuesContext(ctx context.Context, params *ListUsageDimensionValuesParams, opts ...ClientOption) (*ListUsageDimensionValuesOK, error)
 
+	// SearchUsageBreakdown search usage breakdown.
+	SearchUsageBreakdown(params *SearchUsageBreakdownParams, opts ...ClientOption) (*SearchUsageBreakdownOK, error)
+
+	// SearchUsageBreakdownContext search usage breakdown.
+	SearchUsageBreakdownContext(ctx context.Context, params *SearchUsageBreakdownParams, opts ...ClientOption) (*SearchUsageBreakdownOK, error)
+
 	// SearchUsageBuckets search usage buckets.
 	SearchUsageBuckets(params *SearchUsageBucketsParams, opts ...ClientOption) (*SearchUsageBucketsOK, error)
 
@@ -384,6 +390,72 @@ func (a *Client) ListUsageDimensionValuesContext(ctx context.Context, params *Li
 	//
 	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for listUsageDimensionValues: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+SearchUsageBreakdownsearches usage breakdown.
+
+This method does not support injected context.
+However, timeout and opentracing contexts are honored whenever enabled.
+
+If you need to pass a specific context, use [Client.SearchUsageBreakdownContext] instead.
+*/
+func (a *Client) SearchUsageBreakdown(params *SearchUsageBreakdownParams, opts ...ClientOption) (*SearchUsageBreakdownOK, error) {
+	var ctx context.Context
+	if params.inner.ctx != nil {
+		ctx = params.inner.ctx
+	} else {
+		ctx = context.Background()
+	}
+
+	return a.SearchUsageBreakdownContext(ctx, params, opts...)
+}
+
+/*
+SearchUsageBreakdownContextsearches usage breakdown.
+
+Do not use the deprecated [SearchUsageBreakdownParams.Context] with this method: it would be ignored.
+*/
+func (a *Client) SearchUsageBreakdownContext(ctx context.Context, params *SearchUsageBreakdownParams, opts ...ClientOption) (*SearchUsageBreakdownOK, error) {
+	// NOTE: parameters are not validated before sending
+	if params == nil {
+		params = NewSearchUsageBreakdownParams()
+	}
+
+	op := &runtime.ClientOperation{
+		ID:                 "searchUsageBreakdown",
+		Method:             "POST",
+		PathPattern:        "/v1/usages/breakdowns/search",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http"},
+		Params:             params,
+		Reader:             &SearchUsageBreakdownReader{formats: a.formats},
+		Client:             params.HTTPClient,
+	}
+
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.SubmitContext(ctx, op)
+	if err != nil {
+		return nil, err
+	}
+
+	// only one success response has to be checked
+	success, ok := result.(*SearchUsageBreakdownOK)
+	if ok {
+		return success, nil
+	}
+
+	// unexpected success response.
+
+	// no default response is defined.
+	//
+	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for searchUsageBreakdown: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

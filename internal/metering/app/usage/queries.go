@@ -42,6 +42,16 @@ type DimensionValueListQuery struct {
 	Limit     int
 }
 
+type BreakdownListQuery struct {
+	MeterName string
+	Field     string
+	Subject   string
+	From      time.Time
+	To        time.Time
+	Limit     int
+	Filter    domainusage.Filter
+}
+
 type PruneRunListQuery struct {
 	Limit  int
 	Cursor string
@@ -201,6 +211,50 @@ func (s *service) ListDimensionValues(ctx context.Context, input DimensionValueL
 	}
 
 	return DimensionValueListResult{Items: results}, nil
+}
+
+func (s *service) ListBreakdown(ctx context.Context, input BreakdownListQuery) (BreakdownListResult, error) {
+	meters, err := s.meterRepo.Find(ctx, domainmeter.Query{Name: input.MeterName})
+	if err != nil {
+		return BreakdownListResult{}, err
+	}
+	if len(meters) == 0 {
+		return BreakdownListResult{}, domain.ErrNotFound
+	}
+	meter := meters[0]
+
+	field := strings.TrimPrefix(strings.TrimSpace(input.Field), "metadata.")
+	if !domainusage.IsSubjectGroupBy(field) {
+		if _, exists := meter.MetadataSchema()[field]; !exists {
+			return BreakdownListResult{}, domain.ErrInvalidInput
+		}
+	}
+
+	query, err := domainusage.NewBreakdownQuery(
+		meter.Name(),
+		field,
+		input.Subject,
+		input.From,
+		input.To,
+		meter.Aggregation(),
+		input.Limit,
+		input.Filter,
+	)
+	if err != nil {
+		return BreakdownListResult{}, err
+	}
+
+	items, err := s.usageRepo.FindBreakdown(ctx, query)
+	if err != nil {
+		return BreakdownListResult{}, err
+	}
+
+	results := make([]BreakdownResult, 0, len(items))
+	for _, item := range items {
+		results = append(results, breakdownResultFromDomain(item, string(meter.Aggregation()), meter.Unit()))
+	}
+
+	return BreakdownListResult{Items: results}, nil
 }
 
 func (s *service) ListEvents(ctx context.Context, input EventListQuery) (EventListResult, error) {

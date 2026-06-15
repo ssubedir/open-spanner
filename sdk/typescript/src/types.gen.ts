@@ -96,6 +96,38 @@ export type UsageBulkResult = {
 };
 
 /**
+ * UsageBreakdownListResponse
+ */
+export type UsageBreakdownListResponse = {
+    items?: Array<UsageBreakdown>;
+};
+
+/**
+ * UsageBreakdownRequest
+ */
+export type UsageBreakdownRequest = {
+    field?: string;
+    filter?: InternalMeteringAdaptersHttpUsageFilterRequest;
+    from?: string;
+    limit?: number;
+    meter?: string;
+    subject?: string;
+    to?: string;
+};
+
+/**
+ * UsageBreakdown
+ */
+export type UsageBreakdown = {
+    aggregation?: string;
+    events?: number;
+    field?: string;
+    quantity?: number;
+    unit?: string;
+    value?: string;
+};
+
+/**
  * UsageCreateRequest
  */
 export type UsageCreateRequest = {
@@ -444,6 +476,42 @@ export type CreateUsageResponses = {
 };
 
 export type CreateUsageResponse = CreateUsageResponses[keyof CreateUsageResponses];
+
+export type SearchUsageBreakdownData = {
+    /**
+     * Usage breakdown search
+     */
+    body: UsageBreakdownRequest;
+    path?: never;
+    query?: never;
+    url: '/v1/usages/breakdowns/search';
+};
+
+export type SearchUsageBreakdownErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorResponse;
+};
+
+export type SearchUsageBreakdownError = SearchUsageBreakdownErrors[keyof SearchUsageBreakdownErrors];
+
+export type SearchUsageBreakdownResponses = {
+    /**
+     * OK
+     */
+    200: UsageBreakdownListResponse;
+};
+
+export type SearchUsageBreakdownResponse = SearchUsageBreakdownResponses[keyof SearchUsageBreakdownResponses];
 
 export type CreateUsageBulkData = {
     /**

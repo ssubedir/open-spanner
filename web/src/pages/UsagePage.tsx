@@ -15,13 +15,25 @@ import {
   firstEqualRuleValue,
   metadataTypesByField,
   selectedMeterSchemaKeys,
+  usageBreakdownQueryKey,
   usageDimensionDiscoveryKey,
 } from '../lib/usage-query'
 
 const maxGroupByFields = 5
 
 export function UsagePage() {
-  const { buckets, dimensionValues, error, filterQuery, groupBy, meters, status } = useSelector(appStore, (state) => state.usage)
+  const {
+    breakdownError,
+    breakdowns,
+    breakdownStatus,
+    buckets,
+    dimensionValues,
+    error,
+    filterQuery,
+    groupBy,
+    meters,
+    status,
+  } = useSelector(appStore, (state) => state.usage)
   const load = useCallback(() => appStoreActions.loadUsageControls(), [])
 
   useInitialLoad(load)
@@ -35,6 +47,7 @@ export function UsagePage() {
   const selectedMeterName = firstEqualRuleValue(filterQuery, 'meter')
   const metadataKeys = useMemo(() => selectedMeterSchemaKeys(meters, selectedMeterName), [meters, selectedMeterName])
   const groupKeys = useMemo(() => ['subject', ...metadataKeys], [metadataKeys])
+  const breakdownFields = useMemo(() => ['subject', ...metadataKeys].slice(0, 5), [metadataKeys])
   const activeGroupBy = groupBy.filter((key) => groupKeys.includes(key))
   const metadataTypes = useMemo(() => metadataTypesByField(meters, selectedMeterName), [meters, selectedMeterName])
   const filterFields = useMemo(
@@ -42,10 +55,19 @@ export function UsagePage() {
     [dimensionValues, metadataKeys, metadataTypes, meters],
   )
   const discoveryKey = useMemo(() => usageDimensionDiscoveryKey(filterQuery, meters), [filterQuery, meters])
+  const breakdownKey = useMemo(() => usageBreakdownQueryKey(filterQuery, meters), [filterQuery, meters])
+  const breakdownSections = useMemo(
+    () => breakdownFields.map((field) => ({ field, items: breakdowns[field] || [] })),
+    [breakdownFields, breakdowns],
+  )
 
   useEffect(() => {
     void appStoreActions.loadUsageDimensionValues()
   }, [discoveryKey])
+
+  useEffect(() => {
+    void appStoreActions.loadUsageBreakdowns()
+  }, [breakdownKey])
 
   function resetQuery() {
     appStoreActions.resetUsageQuery()
@@ -126,6 +148,30 @@ export function UsagePage() {
           </CardContent>
         </Card>
 
+        <Card>
+          <CardHeader>
+            <div>
+              <CardTitle>Breakdowns</CardTitle>
+              <CardDescription>Top subjects and dimensions for the current query window.</CardDescription>
+            </div>
+            <Badge variant={breakdownStatus === 'error' ? 'warning' : breakdownStatus === 'loading' ? 'muted' : 'success'}>
+              {breakdownStatus === 'loading' ? 'Loading' : `${breakdownSections.length} fields`}
+            </Badge>
+          </CardHeader>
+          <CardContent className="breakdown-content">
+            {breakdownError ? <div className="inline-error">{breakdownError}</div> : null}
+            {breakdownSections.length > 0 ? (
+              <div className="breakdown-grid">
+                {breakdownSections.map((section) => (
+                  <BreakdownPanel field={section.field} items={section.items} key={section.field} />
+                ))}
+              </div>
+            ) : (
+              <div className="breakdown-empty">Choose a meter and time range to view breakdowns.</div>
+            )}
+          </CardContent>
+        </Card>
+
         <Card className="usage-results-card">
           <CardHeader>
             <div>
@@ -152,6 +198,45 @@ export function UsagePage() {
         </Card>
       </section>
     </>
+  )
+}
+
+function BreakdownPanel({ field, items }: { field: string; items: Array<{ value: string; quantity: number; events: number; unit: string }> }) {
+  const maxQuantity = Math.max(...items.map((item) => item.quantity), 0)
+
+  return (
+    <section className="breakdown-panel">
+      <div className="breakdown-panel-header">
+        <div>
+          <h2>{breakdownLabel(field)}</h2>
+          <span>{items.length} values</span>
+        </div>
+      </div>
+      {items.length > 0 ? (
+        <div className="breakdown-list">
+          {items.map((item, index) => (
+            <div className="breakdown-row" key={item.value}>
+              <span className="breakdown-rank">{index + 1}</span>
+              <div className="breakdown-row-main">
+                <div className="breakdown-label">
+                  <strong>{item.value}</strong>
+                  <small>{item.events} events</small>
+                </div>
+                <div className="breakdown-track">
+                  <span style={{ width: `${breakdownWidth(item.quantity, maxQuantity)}%` }} />
+                </div>
+              </div>
+              <div className="breakdown-value">
+                <strong>{formatNumber(item.quantity)}</strong>
+                <small>{item.unit}</small>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="breakdown-empty">No values found</p>
+      )}
+    </section>
   )
 }
 
@@ -182,5 +267,25 @@ function GroupValues({ group }: { group?: Record<string, string> }) {
 }
 
 function groupLabel(key: string) {
-  return key === 'subject' ? 'Subject' : key
+  return key === 'subject' ? 'Subject' : humanizeField(key)
+}
+
+function breakdownLabel(key: string) {
+  return key === 'subject' ? 'Subjects' : humanizeField(key)
+}
+
+function breakdownWidth(quantity: number, maxQuantity: number) {
+  if (maxQuantity <= 0) {
+    return 4
+  }
+  return Math.max(4, (quantity / maxQuantity) * 100)
+}
+
+function humanizeField(key: string) {
+  return key
+    .replace(/^metadata\./, '')
+    .split(/[._-]/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
 }

@@ -59,6 +59,17 @@ type DimensionValueQuery struct {
 	limit     int
 }
 
+type BreakdownQuery struct {
+	meterName   string
+	field       string
+	subject     string
+	from        time.Time
+	to          time.Time
+	aggregation domainmeter.Aggregation
+	limit       int
+	filter      Filter
+}
+
 type EventCursor struct {
 	eventTime time.Time
 	id        string
@@ -98,6 +109,13 @@ type Bucket struct {
 type DimensionValue struct {
 	field       string
 	value       string
+	usageEvents int
+}
+
+type BreakdownItem struct {
+	field       string
+	value       string
+	quantity    float64
 	usageEvents int
 }
 
@@ -193,6 +211,48 @@ func NewDimensionValue(field string, value string, usageEvents int) DimensionVal
 	return DimensionValue{
 		field:       field,
 		value:       value,
+		usageEvents: usageEvents,
+	}
+}
+
+func NewBreakdownQuery(meterName string, field string, subject string, from time.Time, to time.Time, aggregation domainmeter.Aggregation, limit int, filter Filter) (BreakdownQuery, error) {
+	meterName = strings.TrimSpace(meterName)
+	field = strings.TrimPrefix(strings.TrimSpace(field), "metadata.")
+	subject = strings.TrimSpace(subject)
+
+	if meterName == "" {
+		return BreakdownQuery{}, fmt.Errorf("%w: meter is required", domain.ErrInvalidInput)
+	}
+	if field == "" {
+		return BreakdownQuery{}, fmt.Errorf("%w: breakdown field is required", domain.ErrInvalidInput)
+	}
+	if from.IsZero() || to.IsZero() || !from.Before(to) {
+		return BreakdownQuery{}, fmt.Errorf("%w: valid from and to range is required", domain.ErrInvalidInput)
+	}
+	if aggregation == "" {
+		aggregation = domainmeter.AggregationSum
+	}
+	if !domainmeter.IsSupportedAggregation(aggregation) {
+		return BreakdownQuery{}, fmt.Errorf("%w: unsupported aggregation %q", domain.ErrInvalidInput, aggregation)
+	}
+
+	return BreakdownQuery{
+		meterName:   meterName,
+		field:       field,
+		subject:     subject,
+		from:        from.UTC(),
+		to:          to.UTC(),
+		aggregation: aggregation,
+		limit:       NormalizeLimit(limit),
+		filter:      filter,
+	}, nil
+}
+
+func NewBreakdownItem(field string, value string, quantity float64, usageEvents int) BreakdownItem {
+	return BreakdownItem{
+		field:       field,
+		value:       value,
+		quantity:    quantity,
 		usageEvents: usageEvents,
 	}
 }
@@ -471,6 +531,38 @@ func (q DimensionValueQuery) Limit() int {
 	return q.limit
 }
 
+func (q BreakdownQuery) MeterName() string {
+	return q.meterName
+}
+
+func (q BreakdownQuery) Field() string {
+	return q.field
+}
+
+func (q BreakdownQuery) Subject() string {
+	return q.subject
+}
+
+func (q BreakdownQuery) From() time.Time {
+	return q.from
+}
+
+func (q BreakdownQuery) To() time.Time {
+	return q.to
+}
+
+func (q BreakdownQuery) Aggregation() domainmeter.Aggregation {
+	return q.aggregation
+}
+
+func (q BreakdownQuery) Limit() int {
+	return q.limit
+}
+
+func (q BreakdownQuery) Filter() Filter {
+	return q.filter
+}
+
 func (c EventCursor) EventTime() time.Time {
 	return c.eventTime
 }
@@ -584,4 +676,20 @@ func (v DimensionValue) Value() string {
 
 func (v DimensionValue) UsageEvents() int {
 	return v.usageEvents
+}
+
+func (b BreakdownItem) Field() string {
+	return b.field
+}
+
+func (b BreakdownItem) Value() string {
+	return b.value
+}
+
+func (b BreakdownItem) Quantity() float64 {
+	return b.quantity
+}
+
+func (b BreakdownItem) UsageEvents() int {
+	return b.usageEvents
 }

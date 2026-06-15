@@ -472,6 +472,161 @@ svg {
   min-height: 420px;
 }
 
+.card-content.breakdown-content {
+  padding: 16px;
+}
+
+.breakdown-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 20px 26px;
+}
+
+.breakdown-panel {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 9px;
+}
+
+.breakdown-panel-header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid #e7ebf1;
+  padding-bottom: 9px;
+}
+
+.breakdown-panel-header div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.breakdown-panel-header h2 {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.breakdown-panel-header span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.breakdown-list {
+  display: grid;
+  gap: 0;
+}
+
+.breakdown-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) minmax(72px, auto);
+  gap: 10px;
+  align-items: center;
+  min-height: 48px;
+  border-bottom: 1px solid #eef1f5;
+  padding: 9px 0;
+}
+
+.breakdown-row:last-child {
+  border-bottom: 0;
+}
+
+.breakdown-rank {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: #eef7f5;
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.breakdown-row-main {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+}
+
+.breakdown-label {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.breakdown-label strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.breakdown-label small,
+.breakdown-value small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.breakdown-track {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #eef1f5;
+}
+
+.breakdown-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--primary), #22a39a);
+}
+
+.breakdown-value {
+  display: grid;
+  min-width: 72px;
+  gap: 2px;
+  text-align: right;
+}
+
+.breakdown-value strong {
+  font-size: 13px;
+  line-height: 1.1;
+}
+
+.breakdown-empty {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.inline-error {
+  margin-bottom: 14px;
+  border: 1px solid #fed7aa;
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #fff7ed;
+  color: var(--warning);
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .secret-panel {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;

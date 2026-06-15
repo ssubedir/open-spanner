@@ -5,6 +5,7 @@ import "github.com/go-chi/chi/v5"
 func (h *Handler) RegisterRoutes(router chi.Router) {
 	router.Post("/usages", h.Create)
 	router.Post("/usages/bulk", h.CreateBulk)
+	router.Post("/usages/breakdowns/search", h.SearchBreakdown)
 	router.Post("/usages/search", h.Search)
 	router.Post("/usageevents/prune", h.PruneEvents)
 	router.Post("/usageevents/search", h.SearchEvents)

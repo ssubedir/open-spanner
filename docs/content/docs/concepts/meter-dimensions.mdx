@@ -79,6 +79,52 @@ The response is ordered by the number of matching usage events:
 
 The dashboard usage page uses discovered values to make metadata filters easier to select.
 
+## Rank Dimension Values By Usage
+
+Discovery answers "which values exist?" Breakdowns answer "which values matter most for this query?"
+
+Use breakdowns when you want top endpoints, plans, regions, models, or other dimensions by aggregated usage:
+
+```sh
+curl "http://localhost:18081/v1/usages/breakdowns/search" \
+  -H "Authorization: Bearer osp_live_your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "meter": "api_requests",
+    "field": "endpoint",
+    "from": "2026-06-01T00:00:00Z",
+    "to": "2026-06-10T00:00:00Z",
+    "limit": 5
+  }'
+```
+
+The response is ordered by aggregated quantity, then value:
+
+```json
+{
+  "items": [
+    {
+      "field": "endpoint",
+      "value": "/api/orders",
+      "quantity": 9312,
+      "events": 412,
+      "aggregation": "sum",
+      "unit": "request"
+    },
+    {
+      "field": "endpoint",
+      "value": "/api/users",
+      "quantity": 6420,
+      "events": 305,
+      "aggregation": "sum",
+      "unit": "request"
+    }
+  ]
+}
+```
+
+Use `field: "subject"` to rank subjects by usage without adding `subject` to the meter schema.
+
 ## Query By Dimension
 
 Use metadata filters for direct queries:

@@ -133,6 +133,19 @@ export type UsageDimensionValueList = {
   items: UsageDimensionValue[]
 }
 
+export type UsageBreakdown = {
+  field: string
+  value: string
+  quantity: number
+  events: number
+  aggregation: string
+  unit: string
+}
+
+export type UsageBreakdownList = {
+  items: UsageBreakdown[]
+}
+
 export type UsageDimensionValueQuery = {
   meter: string
   field: string
@@ -140,6 +153,16 @@ export type UsageDimensionValueQuery = {
   from?: string
   to?: string
   limit?: number
+}
+
+export type UsageBreakdownQuery = {
+  subject?: string
+  meter: string
+  field: string
+  from: string
+  to: string
+  limit?: number
+  filter?: UsageFilter
 }
 
 export type UsageFilter = UsageFilterGroup | UsageFilterCondition
@@ -358,4 +381,19 @@ export async function listUsageDimensionValues(query: UsageDimensionValueQuery) 
     params.set('limit', String(query.limit))
   }
   return request<UsageDimensionValueList>(`/v1/usages/dimensions?${params.toString()}`)
+}
+
+export async function listUsageBreakdowns(query: UsageBreakdownQuery) {
+  return request<UsageBreakdownList>('/v1/usages/breakdowns/search', {
+    body: JSON.stringify({
+      field: query.field,
+      filter: query.filter,
+      from: query.from,
+      limit: query.limit,
+      meter: query.meter,
+      subject: query.subject,
+      to: query.to,
+    }),
+    method: 'POST',
+  })
 }

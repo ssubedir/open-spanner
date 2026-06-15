@@ -119,8 +119,8 @@ export function metadataTypesByField(meters: Meter[], selectedMeterName?: string
 }
 
 export function usageDimensionDiscoveryKey(query: RuleGroupType, meters: Meter[]) {
-  const meter = firstEqualRuleValue(query, 'meter')
-  const metadataKeys = selectedMeterSchemaKeys(meters, meter)
+	const meter = firstEqualRuleValue(query, 'meter')
+	const metadataKeys = selectedMeterSchemaKeys(meters, meter)
   if (!meter || metadataKeys.length === 0) {
     return ''
   }
@@ -141,6 +141,28 @@ export function usageDimensionDiscoveryKey(query: RuleGroupType, meters: Meter[]
     from,
     to,
     metadataKeys.join(','),
+  ].join('|')
+}
+
+export function usageBreakdownQueryKey(query: RuleGroupType, meters: Meter[]) {
+  const meter = firstEqualRuleValue(query, 'meter')
+  if (!meter) {
+    return ''
+  }
+
+  let range: ReturnType<typeof usageTimeRangeFromQuery>
+  try {
+    range = usageTimeRangeFromQuery(query)
+  } catch {
+    return ''
+  }
+
+  return [
+    meter,
+    range.from,
+    range.to,
+    selectedMeterSchemaKeys(meters, meter).join(','),
+    JSON.stringify(query.rules),
   ].join('|')
 }
 

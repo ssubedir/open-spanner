@@ -16,6 +16,7 @@ type Service interface {
 	CreateBulk(ctx context.Context, idempotencyKey string, commands []CreateCommand) (BulkResult, error)
 	List(ctx context.Context, query ListQuery) ([]ListItemResult, error)
 	ListDimensionValues(ctx context.Context, query DimensionValueListQuery) (DimensionValueListResult, error)
+	ListBreakdown(ctx context.Context, query BreakdownListQuery) (BreakdownListResult, error)
 	ListEvents(ctx context.Context, query EventListQuery) (EventListResult, error)
 	PruneEvents(ctx context.Context, cmd PruneCommand) (PruneResult, error)
 	ListPruneRuns(ctx context.Context, query PruneRunListQuery) (PruneRunListResult, error)

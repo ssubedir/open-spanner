@@ -11,6 +11,9 @@ from .meter_list_response import MeterListResponse
 from .meter_metadata_schema import MeterMetadataSchema
 from .meter_update_request import MeterUpdateRequest
 from .meter_update_request_metadata_schema import MeterUpdateRequestMetadataSchema
+from .usage_breakdown import UsageBreakdown
+from .usage_breakdown_list_response import UsageBreakdownListResponse
+from .usage_breakdown_request import UsageBreakdownRequest
 from .usage_bucket import UsageBucket
 from .usage_bucket_group import UsageBucketGroup
 from .usage_bulk_failure import UsageBulkFailure
@@ -34,6 +37,9 @@ __all__ = (
     "MeterMetadataSchema",
     "MeterUpdateRequest",
     "MeterUpdateRequestMetadataSchema",
+    "UsageBreakdown",
+    "UsageBreakdownListResponse",
+    "UsageBreakdownRequest",
     "UsageBucket",
     "UsageBucketGroup",
     "UsageBulkFailure",

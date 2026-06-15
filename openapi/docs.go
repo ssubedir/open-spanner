@@ -1232,6 +1232,58 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/usages/breakdowns/search": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "usages"
+                ],
+                "summary": "Search usage breakdown",
+                "operationId": "searchUsageBreakdown",
+                "parameters": [
+                    {
+                        "description": "Usage breakdown search",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_usage.BreakdownRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_usage.BreakdownListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/usages/bulk": {
             "post": {
                 "description": "Records up to 1000 usage events. The Idempotency-Key header replays the original bulk response for the same batch. Per-event idempotency_key values replay existing events as duplicates. Duplicate event IDs are conflicts.",
@@ -1889,6 +1941,66 @@ const docTemplate = `{
                 },
                 "usage_events": {
                     "type": "integer"
+                }
+            }
+        },
+        "internal_metering_adapters_http_usage.BreakdownListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_usage.BreakdownResponse"
+                    }
+                }
+            }
+        },
+        "internal_metering_adapters_http_usage.BreakdownRequest": {
+            "type": "object",
+            "properties": {
+                "field": {
+                    "type": "string"
+                },
+                "filter": {
+                    "$ref": "#/definitions/internal_metering_adapters_http_usage.FilterRequest"
+                },
+                "from": {
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "meter": {
+                    "type": "string"
+                },
+                "subject": {
+                    "type": "string"
+                },
+                "to": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_usage.BreakdownResponse": {
+            "type": "object",
+            "properties": {
+                "aggregation": {
+                    "type": "string"
+                },
+                "events": {
+                    "type": "integer"
+                },
+                "field": {
+                    "type": "string"
+                },
+                "quantity": {
+                    "type": "number"
+                },
+                "unit": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "string"
                 }
             }
         },
