@@ -1,6 +1,6 @@
 import { Link, useRouter } from '@tanstack/react-router'
 import { useSelector } from '@tanstack/react-store'
-import { Loader2, UserPlus } from 'lucide-react'
+import { AlertCircle, Loader2, LockKeyhole, Mail, UserPlus } from 'lucide-react'
 import type { FormEvent } from 'react'
 
 import { appStore, appStoreActions } from '../app-store'
@@ -32,28 +32,43 @@ export function RegisterPage() {
           <div className="auth-icon"><UserPlus aria-hidden="true" /></div>
           <div>
             <h1 id="auth-title">Register</h1>
+            <p>Create a dashboard account.</p>
           </div>
         </div>
 
-        {error ? <div className="error-banner">{error}</div> : null}
+        {error ? (
+          <div aria-label={`Could not create account. ${error}`} className="auth-error" role="alert">
+            <AlertCircle aria-hidden="true" />
+            <div>
+              <strong>Could not create account</strong>
+              <span>{error}</span>
+            </div>
+          </div>
+        ) : null}
 
-        <form className="auth-form" onSubmit={(event) => void submit(event)}>
-          <label>
-            Email
-            <input autoComplete="email" name="email" placeholder="admin@example.com" required type="email" />
+        <form className="auth-form register-form" onSubmit={(event) => void submit(event)}>
+          <label className="auth-field">
+            <span>Email</span>
+            <span className="auth-input-shell">
+              <Mail aria-hidden="true" />
+              <input autoComplete="email" name="email" placeholder="admin@example.com" required type="email" />
+            </span>
           </label>
-          <label>
-            Password
-            <input autoComplete="new-password" minLength={8} name="password" required type="password" />
+          <label className="auth-field">
+            <span>Password</span>
+            <span className="auth-input-shell">
+              <LockKeyhole aria-hidden="true" />
+              <input autoComplete="new-password" minLength={8} name="password" required type="password" />
+            </span>
           </label>
           <Button disabled={loading} type="submit">
             {loading ? <Loader2 className="spin" aria-hidden="true" /> : <UserPlus aria-hidden="true" />}
-            Register
+            Create account
           </Button>
         </form>
 
         <div className="auth-switch">
-          Already registered? <Link to="/login">Sign in</Link>
+          Already have an account? <Link to="/login">Sign in</Link>
         </div>
       </section>
     </main>

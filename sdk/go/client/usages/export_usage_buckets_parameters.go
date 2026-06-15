@@ -12,6 +12,7 @@ import (
 	cr "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag/conv"
+	"github.com/go-openapi/swag/stringutils"
 )
 
 // NewExportUsageBucketsParams creates a new ExportUsageBucketsParams object,
@@ -77,9 +78,9 @@ type ExportUsageBucketsParams struct {
 
 	/* GroupBy.
 
-	   Metadata key to group by
+	   Subject or metadata keys to group by. Repeat the parameter or use comma-separated values.
 	*/
-	GroupBy *string
+	GroupBy []string
 
 	/* Limit.
 
@@ -97,7 +98,7 @@ type ExportUsageBucketsParams struct {
 
 	   Subject
 	*/
-	Subject string
+	Subject *string
 
 	/* To.
 
@@ -185,13 +186,13 @@ func (o *ExportUsageBucketsParams) SetFrom(from string) {
 }
 
 // WithGroupBy adds the groupBy to the export usage buckets params.
-func (o *ExportUsageBucketsParams) WithGroupBy(groupBy *string) *ExportUsageBucketsParams {
+func (o *ExportUsageBucketsParams) WithGroupBy(groupBy []string) *ExportUsageBucketsParams {
 	o.SetGroupBy(groupBy)
 	return o
 }
 
 // SetGroupBy adds the groupBy to the export usage buckets params.
-func (o *ExportUsageBucketsParams) SetGroupBy(groupBy *string) {
+func (o *ExportUsageBucketsParams) SetGroupBy(groupBy []string) {
 	o.GroupBy = groupBy
 }
 
@@ -218,13 +219,13 @@ func (o *ExportUsageBucketsParams) SetMeter(meter string) {
 }
 
 // WithSubject adds the subject to the export usage buckets params.
-func (o *ExportUsageBucketsParams) WithSubject(subject string) *ExportUsageBucketsParams {
+func (o *ExportUsageBucketsParams) WithSubject(subject *string) *ExportUsageBucketsParams {
 	o.SetSubject(subject)
 	return o
 }
 
 // SetSubject adds the subject to the export usage buckets params.
-func (o *ExportUsageBucketsParams) SetSubject(subject string) {
+func (o *ExportUsageBucketsParams) SetSubject(subject *string) {
 	o.Subject = subject
 }
 
@@ -275,18 +276,12 @@ func (o *ExportUsageBucketsParams) WriteToRequest(r runtime.ClientRequest, reg s
 
 	if o.GroupBy != nil {
 
-		// query param group_by
-		var qrGroupBy string
+		// binding items for group_by
+		joinedGroupBy := o.bindParamGroupBy(reg)
 
-		if o.GroupBy != nil {
-			qrGroupBy = *o.GroupBy
-		}
-		qGroupBy := qrGroupBy
-		if qGroupBy != "" {
-
-			if err := r.SetQueryParam("group_by", qGroupBy); err != nil {
-				return err
-			}
+		// query array param group_by
+		if err := r.SetQueryParam("group_by", joinedGroupBy...); err != nil {
+			return err
 		}
 	}
 
@@ -317,13 +312,20 @@ func (o *ExportUsageBucketsParams) WriteToRequest(r runtime.ClientRequest, reg s
 		}
 	}
 
-	// query param subject
-	qrSubject := o.Subject
-	qSubject := qrSubject
-	if qSubject != "" {
+	if o.Subject != nil {
 
-		if err := r.SetQueryParam("subject", qSubject); err != nil {
-			return err
+		// query param subject
+		var qrSubject string
+
+		if o.Subject != nil {
+			qrSubject = *o.Subject
+		}
+		qSubject := qrSubject
+		if qSubject != "" {
+
+			if err := r.SetQueryParam("subject", qSubject); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -341,4 +343,21 @@ func (o *ExportUsageBucketsParams) WriteToRequest(r runtime.ClientRequest, reg s
 		return errors.CompositeValidationError(res...)
 	}
 	return nil
+}
+
+// bindParamExportUsageBuckets binds the parameter group_by.
+func (o *ExportUsageBucketsParams) bindParamGroupBy(formats strfmt.Registry) []string {
+	groupByIR := o.GroupBy
+
+	var groupByIC []string
+	for _, groupByIIR := range groupByIR { // explode []string
+
+		groupByIIV := groupByIIR // string as string
+		groupByIC = append(groupByIC, groupByIIV)
+	}
+
+	// items.CollectionFormat: "multi"
+	groupByIS := stringutils.JoinByFormat(groupByIC, "multi")
+
+	return groupByIS
 }

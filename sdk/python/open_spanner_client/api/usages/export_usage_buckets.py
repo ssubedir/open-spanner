@@ -11,12 +11,12 @@ from ...types import UNSET, Response, Unset
 
 def _get_kwargs(
     *,
-    subject: str,
+    subject: str | Unset = UNSET,
     meter: str,
     from_: str,
     to: str,
     bucket_size: str | Unset = UNSET,
-    group_by: str | Unset = UNSET,
+    group_by: list[str] | Unset = UNSET,
     limit: int | Unset = UNSET,
 ) -> dict[str, Any]:
 
@@ -32,7 +32,11 @@ def _get_kwargs(
 
     params["bucket_size"] = bucket_size
 
-    params["group_by"] = group_by
+    json_group_by: list[str] | Unset = UNSET
+    if not isinstance(group_by, Unset):
+        json_group_by = group_by
+
+    params["group_by"] = json_group_by
 
     params["limit"] = limit
 
@@ -85,23 +89,23 @@ def _build_response(*, client: AuthenticatedClient | Client, response: httpx.Res
 def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
-    subject: str,
+    subject: str | Unset = UNSET,
     meter: str,
     from_: str,
     to: str,
     bucket_size: str | Unset = UNSET,
-    group_by: str | Unset = UNSET,
+    group_by: list[str] | Unset = UNSET,
     limit: int | Unset = UNSET,
 ) -> Response[ErrorResponse | str]:
     """Export usage buckets
 
     Args:
-        subject (str):
+        subject (str | Unset):
         meter (str):
         from_ (str):
         to (str):
         bucket_size (str | Unset):
-        group_by (str | Unset):
+        group_by (list[str] | Unset):
         limit (int | Unset):
 
     Raises:
@@ -132,23 +136,23 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient | Client,
-    subject: str,
+    subject: str | Unset = UNSET,
     meter: str,
     from_: str,
     to: str,
     bucket_size: str | Unset = UNSET,
-    group_by: str | Unset = UNSET,
+    group_by: list[str] | Unset = UNSET,
     limit: int | Unset = UNSET,
 ) -> ErrorResponse | str | None:
     """Export usage buckets
 
     Args:
-        subject (str):
+        subject (str | Unset):
         meter (str):
         from_ (str):
         to (str):
         bucket_size (str | Unset):
-        group_by (str | Unset):
+        group_by (list[str] | Unset):
         limit (int | Unset):
 
     Raises:
@@ -174,23 +178,23 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
-    subject: str,
+    subject: str | Unset = UNSET,
     meter: str,
     from_: str,
     to: str,
     bucket_size: str | Unset = UNSET,
-    group_by: str | Unset = UNSET,
+    group_by: list[str] | Unset = UNSET,
     limit: int | Unset = UNSET,
 ) -> Response[ErrorResponse | str]:
     """Export usage buckets
 
     Args:
-        subject (str):
+        subject (str | Unset):
         meter (str):
         from_ (str):
         to (str):
         bucket_size (str | Unset):
-        group_by (str | Unset):
+        group_by (list[str] | Unset):
         limit (int | Unset):
 
     Raises:
@@ -219,23 +223,23 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient | Client,
-    subject: str,
+    subject: str | Unset = UNSET,
     meter: str,
     from_: str,
     to: str,
     bucket_size: str | Unset = UNSET,
-    group_by: str | Unset = UNSET,
+    group_by: list[str] | Unset = UNSET,
     limit: int | Unset = UNSET,
 ) -> ErrorResponse | str | None:
     """Export usage buckets
 
     Args:
-        subject (str):
+        subject (str | Unset):
         meter (str):
         from_ (str):
         to (str):
         bucket_size (str | Unset):
-        group_by (str | Unset):
+        group_by (list[str] | Unset):
         limit (int | Unset):
 
     Raises:

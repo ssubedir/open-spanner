@@ -6,6 +6,8 @@ type Repository interface {
 	Save(ctx context.Context, event Event) (Event, error)
 	SaveBulk(ctx context.Context, idempotencyKey string, events []Event) (BulkSaveResult, error)
 	Query(ctx context.Context, query Query) ([]Bucket, error)
+	FindDimensionValues(ctx context.Context, query DimensionValueQuery) ([]DimensionValue, error)
+	FindBreakdown(ctx context.Context, query BreakdownQuery) ([]BreakdownItem, error)
 	FindEvents(ctx context.Context, query EventQuery) (EventPage, error)
 	CountEvents(ctx context.Context) (int, error)
 	FindMeterStats(ctx context.Context) ([]MeterStats, error)

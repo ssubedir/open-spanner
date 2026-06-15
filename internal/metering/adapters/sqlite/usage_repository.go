@@ -178,10 +178,13 @@ INSERT INTO usage_events (
 
 func (r *UsageRepository) Query(ctx context.Context, query domainusage.Query) ([]domainusage.Bucket, error) {
 	args := []any{}
-	groupSQL, err := groupValueSQL(query.GroupBy(), &args)
+	groupBy := query.GroupByFields()
+	groupSelectSQL, groupAliases, err := groupValueSelectSQL(groupBy, &args)
 	if err != nil {
 		return nil, err
 	}
+	partitionColumns := groupPartitionColumns(groupAliases)
+	selectColumns := groupResultColumns(groupAliases)
 
 	sqlQuery := strings.Builder{}
 	sqlQuery.WriteString(`
@@ -189,16 +192,19 @@ WITH filtered AS (
 	SELECT
 		id,
 		` + bucketStartSQL(query.BucketSize()) + ` AS bucket_start,
-		` + groupSQL + ` AS group_value,
+` + groupSelectSQL + `
 		quantity,
 		event_time AS event_at
 	FROM usage_events
-	WHERE subject = ?
-		AND meter_name = ?
+	WHERE meter_name = ?
 		AND event_time >= ?
 		AND event_time < ?
 `)
-	args = append(args, query.Subject(), query.MeterName(), formatTime(query.From()), formatTime(query.To()))
+	args = append(args, query.MeterName(), formatTime(query.From()), formatTime(query.To()))
+	if query.Subject() != "" {
+		sqlQuery.WriteString("\t\tAND subject = ?\n")
+		args = append(args, query.Subject())
+	}
 	for key, value := range query.Metadata() {
 		fieldSQL, err := metadataTextSQL(key, &args)
 		if err != nil {
@@ -222,16 +228,16 @@ WITH filtered AS (
 ranked AS (
 	SELECT
 		bucket_start,
-		group_value,
+` + groupColumnSelectSQL(groupAliases) + `
 		quantity,
-		ROW_NUMBER() OVER (PARTITION BY bucket_start, group_value ORDER BY event_at ASC, id ASC) AS first_rank,
-		ROW_NUMBER() OVER (PARTITION BY bucket_start, group_value ORDER BY event_at DESC, id DESC) AS last_rank
+		ROW_NUMBER() OVER (PARTITION BY ` + partitionColumns + ` ORDER BY event_at ASC, id ASC) AS first_rank,
+		ROW_NUMBER() OVER (PARTITION BY ` + partitionColumns + ` ORDER BY event_at DESC, id DESC) AS last_rank
 	FROM filtered
 )
-SELECT bucket_start, group_value, ` + aggregateSQL(query.Aggregation(), query.BucketSize()) + ` AS quantity
+SELECT ` + selectColumns + `, ` + aggregateSQL(query.Aggregation(), query.BucketSize()) + ` AS quantity
 FROM ranked
-GROUP BY bucket_start, group_value
-ORDER BY bucket_start ASC, group_value ASC
+GROUP BY ` + partitionColumns + `
+ORDER BY ` + groupOrderColumns(groupAliases) + `
 LIMIT ?
 `)
 	args = append(args, query.Limit())
@@ -245,9 +251,14 @@ LIMIT ?
 	buckets := []domainusage.Bucket{}
 	for rows.Next() {
 		var bucketStartText string
-		var groupValue string
+		groupValues := make([]string, len(groupBy))
 		var quantity float64
-		if err := rows.Scan(&bucketStartText, &groupValue, &quantity); err != nil {
+		scanTargets := []any{&bucketStartText}
+		for i := range groupValues {
+			scanTargets = append(scanTargets, &groupValues[i])
+		}
+		scanTargets = append(scanTargets, &quantity)
+		if err := rows.Scan(scanTargets...); err != nil {
 			return nil, err
 		}
 		bucketStart, err := time.Parse(time.RFC3339Nano, bucketStartText)
@@ -255,11 +266,15 @@ LIMIT ?
 			return nil, err
 		}
 		group := map[string]string{}
-		if query.GroupBy() != "" {
-			group[query.GroupBy()] = groupValue
+		bucketSubject := query.Subject()
+		for index, field := range groupBy {
+			group[field] = groupValues[index]
+			if domainusage.IsSubjectGroupBy(field) {
+				bucketSubject = groupValues[index]
+			}
 		}
 		buckets = append(buckets, domainusage.NewBucketWithGroup(
-			query.Subject(),
+			bucketSubject,
 			query.MeterName(),
 			query.BucketSize(),
 			bucketStart,
@@ -275,6 +290,147 @@ LIMIT ?
 	return buckets, nil
 }
 
+func (r *UsageRepository) FindDimensionValues(ctx context.Context, query domainusage.DimensionValueQuery) ([]domainusage.DimensionValue, error) {
+	args := []any{}
+	valueSQL, err := metadataValueSQL(query.Field(), &args)
+	if err != nil {
+		return nil, err
+	}
+	path, err := sqliteJSONPath(query.Field())
+	if err != nil {
+		return nil, err
+	}
+
+	sqlQuery := strings.Builder{}
+	sqlQuery.WriteString("SELECT value, COUNT(*) AS usage_events\n")
+	sqlQuery.WriteString("FROM (\n")
+	sqlQuery.WriteString("\tSELECT " + valueSQL + " AS value\n")
+	sqlQuery.WriteString("\tFROM usage_events\n")
+	sqlQuery.WriteString("\tWHERE meter_name = ?\n")
+	args = append(args, query.MeterName())
+	sqlQuery.WriteString("\t\tAND json_type(metadata, ?) IS NOT NULL\n")
+	args = append(args, path)
+	if query.Subject() != "" {
+		sqlQuery.WriteString("\t\tAND subject = ?\n")
+		args = append(args, query.Subject())
+	}
+	if !query.From().IsZero() {
+		sqlQuery.WriteString("\t\tAND event_time >= ?\n")
+		args = append(args, formatTime(query.From()))
+	}
+	if !query.To().IsZero() {
+		sqlQuery.WriteString("\t\tAND event_time < ?\n")
+		args = append(args, formatTime(query.To()))
+	}
+	sqlQuery.WriteString(") discovered\n")
+	sqlQuery.WriteString("WHERE value IS NOT NULL AND value != ''\n")
+	sqlQuery.WriteString("GROUP BY value\n")
+	sqlQuery.WriteString("ORDER BY usage_events DESC, value ASC\n")
+	sqlQuery.WriteString("LIMIT ?")
+	args = append(args, query.Limit())
+
+	rows, err := r.store.db.QueryContext(ctx, sqlQuery.String(), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	values := []domainusage.DimensionValue{}
+	for rows.Next() {
+		var value string
+		var usageEvents int
+		if err := rows.Scan(&value, &usageEvents); err != nil {
+			return nil, err
+		}
+		values = append(values, domainusage.NewDimensionValue(query.Field(), value, usageEvents))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return values, nil
+}
+
+func (r *UsageRepository) FindBreakdown(ctx context.Context, query domainusage.BreakdownQuery) ([]domainusage.BreakdownItem, error) {
+	args := []any{}
+	valueSQL, err := breakdownValueSQL(query.Field(), &args)
+	if err != nil {
+		return nil, err
+	}
+
+	sqlQuery := strings.Builder{}
+	sqlQuery.WriteString(`
+WITH filtered AS (
+	SELECT
+		id,
+		` + valueSQL + ` AS value,
+		quantity,
+		event_time AS event_at
+	FROM usage_events
+	WHERE meter_name = ?
+		AND event_time >= ?
+		AND event_time < ?
+`)
+	args = append(args, query.MeterName(), formatTime(query.From()), formatTime(query.To()))
+	if query.Subject() != "" {
+		sqlQuery.WriteString("\t\tAND subject = ?\n")
+		args = append(args, query.Subject())
+	}
+	filterSQL, filterArgs, err := filterWhereSQL(query.Filter())
+	if err != nil {
+		return nil, err
+	}
+	if filterSQL != "" {
+		sqlQuery.WriteString("\t\tAND ")
+		sqlQuery.WriteString(filterSQL)
+		sqlQuery.WriteString("\n")
+		args = append(args, filterArgs...)
+	}
+	sqlQuery.WriteString(`
+),
+ranked AS (
+	SELECT
+		value,
+		quantity,
+		ROW_NUMBER() OVER (PARTITION BY value ORDER BY event_at ASC, id ASC) AS first_rank,
+		ROW_NUMBER() OVER (PARTITION BY value ORDER BY event_at DESC, id DESC) AS last_rank
+	FROM filtered
+	WHERE value IS NOT NULL AND value != ''
+)
+SELECT
+	value,
+	` + breakdownAggregateSQL(query.Aggregation(), &args, query.To().Sub(query.From()).Seconds()) + ` AS quantity,
+	CAST(COUNT(*) AS INTEGER) AS usage_events
+FROM ranked
+GROUP BY value
+ORDER BY quantity DESC, value ASC
+LIMIT ?
+`)
+	args = append(args, query.Limit())
+
+	rows, err := r.store.db.QueryContext(ctx, sqlQuery.String(), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := []domainusage.BreakdownItem{}
+	for rows.Next() {
+		var value string
+		var quantity float64
+		var usageEvents int
+		if err := rows.Scan(&value, &quantity, &usageEvents); err != nil {
+			return nil, err
+		}
+		items = append(items, domainusage.NewBreakdownItem(query.Field(), value, quantity, usageEvents))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
 func bucketStartSQL(size domainusage.BucketSize) string {
 	switch size {
 	case domainusage.BucketHour:
@@ -286,20 +442,84 @@ func bucketStartSQL(size domainusage.BucketSize) string {
 	}
 }
 
-func groupValueSQL(groupBy string, args *[]any) (string, error) {
-	if groupBy == "" {
-		return "''", nil
+func groupValueSelectSQL(groupBy []string, args *[]any) (string, []string, error) {
+	columns := strings.Builder{}
+	aliases := make([]string, 0, len(groupBy))
+	for index, field := range groupBy {
+		valueSQL := "subject"
+		if !domainusage.IsSubjectGroupBy(field) {
+			var err error
+			valueSQL, err = metadataTextSQL(field, args)
+			if err != nil {
+				return "", nil, err
+			}
+		}
+		alias := fmt.Sprintf("group_%d", index)
+		columns.WriteString("\t\t")
+		columns.WriteString(valueSQL)
+		columns.WriteString(" AS ")
+		columns.WriteString(alias)
+		columns.WriteString(",\n")
+		aliases = append(aliases, alias)
 	}
-	return metadataTextSQL(groupBy, args)
+	return columns.String(), aliases, nil
+}
+
+func groupColumnSelectSQL(aliases []string) string {
+	if len(aliases) == 0 {
+		return ""
+	}
+
+	return "\t\t" + strings.Join(aliases, ",\n\t\t") + ","
+}
+
+func groupPartitionColumns(aliases []string) string {
+	columns := append([]string{"bucket_start"}, aliases...)
+	return strings.Join(columns, ", ")
+}
+
+func groupResultColumns(aliases []string) string {
+	return groupPartitionColumns(aliases)
+}
+
+func groupOrderColumns(aliases []string) string {
+	columns := []string{"bucket_start ASC"}
+	for _, alias := range aliases {
+		columns = append(columns, alias+" ASC")
+	}
+	return strings.Join(columns, ", ")
 }
 
 func metadataTextSQL(key string, args *[]any) (string, error) {
+	path, err := sqliteJSONPath(key)
+	if err != nil {
+		return "", err
+	}
+	*args = append(*args, path, path)
+	return "CASE json_type(metadata, ?) WHEN 'true' THEN 'true' WHEN 'false' THEN 'false' ELSE COALESCE(CAST(json_extract(metadata, ?) AS TEXT), '<nil>') END", nil
+}
+
+func metadataValueSQL(key string, args *[]any) (string, error) {
+	path, err := sqliteJSONPath(key)
+	if err != nil {
+		return "", err
+	}
+	*args = append(*args, path, path)
+	return "CASE json_type(metadata, ?) WHEN 'true' THEN 'true' WHEN 'false' THEN 'false' ELSE CAST(json_extract(metadata, ?) AS TEXT) END", nil
+}
+
+func breakdownValueSQL(field string, args *[]any) (string, error) {
+	if domainusage.IsSubjectGroupBy(field) {
+		return "subject", nil
+	}
+	return metadataValueSQL(field, args)
+}
+
+func sqliteJSONPath(key string) (string, error) {
 	if !metadataKeyPattern.MatchString(key) {
 		return "", fmt.Errorf("unsupported metadata key %q", key)
 	}
-	path := "$." + key
-	*args = append(*args, path, path)
-	return "CASE json_type(metadata, ?) WHEN 'true' THEN 'true' WHEN 'false' THEN 'false' ELSE COALESCE(CAST(json_extract(metadata, ?) AS TEXT), '<nil>') END", nil
+	return "$." + key, nil
 }
 
 func aggregateSQL(aggregation domainmeter.Aggregation, bucketSize domainusage.BucketSize) string {
@@ -318,6 +538,28 @@ func aggregateSQL(aggregation domainmeter.Aggregation, bucketSize domainusage.Bu
 		return "MAX(CASE WHEN last_rank = 1 THEN quantity END)"
 	case domainmeter.AggregationRate:
 		return "CAST(COUNT(*) AS REAL) / " + bucketDurationSecondsSQL(bucketSize)
+	default:
+		return "SUM(quantity)"
+	}
+}
+
+func breakdownAggregateSQL(aggregation domainmeter.Aggregation, args *[]any, durationSeconds float64) string {
+	switch aggregation {
+	case domainmeter.AggregationCount:
+		return "CAST(COUNT(*) AS REAL)"
+	case domainmeter.AggregationAverage:
+		return "AVG(quantity)"
+	case domainmeter.AggregationMinimum:
+		return "MIN(quantity)"
+	case domainmeter.AggregationMaximum:
+		return "MAX(quantity)"
+	case domainmeter.AggregationFirst:
+		return "MAX(CASE WHEN first_rank = 1 THEN quantity END)"
+	case domainmeter.AggregationLast:
+		return "MAX(CASE WHEN last_rank = 1 THEN quantity END)"
+	case domainmeter.AggregationRate:
+		*args = append(*args, durationSeconds)
+		return "CAST(COUNT(*) AS REAL) / ?"
 	default:
 		return "SUM(quantity)"
 	}

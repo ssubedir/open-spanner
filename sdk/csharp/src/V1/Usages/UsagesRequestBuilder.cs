@@ -4,7 +4,9 @@ using Microsoft.Kiota.Abstractions.Extensions;
 using Microsoft.Kiota.Abstractions.Serialization;
 using Microsoft.Kiota.Abstractions;
 using OpenSpanner.Models;
+using OpenSpanner.V1.Usages.Breakdowns;
 using OpenSpanner.V1.Usages.Bulk;
+using OpenSpanner.V1.Usages.Dimensions;
 using OpenSpanner.V1.Usages.Export;
 using OpenSpanner.V1.Usages.Search;
 using System.Collections.Generic;
@@ -20,10 +22,20 @@ namespace OpenSpanner.V1.Usages
     [global::System.CodeDom.Compiler.GeneratedCode("Kiota", "1.0.0")]
     public partial class UsagesRequestBuilder : BaseRequestBuilder
     {
+        /// <summary>The breakdowns property</summary>
+        public global::OpenSpanner.V1.Usages.Breakdowns.BreakdownsRequestBuilder Breakdowns
+        {
+            get => new global::OpenSpanner.V1.Usages.Breakdowns.BreakdownsRequestBuilder(PathParameters, RequestAdapter);
+        }
         /// <summary>The bulk property</summary>
         public global::OpenSpanner.V1.Usages.Bulk.BulkRequestBuilder Bulk
         {
             get => new global::OpenSpanner.V1.Usages.Bulk.BulkRequestBuilder(PathParameters, RequestAdapter);
+        }
+        /// <summary>The dimensions property</summary>
+        public global::OpenSpanner.V1.Usages.Dimensions.DimensionsRequestBuilder Dimensions
+        {
+            get => new global::OpenSpanner.V1.Usages.Dimensions.DimensionsRequestBuilder(PathParameters, RequestAdapter);
         }
         /// <summary>The export property</summary>
         public global::OpenSpanner.V1.Usages.Export.ExportRequestBuilder Export

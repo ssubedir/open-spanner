@@ -38,6 +38,14 @@ namespace OpenSpanner.Models
 #else
         public string Description { get; set; }
 #endif
+        /// <summary>The dimensions property</summary>
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
+#nullable enable
+        public List<global::OpenSpanner.Models.MeterDimension>? Dimensions { get; set; }
+#nullable restore
+#else
+        public List<global::OpenSpanner.Models.MeterDimension> Dimensions { get; set; }
+#endif
         /// <summary>The event_retention_days property</summary>
         public int? EventRetentionDays { get; set; }
         /// <summary>The id property</summary>
@@ -100,6 +108,7 @@ namespace OpenSpanner.Models
                 { "aggregation", n => { Aggregation = n.GetStringValue(); } },
                 { "created_at", n => { CreatedAt = n.GetStringValue(); } },
                 { "description", n => { Description = n.GetStringValue(); } },
+                { "dimensions", n => { Dimensions = n.GetCollectionOfObjectValues<global::OpenSpanner.Models.MeterDimension>(global::OpenSpanner.Models.MeterDimension.CreateFromDiscriminatorValue)?.AsList(); } },
                 { "event_retention_days", n => { EventRetentionDays = n.GetIntValue(); } },
                 { "id", n => { Id = n.GetStringValue(); } },
                 { "metadata_schema", n => { MetadataSchema = n.GetObjectValue<global::OpenSpanner.Models.Meter_metadata_schema>(global::OpenSpanner.Models.Meter_metadata_schema.CreateFromDiscriminatorValue); } },
@@ -117,6 +126,7 @@ namespace OpenSpanner.Models
             writer.WriteStringValue("aggregation", Aggregation);
             writer.WriteStringValue("created_at", CreatedAt);
             writer.WriteStringValue("description", Description);
+            writer.WriteCollectionOfObjectValues<global::OpenSpanner.Models.MeterDimension>("dimensions", Dimensions);
             writer.WriteIntValue("event_retention_days", EventRetentionDays);
             writer.WriteStringValue("id", Id);
             writer.WriteObjectValue<global::OpenSpanner.Models.Meter_metadata_schema>("metadata_schema", MetadataSchema);

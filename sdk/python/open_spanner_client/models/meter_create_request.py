@@ -10,6 +10,7 @@ from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
     from ..models.meter_create_request_metadata_schema import MeterCreateRequestMetadataSchema
+    from ..models.meter_dimension_request import MeterDimensionRequest
 
 
 T = TypeVar("T", bound="MeterCreateRequest")
@@ -21,6 +22,7 @@ class MeterCreateRequest:
     Attributes:
         aggregation (str | Unset):
         description (str | Unset):
+        dimensions (list[MeterDimensionRequest] | Unset):
         event_retention_days (int | Unset):
         metadata_schema (MeterCreateRequestMetadataSchema | Unset):
         name (str | Unset):
@@ -29,6 +31,7 @@ class MeterCreateRequest:
 
     aggregation: str | Unset = UNSET
     description: str | Unset = UNSET
+    dimensions: list[MeterDimensionRequest] | Unset = UNSET
     event_retention_days: int | Unset = UNSET
     metadata_schema: MeterCreateRequestMetadataSchema | Unset = UNSET
     name: str | Unset = UNSET
@@ -39,6 +42,13 @@ class MeterCreateRequest:
         aggregation = self.aggregation
 
         description = self.description
+
+        dimensions: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.dimensions, Unset):
+            dimensions = []
+            for dimensions_item_data in self.dimensions:
+                dimensions_item = dimensions_item_data.to_dict()
+                dimensions.append(dimensions_item)
 
         event_retention_days = self.event_retention_days
 
@@ -57,6 +67,8 @@ class MeterCreateRequest:
             field_dict["aggregation"] = aggregation
         if description is not UNSET:
             field_dict["description"] = description
+        if dimensions is not UNSET:
+            field_dict["dimensions"] = dimensions
         if event_retention_days is not UNSET:
             field_dict["event_retention_days"] = event_retention_days
         if metadata_schema is not UNSET:
@@ -71,11 +83,21 @@ class MeterCreateRequest:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.meter_create_request_metadata_schema import MeterCreateRequestMetadataSchema
+        from ..models.meter_dimension_request import MeterDimensionRequest
 
         d = dict(src_dict)
         aggregation = d.pop("aggregation", UNSET)
 
         description = d.pop("description", UNSET)
+
+        _dimensions = d.pop("dimensions", UNSET)
+        dimensions: list[MeterDimensionRequest] | Unset = UNSET
+        if _dimensions is not UNSET:
+            dimensions = []
+            for dimensions_item_data in _dimensions:
+                dimensions_item = MeterDimensionRequest.from_dict(dimensions_item_data)
+
+                dimensions.append(dimensions_item)
 
         event_retention_days = d.pop("event_retention_days", UNSET)
 
@@ -93,6 +115,7 @@ class MeterCreateRequest:
         meter_create_request = cls(
             aggregation=aggregation,
             description=description,
+            dimensions=dimensions,
             event_retention_days=event_retention_days,
             metadata_schema=metadata_schema,
             name=name,

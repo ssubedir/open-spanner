@@ -16,7 +16,7 @@ export type InternalMeteringAdaptersHttpUsageSearchRequest = {
     bucket_size?: string;
     filter?: InternalMeteringAdaptersHttpUsageFilterRequest;
     from?: string;
-    group_by?: string;
+    group_by?: Array<string>;
     limit?: number;
     meter?: string;
     subject?: string;
@@ -29,12 +29,37 @@ export type InternalMeteringAdaptersHttpUsageSearchRequest = {
 export type MeterCreateRequest = {
     aggregation?: string;
     description?: string;
+    dimensions?: Array<MeterDimensionRequest>;
     event_retention_days?: number;
     metadata_schema?: {
         [key: string]: string;
     };
     name?: string;
     unit?: string;
+};
+
+/**
+ * MeterDimensionRequest
+ */
+export type MeterDimensionRequest = {
+    deprecated?: boolean;
+    description?: string;
+    display_name?: string;
+    name?: string;
+    required?: boolean;
+    type?: string;
+};
+
+/**
+ * MeterDimension
+ */
+export type MeterDimension = {
+    deprecated?: boolean;
+    description?: string;
+    display_name?: string;
+    name?: string;
+    required?: boolean;
+    type?: string;
 };
 
 /**
@@ -52,6 +77,7 @@ export type Meter = {
     aggregation?: string;
     created_at?: string;
     description?: string;
+    dimensions?: Array<MeterDimension>;
     event_retention_days?: number;
     id?: string;
     metadata_schema?: {
@@ -67,6 +93,7 @@ export type Meter = {
 export type MeterUpdateRequest = {
     aggregation?: string;
     description?: string;
+    dimensions?: Array<MeterDimensionRequest>;
     event_retention_days?: number;
     metadata_schema?: {
         [key: string]: string;
@@ -96,6 +123,38 @@ export type UsageBulkResult = {
 };
 
 /**
+ * UsageBreakdownListResponse
+ */
+export type UsageBreakdownListResponse = {
+    items?: Array<UsageBreakdown>;
+};
+
+/**
+ * UsageBreakdownRequest
+ */
+export type UsageBreakdownRequest = {
+    field?: string;
+    filter?: InternalMeteringAdaptersHttpUsageFilterRequest;
+    from?: string;
+    limit?: number;
+    meter?: string;
+    subject?: string;
+    to?: string;
+};
+
+/**
+ * UsageBreakdown
+ */
+export type UsageBreakdown = {
+    aggregation?: string;
+    events?: number;
+    field?: string;
+    quantity?: number;
+    unit?: string;
+    value?: string;
+};
+
+/**
  * UsageCreateRequest
  */
 export type UsageCreateRequest = {
@@ -110,6 +169,22 @@ export type UsageCreateRequest = {
     quantity?: number;
     subject?: string;
     timestamp?: string;
+};
+
+/**
+ * UsageDimensionValueListResponse
+ */
+export type UsageDimensionValueListResponse = {
+    items?: Array<UsageDimensionValue>;
+};
+
+/**
+ * UsageDimensionValue
+ */
+export type UsageDimensionValue = {
+    events?: number;
+    field?: string;
+    value?: string;
 };
 
 /**
@@ -429,6 +504,42 @@ export type CreateUsageResponses = {
 
 export type CreateUsageResponse = CreateUsageResponses[keyof CreateUsageResponses];
 
+export type SearchUsageBreakdownData = {
+    /**
+     * Usage breakdown search
+     */
+    body: UsageBreakdownRequest;
+    path?: never;
+    query?: never;
+    url: '/v1/usages/breakdowns/search';
+};
+
+export type SearchUsageBreakdownErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorResponse;
+};
+
+export type SearchUsageBreakdownError = SearchUsageBreakdownErrors[keyof SearchUsageBreakdownErrors];
+
+export type SearchUsageBreakdownResponses = {
+    /**
+     * OK
+     */
+    200: UsageBreakdownListResponse;
+};
+
+export type SearchUsageBreakdownResponse = SearchUsageBreakdownResponses[keyof SearchUsageBreakdownResponses];
+
 export type CreateUsageBulkData = {
     /**
      * Usage events. Maximum 1000 items.
@@ -475,6 +586,64 @@ export type CreateUsageBulkResponses = {
 
 export type CreateUsageBulkResponse = CreateUsageBulkResponses[keyof CreateUsageBulkResponses];
 
+export type ListUsageDimensionValuesData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Meter name
+         */
+        meter: string;
+        /**
+         * Metadata dimension field
+         */
+        field: string;
+        /**
+         * Subject
+         */
+        subject?: string;
+        /**
+         * RFC3339 start time
+         */
+        from?: string;
+        /**
+         * RFC3339 end time
+         */
+        to?: string;
+        /**
+         * Result limit
+         */
+        limit?: number;
+    };
+    url: '/v1/usages/dimensions';
+};
+
+export type ListUsageDimensionValuesErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorResponse;
+};
+
+export type ListUsageDimensionValuesError = ListUsageDimensionValuesErrors[keyof ListUsageDimensionValuesErrors];
+
+export type ListUsageDimensionValuesResponses = {
+    /**
+     * OK
+     */
+    200: UsageDimensionValueListResponse;
+};
+
+export type ListUsageDimensionValuesResponse = ListUsageDimensionValuesResponses[keyof ListUsageDimensionValuesResponses];
+
 export type ExportUsageBucketsData = {
     body?: never;
     path?: never;
@@ -482,7 +651,7 @@ export type ExportUsageBucketsData = {
         /**
          * Subject
          */
-        subject: string;
+        subject?: string;
         /**
          * Meter name
          */
@@ -500,9 +669,9 @@ export type ExportUsageBucketsData = {
          */
         bucket_size?: string;
         /**
-         * Metadata key to group by
+         * Subject or metadata keys to group by. Repeat the parameter or use comma-separated values.
          */
-        group_by?: string;
+        group_by?: Array<string>;
         /**
          * Result limit
          */

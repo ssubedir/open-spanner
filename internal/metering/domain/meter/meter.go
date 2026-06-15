@@ -41,11 +41,20 @@ type Meter struct {
 	unit               string
 	aggregation        Aggregation
 	metadataSchema     map[string]MetadataType
+	dimensions         []Dimension
 	eventRetentionDays int
 	createdAt          time.Time
 }
 
 func New(id, name, description, unit string, aggregation Aggregation, metadataSchema map[string]MetadataType, eventRetentionDays int, createdAt time.Time) (Meter, error) {
+	dimensions, err := DimensionsFromMetadataSchema(metadataSchema)
+	if err != nil {
+		return Meter{}, err
+	}
+	return NewWithDimensions(id, name, description, unit, aggregation, dimensions, eventRetentionDays, createdAt)
+}
+
+func NewWithDimensions(id, name, description, unit string, aggregation Aggregation, dimensions []Dimension, eventRetentionDays int, createdAt time.Time) (Meter, error) {
 	name = strings.TrimSpace(name)
 	unit = strings.TrimSpace(unit)
 	description = strings.TrimSpace(description)
@@ -65,7 +74,7 @@ func New(id, name, description, unit string, aggregation Aggregation, metadataSc
 	if !IsSupportedAggregation(aggregation) {
 		return Meter{}, fmt.Errorf("%w: unsupported aggregation %q", domain.ErrInvalidInput, aggregation)
 	}
-	metadataSchema, err := normalizeMetadataSchema(metadataSchema)
+	dimensions, metadataSchema, err := normalizeDimensions(dimensions)
 	if err != nil {
 		return Meter{}, err
 	}
@@ -84,6 +93,7 @@ func New(id, name, description, unit string, aggregation Aggregation, metadataSc
 		unit:               unit,
 		aggregation:        aggregation,
 		metadataSchema:     metadataSchema,
+		dimensions:         dimensions,
 		eventRetentionDays: eventRetentionDays,
 		createdAt:          createdAt.UTC(),
 	}, nil
@@ -170,6 +180,12 @@ func (m Meter) MetadataSchema() map[string]MetadataType {
 	return schema
 }
 
+func (m Meter) Dimensions() []Dimension {
+	dimensions := make([]Dimension, len(m.dimensions))
+	copy(dimensions, m.dimensions)
+	return dimensions
+}
+
 func (m Meter) EventRetentionDays() int {
 	return m.eventRetentionDays
 }
@@ -178,18 +194,18 @@ func (m Meter) ValidateMetadata(metadata map[string]any) error {
 	if metadata == nil {
 		metadata = map[string]any{}
 	}
-	for key := range metadata {
-		if _, exists := m.metadataSchema[key]; !exists {
-			return fmt.Errorf("%w: metadata key %q is not allowed", domain.ErrInvalidInput, key)
-		}
-	}
-	for key, expected := range m.metadataSchema {
+	for _, dimension := range m.dimensions {
+		key := dimension.Name()
+		expected := dimension.Type()
 		value, exists := metadata[key]
 		if !exists {
-			return fmt.Errorf("%w: metadata key %q is required", domain.ErrInvalidInput, key)
+			if dimension.RequiresValue() {
+				return fmt.Errorf("%w: dimension %q is required", domain.ErrInvalidInput, key)
+			}
+			continue
 		}
 		if !metadataValueMatches(value, expected) {
-			return fmt.Errorf("%w: metadata key %q must be %s", domain.ErrInvalidInput, key, expected)
+			return fmt.Errorf("%w: dimension %q must be %s", domain.ErrInvalidInput, key, expected)
 		}
 	}
 	return nil

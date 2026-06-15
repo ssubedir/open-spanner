@@ -42,9 +42,19 @@ export type Meter = {
   description: string
   unit: string
   aggregation: string
+  dimensions: MeterDimension[]
   metadata_schema: Record<string, string>
   event_retention_days: number
   created_at: string
+}
+
+export type MeterDimension = {
+  name: string
+  display_name: string
+  description: string
+  type: string
+  required: boolean
+  deprecated: boolean
 }
 
 export type MeterList = {
@@ -69,6 +79,7 @@ export type MeterCreateRequest = {
   description: string
   unit: string
   aggregation: string
+  dimensions: MeterDimensionRequest[]
   metadata_schema: Record<string, string>
   event_retention_days: number
 }
@@ -77,8 +88,18 @@ export type MeterUpdateRequest = {
   description: string
   unit: string
   aggregation: string
+  dimensions: MeterDimensionRequest[]
   metadata_schema: Record<string, string>
   event_retention_days: number
+}
+
+export type MeterDimensionRequest = {
+  name: string
+  display_name: string
+  description: string
+  type: string
+  required: boolean
+  deprecated: boolean
 }
 
 export type UsageEvent = {
@@ -118,7 +139,68 @@ export type UsageBucketQuery = {
   from: string
   to: string
   bucket_size: string
-  group_by?: string
+  group_by?: string[]
+  limit?: number
+  filter?: UsageFilter
+}
+
+export type UsageBucketExportQuery = {
+  subject?: string
+  meter: string
+  from: string
+  to: string
+  bucket_size: string
+  group_by?: string[]
+  limit?: number
+  metadata?: Record<string, string>
+}
+
+export type UsageEventExportQuery = {
+  subject?: string
+  meter?: string
+  from?: string
+  to?: string
+  limit?: number
+}
+
+export type UsageDimensionValue = {
+  field: string
+  value: string
+  events: number
+}
+
+export type UsageDimensionValueList = {
+  items: UsageDimensionValue[]
+}
+
+export type UsageBreakdown = {
+  field: string
+  value: string
+  quantity: number
+  events: number
+  aggregation: string
+  unit: string
+}
+
+export type UsageBreakdownList = {
+  items: UsageBreakdown[]
+}
+
+export type UsageDimensionValueQuery = {
+  meter: string
+  field: string
+  subject?: string
+  from?: string
+  to?: string
+  limit?: number
+}
+
+export type UsageBreakdownQuery = {
+  subject?: string
+  meter: string
+  field: string
+  from: string
+  to: string
   limit?: number
   filter?: UsageFilter
 }
@@ -136,6 +218,33 @@ export type UsageFilterCondition = {
   field: string
   op: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'contains' | 'exists'
   value?: unknown
+}
+
+export type SavedUsageQuery = {
+  id: string
+  name: string
+  query: unknown
+  group_by: string[]
+  bucket_size: string
+  limit: number
+  pinned: boolean
+  position: number
+  created_at: string
+  updated_at: string
+}
+
+export type SavedUsageQueryList = {
+  items: SavedUsageQuery[]
+}
+
+export type SavedUsageQueryRequest = {
+  name: string
+  query: unknown
+  group_by: string[]
+  bucket_size: string
+  limit: number
+  pinned: boolean
+  position: number
 }
 
 export type AuthUser = {
@@ -165,6 +274,18 @@ export type APIKeyCreateResponse = APIKey & {
   key: string
 }
 
+export class APIError extends Error {
+  code: string
+  status: number
+
+  constructor(message: string, status: number, code: string) {
+    super(message)
+    this.name = 'APIError'
+    this.code = code
+    this.status = status
+  }
+}
+
 export async function createAuthUser(input: { email: string; password: string }) {
   return request<AuthUser>('/v1/auth/users', {
     body: JSON.stringify(input),
@@ -182,9 +303,7 @@ export async function refreshAuthSession() {
     return null
   }
   if (!response.ok) {
-    const payload = await response.json().catch(() => ({ error: { message: response.statusText } }))
-    const error = typeof payload.error === 'string' ? payload.error : payload.error?.message
-    throw new Error(error || response.statusText)
+    throw await apiError(response)
   }
 
   return response.json() as Promise<AuthSession>
@@ -216,9 +335,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   })
 
   if (!response.ok) {
-    const payload = await response.json().catch(() => ({ error: { message: response.statusText } }))
-    const error = typeof payload.error === 'string' ? payload.error : payload.error?.message
-    throw new Error(error || response.statusText)
+    throw await apiError(response)
   }
 
   if (response.status === 204) {
@@ -228,11 +345,29 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return response.json() as Promise<T>
 }
 
+async function requestBlob(path: string, options: RequestInit = {}) {
+  const response = await fetchWithAuthRefresh(path, options)
+
+  if (!response.ok) {
+    throw await apiError(response)
+  }
+
+  return response.blob()
+}
+
 export async function createAuthSession(input: { email: string; password: string }) {
   return request<AuthSession>('/v1/auth/sessions', {
     body: JSON.stringify(input),
     method: 'POST',
   })
+}
+
+async function apiError(response: Response) {
+  const payload = await response.json().catch(() => ({ error: { code: '', message: response.statusText } }))
+  const message = typeof payload.error === 'string' ? payload.error : payload.error?.message
+  const code = typeof payload.error === 'string' ? '' : payload.error?.code
+
+  return new APIError(message || response.statusText, response.status, code || '')
 }
 
 export async function deleteAuthSession() {
@@ -264,6 +399,10 @@ export async function getSystemStats() {
 
 export async function listSubjects(limit = 8) {
   return request<SubjectList>(`/v1/subjects?limit=${limit}`)
+}
+
+export async function listSubjectEvents(subject: string, limit = 25) {
+  return request<UsageEvent[]>(`/v1/subjects/${encodeURIComponent(subject)}/usageevents?limit=${limit}`)
 }
 
 export async function listIngestions(limit = 8) {
@@ -311,12 +450,119 @@ export async function listUsageBuckets(query: UsageBucketQuery) {
       bucket_size: query.bucket_size,
       filter: query.filter,
       from: query.from,
-      group_by: query.group_by || undefined,
+      group_by: query.group_by && query.group_by.length > 0 ? query.group_by : undefined,
       limit: query.limit,
       meter: query.meter,
       subject: query.subject,
       to: query.to,
     }),
     method: 'POST',
+  })
+}
+
+export async function exportUsageBuckets(query: UsageBucketExportQuery) {
+  const params = new URLSearchParams({
+    bucket_size: query.bucket_size,
+    from: query.from,
+    meter: query.meter,
+    to: query.to,
+  })
+  if (query.subject) {
+    params.set('subject', query.subject)
+  }
+  if (query.limit) {
+    params.set('limit', String(query.limit))
+  }
+  query.group_by?.forEach((field) => {
+    if (field) {
+      params.append('group_by', field)
+    }
+  })
+  Object.entries(query.metadata || {}).forEach(([key, value]) => {
+    if (key && value !== '') {
+      params.set(`metadata.${key}`, value)
+    }
+  })
+
+  return requestBlob(`/v1/usages/export?${params.toString()}`)
+}
+
+export async function exportUsageEvents(query: UsageEventExportQuery) {
+  const params = new URLSearchParams()
+  if (query.subject) {
+    params.set('subject', query.subject)
+  }
+  if (query.meter) {
+    params.set('meter', query.meter)
+  }
+  if (query.from) {
+    params.set('from', query.from)
+  }
+  if (query.to) {
+    params.set('to', query.to)
+  }
+  if (query.limit) {
+    params.set('limit', String(query.limit))
+  }
+
+  return requestBlob(`/v1/usageevents/export?${params.toString()}`)
+}
+
+export async function listUsageDimensionValues(query: UsageDimensionValueQuery) {
+  const params = new URLSearchParams({
+    field: query.field,
+    meter: query.meter,
+  })
+  if (query.subject) {
+    params.set('subject', query.subject)
+  }
+  if (query.from) {
+    params.set('from', query.from)
+  }
+  if (query.to) {
+    params.set('to', query.to)
+  }
+  if (query.limit) {
+    params.set('limit', String(query.limit))
+  }
+  return request<UsageDimensionValueList>(`/v1/usages/dimensions?${params.toString()}`)
+}
+
+export async function listUsageBreakdowns(query: UsageBreakdownQuery) {
+  return request<UsageBreakdownList>('/v1/usages/breakdowns/search', {
+    body: JSON.stringify({
+      field: query.field,
+      filter: query.filter,
+      from: query.from,
+      limit: query.limit,
+      meter: query.meter,
+      subject: query.subject,
+      to: query.to,
+    }),
+    method: 'POST',
+  })
+}
+
+export async function listSavedUsageQueries() {
+  return request<SavedUsageQueryList>('/v1/usage/saved-queries')
+}
+
+export async function createSavedUsageQuery(input: SavedUsageQueryRequest) {
+  return request<SavedUsageQuery>('/v1/usage/saved-queries', {
+    body: JSON.stringify(input),
+    method: 'POST',
+  })
+}
+
+export async function updateSavedUsageQuery(id: string, input: SavedUsageQueryRequest) {
+  return request<SavedUsageQuery>(`/v1/usage/saved-queries/${encodeURIComponent(id)}`, {
+    body: JSON.stringify(input),
+    method: 'PUT',
+  })
+}
+
+export async function deleteSavedUsageQuery(id: string) {
+  return request<void>(`/v1/usage/saved-queries/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
   })
 }

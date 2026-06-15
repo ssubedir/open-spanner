@@ -183,10 +183,20 @@ func TestMeterAPIContract(t *testing.T) {
 	router := newTestRouter()
 
 	create := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
-		"name":                 "api_calls",
-		"description":          "API calls",
-		"unit":                 "call",
-		"aggregation":          "sum",
+		"name":        "api_calls",
+		"description": "API calls",
+		"unit":        "call",
+		"aggregation": "sum",
+		"dimensions": []map[string]any{
+			{
+				"name":         "region",
+				"display_name": "Region",
+				"description":  "Deployment region",
+				"type":         "string",
+				"required":     true,
+				"deprecated":   true,
+			},
+		},
 		"event_retention_days": 30,
 	})
 	if create.Code != http.StatusCreated {
@@ -197,6 +207,9 @@ func TestMeterAPIContract(t *testing.T) {
 	decodeJSON(t, create, &created)
 	if created.ID == "" || created.Name != "api_calls" || created.EventRetentionDays != 30 {
 		t.Fatalf("created meter = %#v", created)
+	}
+	if created.MetadataSchema["region"] != "string" || len(created.Dimensions) != 1 || created.Dimensions[0].DisplayName != "Region" || !created.Dimensions[0].Deprecated {
+		t.Fatalf("created meter dimensions = %#v metadata=%#v", created.Dimensions, created.MetadataSchema)
 	}
 
 	list := requestJSON(t, router, http.MethodGet, "/v1/meters", nil)
@@ -226,14 +239,23 @@ func TestMeterAPIContract(t *testing.T) {
 		"unit":                 "request",
 		"aggregation":          "count",
 		"event_retention_days": 365,
-		"metadata_schema":      map[string]string{"plan": "string"},
+		"dimensions": []map[string]any{
+			{
+				"name":         "plan",
+				"display_name": "Plan",
+				"description":  "Billing plan",
+				"type":         "string",
+				"required":     false,
+				"deprecated":   true,
+			},
+		},
 	})
 	if update.Code != http.StatusOK {
 		t.Fatalf("update meter status = %d, want %d: %s", update.Code, http.StatusOK, update.Body.String())
 	}
 	var updated meterResponse
 	decodeJSON(t, update, &updated)
-	if updated.Description != "Updated API calls" || updated.Name != created.Name || updated.Unit != "request" || updated.Aggregation != "count" || updated.EventRetentionDays != 365 || updated.MetadataSchema["plan"] != "string" {
+	if updated.Description != "Updated API calls" || updated.Name != created.Name || updated.Unit != "request" || updated.Aggregation != "count" || updated.EventRetentionDays != 365 || updated.MetadataSchema["plan"] != "string" || len(updated.Dimensions) != 1 || updated.Dimensions[0].DisplayName != "Plan" || updated.Dimensions[0].Required || !updated.Dimensions[0].Deprecated {
 		t.Fatalf("updated meter = %#v", updated)
 	}
 
@@ -562,6 +584,195 @@ func TestUsageAPIContract(t *testing.T) {
 	decodeJSON(t, eventSearch, &searchedEvents)
 	if len(searchedEvents.Items) != 1 || searchedEvents.Items[0].Quantity != 11 {
 		t.Fatalf("searched usage events = %#v, want one event with quantity 11", searchedEvents)
+	}
+}
+
+func TestUsageDimensionValuesAPIContract(t *testing.T) {
+	router := newTestRouter()
+
+	createMeter := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name":            "requests",
+		"description":     "Requests",
+		"unit":            "request",
+		"aggregation":     "sum",
+		"metadata_schema": map[string]string{"region": "string"},
+	})
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create meter status = %d: %s", createMeter.Code, createMeter.Body.String())
+	}
+
+	for _, event := range []map[string]any{
+		{
+			"idempotency_key": "dimension-1",
+			"subject":         "org_123",
+			"meter":           "requests",
+			"quantity":        1,
+			"timestamp":       "2026-06-08T10:00:00Z",
+			"metadata":        map[string]any{"region": "us-east-1"},
+		},
+		{
+			"idempotency_key": "dimension-2",
+			"subject":         "org_123",
+			"meter":           "requests",
+			"quantity":        1,
+			"timestamp":       "2026-06-08T11:00:00Z",
+			"metadata":        map[string]any{"region": "us-west-2"},
+		},
+		{
+			"idempotency_key": "dimension-3",
+			"subject":         "org_123",
+			"meter":           "requests",
+			"quantity":        1,
+			"timestamp":       "2026-06-08T12:00:00Z",
+			"metadata":        map[string]any{"region": "us-east-1"},
+		},
+		{
+			"idempotency_key": "dimension-4",
+			"subject":         "org_456",
+			"meter":           "requests",
+			"quantity":        1,
+			"timestamp":       "2026-06-08T13:00:00Z",
+			"metadata":        map[string]any{"region": "us-central-1"},
+		},
+	} {
+		createUsage := requestJSON(t, router, http.MethodPost, "/v1/usages", event)
+		if createUsage.Code != http.StatusCreated {
+			t.Fatalf("create usage status = %d: %s", createUsage.Code, createUsage.Body.String())
+		}
+	}
+
+	list := requestJSON(t, router, http.MethodGet, "/v1/usages/dimensions?meter=requests&field=region&subject=org_123&from=2026-06-08T00:00:00Z&to=2026-06-09T00:00:00Z", nil)
+	if list.Code != http.StatusOK {
+		t.Fatalf("dimension values status = %d, want %d: %s", list.Code, http.StatusOK, list.Body.String())
+	}
+
+	var values dimensionValueListResponse
+	decodeJSON(t, list, &values)
+	if len(values.Items) != 2 {
+		t.Fatalf("dimension values = %#v, want 2 items", values.Items)
+	}
+	if values.Items[0].Field != "region" || values.Items[0].Value != "us-east-1" || values.Items[0].UsageEvents != 2 {
+		t.Fatalf("first dimension value = %#v", values.Items[0])
+	}
+	if values.Items[1].Field != "region" || values.Items[1].Value != "us-west-2" || values.Items[1].UsageEvents != 1 {
+		t.Fatalf("second dimension value = %#v", values.Items[1])
+	}
+
+	unknown := requestJSON(t, router, http.MethodGet, "/v1/usages/dimensions?meter=requests&field=plan", nil)
+	if unknown.Code != http.StatusBadRequest {
+		t.Fatalf("unknown dimension status = %d, want %d: %s", unknown.Code, http.StatusBadRequest, unknown.Body.String())
+	}
+}
+
+func TestUsageBreakdownAPIContract(t *testing.T) {
+	router := newTestRouter()
+
+	createMeter := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name":            "requests",
+		"description":     "Requests",
+		"unit":            "request",
+		"aggregation":     "sum",
+		"metadata_schema": map[string]string{"endpoint": "string"},
+	})
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create meter status = %d: %s", createMeter.Code, createMeter.Body.String())
+	}
+
+	for _, event := range []map[string]any{
+		{
+			"idempotency_key": "breakdown-1",
+			"subject":         "org_123",
+			"meter":           "requests",
+			"quantity":        2,
+			"timestamp":       "2026-06-08T10:00:00Z",
+			"metadata":        map[string]any{"endpoint": "/orders"},
+		},
+		{
+			"idempotency_key": "breakdown-2",
+			"subject":         "org_123",
+			"meter":           "requests",
+			"quantity":        3,
+			"timestamp":       "2026-06-08T11:00:00Z",
+			"metadata":        map[string]any{"endpoint": "/users"},
+		},
+		{
+			"idempotency_key": "breakdown-3",
+			"subject":         "org_456",
+			"meter":           "requests",
+			"quantity":        7,
+			"timestamp":       "2026-06-08T12:00:00Z",
+			"metadata":        map[string]any{"endpoint": "/orders"},
+		},
+		{
+			"idempotency_key": "breakdown-4",
+			"subject":         "org_789",
+			"meter":           "requests",
+			"quantity":        1,
+			"timestamp":       "2026-06-08T13:00:00Z",
+			"metadata":        map[string]any{"endpoint": "/users"},
+		},
+	} {
+		createUsage := requestJSON(t, router, http.MethodPost, "/v1/usages", event)
+		if createUsage.Code != http.StatusCreated {
+			t.Fatalf("create usage status = %d: %s", createUsage.Code, createUsage.Body.String())
+		}
+	}
+
+	subjectBreakdown := requestJSON(t, router, http.MethodPost, "/v1/usages/breakdowns/search", map[string]any{
+		"meter": "requests",
+		"field": "subject",
+		"from":  "2026-06-08T00:00:00Z",
+		"to":    "2026-06-09T00:00:00Z",
+		"limit": 10,
+	})
+	if subjectBreakdown.Code != http.StatusOK {
+		t.Fatalf("subject breakdown status = %d, want %d: %s", subjectBreakdown.Code, http.StatusOK, subjectBreakdown.Body.String())
+	}
+
+	var subjects breakdownListResponse
+	decodeJSON(t, subjectBreakdown, &subjects)
+	if len(subjects.Items) != 3 {
+		t.Fatalf("subject breakdowns = %#v, want three items", subjects.Items)
+	}
+	if subjects.Items[0].Field != "subject" || subjects.Items[0].Value != "org_456" || subjects.Items[0].Quantity != 7 || subjects.Items[0].UsageEvents != 1 || subjects.Items[0].Aggregation != "sum" || subjects.Items[0].Unit != "request" {
+		t.Fatalf("first subject breakdown = %#v", subjects.Items[0])
+	}
+	if subjects.Items[1].Value != "org_123" || subjects.Items[1].Quantity != 5 || subjects.Items[1].UsageEvents != 2 {
+		t.Fatalf("second subject breakdown = %#v", subjects.Items[1])
+	}
+
+	endpointBreakdown := requestJSON(t, router, http.MethodPost, "/v1/usages/breakdowns/search", map[string]any{
+		"subject": "org_123",
+		"meter":   "requests",
+		"field":   "metadata.endpoint",
+		"from":    "2026-06-08T00:00:00Z",
+		"to":      "2026-06-09T00:00:00Z",
+		"limit":   10,
+	})
+	if endpointBreakdown.Code != http.StatusOK {
+		t.Fatalf("endpoint breakdown status = %d, want %d: %s", endpointBreakdown.Code, http.StatusOK, endpointBreakdown.Body.String())
+	}
+
+	var endpoints breakdownListResponse
+	decodeJSON(t, endpointBreakdown, &endpoints)
+	if len(endpoints.Items) != 2 {
+		t.Fatalf("endpoint breakdowns = %#v, want two items", endpoints.Items)
+	}
+	if endpoints.Items[0].Field != "endpoint" || endpoints.Items[0].Value != "/users" || endpoints.Items[0].Quantity != 3 || endpoints.Items[0].UsageEvents != 1 {
+		t.Fatalf("first endpoint breakdown = %#v", endpoints.Items[0])
+	}
+	if endpoints.Items[1].Value != "/orders" || endpoints.Items[1].Quantity != 2 || endpoints.Items[1].UsageEvents != 1 {
+		t.Fatalf("second endpoint breakdown = %#v", endpoints.Items[1])
+	}
+
+	unknown := requestJSON(t, router, http.MethodPost, "/v1/usages/breakdowns/search", map[string]any{
+		"meter": "requests",
+		"field": "plan",
+		"from":  "2026-06-08T00:00:00Z",
+		"to":    "2026-06-09T00:00:00Z",
+	})
+	if unknown.Code != http.StatusBadRequest {
+		t.Fatalf("unknown breakdown status = %d, want %d: %s", unknown.Code, http.StatusBadRequest, unknown.Body.String())
 	}
 }
 
@@ -1027,16 +1238,17 @@ func TestUsageAPIGroupByMetadata(t *testing.T) {
 		"description":     "API calls",
 		"unit":            "call",
 		"aggregation":     "sum",
-		"metadata_schema": map[string]string{"region": "string"},
+		"metadata_schema": map[string]string{"plan": "string", "region": "string"},
 	})
 	if createMeter.Code != http.StatusCreated {
 		t.Fatalf("create meter status = %d: %s", createMeter.Code, createMeter.Body.String())
 	}
 
 	events := []map[string]any{
-		{"subject": "org_123", "meter": "api_calls", "quantity": 2, "timestamp": "2026-06-08T10:00:00Z", "metadata": map[string]any{"region": "us-east-1"}},
-		{"subject": "org_123", "meter": "api_calls", "quantity": 3, "timestamp": "2026-06-08T11:00:00Z", "metadata": map[string]any{"region": "us-west-2"}},
-		{"subject": "org_123", "meter": "api_calls", "quantity": 5, "timestamp": "2026-06-08T12:00:00Z", "metadata": map[string]any{"region": "us-east-1"}},
+		{"subject": "org_123", "meter": "api_calls", "quantity": 2, "timestamp": "2026-06-08T10:00:00Z", "metadata": map[string]any{"plan": "free", "region": "us-east-1"}},
+		{"subject": "org_123", "meter": "api_calls", "quantity": 3, "timestamp": "2026-06-08T11:00:00Z", "metadata": map[string]any{"plan": "pro", "region": "us-east-1"}},
+		{"subject": "org_123", "meter": "api_calls", "quantity": 5, "timestamp": "2026-06-08T12:00:00Z", "metadata": map[string]any{"plan": "free", "region": "us-west-2"}},
+		{"subject": "org_123", "meter": "api_calls", "quantity": 7, "timestamp": "2026-06-08T13:00:00Z", "metadata": map[string]any{"plan": "free", "region": "us-east-1"}},
 	}
 	for _, event := range events {
 		createUsage := requestJSON(t, router, http.MethodPost, "/v1/usages", event)
@@ -1045,29 +1257,134 @@ func TestUsageAPIGroupByMetadata(t *testing.T) {
 		}
 	}
 
-	list := requestJSON(t, router, http.MethodGet, "/v1/usages?subject=org_123&meter=api_calls&from=2026-06-08T00:00:00Z&to=2026-06-09T00:00:00Z&bucket_size=day&group_by=region", nil)
+	list := requestJSON(t, router, http.MethodGet, "/v1/usages?subject=org_123&meter=api_calls&from=2026-06-08T00:00:00Z&to=2026-06-09T00:00:00Z&bucket_size=day&group_by=region&group_by=plan", nil)
 	if list.Code != http.StatusOK {
 		t.Fatalf("list usages status = %d, want %d: %s", list.Code, http.StatusOK, list.Body.String())
 	}
 
 	var buckets []usageListItemResponse
 	decodeJSON(t, list, &buckets)
-	if len(buckets) != 2 {
-		t.Fatalf("bucket count = %d, want 2", len(buckets))
+	if len(buckets) != 3 {
+		t.Fatalf("bucket count = %d, want 3", len(buckets))
 	}
-	if buckets[0].Group["region"] != "us-east-1" || buckets[0].Quantity != 7 {
+	if buckets[0].Group["region"] != "us-east-1" || buckets[0].Group["plan"] != "free" || buckets[0].Quantity != 9 {
 		t.Fatalf("first grouped bucket = %#v", buckets[0])
 	}
-	if buckets[1].Group["region"] != "us-west-2" || buckets[1].Quantity != 3 {
+	if buckets[1].Group["region"] != "us-east-1" || buckets[1].Group["plan"] != "pro" || buckets[1].Quantity != 3 {
 		t.Fatalf("second grouped bucket = %#v", buckets[1])
 	}
+	if buckets[2].Group["region"] != "us-west-2" || buckets[2].Group["plan"] != "free" || buckets[2].Quantity != 5 {
+		t.Fatalf("third grouped bucket = %#v", buckets[2])
+	}
 
-	export := requestJSON(t, router, http.MethodGet, "/v1/usages/export?subject=org_123&meter=api_calls&from=2026-06-08T00:00:00Z&to=2026-06-09T00:00:00Z&bucket_size=day&group_by=region", nil)
+	search := requestJSON(t, router, http.MethodPost, "/v1/usages/search", map[string]any{
+		"subject":     "org_123",
+		"meter":       "api_calls",
+		"from":        "2026-06-08T00:00:00Z",
+		"to":          "2026-06-09T00:00:00Z",
+		"bucket_size": "day",
+		"group_by":    "region",
+	})
+	if search.Code != http.StatusOK {
+		t.Fatalf("search usages status = %d, want %d: %s", search.Code, http.StatusOK, search.Body.String())
+	}
+	var legacyBuckets []usageListItemResponse
+	decodeJSON(t, search, &legacyBuckets)
+	if len(legacyBuckets) != 2 || legacyBuckets[0].Group["region"] != "us-east-1" || legacyBuckets[0].Quantity != 12 || legacyBuckets[1].Group["region"] != "us-west-2" || legacyBuckets[1].Quantity != 5 {
+		t.Fatalf("legacy grouped buckets = %#v", legacyBuckets)
+	}
+
+	arraySearch := requestJSON(t, router, http.MethodPost, "/v1/usages/search", map[string]any{
+		"subject":     "org_123",
+		"meter":       "api_calls",
+		"from":        "2026-06-08T00:00:00Z",
+		"to":          "2026-06-09T00:00:00Z",
+		"bucket_size": "day",
+		"group_by":    []string{"region", "plan"},
+	})
+	if arraySearch.Code != http.StatusOK {
+		t.Fatalf("array search usages status = %d, want %d: %s", arraySearch.Code, http.StatusOK, arraySearch.Body.String())
+	}
+	var arrayBuckets []usageListItemResponse
+	decodeJSON(t, arraySearch, &arrayBuckets)
+	if len(arrayBuckets) != 3 || arrayBuckets[0].Group["plan"] != "free" || arrayBuckets[0].Quantity != 9 {
+		t.Fatalf("array grouped buckets = %#v", arrayBuckets)
+	}
+
+	export := requestJSON(t, router, http.MethodGet, "/v1/usages/export?subject=org_123&meter=api_calls&from=2026-06-08T00:00:00Z&to=2026-06-09T00:00:00Z&bucket_size=day&group_by=region,plan", nil)
 	if export.Code != http.StatusOK {
 		t.Fatalf("export status = %d, want %d: %s", export.Code, http.StatusOK, export.Body.String())
 	}
 
-	want := "bucket_start,subject,meter,bucket_size,aggregation,unit,quantity,region\n2026-06-08T00:00:00Z,org_123,api_calls,day,sum,call,7,us-east-1\n2026-06-08T00:00:00Z,org_123,api_calls,day,sum,call,3,us-west-2\n"
+	want := "bucket_start,subject,meter,bucket_size,aggregation,unit,quantity,region,plan\n2026-06-08T00:00:00Z,org_123,api_calls,day,sum,call,9,us-east-1,free\n2026-06-08T00:00:00Z,org_123,api_calls,day,sum,call,3,us-east-1,pro\n2026-06-08T00:00:00Z,org_123,api_calls,day,sum,call,5,us-west-2,free\n"
+	if export.Body.String() != want {
+		t.Fatalf("csv = %q, want %q", export.Body.String(), want)
+	}
+}
+
+func TestUsageAPIAggregatesAcrossSubjects(t *testing.T) {
+	router := newTestRouter()
+
+	createMeter := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name":        "api_calls",
+		"description": "API calls",
+		"unit":        "call",
+		"aggregation": "sum",
+	})
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create meter status = %d: %s", createMeter.Code, createMeter.Body.String())
+	}
+
+	events := []map[string]any{
+		{"subject": "org_123", "meter": "api_calls", "quantity": 2, "timestamp": "2026-06-08T10:00:00Z", "metadata": map[string]any{}},
+		{"subject": "org_123", "meter": "api_calls", "quantity": 3, "timestamp": "2026-06-08T11:00:00Z", "metadata": map[string]any{}},
+		{"subject": "org_456", "meter": "api_calls", "quantity": 5, "timestamp": "2026-06-08T12:00:00Z", "metadata": map[string]any{}},
+	}
+	for _, event := range events {
+		createUsage := requestJSON(t, router, http.MethodPost, "/v1/usages", event)
+		if createUsage.Code != http.StatusCreated {
+			t.Fatalf("create usage status = %d: %s", createUsage.Code, createUsage.Body.String())
+		}
+	}
+
+	list := requestJSON(t, router, http.MethodGet, "/v1/usages?meter=api_calls&from=2026-06-08T00:00:00Z&to=2026-06-09T00:00:00Z&bucket_size=day", nil)
+	if list.Code != http.StatusOK {
+		t.Fatalf("list usages status = %d, want %d: %s", list.Code, http.StatusOK, list.Body.String())
+	}
+	var buckets []usageListItemResponse
+	decodeJSON(t, list, &buckets)
+	if len(buckets) != 1 || buckets[0].Subject != "" || buckets[0].Quantity != 10 {
+		t.Fatalf("all subject buckets = %#v, want one unscoped bucket with quantity 10", buckets)
+	}
+
+	search := requestJSON(t, router, http.MethodPost, "/v1/usages/search", map[string]any{
+		"meter":       "api_calls",
+		"from":        "2026-06-08T00:00:00Z",
+		"to":          "2026-06-09T00:00:00Z",
+		"bucket_size": "day",
+		"group_by":    "subject",
+	})
+	if search.Code != http.StatusOK {
+		t.Fatalf("search usages status = %d, want %d: %s", search.Code, http.StatusOK, search.Body.String())
+	}
+	var groupedBuckets []usageListItemResponse
+	decodeJSON(t, search, &groupedBuckets)
+	if len(groupedBuckets) != 2 {
+		t.Fatalf("grouped bucket count = %d, want 2: %#v", len(groupedBuckets), groupedBuckets)
+	}
+	if groupedBuckets[0].Subject != "org_123" || groupedBuckets[0].Group["subject"] != "org_123" || groupedBuckets[0].Quantity != 5 {
+		t.Fatalf("first grouped subject bucket = %#v", groupedBuckets[0])
+	}
+	if groupedBuckets[1].Subject != "org_456" || groupedBuckets[1].Group["subject"] != "org_456" || groupedBuckets[1].Quantity != 5 {
+		t.Fatalf("second grouped subject bucket = %#v", groupedBuckets[1])
+	}
+
+	export := requestJSON(t, router, http.MethodGet, "/v1/usages/export?meter=api_calls&from=2026-06-08T00:00:00Z&to=2026-06-09T00:00:00Z&bucket_size=day&group_by=subject", nil)
+	if export.Code != http.StatusOK {
+		t.Fatalf("export status = %d, want %d: %s", export.Code, http.StatusOK, export.Body.String())
+	}
+
+	want := "bucket_start,subject,meter,bucket_size,aggregation,unit,quantity\n2026-06-08T00:00:00Z,org_123,api_calls,day,sum,call,5\n2026-06-08T00:00:00Z,org_456,api_calls,day,sum,call,5\n"
 	if export.Body.String() != want {
 		t.Fatalf("csv = %q, want %q", export.Body.String(), want)
 	}
@@ -1165,7 +1482,41 @@ func TestUsageAPIRejectsUnknownMeter(t *testing.T) {
 	}
 }
 
-func TestUsageAPIRejectsMetadataOutsideMeterSchema(t *testing.T) {
+func TestUsageAPIAcceptsExtraMetadataOutsideMeterDimensions(t *testing.T) {
+	router := newTestRouter()
+
+	createMeter := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name":            "api_calls",
+		"description":     "API calls",
+		"unit":            "call",
+		"aggregation":     "sum",
+		"metadata_schema": map[string]string{"region": "string"},
+	})
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create meter status = %d: %s", createMeter.Code, createMeter.Body.String())
+	}
+
+	res := requestJSON(t, router, http.MethodPost, "/v1/usages", map[string]any{
+		"subject":  "org_123",
+		"meter":    "api_calls",
+		"quantity": 1,
+		"metadata": map[string]any{
+			"region": "us-east-1",
+			"regoin": "us-east-1",
+		},
+	})
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+
+	var usage usageResponse
+	decodeJSON(t, res, &usage)
+	if usage.Metadata["regoin"] != "us-east-1" {
+		t.Fatalf("usage metadata = %#v", usage.Metadata)
+	}
+}
+
+func TestUsageAPIRejectsInvalidDimensions(t *testing.T) {
 	router := newTestRouter()
 
 	createMeter := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
@@ -1229,6 +1580,66 @@ func TestMeterAPIDeleteWithUsageReturnsConflict(t *testing.T) {
 
 	var errRes errorResponse
 	decodeJSON(t, del, &errRes)
+	if errRes.Error.Code != "conflict" {
+		t.Fatalf("error code = %q, want conflict", errRes.Error.Code)
+	}
+}
+
+func TestMeterAPIRejectsUnsafeDimensionUpdateWithUsage(t *testing.T) {
+	router := newTestRouter()
+
+	createMeter := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name":        "api_calls",
+		"description": "API calls",
+		"unit":        "call",
+		"aggregation": "sum",
+		"dimensions": []map[string]any{
+			{
+				"name":     "region",
+				"type":     "string",
+				"required": true,
+			},
+			{
+				"name":     "status",
+				"type":     "number",
+				"required": false,
+			},
+		},
+	})
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create meter status = %d: %s", createMeter.Code, createMeter.Body.String())
+	}
+	var created meterResponse
+	decodeJSON(t, createMeter, &created)
+
+	createUsage := requestJSON(t, router, http.MethodPost, "/v1/usages", map[string]any{
+		"subject":  "org_123",
+		"meter":    "api_calls",
+		"quantity": 1,
+		"metadata": map[string]any{
+			"region": "us-east-1",
+			"status": 200,
+		},
+	})
+	if createUsage.Code != http.StatusCreated {
+		t.Fatalf("create usage status = %d: %s", createUsage.Code, createUsage.Body.String())
+	}
+
+	update := requestJSON(t, router, http.MethodPut, "/v1/meters/"+created.ID, map[string]any{
+		"dimensions": []map[string]any{
+			{
+				"name":     "region",
+				"type":     "string",
+				"required": true,
+			},
+		},
+	})
+	if update.Code != http.StatusConflict {
+		t.Fatalf("update meter status = %d, want %d: %s", update.Code, http.StatusConflict, update.Body.String())
+	}
+
+	var errRes errorResponse
+	decodeJSON(t, update, &errRes)
 	if errRes.Error.Code != "conflict" {
 		t.Fatalf("error code = %q, want conflict", errRes.Error.Code)
 	}
@@ -1462,14 +1873,24 @@ func findCookie(cookies []*http.Cookie, name string) *http.Cookie {
 }
 
 type meterResponse struct {
-	ID                 string            `json:"id"`
-	Name               string            `json:"name"`
-	Description        string            `json:"description"`
-	Unit               string            `json:"unit"`
-	Aggregation        string            `json:"aggregation"`
-	MetadataSchema     map[string]string `json:"metadata_schema"`
-	EventRetentionDays int               `json:"event_retention_days"`
-	CreatedAt          string            `json:"created_at"`
+	ID                 string                   `json:"id"`
+	Name               string                   `json:"name"`
+	Description        string                   `json:"description"`
+	Unit               string                   `json:"unit"`
+	Aggregation        string                   `json:"aggregation"`
+	Dimensions         []meterDimensionResponse `json:"dimensions"`
+	MetadataSchema     map[string]string        `json:"metadata_schema"`
+	EventRetentionDays int                      `json:"event_retention_days"`
+	CreatedAt          string                   `json:"created_at"`
+}
+
+type meterDimensionResponse struct {
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name"`
+	Description string `json:"description"`
+	Type        string `json:"type"`
+	Required    bool   `json:"required"`
+	Deprecated  bool   `json:"deprecated"`
 }
 
 type meterListResponse struct {
@@ -1515,6 +1936,29 @@ type usageResponse struct {
 type eventListResponse struct {
 	Items      []usageResponse `json:"items"`
 	NextCursor string          `json:"next_cursor"`
+}
+
+type dimensionValueResponse struct {
+	Field       string `json:"field"`
+	Value       string `json:"value"`
+	UsageEvents int    `json:"events"`
+}
+
+type dimensionValueListResponse struct {
+	Items []dimensionValueResponse `json:"items"`
+}
+
+type breakdownResponse struct {
+	Field       string  `json:"field"`
+	Value       string  `json:"value"`
+	Quantity    float64 `json:"quantity"`
+	UsageEvents int     `json:"events"`
+	Aggregation string  `json:"aggregation"`
+	Unit        string  `json:"unit"`
+}
+
+type breakdownListResponse struct {
+	Items []breakdownResponse `json:"items"`
 }
 
 type bulkResponse struct {

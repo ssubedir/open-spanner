@@ -1344,7 +1344,6 @@
                         "description": "Subject",
                         "name": "subject",
                         "in": "query",
-                        "required": true,
                         "schema": {
                             "type": "string"
                         }
@@ -1385,11 +1384,15 @@
                         }
                     },
                     {
-                        "description": "Metadata key to group by",
+                        "description": "Subject or metadata keys to group by. Repeat the parameter or use comma-separated values.",
                         "name": "group_by",
                         "in": "query",
+                        "explode": true,
                         "schema": {
-                            "type": "string"
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
                         }
                     },
                     {
@@ -1519,6 +1522,68 @@
                 }
             }
         },
+        "/v1/usages/breakdowns/search": {
+            "post": {
+                "tags": [
+                    "usages"
+                ],
+                "summary": "Search usage breakdown",
+                "operationId": "searchUsageBreakdown",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/internal_metering_adapters_http_usage.BreakdownRequest"
+                            }
+                        }
+                    },
+                    "description": "Usage breakdown search",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/internal_metering_adapters_http_usage.BreakdownListResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/usages/bulk": {
             "post": {
                 "description": "Records up to 1000 usage events. The Idempotency-Key header replays the original bulk response for the same batch. Per-event idempotency_key values replay existing events as duplicates. Duplicate event IDs are conflicts.",
@@ -1605,6 +1670,109 @@
                 }
             }
         },
+        "/v1/usages/dimensions": {
+            "get": {
+                "tags": [
+                    "usages"
+                ],
+                "summary": "List usage dimension values",
+                "operationId": "listUsageDimensionValues",
+                "parameters": [
+                    {
+                        "description": "Meter name",
+                        "name": "meter",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Metadata dimension field",
+                        "name": "field",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Subject",
+                        "name": "subject",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "RFC3339 start time",
+                        "name": "from",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "RFC3339 end time",
+                        "name": "to",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Result limit",
+                        "name": "limit",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/internal_metering_adapters_http_usage.DimensionValueListResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/usages/export": {
             "get": {
                 "tags": [
@@ -1617,7 +1785,6 @@
                         "description": "Subject",
                         "name": "subject",
                         "in": "query",
-                        "required": true,
                         "schema": {
                             "type": "string"
                         }
@@ -1658,11 +1825,15 @@
                         }
                     },
                     {
-                        "description": "Metadata key to group by",
+                        "description": "Subject or metadata keys to group by. Repeat the parameter or use comma-separated values.",
                         "name": "group_by",
                         "in": "query",
+                        "explode": true,
                         "schema": {
-                            "type": "string"
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
                         }
                     },
                     {
@@ -1947,6 +2118,12 @@
                     "description": {
                         "type": "string"
                     },
+                    "dimensions": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/internal_metering_adapters_http_meter.DimensionRequest"
+                        }
+                    },
                     "event_retention_days": {
                         "type": "integer"
                     },
@@ -1960,6 +2137,52 @@
                         "type": "string"
                     },
                     "unit": {
+                        "type": "string"
+                    }
+                }
+            },
+            "internal_metering_adapters_http_meter.DimensionRequest": {
+                "type": "object",
+                "properties": {
+                    "deprecated": {
+                        "type": "boolean"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "display_name": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "required": {
+                        "type": "boolean"
+                    },
+                    "type": {
+                        "type": "string"
+                    }
+                }
+            },
+            "internal_metering_adapters_http_meter.DimensionResponse": {
+                "type": "object",
+                "properties": {
+                    "deprecated": {
+                        "type": "boolean"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "display_name": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "required": {
+                        "type": "boolean"
+                    },
+                    "type": {
                         "type": "string"
                     }
                 }
@@ -1989,6 +2212,12 @@
                     },
                     "description": {
                         "type": "string"
+                    },
+                    "dimensions": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/internal_metering_adapters_http_meter.DimensionResponse"
+                        }
                     },
                     "event_retention_days": {
                         "type": "integer"
@@ -2049,6 +2278,12 @@
                     },
                     "description": {
                         "type": "string"
+                    },
+                    "dimensions": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/internal_metering_adapters_http_meter.DimensionRequest"
+                        }
                     },
                     "event_retention_days": {
                         "type": "integer"
@@ -2159,6 +2394,66 @@
                     }
                 }
             },
+            "internal_metering_adapters_http_usage.BreakdownListResponse": {
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/internal_metering_adapters_http_usage.BreakdownResponse"
+                        }
+                    }
+                }
+            },
+            "internal_metering_adapters_http_usage.BreakdownRequest": {
+                "type": "object",
+                "properties": {
+                    "field": {
+                        "type": "string"
+                    },
+                    "filter": {
+                        "$ref": "#/components/schemas/internal_metering_adapters_http_usage.FilterRequest"
+                    },
+                    "from": {
+                        "type": "string"
+                    },
+                    "limit": {
+                        "type": "integer"
+                    },
+                    "meter": {
+                        "type": "string"
+                    },
+                    "subject": {
+                        "type": "string"
+                    },
+                    "to": {
+                        "type": "string"
+                    }
+                }
+            },
+            "internal_metering_adapters_http_usage.BreakdownResponse": {
+                "type": "object",
+                "properties": {
+                    "aggregation": {
+                        "type": "string"
+                    },
+                    "events": {
+                        "type": "integer"
+                    },
+                    "field": {
+                        "type": "string"
+                    },
+                    "quantity": {
+                        "type": "number"
+                    },
+                    "unit": {
+                        "type": "string"
+                    },
+                    "value": {
+                        "type": "string"
+                    }
+                }
+            },
             "internal_metering_adapters_http_usage.BulkFailureResponse": {
                 "type": "object",
                 "properties": {
@@ -2226,6 +2521,31 @@
                         "type": "string"
                     },
                     "timestamp": {
+                        "type": "string"
+                    }
+                }
+            },
+            "internal_metering_adapters_http_usage.DimensionValueListResponse": {
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/internal_metering_adapters_http_usage.DimensionValueResponse"
+                        }
+                    }
+                }
+            },
+            "internal_metering_adapters_http_usage.DimensionValueResponse": {
+                "type": "object",
+                "properties": {
+                    "events": {
+                        "type": "integer"
+                    },
+                    "field": {
+                        "type": "string"
+                    },
+                    "value": {
                         "type": "string"
                     }
                 }
@@ -2454,7 +2774,10 @@
                         "type": "string"
                     },
                     "group_by": {
-                        "type": "string"
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
                     },
                     "limit": {
                         "type": "integer"

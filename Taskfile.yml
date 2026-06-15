@@ -1,224 +1,27 @@
 version: '3'
 
+includes:
+  runtime:
+    taskfile: ./taskfiles/runtime.yml
+    flatten: true
+  test:
+    taskfile: ./taskfiles/test.yml
+    flatten: true
+  apps:
+    taskfile: ./taskfiles/apps.yml
+    flatten: true
+  openapi:
+    taskfile: ./taskfiles/openapi.yml
+    flatten: true
+  sdk:
+    taskfile: ./taskfiles/sdk.yml
+    flatten: true
+  release:
+    taskfile: ./taskfiles/release.yml
+    flatten: true
+
 tasks:
   default:
     desc: Run tests
     cmds:
       - task: test
-
-  run:
-    desc: Run the API server
-    cmds:
-      - go run ./cmd/api
-
-  run:sqlite:
-    desc: Run the API server with SQLite storage
-    env:
-      OPEN_SPANNER_DB_DRIVER: sqlite
-      OPEN_SPANNER_SQLITE_PATH: open-spanner.db
-    cmds:
-      - go run ./cmd/api
-
-  run:postgres:
-    desc: Run the API server with Postgres storage
-    env:
-      OPEN_SPANNER_DB_DRIVER: postgres
-      OPEN_SPANNER_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/open_spanner?sslmode=disable
-    cmds:
-      - go run ./cmd/api
-
-  postgres:up:
-    desc: Start local Postgres for development and integration tests
-    cmds:
-      - docker compose up -d --wait postgres
-
-  postgres:down:
-    desc: Stop local Postgres
-    cmds:
-      - docker compose down
-
-  test:postgres:
-    desc: Run Postgres integration tests
-    cmds:
-      - task: postgres:up
-      - go test ./internal/metering/adapters/postgres -run Integration -count=1
-    env:
-      OPEN_SPANNER_TEST_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/open_spanner?sslmode=disable
- 
-  test:
-    desc: Run all Go tests
-    cmds:
-      - go test -count=1 ./...
-
-  vet:
-    desc: Run Go vet
-    cmds:
-      - go vet ./...
-
-  release:check:
-    desc: Verify tests, generated OpenAPI docs, and all SDK packages before a release
-    cmds:
-      - task: test
-      - task: sdk:go:check
-      - task: sdk:typescript:check
-      - task: sdk:python:pack
-      - task: sdk:csharp:pack
-      - git diff --exit-code openapi sdk/go sdk/typescript sdk/python sdk/python-client.yml sdk/csharp examples/csharp dotnet-tools.json
-
-  admin:dev:
-    desc: Run the React admin UI dev server
-    cmds:
-      - cd web; npm run dev
-
-  admin:build:
-    desc: Build the React admin UI into embedded static files
-    cmds:
-      - cd web; npm run build
-
-  docs:dev:
-    desc: Run the Fumadocs documentation site dev server
-    cmds:
-      - cd docs; npm run dev
-
-  docs:build:
-    desc: Build the Fumadocs documentation site
-    cmds:
-      - cd docs; npm run build
-
-  openapi:
-    desc: Generate Swagger docs
-    cmds:
-      - go run github.com/swaggo/swag/cmd/swag@v1.16.6 init -g cmd/api/main.go -o openapi --parseDependency --parseInternal
-
-  openapi:check:
-    desc: Verify generated Swagger docs are up to date
-    cmds:
-      - task: openapi
-      - git diff --exit-code openapi
-
-  openapi:convert:
-    desc: Generate OpenAPI 3 docs from Swagger docs
-    cmds:
-      - task: openapi
-      - npx --yes swagger2openapi@7.0.8 openapi/swagger.json -o openapi/openapi.json --patch
-
-  openapi:sdk:
-    desc: Generate SDK-friendly API docs
-    cmds:
-      - task: openapi:convert
-      - node scripts/normalize-sdk-specs.mjs openapi/swagger.json openapi/sdk-swagger.json
-      - node scripts/normalize-sdk-specs.mjs openapi/openapi.json openapi/sdk-openapi.json
-
-  sdk:go:
-    desc: Generate the Go SDK from Swagger docs
-    cmds:
-      - task: openapi:sdk
-      - node scripts/remove-paths.mjs sdk/go/client sdk/go/models
-      - go run github.com/go-swagger/go-swagger/cmd/swagger@v0.34.1 generate client -f openapi/sdk-swagger.json -t sdk/go -A open-spanner --default-scheme http
-      - cd sdk/go; go mod tidy
-
-  sdk:go:test:
-    desc: Test the generated Go SDK
-    cmds:
-      - cd sdk/go; go test ./...
-
-  sdk:go:check:
-    desc: Verify generated Go SDK is up to date
-    cmds:
-      - task: sdk:go
-      - git diff --exit-code openapi sdk/go
-
-  sdk:python:
-    desc: Generate the Python SDK from OpenAPI docs
-    cmds:
-      - task: openapi:sdk
-      - node scripts/remove-paths.mjs sdk/python/open_spanner_client sdk/python/README.md sdk/python/pyproject.toml
-      - uvx --from openapi-python-client==0.29.0 openapi-python-client generate --path openapi/sdk-openapi.json --output-path sdk/python --meta uv --config sdk/python-client.yml --overwrite
-      - node scripts/finalize-python-sdk.mjs
-      - cd sdk/python; uv lock
-
-  sdk:python:test:
-    desc: Test the generated Python SDK
-    cmds:
-      - cd sdk/python; uv run python -c "import open_spanner_client"
-      - cd sdk/python; uv run python -m compileall open_spanner_client
-
-  sdk:python:check:
-    desc: Verify generated Python SDK is up to date
-    cmds:
-      - task: sdk:python
-      - git diff --exit-code openapi sdk/python sdk/python-client.yml
-
-  sdk:python:build:
-    desc: Build the Python SDK package
-    cmds:
-      - task: sdk:python:check
-      - task: sdk:python:test
-      - cd sdk/python; uv build
-
-  sdk:python:pack:
-    desc: Verify the Python SDK package builds
-    cmds:
-      - task: sdk:python:build
-
-  sdk:csharp:
-    desc: Generate and build the C# SDK from OpenAPI docs
-    cmds:
-      - task: openapi:sdk
-      - dotnet tool restore
-      - node scripts/remove-paths.mjs sdk/csharp/src
-      - dotnet tool run kiota -- generate -d openapi/sdk-openapi.json -l CSharp -o sdk/csharp/src -n OpenSpanner -c OpenSpannerClient --clean-output --exclude-backward-compatible
-      - node scripts/remove-paths.mjs sdk/csharp/src/.kiota.log
-      - dotnet build sdk/csharp/OpenSpanner.csproj
-
-  sdk:csharp:test:
-    desc: Test the C# SDK package
-    cmds:
-      - dotnet build sdk/csharp/OpenSpanner.csproj
-
-  sdk:csharp:check:
-    desc: Verify generated C# SDK is up to date
-    cmds:
-      - task: sdk:csharp
-      - task: sdk:csharp:test
-      - git diff --exit-code openapi sdk/csharp examples/csharp dotnet-tools.json
-
-  sdk:csharp:pack:
-    desc: Verify the C# SDK NuGet package builds
-    cmds:
-      - task: sdk:csharp:check
-      - dotnet pack sdk/csharp/OpenSpanner.csproj --configuration Release
-
-  sdk:typescript:
-    desc: Generate and build the TypeScript SDK package
-    cmds:
-      - task: openapi:sdk
-      - node scripts/remove-paths.mjs sdk/typescript/src
-      - cd sdk/typescript; npm ci
-      - cd sdk/typescript; npm run generate
-      - cd sdk/typescript; npm run build
-
-  sdk:typescript:test:
-    desc: Test the TypeScript SDK package
-    cmds:
-      - cd sdk/typescript; npm test
-
-  sdk:typescript:check:
-    desc: Verify the TypeScript SDK package builds and tests
-    cmds:
-      - task: sdk:typescript
-      - task: sdk:typescript:test
-      - git diff --exit-code openapi sdk/typescript
-
-  sdk:typescript:pack:
-    desc: Verify the TypeScript SDK npm package contents
-    cmds:
-      - task: sdk:typescript:check
-      - cd sdk/typescript; npm run pack:dry-run
-
-  sdk:typescript:publish:
-    desc: Publish the TypeScript SDK package to npm
-    cmds:
-      - task: sdk:typescript:check
-      - cd sdk/typescript; npm run pack:dry-run
-      - cd sdk/typescript; npm run publish:sdk

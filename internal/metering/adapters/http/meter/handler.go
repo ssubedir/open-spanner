@@ -39,12 +39,18 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		respond.ValidationError(w, err)
 		return
 	}
+	dimensions, err := dimensionsFromRequest(req.Dimensions)
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
 
 	meter, err := h.service.Create(r.Context(), appmeter.CreateCommand{
 		Name:               req.Name,
 		Description:        req.Description,
 		Unit:               req.Unit,
 		Aggregation:        domainmeter.Aggregation(req.Aggregation),
+		Dimensions:         dimensions,
 		MetadataSchema:     metadataSchemaFromRequest(req.MetadataSchema),
 		EventRetentionDays: req.EventRetentionDays,
 	})
@@ -173,12 +179,18 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		respond.ValidationError(w, err)
 		return
 	}
+	dimensions, err := dimensionsPointerFromRequest(req.Dimensions)
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
 
 	meter, err := h.service.Update(r.Context(), appmeter.UpdateCommand{
 		ID:                 chi.URLParam(r, "id"),
 		Description:        req.Description,
 		Unit:               req.Unit,
 		Aggregation:        aggregationFromRequest(req.Aggregation),
+		Dimensions:         dimensions,
 		MetadataSchema:     metadataSchemaPointerFromRequest(req.MetadataSchema),
 		EventRetentionDays: req.EventRetentionDays,
 	})
@@ -230,10 +242,26 @@ func responseFromResult(meter appmeter.Result) Response {
 		Description:        meter.Description,
 		Unit:               meter.Unit,
 		Aggregation:        meter.Aggregation,
+		Dimensions:         dimensionsResponseFromResult(meter.Dimensions),
 		MetadataSchema:     meter.MetadataSchema,
 		EventRetentionDays: meter.EventRetentionDays,
 		CreatedAt:          meter.CreatedAt.Format(time.RFC3339),
 	}
+}
+
+func dimensionsResponseFromResult(input []appmeter.DimensionResult) []DimensionResponse {
+	dimensions := make([]DimensionResponse, 0, len(input))
+	for _, dimension := range input {
+		dimensions = append(dimensions, DimensionResponse{
+			Name:        dimension.Name,
+			DisplayName: dimension.DisplayName,
+			Description: dimension.Description,
+			Type:        dimension.Type,
+			Required:    dimension.Required,
+			Deprecated:  dimension.Deprecated,
+		})
+	}
+	return dimensions
 }
 
 func metadataSchemaFromRequest(input map[string]string) map[string]domainmeter.MetadataType {
@@ -244,12 +272,39 @@ func metadataSchemaFromRequest(input map[string]string) map[string]domainmeter.M
 	return schema
 }
 
+func dimensionsFromRequest(input []DimensionRequest) ([]domainmeter.Dimension, error) {
+	dimensions := make([]domainmeter.Dimension, 0, len(input))
+	for _, item := range input {
+		required := true
+		if item.Required != nil {
+			required = *item.Required
+		}
+		dimension, err := domainmeter.NewDimension(item.Name, domainmeter.MetadataType(item.Type), item.DisplayName, item.Description, required, item.Deprecated)
+		if err != nil {
+			return nil, err
+		}
+		dimensions = append(dimensions, dimension)
+	}
+	return dimensions, nil
+}
+
 func aggregationFromRequest(input *string) *domainmeter.Aggregation {
 	if input == nil {
 		return nil
 	}
 	aggregation := domainmeter.Aggregation(*input)
 	return &aggregation
+}
+
+func dimensionsPointerFromRequest(input *[]DimensionRequest) (*[]domainmeter.Dimension, error) {
+	if input == nil {
+		return nil, nil
+	}
+	dimensions, err := dimensionsFromRequest(*input)
+	if err != nil {
+		return nil, err
+	}
+	return &dimensions, nil
 }
 
 func metadataSchemaPointerFromRequest(input *map[string]string) *map[string]domainmeter.MetadataType {

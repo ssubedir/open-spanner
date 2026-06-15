@@ -1,0 +1,13 @@
+version: '3'
+
+tasks:
+  release:check:
+    desc: Verify tests, generated OpenAPI docs, and all SDK packages before a release
+    cmds:
+      - task: test
+      - task: test:examples
+      - task: sdk:go:check
+      - task: sdk:typescript:check
+      - task: sdk:python:pack
+      - task: sdk:csharp:pack
+      - git diff --exit-code openapi sdk/go sdk/typescript sdk/python sdk/python-client.yml sdk/csharp examples dotnet-tools.json

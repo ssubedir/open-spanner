@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
@@ -24,7 +24,7 @@ class InternalMeteringAdaptersHttpUsageSearchRequest:
         bucket_size (str | Unset):
         filter_ (InternalMeteringAdaptersHttpUsageFilterRequest | Unset):
         from_ (str | Unset):
-        group_by (str | Unset):
+        group_by (list[str] | Unset):
         limit (int | Unset):
         meter (str | Unset):
         subject (str | Unset):
@@ -34,7 +34,7 @@ class InternalMeteringAdaptersHttpUsageSearchRequest:
     bucket_size: str | Unset = UNSET
     filter_: InternalMeteringAdaptersHttpUsageFilterRequest | Unset = UNSET
     from_: str | Unset = UNSET
-    group_by: str | Unset = UNSET
+    group_by: list[str] | Unset = UNSET
     limit: int | Unset = UNSET
     meter: str | Unset = UNSET
     subject: str | Unset = UNSET
@@ -50,7 +50,9 @@ class InternalMeteringAdaptersHttpUsageSearchRequest:
 
         from_ = self.from_
 
-        group_by = self.group_by
+        group_by: list[str] | Unset = UNSET
+        if not isinstance(self.group_by, Unset):
+            group_by = self.group_by
 
         limit = self.limit
 
@@ -100,7 +102,7 @@ class InternalMeteringAdaptersHttpUsageSearchRequest:
 
         from_ = d.pop("from", UNSET)
 
-        group_by = d.pop("group_by", UNSET)
+        group_by = cast(list[str], d.pop("group_by", UNSET))
 
         limit = d.pop("limit", UNSET)
 

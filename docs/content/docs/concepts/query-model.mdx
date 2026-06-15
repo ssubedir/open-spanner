@@ -13,7 +13,8 @@ A bucket has:
 - Meter
 - Unit
 - Aggregated value
-- Optional group value
+- Subject, when the query is scoped to one subject or grouped by subject
+- Optional dimension group values
 
 The meter's aggregation mode decides how the value is calculated.
 
@@ -22,9 +23,11 @@ The meter's aggregation mode decides how the value is calculated.
 Use query parameters when you know the direct filters:
 
 ```sh
-curl "http://localhost:18081/v1/usages?subject=org_123&meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z&bucket_size=day" \
+curl "http://localhost:18081/v1/usages?meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z&bucket_size=day" \
   -H "Authorization: Bearer $OPEN_SPANNER_API_KEY"
 ```
+
+Omit `subject` to aggregate every subject for the meter. Add `subject=org_123` when you want a single customer's bucket series.
 
 ## Advanced Query
 
@@ -32,27 +35,63 @@ Use `POST /v1/usages/search` when you need nested filter groups or grouping:
 
 ```json
 {
+  "meter": "api_requests",
   "from": "2026-06-01T00:00:00Z",
   "to": "2026-06-10T00:00:00Z",
   "bucket_size": "day",
-  "group_by": "region",
+  "group_by": ["subject", "region"],
   "filter": {
     "type": "group",
     "op": "and",
     "rules": [
       {
         "type": "condition",
-        "field": "subject",
+        "field": "metadata.plan",
         "op": "eq",
-        "value": "org_123"
-      },
-      {
-        "type": "condition",
-        "field": "meter",
-        "op": "eq",
-        "value": "api_requests"
+        "value": "pro"
       }
     ]
   }
+}
+```
+
+Use `group_by: ["subject"]` to return one row per subject in each bucket. Combine `subject` with metadata dimensions when you need customer-by-region or customer-by-plan reports.
+
+## Breakdowns
+
+Use `POST /v1/usages/breakdowns/search` when you want to know which subjects or dimension values contributed the most usage inside a time window.
+
+Breakdowns use the meter's aggregation mode. For a `sum` meter, the top value is the value with the largest summed quantity. For a `count` meter, the quantity is the event count. The response also includes the raw number of matching events for each value.
+
+```json
+{
+  "meter": "api_requests",
+  "field": "subject",
+  "from": "2026-06-01T00:00:00Z",
+  "to": "2026-06-10T00:00:00Z",
+  "limit": 5,
+  "filter": {
+    "type": "condition",
+    "field": "metadata.plan",
+    "op": "eq",
+    "value": "pro"
+  }
+}
+```
+
+Use `field: "subject"` for top subjects. Use a metadata key, such as `field: "region"` or `field: "endpoint"`, for top dimension values.
+
+```json
+{
+  "items": [
+    {
+      "field": "subject",
+      "value": "org_123",
+      "quantity": 4200,
+      "events": 128,
+      "aggregation": "sum",
+      "unit": "request"
+    }
+  ]
 }
 ```

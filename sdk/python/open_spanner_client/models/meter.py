@@ -9,6 +9,7 @@ from attrs import field as _attrs_field
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
+    from ..models.meter_dimension import MeterDimension
     from ..models.meter_metadata_schema import MeterMetadataSchema
 
 
@@ -22,6 +23,7 @@ class Meter:
         aggregation (str | Unset):
         created_at (str | Unset):
         description (str | Unset):
+        dimensions (list[MeterDimension] | Unset):
         event_retention_days (int | Unset):
         id (str | Unset):
         metadata_schema (MeterMetadataSchema | Unset):
@@ -32,6 +34,7 @@ class Meter:
     aggregation: str | Unset = UNSET
     created_at: str | Unset = UNSET
     description: str | Unset = UNSET
+    dimensions: list[MeterDimension] | Unset = UNSET
     event_retention_days: int | Unset = UNSET
     id: str | Unset = UNSET
     metadata_schema: MeterMetadataSchema | Unset = UNSET
@@ -45,6 +48,13 @@ class Meter:
         created_at = self.created_at
 
         description = self.description
+
+        dimensions: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.dimensions, Unset):
+            dimensions = []
+            for dimensions_item_data in self.dimensions:
+                dimensions_item = dimensions_item_data.to_dict()
+                dimensions.append(dimensions_item)
 
         event_retention_days = self.event_retention_days
 
@@ -67,6 +77,8 @@ class Meter:
             field_dict["created_at"] = created_at
         if description is not UNSET:
             field_dict["description"] = description
+        if dimensions is not UNSET:
+            field_dict["dimensions"] = dimensions
         if event_retention_days is not UNSET:
             field_dict["event_retention_days"] = event_retention_days
         if id is not UNSET:
@@ -82,6 +94,7 @@ class Meter:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.meter_dimension import MeterDimension
         from ..models.meter_metadata_schema import MeterMetadataSchema
 
         d = dict(src_dict)
@@ -90,6 +103,15 @@ class Meter:
         created_at = d.pop("created_at", UNSET)
 
         description = d.pop("description", UNSET)
+
+        _dimensions = d.pop("dimensions", UNSET)
+        dimensions: list[MeterDimension] | Unset = UNSET
+        if _dimensions is not UNSET:
+            dimensions = []
+            for dimensions_item_data in _dimensions:
+                dimensions_item = MeterDimension.from_dict(dimensions_item_data)
+
+                dimensions.append(dimensions_item)
 
         event_retention_days = d.pop("event_retention_days", UNSET)
 
@@ -110,6 +132,7 @@ class Meter:
             aggregation=aggregation,
             created_at=created_at,
             description=description,
+            dimensions=dimensions,
             event_retention_days=event_retention_days,
             id=id,
             metadata_schema=metadata_schema,

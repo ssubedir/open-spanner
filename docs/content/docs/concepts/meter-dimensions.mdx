@@ -55,23 +55,114 @@ Every usage event for a meter must match that meter's metadata schema.
 
 Unknown metadata keys are rejected. Missing schema keys are also rejected. This keeps usage data consistent for filtering, grouping, and export.
 
+## Discover Dimension Values
+
+Open Spanner can list observed values for a dimension. Use this when you want to build filter pickers, audit which values are being sent, or help users choose valid grouping values.
+
+```sh
+curl "http://localhost:18081/v1/usages/dimensions?meter=api_requests&field=region&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z" \
+  -H "Authorization: Bearer osp_live_your_api_key"
+```
+
+Add `subject=org_123` when you only want values observed for one subject.
+
+The response is ordered by the number of matching usage events:
+
+```json
+{
+  "items": [
+    { "field": "region", "value": "us-east", "events": 128 },
+    { "field": "region", "value": "eu-west", "events": 42 }
+  ]
+}
+```
+
+The dashboard usage page uses discovered values to make metadata filters easier to select.
+
+## Rank Dimension Values By Usage
+
+Discovery answers "which values exist?" Breakdowns answer "which values matter most for this query?"
+
+Use breakdowns when you want top endpoints, plans, regions, models, or other dimensions by aggregated usage:
+
+```sh
+curl "http://localhost:18081/v1/usages/breakdowns/search" \
+  -H "Authorization: Bearer osp_live_your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "meter": "api_requests",
+    "field": "endpoint",
+    "from": "2026-06-01T00:00:00Z",
+    "to": "2026-06-10T00:00:00Z",
+    "limit": 5
+  }'
+```
+
+The response is ordered by aggregated quantity, then value:
+
+```json
+{
+  "items": [
+    {
+      "field": "endpoint",
+      "value": "/api/orders",
+      "quantity": 9312,
+      "events": 412,
+      "aggregation": "sum",
+      "unit": "request"
+    },
+    {
+      "field": "endpoint",
+      "value": "/api/users",
+      "quantity": 6420,
+      "events": 305,
+      "aggregation": "sum",
+      "unit": "request"
+    }
+  ]
+}
+```
+
+Use `field: "subject"` to rank subjects by usage without adding `subject` to the meter schema.
+
 ## Query By Dimension
 
 Use metadata filters for direct queries:
 
 ```sh
-curl "http://localhost:18081/v1/usages?subject=org_123&meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z&bucket_size=day&metadata.region=us-east" \
+curl "http://localhost:18081/v1/usages?meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z&bucket_size=day&metadata.region=us-east" \
   -H "Authorization: Bearer $OPEN_SPANNER_API_KEY"
 ```
 
-Use `group_by` to split buckets by one dimension:
+Use `group_by` to split buckets by one or more dimensions. Repeat the query parameter or send a comma-separated list:
 
 ```sh
-curl "http://localhost:18081/v1/usages?subject=org_123&meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z&bucket_size=day&group_by=region" \
+curl "http://localhost:18081/v1/usages?meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z&bucket_size=day&group_by=region&group_by=plan" \
   -H "Authorization: Bearer $OPEN_SPANNER_API_KEY"
 ```
 
-The dashboard usage page uses the same dimension fields for filtering and grouping.
+The search endpoint accepts the same grouping as an array:
+
+```json
+{
+  "meter": "api_requests",
+  "from": "2026-06-01T00:00:00Z",
+  "to": "2026-06-10T00:00:00Z",
+  "bucket_size": "day",
+  "group_by": ["region", "plan"]
+}
+```
+
+The dashboard usage page uses the same dimension fields for filtering and grouping. Grouping by several fields returns one bucket per unique dimension combination.
+
+`subject` is built in, not part of `metadata_schema`, but it can be used with `group_by`:
+
+```sh
+curl "http://localhost:18081/v1/usages?meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z&bucket_size=day&group_by=subject&group_by=region" \
+  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY"
+```
+
+Use this when you want a report like daily requests by customer and region.
 
 ## Good Dimension Names
 
@@ -88,4 +179,4 @@ Avoid putting high-cardinality values in dimensions unless you really need to qu
 
 ## Planned Direction
 
-Open Spanner may add more dimension management over time, such as easier discovery, richer dashboard controls, and looser ingestion modes. Today, dimensions are explicit and schema-backed.
+Open Spanner may add more dimension management over time, such as richer dashboard controls, dimension catalogs, and looser ingestion modes. Today, dimensions are explicit and schema-backed.

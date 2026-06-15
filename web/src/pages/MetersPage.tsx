@@ -1,8 +1,9 @@
 import { useSelector } from '@tanstack/react-store'
-import { Boxes, Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
-import { type FormEvent, useCallback } from 'react'
+import { Boxes, ChevronDown, Loader2, Lock, Pencil, Plus, Trash2 } from 'lucide-react'
+import { type FormEvent, useCallback, useState } from 'react'
 
-import { appStore, appStoreActions } from '../app-store'
+import { appStore, appStoreActions, type MeterDimensionDraft } from '../app-store'
+import type { Meter, MeterDimension } from '../api'
 import { EmptyRow, Modal, PageHeader } from '../components/dashboard'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
@@ -10,35 +11,43 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
 import { formatDate, formatNumber } from '../lib/format'
 import { useInitialLoad } from '../lib/hooks'
-import { parseMetadataSchema } from '../lib/metadata'
+import { metadataSchemaFromDimensions, meterDimensionsFromRows } from '../lib/metadata'
 
 const aggregations = ['sum', 'count', 'avg', 'min', 'max', 'first', 'last', 'rate']
+const metadataTypes = ['string', 'number', 'boolean']
 
 export function MetersPage() {
-  const { deleting, editing, error, items: meters, saving, stats } = useSelector(appStore, (state) => state.meters)
+  const { createDimensions, deleting, editDimensions, editing, error, items: meters, saving, stats } = useSelector(appStore, (state) => state.meters)
   const load = useCallback(() => appStoreActions.loadMeters(), [])
 
   useInitialLoad(load)
+
+  const editingUsageEvents = editing ? stats[editing.name]?.usage_events ?? 0 : 0
+  const editingDimensionsLocked = editingUsageEvents > 0
 
   async function submitCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const formElement = event.currentTarget
     const form = new FormData(formElement)
 
+    const dimensions = readMeterDimensions(createDimensions)
+    if (!dimensions) {
+      return
+    }
+    const metadataSchema = metadataSchemaFromDimensions(dimensions)
+
     try {
       await appStoreActions.createMeter({
         aggregation: String(form.get('aggregation') || 'sum'),
         description: String(form.get('description') || ''),
+        dimensions,
         event_retention_days: Number(form.get('event_retention_days') || 90),
-        metadata_schema: parseMetadataSchema(String(form.get('metadata_schema') || '{}')),
+        metadata_schema: metadataSchema,
         name: String(form.get('name') || ''),
         unit: String(form.get('unit') || ''),
       })
       formElement.reset()
-      const metadata = formElement.elements.namedItem('metadata_schema')
-      if (metadata instanceof HTMLTextAreaElement) {
-        metadata.value = '{}'
-      }
+      appStoreActions.resetMeterCreateDimensions()
     } catch {
       // Store owns the visible meters error state.
     }
@@ -51,12 +60,27 @@ export function MetersPage() {
     }
     const form = new FormData(event.currentTarget)
 
+    if (editingDimensionsLocked) {
+      const lockedError = lockedDimensionDraftError(editDimensions)
+      if (lockedError) {
+        appStoreActions.setMetersError(lockedError)
+        return
+      }
+    }
+
+    const dimensions = readMeterDimensions(editDimensions)
+    if (!dimensions) {
+      return
+    }
+    const metadataSchema = metadataSchemaFromDimensions(dimensions)
+
     try {
       await appStoreActions.updateEditingMeter({
         aggregation: String(form.get('aggregation') || editing.aggregation),
         description: String(form.get('description') || ''),
+        dimensions,
         event_retention_days: Number(form.get('event_retention_days') || editing.event_retention_days),
-        metadata_schema: parseMetadataSchema(String(form.get('metadata_schema') || '{}')),
+        metadata_schema: metadataSchema,
         unit: String(form.get('unit') || ''),
       })
     } catch {
@@ -85,15 +109,15 @@ export function MetersPage() {
       {error ? <div className="error-banner">{error}</div> : null}
 
       <section className="meters-grid">
-        <Card>
-          <CardHeader>
+        <Card className="meter-create-card">
+          <CardHeader className="meter-card-header">
             <div>
               <CardTitle>Create Meter</CardTitle>
               <CardDescription>Define a signal, its unit, aggregation, and metadata contract.</CardDescription>
             </div>
           </CardHeader>
-          <CardContent className="form-card">
-            <form className="form-grid" onSubmit={(event) => void submitCreate(event)}>
+          <CardContent className="form-card meter-create-content">
+            <form className="form-grid meter-create-form" onSubmit={(event) => void submitCreate(event)}>
               <label>
                 Name
                 <input id="meter-name" name="name" placeholder="api_calls" required />
@@ -116,11 +140,14 @@ export function MetersPage() {
                 Description
                 <input id="meter-description" name="description" placeholder="API requests accepted by the platform" />
               </label>
-              <label className="wide" htmlFor="meter-metadata-schema">
-                Metadata Schema JSON
-                <textarea aria-label="Metadata Schema JSON" defaultValue="{}" id="meter-metadata-schema" name="metadata_schema" rows={5} />
-              </label>
-              <Button disabled={saving} type="submit">
+              <DimensionSchemaEditor
+                rows={createDimensions}
+                onAdd={() => appStoreActions.addMeterCreateDimension()}
+                onRemove={(id) => appStoreActions.removeMeterCreateDimension(id)}
+                onUpdate={(id, update) => appStoreActions.updateMeterCreateDimension(id, update)}
+                showDeprecated={false}
+              />
+              <Button className="meter-submit-button" disabled={saving} type="submit">
                 {saving ? <Loader2 className="spin" aria-hidden="true" /> : <Plus aria-hidden="true" />}
                 Create
               </Button>
@@ -129,7 +156,7 @@ export function MetersPage() {
         </Card>
 
         <Card className="meter-table-card">
-          <CardHeader>
+          <CardHeader className="meter-card-header">
             <div>
               <CardTitle>Meters</CardTitle>
               <CardDescription>Configured meter definitions and current activity.</CardDescription>
@@ -169,7 +196,7 @@ export function MetersPage() {
                         <TableCell>{meter.event_retention_days} days</TableCell>
                         <TableCell>{formatNumber(stat?.usage_events ?? 0)}</TableCell>
                         <TableCell>{stat?.last_event_at ? formatDate(stat.last_event_at) : 'Never'}</TableCell>
-                        <TableCell className="mono truncate">{JSON.stringify(meter.metadata_schema || {})}</TableCell>
+                        <TableCell><DimensionChips meter={meter} /></TableCell>
                         <TableCell>
                           <div className="table-actions">
                             <Button aria-label={`Edit ${meter.name}`} onClick={() => appStoreActions.setMeterEditing(meter)} size="icon" type="button" variant="ghost">
@@ -215,10 +242,14 @@ export function MetersPage() {
               Description
               <input defaultValue={editing.description} name="description" />
             </label>
-            <label>
-              Metadata Schema JSON
-              <textarea defaultValue={JSON.stringify(editing.metadata_schema || {}, null, 2)} name="metadata_schema" rows={5} />
-            </label>
+            <DimensionSchemaEditor
+              lockedByUsage={editingDimensionsLocked}
+              rows={editDimensions}
+              usageEvents={editingUsageEvents}
+              onAdd={() => appStoreActions.addMeterEditDimension()}
+              onRemove={(id) => appStoreActions.removeMeterEditDimension(id)}
+              onUpdate={(id, update) => appStoreActions.updateMeterEditDimension(id, update)}
+            />
             <div className="modal-actions">
               <Button onClick={() => appStoreActions.setMeterEditing(null)} type="button" variant="outline">Cancel</Button>
               <Button disabled={saving} type="submit">Save</Button>
@@ -238,4 +269,240 @@ export function MetersPage() {
       ) : null}
     </>
   )
+}
+
+function readMeterDimensions(rows: MeterDimensionDraft[]) {
+  try {
+    return meterDimensionsFromRows(rows)
+  } catch (err) {
+    appStoreActions.setMetersError(err instanceof Error ? err.message : 'Unable to read meter dimensions')
+    return null
+  }
+}
+
+function lockedDimensionDraftError(rows: MeterDimensionDraft[]) {
+  for (const row of rows) {
+    if (!row.originalName) {
+      if (!row.name.trim()) {
+        continue
+      }
+      if (row.required && !row.deprecated) {
+        return 'New dimensions must be optional after usage has been recorded.'
+      }
+      continue
+    }
+
+    if (row.name !== row.originalName) {
+      return 'Existing dimension names cannot change after usage has been recorded.'
+    }
+    if (row.originalType && row.type !== row.originalType) {
+      return 'Existing dimension types cannot change after usage has been recorded.'
+    }
+    if ((row.originalRequired === false || row.originalDeprecated) && row.required && !row.deprecated) {
+      return 'Optional dimensions cannot become required after usage has been recorded.'
+    }
+  }
+  return ''
+}
+
+function DimensionSchemaEditor({
+  lockedByUsage = false,
+  onAdd,
+  onRemove,
+  onUpdate,
+  rows,
+  showDeprecated = true,
+  usageEvents = 0,
+}: {
+  lockedByUsage?: boolean
+  onAdd: () => void
+  onRemove: (id: string) => void
+  onUpdate: (id: string, update: Partial<Omit<MeterDimensionDraft, 'id'>>) => void
+  rows: MeterDimensionDraft[]
+  showDeprecated?: boolean
+  usageEvents?: number
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const dimensionCount = rows.filter((row) => row.name.trim()).length
+  const requiredCount = rows.filter((row) => row.name.trim() && row.required && !row.deprecated).length
+  const deprecatedCount = rows.filter((row) => row.name.trim() && row.deprecated).length
+  const summary =
+    dimensionCount === 0
+      ? 'No dimensions'
+      : [
+          `${formatNumber(dimensionCount)} ${dimensionCount === 1 ? 'dimension' : 'dimensions'}`,
+          `${formatNumber(requiredCount)} required`,
+          deprecatedCount > 0 ? `${formatNumber(deprecatedCount)} deprecated` : '',
+        ]
+          .filter(Boolean)
+          .join(' · ')
+
+  return (
+    <div className="schema-builder wide">
+      <div className="schema-builder-header">
+        <button
+          aria-expanded={expanded}
+          className="schema-toggle"
+          data-testid="meter-dimensions-toggle"
+          onClick={() => setExpanded((current) => !current)}
+          type="button"
+        >
+          <ChevronDown aria-hidden="true" />
+          <span>Dimensions</span>
+          <small>{summary}</small>
+        </button>
+        <div className="schema-builder-actions">
+          <Button onClick={() => setExpanded((current) => !current)} size="sm" type="button" variant="outline">
+            {expanded ? 'Hide' : 'Edit'}
+          </Button>
+          <Button
+            onClick={() => {
+              onAdd()
+              setExpanded(true)
+            }}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <Plus aria-hidden="true" />
+            Add
+          </Button>
+        </div>
+      </div>
+      {lockedByUsage ? (
+        <div className="schema-lock-note">
+          <Lock aria-hidden="true" />
+          <span>{formatNumber(usageEvents)} usage events recorded. Existing dimension identity is locked.</span>
+        </div>
+      ) : null}
+      <div className="schema-rows" hidden={!expanded}>
+        {rows.map((row) => {
+          const isExisting = Boolean(row.originalName)
+          const existingLocked = lockedByUsage && isExisting
+          const requiredLocked = lockedByUsage && (!isExisting || row.originalRequired === false || row.originalDeprecated)
+          const identityLockTitle = existingLocked ? 'Existing dimension identity is locked after usage exists' : undefined
+          const requiredLockTitle = requiredLocked ? 'New dimensions and previously optional dimensions cannot become required after usage exists' : undefined
+          return (
+            <div className="schema-row" key={row.id}>
+              <label>
+                Name
+                <input
+                  aria-label="Dimension name"
+                  disabled={existingLocked}
+                  onChange={(event) => onUpdate(row.id, { name: event.currentTarget.value })}
+                  placeholder="region"
+                  title={identityLockTitle}
+                  value={row.name}
+                />
+              </label>
+              <label>
+                Display
+                <input
+                  aria-label="Dimension display name"
+                  onChange={(event) => onUpdate(row.id, { displayName: event.currentTarget.value })}
+                  placeholder="Region"
+                  value={row.displayName}
+                />
+              </label>
+              <label>
+                Type
+                <select
+                  aria-label="Dimension type"
+                  disabled={existingLocked}
+                  onChange={(event) => onUpdate(row.id, { type: event.currentTarget.value })}
+                  title={identityLockTitle}
+                  value={row.type}
+                >
+                  {metadataTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+                </select>
+              </label>
+              <label className="schema-required">
+                <input
+                  checked={row.required}
+                  disabled={requiredLocked}
+                  onChange={(event) => onUpdate(row.id, { required: event.currentTarget.checked })}
+                  title={requiredLockTitle}
+                  type="checkbox"
+                />
+                Required
+              </label>
+              {showDeprecated ? (
+                <label className="schema-required schema-deprecated">
+                  <input
+                    checked={row.deprecated}
+                    onChange={(event) => onUpdate(row.id, { deprecated: event.currentTarget.checked })}
+                    type="checkbox"
+                  />
+                  Deprecated
+                </label>
+              ) : null}
+              <Button
+                aria-label={`Remove ${row.name || 'dimension'}`}
+                disabled={existingLocked}
+                onClick={() => onRemove(row.id)}
+                size="icon"
+                title={identityLockTitle}
+                type="button"
+                variant="ghost"
+              >
+                <Trash2 aria-hidden="true" />
+              </Button>
+              <label className="schema-description">
+                Description
+                <input
+                  aria-label="Dimension description"
+                  onChange={(event) => onUpdate(row.id, { description: event.currentTarget.value })}
+                  placeholder="Deployment region"
+                  value={row.description}
+                />
+              </label>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function DimensionChips({ meter }: { meter: Meter }) {
+  const dimensions = normalizedMeterDimensions(meter)
+  if (dimensions.length === 0) {
+    return <span className="muted">No dimensions</span>
+  }
+
+  return (
+    <div className="schema-chips">
+      {dimensions.map((dimension) => (
+        <span className="schema-chip" key={dimension.name}>
+          <span>{dimension.display_name || humanizeField(dimension.name)}</span>
+          <strong>{dimension.deprecated ? `${dimension.type} deprecated` : dimension.required ? dimension.type : `${dimension.type} optional`}</strong>
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function normalizedMeterDimensions(meter: Meter): MeterDimension[] {
+  if (meter.dimensions && meter.dimensions.length > 0) {
+    return meter.dimensions
+  }
+  return Object.entries(meter.metadata_schema || {})
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, type]) => ({
+      description: '',
+      display_name: humanizeField(name),
+      deprecated: false,
+      name,
+      required: true,
+      type,
+    }))
+}
+
+function humanizeField(key: string) {
+  return key
+    .replace(/^metadata\./, '')
+    .split(/[._-]/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
 }

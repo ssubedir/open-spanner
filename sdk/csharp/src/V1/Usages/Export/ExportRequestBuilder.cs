@@ -21,7 +21,7 @@ namespace OpenSpanner.V1.Usages.Export
         /// </summary>
         /// <param name="pathParameters">Path parameters for the request</param>
         /// <param name="requestAdapter">The request adapter to use to execute the requests.</param>
-        public ExportRequestBuilder(Dictionary<string, object> pathParameters, IRequestAdapter requestAdapter) : base(requestAdapter, "{+baseurl}/v1/usages/export?from={from}&meter={meter}&subject={subject}&to={to}{&bucket_size*,group_by*,limit*}", pathParameters)
+        public ExportRequestBuilder(Dictionary<string, object> pathParameters, IRequestAdapter requestAdapter) : base(requestAdapter, "{+baseurl}/v1/usages/export?from={from}&meter={meter}&to={to}{&bucket_size*,group_by*,limit*,subject*}", pathParameters)
         {
         }
         /// <summary>
@@ -29,7 +29,7 @@ namespace OpenSpanner.V1.Usages.Export
         /// </summary>
         /// <param name="rawUrl">The raw URL to use for the request builder.</param>
         /// <param name="requestAdapter">The request adapter to use to execute the requests.</param>
-        public ExportRequestBuilder(string rawUrl, IRequestAdapter requestAdapter) : base(requestAdapter, "{+baseurl}/v1/usages/export?from={from}&meter={meter}&subject={subject}&to={to}{&bucket_size*,group_by*,limit*}", rawUrl)
+        public ExportRequestBuilder(string rawUrl, IRequestAdapter requestAdapter) : base(requestAdapter, "{+baseurl}/v1/usages/export?from={from}&meter={meter}&to={to}{&bucket_size*,group_by*,limit*,subject*}", rawUrl)
         {
         }
         /// <summary>
@@ -104,15 +104,15 @@ namespace OpenSpanner.V1.Usages.Export
             [QueryParameter("from")]
             public string From { get; set; }
 #endif
-            /// <summary>Metadata key to group by</summary>
+            /// <summary>Subject or metadata keys to group by. Repeat the parameter or use comma-separated values.</summary>
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
 #nullable enable
             [QueryParameter("group_by")]
-            public string? GroupBy { get; set; }
+            public string[]? GroupBy { get; set; }
 #nullable restore
 #else
             [QueryParameter("group_by")]
-            public string GroupBy { get; set; }
+            public string[] GroupBy { get; set; }
 #endif
             /// <summary>Result limit</summary>
             [QueryParameter("limit")]

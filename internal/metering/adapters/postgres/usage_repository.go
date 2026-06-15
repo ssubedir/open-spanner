@@ -165,7 +165,7 @@ INSERT INTO usage_events (
 	event_time,
 	received_at,
 	metadata
-) VALUES ($1, NULLIF($2, ''), $3, $4, $5, $6, $7, $8)
+) VALUES ($1, NULLIF($2, ''), $3, $4, $5, $6, $7, $8::jsonb)
 `, event.ID(), event.IdempotencyKey(), event.Subject(), event.MeterName(), event.Quantity(), formatTime(event.EventTime()), formatTime(event.ReceivedAt()), string(metadata))
 	if err != nil {
 		if isUniqueConstraint(err) && event.IdempotencyKey() != "" {
@@ -182,32 +182,37 @@ INSERT INTO usage_events (
 }
 
 func (r *UsageRepository) Query(ctx context.Context, query domainusage.Query) ([]domainusage.Bucket, error) {
-	groupSQL, err := groupValueSQL(query.GroupBy())
+	groupBy := query.GroupByFields()
+	groupSelectSQL, groupAliases, err := groupValueSelectSQL(groupBy)
 	if err != nil {
 		return nil, err
 	}
+	partitionColumns := groupPartitionColumns(groupAliases)
+	selectColumns := groupResultColumns(groupAliases)
 
 	sqlQuery := strings.Builder{}
 	sqlQuery.WriteString(`
 WITH filtered AS (
 	SELECT
 		` + bucketStartSQL(query.BucketSize()) + ` AS bucket_start,
-		` + groupSQL + ` AS group_value,
+` + groupSelectSQL + `
 		quantity,
 		event_time::timestamptz AS event_at
 	FROM usage_events
-	WHERE subject = `)
+	WHERE meter_name = `)
 	args := []any{}
-	sqlQuery.WriteString(bindArg(&args, query.Subject()))
+	sqlQuery.WriteString(bindArg(&args, query.MeterName()))
 	sqlQuery.WriteString("\n")
-	sqlQuery.WriteString("\t\tAND meter_name = " + bindArg(&args, query.MeterName()) + "\n")
 	sqlQuery.WriteString("\t\tAND event_time >= " + bindArg(&args, formatTime(query.From())) + "\n")
 	sqlQuery.WriteString("\t\tAND event_time < " + bindArg(&args, formatTime(query.To())) + "\n")
+	if query.Subject() != "" {
+		sqlQuery.WriteString("\t\tAND subject = " + bindArg(&args, query.Subject()) + "\n")
+	}
 	for key, value := range query.Metadata() {
 		if !metadataKeyPattern.MatchString(key) {
 			return nil, fmt.Errorf("unsupported metadata filter key %q", key)
 		}
-		sqlQuery.WriteString("\t\tAND metadata::jsonb #>> " + postgresJSONPath(key) + " = " + bindArg(&args, value) + "\n")
+		sqlQuery.WriteString("\t\tAND metadata #>> " + postgresJSONPath(key) + " = " + bindArg(&args, value) + "\n")
 	}
 	filterSQL, err := filterWhereSQL(query.Filter(), &args)
 	if err != nil {
@@ -219,10 +224,10 @@ WITH filtered AS (
 		sqlQuery.WriteString("\n")
 	}
 	sqlQuery.WriteString(`)
-SELECT bucket_start, group_value, ` + aggregateSQL(query.Aggregation(), query.BucketSize()) + ` AS quantity
+SELECT ` + selectColumns + `, ` + aggregateSQL(query.Aggregation(), query.BucketSize()) + ` AS quantity
 FROM filtered
-GROUP BY bucket_start, group_value
-ORDER BY bucket_start ASC, group_value ASC
+GROUP BY ` + partitionColumns + `
+ORDER BY ` + groupOrderColumns(groupAliases) + `
 LIMIT ` + bindArg(&args, query.Limit()) + `
 `)
 
@@ -235,17 +240,26 @@ LIMIT ` + bindArg(&args, query.Limit()) + `
 	buckets := []domainusage.Bucket{}
 	for rows.Next() {
 		var bucketStart time.Time
-		var groupValue string
+		groupValues := make([]string, len(groupBy))
 		var quantity float64
-		if err := rows.Scan(&bucketStart, &groupValue, &quantity); err != nil {
+		scanTargets := []any{&bucketStart}
+		for i := range groupValues {
+			scanTargets = append(scanTargets, &groupValues[i])
+		}
+		scanTargets = append(scanTargets, &quantity)
+		if err := rows.Scan(scanTargets...); err != nil {
 			return nil, err
 		}
 		group := map[string]string{}
-		if query.GroupBy() != "" {
-			group[query.GroupBy()] = groupValue
+		bucketSubject := query.Subject()
+		for index, field := range groupBy {
+			group[field] = groupValues[index]
+			if domainusage.IsSubjectGroupBy(field) {
+				bucketSubject = groupValues[index]
+			}
 		}
 		buckets = append(buckets, domainusage.NewBucketWithGroup(
-			query.Subject(),
+			bucketSubject,
 			query.MeterName(),
 			query.BucketSize(),
 			bucketStart,
@@ -261,6 +275,124 @@ LIMIT ` + bindArg(&args, query.Limit()) + `
 	return buckets, nil
 }
 
+func (r *UsageRepository) FindDimensionValues(ctx context.Context, query domainusage.DimensionValueQuery) ([]domainusage.DimensionValue, error) {
+	if !metadataKeyPattern.MatchString(query.Field()) {
+		return nil, fmt.Errorf("unsupported metadata field %q", query.Field())
+	}
+
+	args := []any{}
+	valueSQL := "metadata #>> " + postgresJSONPath(query.Field())
+	sqlQuery := strings.Builder{}
+	sqlQuery.WriteString("SELECT value, COUNT(*) AS usage_events\n")
+	sqlQuery.WriteString("FROM (\n")
+	sqlQuery.WriteString("\tSELECT " + valueSQL + " AS value\n")
+	sqlQuery.WriteString("\tFROM usage_events\n")
+	sqlQuery.WriteString("\tWHERE meter_name = " + bindArg(&args, query.MeterName()) + "\n")
+	sqlQuery.WriteString("\t\tAND " + valueSQL + " IS NOT NULL\n")
+	if query.Subject() != "" {
+		sqlQuery.WriteString("\t\tAND subject = " + bindArg(&args, query.Subject()) + "\n")
+	}
+	if !query.From().IsZero() {
+		sqlQuery.WriteString("\t\tAND event_time >= " + bindArg(&args, formatTime(query.From())) + "\n")
+	}
+	if !query.To().IsZero() {
+		sqlQuery.WriteString("\t\tAND event_time < " + bindArg(&args, formatTime(query.To())) + "\n")
+	}
+	sqlQuery.WriteString(") discovered\n")
+	sqlQuery.WriteString("WHERE value IS NOT NULL AND value != ''\n")
+	sqlQuery.WriteString("GROUP BY value\n")
+	sqlQuery.WriteString("ORDER BY usage_events DESC, value ASC\n")
+	sqlQuery.WriteString("LIMIT " + bindArg(&args, query.Limit()))
+
+	rows, err := r.store.query(ctx, sqlQuery.String(), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	values := []domainusage.DimensionValue{}
+	for rows.Next() {
+		var value string
+		var usageEvents int
+		if err := rows.Scan(&value, &usageEvents); err != nil {
+			return nil, err
+		}
+		values = append(values, domainusage.NewDimensionValue(query.Field(), value, usageEvents))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return values, nil
+}
+
+func (r *UsageRepository) FindBreakdown(ctx context.Context, query domainusage.BreakdownQuery) ([]domainusage.BreakdownItem, error) {
+	valueSQL, err := breakdownValueSQL(query.Field())
+	if err != nil {
+		return nil, err
+	}
+
+	args := []any{}
+	sqlQuery := strings.Builder{}
+	sqlQuery.WriteString(`
+WITH filtered AS (
+	SELECT
+		` + valueSQL + ` AS value,
+		quantity,
+		event_time::timestamptz AS event_at
+	FROM usage_events
+	WHERE meter_name = `)
+	sqlQuery.WriteString(bindArg(&args, query.MeterName()))
+	sqlQuery.WriteString("\n")
+	sqlQuery.WriteString("\t\tAND event_time >= " + bindArg(&args, formatTime(query.From())) + "\n")
+	sqlQuery.WriteString("\t\tAND event_time < " + bindArg(&args, formatTime(query.To())) + "\n")
+	if query.Subject() != "" {
+		sqlQuery.WriteString("\t\tAND subject = " + bindArg(&args, query.Subject()) + "\n")
+	}
+	filterSQL, err := filterWhereSQL(query.Filter(), &args)
+	if err != nil {
+		return nil, err
+	}
+	if filterSQL != "" {
+		sqlQuery.WriteString("\t\tAND ")
+		sqlQuery.WriteString(filterSQL)
+		sqlQuery.WriteString("\n")
+	}
+	sqlQuery.WriteString(`)
+SELECT
+	value,
+	` + breakdownAggregateSQL(query.Aggregation(), &args, query.To().Sub(query.From()).Seconds()) + ` AS quantity,
+	COUNT(*) AS usage_events
+FROM filtered
+WHERE value IS NOT NULL AND value != ''
+GROUP BY value
+ORDER BY quantity DESC, value ASC
+LIMIT ` + bindArg(&args, query.Limit()) + `
+`)
+
+	rows, err := r.store.query(ctx, sqlQuery.String(), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := []domainusage.BreakdownItem{}
+	for rows.Next() {
+		var value string
+		var quantity float64
+		var usageEvents int
+		if err := rows.Scan(&value, &quantity, &usageEvents); err != nil {
+			return nil, err
+		}
+		items = append(items, domainusage.NewBreakdownItem(query.Field(), value, quantity, usageEvents))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
 func bucketStartSQL(size domainusage.BucketSize) string {
 	switch size {
 	case domainusage.BucketHour:
@@ -272,14 +404,43 @@ func bucketStartSQL(size domainusage.BucketSize) string {
 	}
 }
 
-func groupValueSQL(groupBy string) (string, error) {
-	if groupBy == "" {
-		return "''", nil
+func groupValueSelectSQL(groupBy []string) (string, []string, error) {
+	columns := strings.Builder{}
+	aliases := make([]string, 0, len(groupBy))
+	for index, field := range groupBy {
+		alias := fmt.Sprintf("group_%d", index)
+		if domainusage.IsSubjectGroupBy(field) {
+			columns.WriteString("\t\tsubject AS ")
+		} else {
+			if !metadataKeyPattern.MatchString(field) {
+				return "", nil, fmt.Errorf("unsupported group by field %q", field)
+			}
+			columns.WriteString("\t\tCOALESCE(metadata #>> ")
+			columns.WriteString(postgresJSONPath(field))
+			columns.WriteString(", '<nil>') AS ")
+		}
+		columns.WriteString(alias)
+		columns.WriteString(",\n")
+		aliases = append(aliases, alias)
 	}
-	if !metadataKeyPattern.MatchString(groupBy) {
-		return "", fmt.Errorf("unsupported group by field %q", groupBy)
+	return columns.String(), aliases, nil
+}
+
+func groupPartitionColumns(aliases []string) string {
+	columns := append([]string{"bucket_start"}, aliases...)
+	return strings.Join(columns, ", ")
+}
+
+func groupResultColumns(aliases []string) string {
+	return groupPartitionColumns(aliases)
+}
+
+func groupOrderColumns(aliases []string) string {
+	columns := []string{"bucket_start ASC"}
+	for _, alias := range aliases {
+		columns = append(columns, alias+" ASC")
 	}
-	return "COALESCE(metadata::jsonb #>> " + postgresJSONPath(groupBy) + ", '<nil>')", nil
+	return strings.Join(columns, ", ")
 }
 
 func aggregateSQL(aggregation domainmeter.Aggregation, bucketSize domainusage.BucketSize) string {
@@ -298,6 +459,37 @@ func aggregateSQL(aggregation domainmeter.Aggregation, bucketSize domainusage.Bu
 		return "(array_agg(quantity ORDER BY event_at DESC))[1]"
 	case domainmeter.AggregationRate:
 		return "COUNT(*)::double precision / " + bucketDurationSecondsSQL(bucketSize)
+	default:
+		return "SUM(quantity)"
+	}
+}
+
+func breakdownValueSQL(field string) (string, error) {
+	if domainusage.IsSubjectGroupBy(field) {
+		return "subject", nil
+	}
+	if !metadataKeyPattern.MatchString(field) {
+		return "", fmt.Errorf("unsupported breakdown field %q", field)
+	}
+	return "metadata #>> " + postgresJSONPath(field), nil
+}
+
+func breakdownAggregateSQL(aggregation domainmeter.Aggregation, args *[]any, durationSeconds float64) string {
+	switch aggregation {
+	case domainmeter.AggregationCount:
+		return "COUNT(*)::double precision"
+	case domainmeter.AggregationAverage:
+		return "AVG(quantity)"
+	case domainmeter.AggregationMinimum:
+		return "MIN(quantity)"
+	case domainmeter.AggregationMaximum:
+		return "MAX(quantity)"
+	case domainmeter.AggregationFirst:
+		return "(array_agg(quantity ORDER BY event_at ASC))[1]"
+	case domainmeter.AggregationLast:
+		return "(array_agg(quantity ORDER BY event_at DESC))[1]"
+	case domainmeter.AggregationRate:
+		return "COUNT(*)::double precision / " + bindArg(args, durationSeconds)
 	default:
 		return "SUM(quantity)"
 	}
@@ -406,47 +598,81 @@ func filterWhereSQL(filter domainusage.Filter, args *[]any) (string, error) {
 	}
 }
 
+type filterField struct {
+	expression  string
+	valueKind   string
+	metadataKey string
+}
+
 func conditionWhereSQL(filter domainusage.Filter, args *[]any) (string, error) {
-	fieldSQL, valueKind, err := filterFieldSQL(filter.Field())
+	field, err := filterFieldSQL(filter.Field())
 	if err != nil {
 		return "", err
 	}
 
 	op := filter.ConditionOp()
 	if op == domainusage.FilterOpExists {
-		return fieldSQL + " IS NOT NULL", nil
+		return field.expression + " IS NOT NULL", nil
 	}
 
 	switch op {
-	case domainusage.FilterOpEqual, domainusage.FilterOpNotEqual, domainusage.FilterOpGreaterThan, domainusage.FilterOpGreaterThanOrEqual, domainusage.FilterOpLessThan, domainusage.FilterOpLessThanOrEqual:
-		value, err := sqlFilterValue(filter.Value(), valueKind)
+	case domainusage.FilterOpEqual:
+		if field.metadataKey != "" {
+			return metadataContainsSQL(field.metadataKey, filter.Value(), args)
+		}
+		value, err := sqlFilterValue(filter.Value(), field.valueKind)
 		if err != nil {
 			return "", err
 		}
-		return fieldSQL + " " + sqlOperator(op) + " " + bindArg(args, value), nil
+		return field.expression + " = " + bindArg(args, value), nil
+	case domainusage.FilterOpNotEqual, domainusage.FilterOpGreaterThan, domainusage.FilterOpGreaterThanOrEqual, domainusage.FilterOpLessThan, domainusage.FilterOpLessThanOrEqual:
+		value, err := sqlFilterValue(filter.Value(), field.valueKind)
+		if err != nil {
+			return "", err
+		}
+		return field.expression + " " + sqlOperator(op) + " " + bindArg(args, value), nil
 	case domainusage.FilterOpIn:
 		values, ok := filter.Value().([]any)
 		if !ok || len(values) == 0 {
 			return "", fmt.Errorf("invalid in filter value")
 		}
+		if field.metadataKey != "" {
+			parts := make([]string, 0, len(values))
+			for _, raw := range values {
+				part, err := metadataContainsSQL(field.metadataKey, raw, args)
+				if err != nil {
+					return "", err
+				}
+				parts = append(parts, part)
+			}
+			return "(" + strings.Join(parts, " OR ") + ")", nil
+		}
 		placeholders := make([]string, 0, len(values))
 		for _, raw := range values {
-			value, err := sqlFilterValue(raw, valueKind)
+			value, err := sqlFilterValue(raw, field.valueKind)
 			if err != nil {
 				return "", err
 			}
 			placeholders = append(placeholders, bindArg(args, value))
 		}
-		return fieldSQL + " IN (" + strings.Join(placeholders, ", ") + ")", nil
+		return field.expression + " IN (" + strings.Join(placeholders, ", ") + ")", nil
 	case domainusage.FilterOpContains:
 		value, err := sqlFilterValue(filter.Value(), "text")
 		if err != nil {
 			return "", err
 		}
-		return "CAST(" + fieldSQL + " AS TEXT) LIKE " + bindArg(args, "%"+fmt.Sprint(value)+"%"), nil
+		return "CAST(" + field.expression + " AS TEXT) LIKE " + bindArg(args, "%"+fmt.Sprint(value)+"%"), nil
 	default:
 		return "", fmt.Errorf("unsupported filter operator %q", op)
 	}
+}
+
+func metadataContainsSQL(key string, value any, args *[]any) (string, error) {
+	payload, err := metadataContainsJSON(key, value)
+	if err != nil {
+		return "", err
+	}
+	return "metadata @> " + bindArg(args, payload) + "::jsonb", nil
 }
 
 func sqlOperator(op domainusage.FilterConditionOp) string {
@@ -466,30 +692,51 @@ func sqlOperator(op domainusage.FilterConditionOp) string {
 	}
 }
 
-func filterFieldSQL(field string) (string, string, error) {
+func filterFieldSQL(field string) (filterField, error) {
 	switch field {
 	case "subject":
-		return "subject", "text", nil
+		return filterField{expression: "subject", valueKind: "text"}, nil
 	case "meter":
-		return "meter_name", "text", nil
+		return filterField{expression: "meter_name", valueKind: "text"}, nil
 	case "quantity":
-		return "quantity", "number", nil
+		return filterField{expression: "quantity", valueKind: "number"}, nil
 	case "timestamp", "event_time":
-		return "event_time", "time", nil
+		return filterField{expression: "event_time", valueKind: "time"}, nil
 	case "received_at":
-		return "received_at", "time", nil
+		return filterField{expression: "received_at", valueKind: "time"}, nil
 	case "idempotency_key":
-		return "idempotency_key", "text", nil
+		return filterField{expression: "idempotency_key", valueKind: "text"}, nil
 	default:
 		key := strings.TrimPrefix(field, "metadata.")
 		if key == field || !metadataKeyPattern.MatchString(key) {
-			return "", "", fmt.Errorf("unsupported filter field %q", field)
+			return filterField{}, fmt.Errorf("unsupported filter field %q", field)
 		}
-		return "metadata::jsonb #>> " + postgresJSONPath(key), "any", nil
+		return filterField{expression: "metadata #>> " + postgresJSONPath(key), valueKind: "text", metadataKey: key}, nil
 	}
 }
 
+func metadataContainsJSON(key string, value any) (string, error) {
+	if !metadataKeyPattern.MatchString(key) {
+		return "", fmt.Errorf("unsupported metadata filter key %q", key)
+	}
+
+	parts := strings.Split(key, ".")
+	var node any = value
+	for i := len(parts) - 1; i >= 0; i-- {
+		node = map[string]any{parts[i]: node}
+	}
+
+	payload, err := json.Marshal(node)
+	if err != nil {
+		return "", err
+	}
+	return string(payload), nil
+}
+
 func sqlFilterValue(value any, kind string) (any, error) {
+	if kind == "text" {
+		return fmt.Sprint(value), nil
+	}
 	if kind == "time" {
 		parsed, err := time.Parse(time.RFC3339Nano, fmt.Sprint(value))
 		if err != nil {

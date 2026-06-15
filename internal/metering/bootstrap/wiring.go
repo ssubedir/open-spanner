@@ -9,12 +9,14 @@ import (
 	"github.com/ssubedir/open-spanner/internal/config"
 	httpauth "github.com/ssubedir/open-spanner/internal/metering/adapters/http/auth"
 	httpmeter "github.com/ssubedir/open-spanner/internal/metering/adapters/http/meter"
+	httpsavedquery "github.com/ssubedir/open-spanner/internal/metering/adapters/http/savedquery"
 	httpsubject "github.com/ssubedir/open-spanner/internal/metering/adapters/http/subject"
 	httpsystem "github.com/ssubedir/open-spanner/internal/metering/adapters/http/system"
 	httpusage "github.com/ssubedir/open-spanner/internal/metering/adapters/http/usage"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/postgres"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/sqlite"
 	appmeter "github.com/ssubedir/open-spanner/internal/metering/app/meter"
+	appsavedquery "github.com/ssubedir/open-spanner/internal/metering/app/savedquery"
 	appsubject "github.com/ssubedir/open-spanner/internal/metering/app/subject"
 	appsystem "github.com/ssubedir/open-spanner/internal/metering/app/system"
 	apptransaction "github.com/ssubedir/open-spanner/internal/metering/app/transaction"
@@ -36,6 +38,7 @@ type readinessChecker interface {
 type repositorySet struct {
 	auth       appauth.Repository
 	meter      domainmeter.Repository
+	savedQuery appsavedquery.Repository
 	usage      domainusage.Repository
 	transactor apptransaction.Transactor
 	ready      func(context.Context) error
@@ -64,6 +67,7 @@ func RegisterRoutes(ctx context.Context, router chi.Router, cfg config.Config) (
 
 	authService := appauth.NewService(repos.auth)
 	meterService := appmeter.NewService(repos.meter, repos.usage)
+	savedQueryService := appsavedquery.NewService(repos.savedQuery)
 	subjectService := appsubject.NewService(repos.usage)
 	usageService := appusage.NewService(repos.meter, repos.usage, repos.transactor)
 	systemService := appsystem.NewService(repos.meter, repos.usage)
@@ -71,6 +75,10 @@ func RegisterRoutes(ctx context.Context, router chi.Router, cfg config.Config) (
 	router.Route("/v1", func(r chi.Router) {
 		authHandler := httpauth.NewHandler(authService)
 		authHandler.RegisterRoutes(r)
+		r.Group(func(dashboard chi.Router) {
+			dashboard.Use(authHandler.RequireSession)
+			httpsavedquery.NewHandler(savedQueryService).RegisterRoutes(dashboard)
+		})
 		r.Group(func(protected chi.Router) {
 			protected.Use(authHandler.RequireAuth)
 			httpmeter.NewHandler(meterService).RegisterRoutes(protected)
@@ -94,6 +102,7 @@ func repositories(ctx context.Context, cfg config.Config) (repositorySet, error)
 		return repositorySet{
 			auth:       postgres.NewAuthRepository(store),
 			meter:      postgres.NewMeterRepository(store),
+			savedQuery: postgres.NewSavedQueryRepository(store),
 			usage:      postgres.NewUsageRepository(store),
 			transactor: store,
 			ready:      readiness(store),
@@ -108,6 +117,7 @@ func repositories(ctx context.Context, cfg config.Config) (repositorySet, error)
 		return repositorySet{
 			auth:       sqlite.NewAuthRepository(store),
 			meter:      sqlite.NewMeterRepository(store),
+			savedQuery: sqlite.NewSavedQueryRepository(store),
 			usage:      sqlite.NewUsageRepository(store),
 			transactor: store,
 			ready:      readiness(store),

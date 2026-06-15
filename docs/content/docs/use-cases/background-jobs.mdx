@@ -1,0 +1,38 @@
+---
+title: Background Jobs
+description: Track asynchronous work, queue throughput, and job outcomes.
+---
+
+Use background job metering when product usage happens outside a request path: exports, imports, syncs, report generation, notifications, scheduled jobs, media processing, and automation runs.
+
+## Model
+
+Create a meter such as `background_jobs` with:
+
+| Field | Value |
+| --- | --- |
+| Unit | `job` |
+| Aggregation | `sum` |
+| Quantity | Usually `1` per completed or attempted job |
+
+Useful dimensions:
+
+- `queue`
+- `status`
+- `job_type`
+- `worker_region`
+
+## How To Use It
+
+Record the job after it reaches the state you care about. Many products record both successful and failed jobs, then use the `status` dimension to separate billable work from operational reporting.
+
+This lets you answer:
+
+- How many jobs did each customer run?
+- Which queues are busiest?
+- Which job types fail most often?
+- Which regions or workers process the most work?
+
+## Example
+
+See [`examples/advance/background-jobs`](https://github.com/ssubedir/open-spanner/tree/main/examples/advance/background-jobs) for Go, TypeScript, Python, and C# examples.

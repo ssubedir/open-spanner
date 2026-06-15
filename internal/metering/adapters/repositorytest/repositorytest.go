@@ -28,13 +28,13 @@ func Run(t *testing.T, setup SetupFunc) {
 		if _, err := meterRepo.Save(ctx, meter.WithDescription("updated")); err != nil {
 			t.Fatalf("update meter: %v", err)
 		}
-		updatedDefinition, err := domainmeter.New(
+		updatedDefinition, err := domainmeter.NewWithDimensions(
 			meter.ID(),
 			meter.Name(),
 			"updated definition",
 			"request",
 			domainmeter.AggregationCount,
-			map[string]domainmeter.MetadataType{"plan": domainmeter.MetadataString},
+			[]domainmeter.Dimension{newDimension(t, "plan", domainmeter.MetadataString, "Plan", "Billing plan", true, true)},
 			365,
 			meter.CreatedAt(),
 		)
@@ -49,7 +49,7 @@ func Run(t *testing.T, setup SetupFunc) {
 		if err != nil {
 			t.Fatalf("find meter by id: %v", err)
 		}
-		if len(byID) != 1 || byID[0].Description() != "updated definition" || byID[0].Unit() != "request" || byID[0].Aggregation() != domainmeter.AggregationCount || byID[0].EventRetentionDays() != 365 || byID[0].MetadataSchema()["plan"] != domainmeter.MetadataString {
+		if len(byID) != 1 || byID[0].Description() != "updated definition" || byID[0].Unit() != "request" || byID[0].Aggregation() != domainmeter.AggregationCount || byID[0].EventRetentionDays() != 365 || byID[0].MetadataSchema()["plan"] != domainmeter.MetadataString || len(byID[0].Dimensions()) != 1 || byID[0].Dimensions()[0].DisplayName() != "Plan" || !byID[0].Dimensions()[0].Deprecated() {
 			t.Fatalf("meter by id = %#v", byID)
 		}
 
@@ -235,6 +235,184 @@ func Run(t *testing.T, setup SetupFunc) {
 		}
 	})
 
+	t.Run("usage groups by multiple metadata dimensions", func(t *testing.T) {
+		ctx := context.Background()
+		meterRepo, usageRepo, _ := setup(t, ctx)
+		saveMeter(t, ctx, meterRepo, "meter-1", "dimensioned")
+
+		events := []domainusage.Event{
+			newEvent(t, "event-1", "", "org_123", "dimensioned", 2, time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC), map[string]any{"region": "us-east-1", "plan": "free"}),
+			newEvent(t, "event-2", "", "org_123", "dimensioned", 3, time.Date(2026, 6, 8, 11, 0, 0, 0, time.UTC), map[string]any{"region": "us-east-1", "plan": "pro"}),
+			newEvent(t, "event-3", "", "org_123", "dimensioned", 5, time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC), map[string]any{"region": "us-east-1", "plan": "free"}),
+		}
+		for _, event := range events {
+			if _, err := usageRepo.Save(ctx, event); err != nil {
+				t.Fatalf("save usage %s: %v", event.ID(), err)
+			}
+		}
+
+		query := newGroupedQuery(t, "org_123", "dimensioned", domainusage.BucketDay, domainmeter.AggregationSum, domainusage.EmptyFilter(), []string{"region", "plan"})
+		buckets, err := usageRepo.Query(ctx, query)
+		if err != nil {
+			t.Fatalf("query grouped usage: %v", err)
+		}
+		if len(buckets) != 2 {
+			t.Fatalf("bucket count = %d, want 2: %#v", len(buckets), buckets)
+		}
+		if buckets[0].Group()["region"] != "us-east-1" || buckets[0].Group()["plan"] != "free" || buckets[0].Quantity() != 7 {
+			t.Fatalf("first grouped bucket = %#v", buckets[0])
+		}
+		if buckets[1].Group()["region"] != "us-east-1" || buckets[1].Group()["plan"] != "pro" || buckets[1].Quantity() != 3 {
+			t.Fatalf("second grouped bucket = %#v", buckets[1])
+		}
+	})
+
+	t.Run("usage aggregates across subjects", func(t *testing.T) {
+		ctx := context.Background()
+		meterRepo, usageRepo, _ := setup(t, ctx)
+		saveMeter(t, ctx, meterRepo, "meter-1", "accounts")
+
+		events := []domainusage.Event{
+			newEvent(t, "event-1", "", "org_123", "accounts", 2, time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC), nil),
+			newEvent(t, "event-2", "", "org_123", "accounts", 3, time.Date(2026, 6, 8, 11, 0, 0, 0, time.UTC), nil),
+			newEvent(t, "event-3", "", "org_456", "accounts", 5, time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC), nil),
+		}
+		for _, event := range events {
+			if _, err := usageRepo.Save(ctx, event); err != nil {
+				t.Fatalf("save usage %s: %v", event.ID(), err)
+			}
+		}
+
+		query := newQuery(t, "", "accounts", domainusage.BucketDay, domainmeter.AggregationSum, domainusage.EmptyFilter(), "")
+		buckets, err := usageRepo.Query(ctx, query)
+		if err != nil {
+			t.Fatalf("query all subject usage: %v", err)
+		}
+		if len(buckets) != 1 || buckets[0].Subject() != "" || buckets[0].Quantity() != 10 {
+			t.Fatalf("all subject buckets = %#v, want one unscoped bucket with quantity 10", buckets)
+		}
+
+		groupedQuery := newGroupedQuery(t, "", "accounts", domainusage.BucketDay, domainmeter.AggregationSum, domainusage.EmptyFilter(), []string{domainusage.GroupBySubject})
+		groupedBuckets, err := usageRepo.Query(ctx, groupedQuery)
+		if err != nil {
+			t.Fatalf("query grouped subject usage: %v", err)
+		}
+		if len(groupedBuckets) != 2 {
+			t.Fatalf("grouped bucket count = %d, want 2: %#v", len(groupedBuckets), groupedBuckets)
+		}
+		if groupedBuckets[0].Subject() != "org_123" || groupedBuckets[0].Group()[domainusage.GroupBySubject] != "org_123" || groupedBuckets[0].Quantity() != 5 {
+			t.Fatalf("first grouped subject bucket = %#v", groupedBuckets[0])
+		}
+		if groupedBuckets[1].Subject() != "org_456" || groupedBuckets[1].Group()[domainusage.GroupBySubject] != "org_456" || groupedBuckets[1].Quantity() != 5 {
+			t.Fatalf("second grouped subject bucket = %#v", groupedBuckets[1])
+		}
+	})
+
+	t.Run("usage discovers dimension values", func(t *testing.T) {
+		ctx := context.Background()
+		meterRepo, usageRepo, _ := setup(t, ctx)
+		saveMeter(t, ctx, meterRepo, "meter-1", "discoverable")
+
+		events := []domainusage.Event{
+			newEvent(t, "event-1", "", "org_123", "discoverable", 2, time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC), map[string]any{"region": "us-east-1"}),
+			newEvent(t, "event-2", "", "org_123", "discoverable", 3, time.Date(2026, 6, 8, 11, 0, 0, 0, time.UTC), map[string]any{"region": "us-west-2"}),
+			newEvent(t, "event-3", "", "org_123", "discoverable", 5, time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC), map[string]any{"region": "us-east-1"}),
+			newEvent(t, "event-4", "", "org_456", "discoverable", 7, time.Date(2026, 6, 8, 13, 0, 0, 0, time.UTC), map[string]any{"region": "us-central-1"}),
+			newEvent(t, "event-5", "", "org_123", "discoverable", 11, time.Date(2026, 6, 11, 10, 0, 0, 0, time.UTC), map[string]any{"region": "eu-west-1"}),
+		}
+		for _, event := range events {
+			if _, err := usageRepo.Save(ctx, event); err != nil {
+				t.Fatalf("save usage %s: %v", event.ID(), err)
+			}
+		}
+
+		query, err := domainusage.NewDimensionValueQuery(
+			"discoverable",
+			"region",
+			"org_123",
+			time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC),
+			time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC),
+			10,
+		)
+		if err != nil {
+			t.Fatalf("new dimension value query: %v", err)
+		}
+
+		values, err := usageRepo.FindDimensionValues(ctx, query)
+		if err != nil {
+			t.Fatalf("find dimension values: %v", err)
+		}
+		if len(values) != 2 {
+			t.Fatalf("dimension values = %#v, want two values", values)
+		}
+		if values[0].Field() != "region" || values[0].Value() != "us-east-1" || values[0].UsageEvents() != 2 {
+			t.Fatalf("first dimension value = %#v", values[0])
+		}
+		if values[1].Value() != "us-west-2" || values[1].UsageEvents() != 1 {
+			t.Fatalf("second dimension value = %#v", values[1])
+		}
+	})
+
+	t.Run("usage finds breakdowns", func(t *testing.T) {
+		ctx := context.Background()
+		meterRepo, usageRepo, _ := setup(t, ctx)
+		saveMeter(t, ctx, meterRepo, "meter-1", "breakdowns")
+
+		events := []domainusage.Event{
+			newEvent(t, "event-1", "", "org_123", "breakdowns", 2, time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC), map[string]any{"endpoint": "/orders"}),
+			newEvent(t, "event-2", "", "org_123", "breakdowns", 3, time.Date(2026, 6, 8, 11, 0, 0, 0, time.UTC), map[string]any{"endpoint": "/users"}),
+			newEvent(t, "event-3", "", "org_456", "breakdowns", 7, time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC), map[string]any{"endpoint": "/orders"}),
+			newEvent(t, "event-4", "", "org_789", "breakdowns", 1, time.Date(2026, 6, 8, 13, 0, 0, 0, time.UTC), map[string]any{"endpoint": "/users"}),
+		}
+		for _, event := range events {
+			if _, err := usageRepo.Save(ctx, event); err != nil {
+				t.Fatalf("save usage %s: %v", event.ID(), err)
+			}
+		}
+
+		subjectQuery := newBreakdownQuery(t, "", "breakdowns", domainusage.GroupBySubject, domainmeter.AggregationSum, domainusage.EmptyFilter())
+		subjects, err := usageRepo.FindBreakdown(ctx, subjectQuery)
+		if err != nil {
+			t.Fatalf("find subject breakdown: %v", err)
+		}
+		if len(subjects) != 3 {
+			t.Fatalf("subject breakdowns = %#v, want three items", subjects)
+		}
+		if subjects[0].Value() != "org_456" || subjects[0].Quantity() != 7 || subjects[0].UsageEvents() != 1 {
+			t.Fatalf("first subject breakdown = %#v", subjects[0])
+		}
+		if subjects[1].Value() != "org_123" || subjects[1].Quantity() != 5 || subjects[1].UsageEvents() != 2 {
+			t.Fatalf("second subject breakdown = %#v", subjects[1])
+		}
+		if subjects[2].Value() != "org_789" || subjects[2].Quantity() != 1 || subjects[2].UsageEvents() != 1 {
+			t.Fatalf("third subject breakdown = %#v", subjects[2])
+		}
+
+		endpointQuery := newBreakdownQuery(t, "", "breakdowns", "endpoint", domainmeter.AggregationSum, domainusage.EmptyFilter())
+		endpoints, err := usageRepo.FindBreakdown(ctx, endpointQuery)
+		if err != nil {
+			t.Fatalf("find endpoint breakdown: %v", err)
+		}
+		if len(endpoints) != 2 {
+			t.Fatalf("endpoint breakdowns = %#v, want two items", endpoints)
+		}
+		if endpoints[0].Value() != "/orders" || endpoints[0].Quantity() != 9 || endpoints[0].UsageEvents() != 2 {
+			t.Fatalf("first endpoint breakdown = %#v", endpoints[0])
+		}
+		if endpoints[1].Value() != "/users" || endpoints[1].Quantity() != 4 || endpoints[1].UsageEvents() != 2 {
+			t.Fatalf("second endpoint breakdown = %#v", endpoints[1])
+		}
+
+		scopedQuery := newBreakdownQuery(t, "org_123", "breakdowns", "endpoint", domainmeter.AggregationSum, domainusage.EmptyFilter())
+		scoped, err := usageRepo.FindBreakdown(ctx, scopedQuery)
+		if err != nil {
+			t.Fatalf("find scoped endpoint breakdown: %v", err)
+		}
+		if len(scoped) != 2 || scoped[0].Value() != "/users" || scoped[0].Quantity() != 3 || scoped[1].Value() != "/orders" || scoped[1].Quantity() != 2 {
+			t.Fatalf("scoped endpoint breakdowns = %#v", scoped)
+		}
+	})
+
 	t.Run("prune transaction rollback", func(t *testing.T) {
 		ctx := context.Background()
 		meterRepo, usageRepo, transactor := setup(t, ctx)
@@ -334,6 +512,15 @@ func newMeter(t *testing.T, id string, name string) domainmeter.Meter {
 	return meter
 }
 
+func newDimension(t *testing.T, name string, metadataType domainmeter.MetadataType, displayName string, description string, required bool, deprecated ...bool) domainmeter.Dimension {
+	t.Helper()
+	dimension, err := domainmeter.NewDimension(name, metadataType, displayName, description, required, deprecated...)
+	if err != nil {
+		t.Fatalf("new dimension: %v", err)
+	}
+	return dimension
+}
+
 func newEvent(t *testing.T, id string, idempotencyKey string, subject string, meterName string, quantity float64, eventTime time.Time, metadata map[string]any) domainusage.Event {
 	t.Helper()
 	if metadata == nil {
@@ -365,6 +552,44 @@ func newQuery(t *testing.T, subject string, meterName string, bucketSize domainu
 	)
 	if err != nil {
 		t.Fatalf("new query: %v", err)
+	}
+	return query
+}
+
+func newGroupedQuery(t *testing.T, subject string, meterName string, bucketSize domainusage.BucketSize, aggregation domainmeter.Aggregation, filter domainusage.Filter, groupBy []string) domainusage.Query {
+	t.Helper()
+	query, err := domainusage.NewGroupedFilteredQuery(
+		subject,
+		meterName,
+		time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC),
+		bucketSize,
+		aggregation,
+		nil,
+		groupBy,
+		0,
+		filter,
+	)
+	if err != nil {
+		t.Fatalf("new grouped query: %v", err)
+	}
+	return query
+}
+
+func newBreakdownQuery(t *testing.T, subject string, meterName string, field string, aggregation domainmeter.Aggregation, filter domainusage.Filter) domainusage.BreakdownQuery {
+	t.Helper()
+	query, err := domainusage.NewBreakdownQuery(
+		meterName,
+		field,
+		subject,
+		time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC),
+		aggregation,
+		0,
+		filter,
+	)
+	if err != nil {
+		t.Fatalf("new breakdown query: %v", err)
 	}
 	return query
 }

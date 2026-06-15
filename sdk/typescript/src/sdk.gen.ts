@@ -2,7 +2,7 @@
 
 import { client } from './client.gen.js';
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client/index.js';
-import type { CreateMeterData, CreateMeterErrors, CreateMeterResponses, CreateUsageBulkData, CreateUsageBulkErrors, CreateUsageBulkResponses, CreateUsageData, CreateUsageErrors, CreateUsageResponses, DeleteMeterData, DeleteMeterErrors, DeleteMeterResponses, ExportUsageBucketsData, ExportUsageBucketsErrors, ExportUsageBucketsResponses, GetMeterData, GetMeterErrors, GetMeterResponses, HealthCheckData, HealthCheckResponses, ListMetersData, ListMetersErrors, ListMetersResponses, ReadinessCheckData, ReadinessCheckErrors, ReadinessCheckResponses, SearchUsageBucketsData, SearchUsageBucketsErrors, SearchUsageBucketsResponses, UpdateMeterData, UpdateMeterErrors, UpdateMeterResponses } from './types.gen.js';
+import type { CreateMeterData, CreateMeterErrors, CreateMeterResponses, CreateUsageBulkData, CreateUsageBulkErrors, CreateUsageBulkResponses, CreateUsageData, CreateUsageErrors, CreateUsageResponses, DeleteMeterData, DeleteMeterErrors, DeleteMeterResponses, ExportUsageBucketsData, ExportUsageBucketsErrors, ExportUsageBucketsResponses, GetMeterData, GetMeterErrors, GetMeterResponses, HealthCheckData, HealthCheckResponses, ListMetersData, ListMetersErrors, ListMetersResponses, ListUsageDimensionValuesData, ListUsageDimensionValuesErrors, ListUsageDimensionValuesResponses, ReadinessCheckData, ReadinessCheckErrors, ReadinessCheckResponses, SearchUsageBreakdownData, SearchUsageBreakdownErrors, SearchUsageBreakdownResponses, SearchUsageBucketsData, SearchUsageBucketsErrors, SearchUsageBucketsResponses, UpdateMeterData, UpdateMeterErrors, UpdateMeterResponses } from './types.gen.js';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -82,6 +82,18 @@ export const createUsage = <ThrowOnError extends boolean = false>(options: Optio
 });
 
 /**
+ * Search usage breakdown
+ */
+export const searchUsageBreakdown = <ThrowOnError extends boolean = false>(options: Options<SearchUsageBreakdownData, ThrowOnError>): RequestResult<SearchUsageBreakdownResponses, SearchUsageBreakdownErrors, ThrowOnError> => (options.client ?? client).post<SearchUsageBreakdownResponses, SearchUsageBreakdownErrors, ThrowOnError>({
+    url: '/v1/usages/breakdowns/search',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
  * Create usage in bulk
  *
  * Records up to 1000 usage events. The Idempotency-Key header replays the original bulk response for the same batch. Per-event idempotency_key values replay existing events as duplicates. Duplicate event IDs are conflicts.
@@ -94,6 +106,11 @@ export const createUsageBulk = <ThrowOnError extends boolean = false>(options: O
         ...options.headers
     }
 });
+
+/**
+ * List usage dimension values
+ */
+export const listUsageDimensionValues = <ThrowOnError extends boolean = false>(options: Options<ListUsageDimensionValuesData, ThrowOnError>): RequestResult<ListUsageDimensionValuesResponses, ListUsageDimensionValuesErrors, ThrowOnError> => (options.client ?? client).get<ListUsageDimensionValuesResponses, ListUsageDimensionValuesErrors, ThrowOnError>({ url: '/v1/usages/dimensions', ...options });
 
 /**
  * Export usage buckets

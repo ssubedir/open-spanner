@@ -18,10 +18,13 @@ const (
 
 	DefaultLimit = 100
 	MaxLimit     = 1000
+	MaxGroupBy   = 5
 
 	MaxHourRange  = 31 * 24 * time.Hour
 	MaxDayRange   = 366 * 24 * time.Hour
 	MaxMonthYears = 5
+
+	GroupBySubject = "subject"
 )
 
 type Query struct {
@@ -32,7 +35,7 @@ type Query struct {
 	bucketSize  BucketSize
 	aggregation domainmeter.Aggregation
 	metadata    map[string]string
-	groupBy     string
+	groupBy     []string
 	limit       int
 	filter      Filter
 }
@@ -45,6 +48,26 @@ type EventQuery struct {
 	limit     int
 	cursor    EventCursor
 	filter    Filter
+}
+
+type DimensionValueQuery struct {
+	meterName string
+	field     string
+	subject   string
+	from      time.Time
+	to        time.Time
+	limit     int
+}
+
+type BreakdownQuery struct {
+	meterName   string
+	field       string
+	subject     string
+	from        time.Time
+	to          time.Time
+	aggregation domainmeter.Aggregation
+	limit       int
+	filter      Filter
 }
 
 type EventCursor struct {
@@ -81,6 +104,19 @@ type Bucket struct {
 	bucketStart time.Time
 	quantity    float64
 	group       map[string]string
+}
+
+type DimensionValue struct {
+	field       string
+	value       string
+	usageEvents int
+}
+
+type BreakdownItem struct {
+	field       string
+	value       string
+	quantity    float64
+	usageEvents int
 }
 
 func NewPruneQuery(meterName string, before time.Time) (PruneQuery, error) {
@@ -146,6 +182,81 @@ func NewEventPage(events []Event, limit int) EventPage {
 	return page
 }
 
+func NewDimensionValueQuery(meterName string, field string, subject string, from time.Time, to time.Time, limit int) (DimensionValueQuery, error) {
+	meterName = strings.TrimSpace(meterName)
+	field = strings.TrimPrefix(strings.TrimSpace(field), "metadata.")
+	subject = strings.TrimSpace(subject)
+
+	if meterName == "" {
+		return DimensionValueQuery{}, fmt.Errorf("%w: meter is required", domain.ErrInvalidInput)
+	}
+	if field == "" {
+		return DimensionValueQuery{}, fmt.Errorf("%w: dimension field is required", domain.ErrInvalidInput)
+	}
+	if !from.IsZero() && !to.IsZero() && !from.Before(to) {
+		return DimensionValueQuery{}, fmt.Errorf("%w: valid from and to range is required", domain.ErrInvalidInput)
+	}
+
+	return DimensionValueQuery{
+		meterName: meterName,
+		field:     field,
+		subject:   subject,
+		from:      from.UTC(),
+		to:        to.UTC(),
+		limit:     NormalizeLimit(limit),
+	}, nil
+}
+
+func NewDimensionValue(field string, value string, usageEvents int) DimensionValue {
+	return DimensionValue{
+		field:       field,
+		value:       value,
+		usageEvents: usageEvents,
+	}
+}
+
+func NewBreakdownQuery(meterName string, field string, subject string, from time.Time, to time.Time, aggregation domainmeter.Aggregation, limit int, filter Filter) (BreakdownQuery, error) {
+	meterName = strings.TrimSpace(meterName)
+	field = strings.TrimPrefix(strings.TrimSpace(field), "metadata.")
+	subject = strings.TrimSpace(subject)
+
+	if meterName == "" {
+		return BreakdownQuery{}, fmt.Errorf("%w: meter is required", domain.ErrInvalidInput)
+	}
+	if field == "" {
+		return BreakdownQuery{}, fmt.Errorf("%w: breakdown field is required", domain.ErrInvalidInput)
+	}
+	if from.IsZero() || to.IsZero() || !from.Before(to) {
+		return BreakdownQuery{}, fmt.Errorf("%w: valid from and to range is required", domain.ErrInvalidInput)
+	}
+	if aggregation == "" {
+		aggregation = domainmeter.AggregationSum
+	}
+	if !domainmeter.IsSupportedAggregation(aggregation) {
+		return BreakdownQuery{}, fmt.Errorf("%w: unsupported aggregation %q", domain.ErrInvalidInput, aggregation)
+	}
+
+	return BreakdownQuery{
+		meterName:   meterName,
+		field:       field,
+		subject:     subject,
+		from:        from.UTC(),
+		to:          to.UTC(),
+		aggregation: aggregation,
+		limit:       NormalizeLimit(limit),
+		filter:      filter,
+	}, nil
+}
+
+func NewBreakdownItem(field string, value string, quantity float64, usageEvents int) BreakdownItem {
+	return BreakdownItem{
+		field:       field,
+		value:       value,
+		quantity:    quantity,
+		usageEvents: usageEvents,
+	}
+}
+
 func NewSubjectStatsQuery(limit int, lastEventAt time.Time, subject string) SubjectStatsQuery {
 	return SubjectStatsQuery{
 		limit:       NormalizeLimit(limit),
@@ -167,13 +278,21 @@ func NewQuery(subject, meterName string, from, to time.Time, bucketSize BucketSi
 }
 
 func NewFilteredQuery(subject, meterName string, from, to time.Time, bucketSize BucketSize, aggregation domainmeter.Aggregation, metadata map[string]string, groupBy string, limit int, filter Filter) (Query, error) {
+	return NewGroupedFilteredQuery(subject, meterName, from, to, bucketSize, aggregation, metadata, SplitGroupBy(groupBy), limit, filter)
+}
+
+func NewGroupedQuery(subject, meterName string, from, to time.Time, bucketSize BucketSize, aggregation domainmeter.Aggregation, metadata map[string]string, groupBy []string, limit int) (Query, error) {
+	return NewGroupedFilteredQuery(subject, meterName, from, to, bucketSize, aggregation, metadata, groupBy, limit, EmptyFilter())
+}
+
+func NewGroupedFilteredQuery(subject, meterName string, from, to time.Time, bucketSize BucketSize, aggregation domainmeter.Aggregation, metadata map[string]string, groupBy []string, limit int, filter Filter) (Query, error) {
 	subject = strings.TrimSpace(subject)
 	meterName = strings.TrimSpace(meterName)
-	groupBy = strings.TrimSpace(groupBy)
-
-	if subject == "" {
-		return Query{}, fmt.Errorf("%w: subject is required", domain.ErrInvalidInput)
+	groupByFields, err := NormalizeGroupBy(groupBy)
+	if err != nil {
+		return Query{}, err
 	}
+
 	if meterName == "" {
 		return Query{}, fmt.Errorf("%w: meter is required", domain.ErrInvalidInput)
 	}
@@ -219,7 +338,7 @@ func NewFilteredQuery(subject, meterName string, from, to time.Time, bucketSize 
 		bucketSize:  bucketSize,
 		aggregation: aggregation,
 		metadata:    metadataFilters,
-		groupBy:     groupBy,
+		groupBy:     groupByFields,
 		limit:       limit,
 		filter:      filter,
 	}, nil
@@ -251,6 +370,53 @@ func NormalizeLimit(limit int) int {
 		return MaxLimit
 	}
 	return limit
+}
+
+func SplitGroupBy(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+
+	parts := strings.Split(value, ",")
+	fields := make([]string, 0, len(parts))
+	for _, part := range parts {
+		fields = append(fields, part)
+	}
+	return fields
+}
+
+func SplitGroupByValues(values []string) []string {
+	fields := []string{}
+	for _, value := range values {
+		fields = append(fields, SplitGroupBy(value)...)
+	}
+	return fields
+}
+
+func NormalizeGroupBy(fields []string) ([]string, error) {
+	normalized := []string{}
+	seen := map[string]struct{}{}
+	for _, field := range fields {
+		for _, part := range SplitGroupBy(field) {
+			key := strings.TrimSpace(part)
+			if key == "" {
+				continue
+			}
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			normalized = append(normalized, key)
+		}
+	}
+	if len(normalized) > MaxGroupBy {
+		return nil, fmt.Errorf("%w: group_by supports up to %d fields", domain.ErrInvalidInput, MaxGroupBy)
+	}
+	return normalized, nil
+}
+
+func IsSubjectGroupBy(field string) bool {
+	return strings.TrimSpace(field) == GroupBySubject
 }
 
 func NewBucket(subject, meterName string, bucketSize BucketSize, bucketStart time.Time, quantity float64) Bucket {
@@ -341,6 +507,62 @@ func (q RunQuery) HasCursor() bool {
 	return !q.createdAt.IsZero() && q.id != ""
 }
 
+func (q DimensionValueQuery) MeterName() string {
+	return q.meterName
+}
+
+func (q DimensionValueQuery) Field() string {
+	return q.field
+}
+
+func (q DimensionValueQuery) Subject() string {
+	return q.subject
+}
+
+func (q DimensionValueQuery) From() time.Time {
+	return q.from
+}
+
+func (q DimensionValueQuery) To() time.Time {
+	return q.to
+}
+
+func (q DimensionValueQuery) Limit() int {
+	return q.limit
+}
+
+func (q BreakdownQuery) MeterName() string {
+	return q.meterName
+}
+
+func (q BreakdownQuery) Field() string {
+	return q.field
+}
+
+func (q BreakdownQuery) Subject() string {
+	return q.subject
+}
+
+func (q BreakdownQuery) From() time.Time {
+	return q.from
+}
+
+func (q BreakdownQuery) To() time.Time {
+	return q.to
+}
+
+func (q BreakdownQuery) Aggregation() domainmeter.Aggregation {
+	return q.aggregation
+}
+
+func (q BreakdownQuery) Limit() int {
+	return q.limit
+}
+
+func (q BreakdownQuery) Filter() Filter {
+	return q.filter
+}
+
 func (c EventCursor) EventTime() time.Time {
 	return c.eventTime
 }
@@ -396,7 +618,16 @@ func (q Query) Metadata() map[string]string {
 }
 
 func (q Query) GroupBy() string {
-	return q.groupBy
+	if len(q.groupBy) == 0 {
+		return ""
+	}
+	return q.groupBy[0]
+}
+
+func (q Query) GroupByFields() []string {
+	fields := make([]string, len(q.groupBy))
+	copy(fields, q.groupBy)
+	return fields
 }
 
 func (q Query) Limit() int {
@@ -433,4 +664,32 @@ func (b Bucket) Group() map[string]string {
 		group[key] = value
 	}
 	return group
+}
+
+func (v DimensionValue) Field() string {
+	return v.field
+}
+
+func (v DimensionValue) Value() string {
+	return v.value
+}
+
+func (v DimensionValue) UsageEvents() int {
+	return v.usageEvents
+}
+
+func (b BreakdownItem) Field() string {
+	return b.field
+}
+
+func (b BreakdownItem) Value() string {
+	return b.value
+}
+
+func (b BreakdownItem) Quantity() float64 {
+	return b.quantity
+}
+
+func (b BreakdownItem) UsageEvents() int {
+	return b.usageEvents
 }

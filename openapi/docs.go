@@ -1098,8 +1098,7 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Subject",
                         "name": "subject",
-                        "in": "query",
-                        "required": true
+                        "in": "query"
                     },
                     {
                         "type": "string",
@@ -1129,8 +1128,12 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
-                        "type": "string",
-                        "description": "Metadata key to group by",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "Subject or metadata keys to group by. Repeat the parameter or use comma-separated values.",
                         "name": "group_by",
                         "in": "query"
                     },
@@ -1229,6 +1232,58 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/usages/breakdowns/search": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "usages"
+                ],
+                "summary": "Search usage breakdown",
+                "operationId": "searchUsageBreakdown",
+                "parameters": [
+                    {
+                        "description": "Usage breakdown search",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_usage.BreakdownRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_usage.BreakdownListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/usages/bulk": {
             "post": {
                 "description": "Records up to 1000 usage events. The Idempotency-Key header replays the original bulk response for the same batch. Per-event idempotency_key values replay existing events as duplicates. Duplicate event IDs are conflicts.",
@@ -1297,6 +1352,84 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/usages/dimensions": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "usages"
+                ],
+                "summary": "List usage dimension values",
+                "operationId": "listUsageDimensionValues",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Meter name",
+                        "name": "meter",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Metadata dimension field",
+                        "name": "field",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Subject",
+                        "name": "subject",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "RFC3339 start time",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "RFC3339 end time",
+                        "name": "to",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Result limit",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_usage.DimensionValueListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/usages/export": {
             "get": {
                 "produces": [
@@ -1312,8 +1445,7 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Subject",
                         "name": "subject",
-                        "in": "query",
-                        "required": true
+                        "in": "query"
                     },
                     {
                         "type": "string",
@@ -1343,8 +1475,12 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
-                        "type": "string",
-                        "description": "Metadata key to group by",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "Subject or metadata keys to group by. Repeat the parameter or use comma-separated values.",
                         "name": "group_by",
                         "in": "query"
                     },
@@ -1596,6 +1732,12 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "dimensions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_meter.DimensionRequest"
+                    }
+                },
                 "event_retention_days": {
                     "type": "integer"
                 },
@@ -1609,6 +1751,52 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "unit": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_meter.DimensionRequest": {
+            "type": "object",
+            "properties": {
+                "deprecated": {
+                    "type": "boolean"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "required": {
+                    "type": "boolean"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_meter.DimensionResponse": {
+            "type": "object",
+            "properties": {
+                "deprecated": {
+                    "type": "boolean"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "required": {
+                    "type": "boolean"
+                },
+                "type": {
                     "type": "string"
                 }
             }
@@ -1638,6 +1826,12 @@ const docTemplate = `{
                 },
                 "description": {
                     "type": "string"
+                },
+                "dimensions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_meter.DimensionResponse"
+                    }
                 },
                 "event_retention_days": {
                     "type": "integer"
@@ -1698,6 +1892,12 @@ const docTemplate = `{
                 },
                 "description": {
                     "type": "string"
+                },
+                "dimensions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_meter.DimensionRequest"
+                    }
                 },
                 "event_retention_days": {
                     "type": "integer"
@@ -1808,6 +2008,66 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_metering_adapters_http_usage.BreakdownListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_usage.BreakdownResponse"
+                    }
+                }
+            }
+        },
+        "internal_metering_adapters_http_usage.BreakdownRequest": {
+            "type": "object",
+            "properties": {
+                "field": {
+                    "type": "string"
+                },
+                "filter": {
+                    "$ref": "#/definitions/internal_metering_adapters_http_usage.FilterRequest"
+                },
+                "from": {
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "meter": {
+                    "type": "string"
+                },
+                "subject": {
+                    "type": "string"
+                },
+                "to": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_usage.BreakdownResponse": {
+            "type": "object",
+            "properties": {
+                "aggregation": {
+                    "type": "string"
+                },
+                "events": {
+                    "type": "integer"
+                },
+                "field": {
+                    "type": "string"
+                },
+                "quantity": {
+                    "type": "number"
+                },
+                "unit": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_metering_adapters_http_usage.BulkFailureResponse": {
             "type": "object",
             "properties": {
@@ -1875,6 +2135,31 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "timestamp": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_usage.DimensionValueListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_usage.DimensionValueResponse"
+                    }
+                }
+            }
+        },
+        "internal_metering_adapters_http_usage.DimensionValueResponse": {
+            "type": "object",
+            "properties": {
+                "events": {
+                    "type": "integer"
+                },
+                "field": {
+                    "type": "string"
+                },
+                "value": {
                     "type": "string"
                 }
             }
@@ -2103,7 +2388,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "group_by": {
-                    "type": "string"
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "limit": {
                     "type": "integer"

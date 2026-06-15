@@ -257,12 +257,12 @@ func (h *Handler) ListIngestions(w http.ResponseWriter, r *http.Request) {
 // @ID listUsageBuckets
 // @Tags usages
 // @Produce json
-// @Param subject query string true "Subject"
+// @Param subject query string false "Subject"
 // @Param meter query string true "Meter name"
 // @Param from query string true "RFC3339 start time"
 // @Param to query string true "RFC3339 end time"
 // @Param bucket_size query string false "Bucket size: hour, day, month"
-// @Param group_by query string false "Metadata key to group by"
+// @Param group_by query []string false "Subject or metadata keys to group by. Repeat the parameter or use comma-separated values." collectionFormat(multi)
 // @Param limit query int false "Result limit"
 // @Success 200 {array} ListItemResponse
 // @Failure 400 {object} respond.ErrorResponse
@@ -340,7 +340,7 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 		From:       from,
 		To:         to,
 		BucketSize: domainusage.BucketSize(req.BucketSize),
-		GroupBy:    req.GroupBy,
+		GroupBy:    req.GroupBy.Fields(),
 		Limit:      req.Limit,
 		Filter:     filter,
 	})
@@ -364,6 +364,131 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respond.JSON(w, http.StatusOK, res)
+}
+
+// SearchBreakdown searches top aggregated usage breakdown values.
+//
+// @Summary Search usage breakdown
+// @ID searchUsageBreakdown
+// @Tags usages
+// @Accept json
+// @Produce json
+// @Param request body BreakdownRequest true "Usage breakdown search"
+// @Success 200 {object} BreakdownListResponse
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 404 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/usages/breakdowns/search [post]
+func (h *Handler) SearchBreakdown(w http.ResponseWriter, r *http.Request) {
+	var req BreakdownRequest
+	if err := request.DecodeJSON(r.Body, &req); err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+
+	from, err := request.RequiredTime("from", req.From)
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+	to, err := request.RequiredTime("to", req.To)
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+	filter, err := filterFromRequest(req.Filter)
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+
+	breakdown, err := h.service.ListBreakdown(r.Context(), appusage.BreakdownListQuery{
+		Subject:   req.Subject,
+		MeterName: req.Meter,
+		Field:     req.Field,
+		From:      from,
+		To:        to,
+		Limit:     req.Limit,
+		Filter:    filter,
+	})
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+
+	res := make([]BreakdownResponse, 0, len(breakdown.Items))
+	for _, item := range breakdown.Items {
+		res = append(res, BreakdownResponse{
+			Field:       item.Field,
+			Value:       item.Value,
+			Quantity:    item.Quantity,
+			UsageEvents: item.UsageEvents,
+			Aggregation: item.Aggregation,
+			Unit:        item.Unit,
+		})
+	}
+
+	respond.JSON(w, http.StatusOK, BreakdownListResponse{Items: res})
+}
+
+// ListDimensionValues lists discovered values for a meter metadata dimension.
+//
+// @Summary List usage dimension values
+// @ID listUsageDimensionValues
+// @Tags usages
+// @Produce json
+// @Param meter query string true "Meter name"
+// @Param field query string true "Metadata dimension field"
+// @Param subject query string false "Subject"
+// @Param from query string false "RFC3339 start time"
+// @Param to query string false "RFC3339 end time"
+// @Param limit query int false "Result limit"
+// @Success 200 {object} DimensionValueListResponse
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 404 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/usages/dimensions [get]
+func (h *Handler) ListDimensionValues(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	limit, err := request.ParseLimit(query.Get("limit"))
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+	from, err := request.OptionalTime("from", query.Get("from"))
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+	to, err := request.OptionalTime("to", query.Get("to"))
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+
+	values, err := h.service.ListDimensionValues(r.Context(), appusage.DimensionValueListQuery{
+		MeterName: query.Get("meter"),
+		Field:     query.Get("field"),
+		Subject:   query.Get("subject"),
+		From:      from,
+		To:        to,
+		Limit:     limit,
+	})
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+
+	res := make([]DimensionValueResponse, 0, len(values.Items))
+	for _, item := range values.Items {
+		res = append(res, DimensionValueResponse{
+			Field:       item.Field,
+			Value:       item.Value,
+			UsageEvents: item.UsageEvents,
+		})
+	}
+
+	respond.JSON(w, http.StatusOK, DimensionValueListResponse{Items: res})
 }
 
 // ListEvents lists raw usage events.
@@ -471,12 +596,12 @@ func (h *Handler) SearchEvents(w http.ResponseWriter, r *http.Request) {
 // @ID exportUsageBuckets
 // @Tags usages
 // @Produce text/csv
-// @Param subject query string true "Subject"
+// @Param subject query string false "Subject"
 // @Param meter query string true "Meter name"
 // @Param from query string true "RFC3339 start time"
 // @Param to query string true "RFC3339 end time"
 // @Param bucket_size query string false "Bucket size: hour, day, month"
-// @Param group_by query string false "Metadata key to group by"
+// @Param group_by query []string false "Subject or metadata keys to group by. Repeat the parameter or use comma-separated values." collectionFormat(multi)
 // @Param limit query int false "Result limit"
 // @Success 200 {string} string "CSV"
 // @Failure 400 {object} respond.ErrorResponse
@@ -501,8 +626,13 @@ func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 
 	writer := csv.NewWriter(w)
 	header := []string{"bucket_start", "subject", "meter", "bucket_size", "aggregation", "unit", "quantity"}
-	if listQuery.GroupBy != "" {
-		header = append(header, listQuery.GroupBy)
+	if len(listQuery.GroupBy) > 0 {
+		for _, groupBy := range listQuery.GroupBy {
+			if domainusage.IsSubjectGroupBy(groupBy) {
+				continue
+			}
+			header = append(header, groupBy)
+		}
 	}
 	_ = writer.Write(header)
 	for _, bucket := range buckets {
@@ -515,8 +645,11 @@ func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 			bucket.Unit,
 			strconv.FormatFloat(bucket.Quantity, 'f', -1, 64),
 		}
-		if listQuery.GroupBy != "" {
-			row = append(row, bucket.Group[listQuery.GroupBy])
+		for _, groupBy := range listQuery.GroupBy {
+			if domainusage.IsSubjectGroupBy(groupBy) {
+				continue
+			}
+			row = append(row, bucket.Group[groupBy])
 		}
 		_ = writer.Write(row)
 	}
@@ -631,7 +764,7 @@ func (h *Handler) listQuery(w http.ResponseWriter, r *http.Request) (appusage.Li
 		To:         to,
 		BucketSize: domainusage.BucketSize(query.Get("bucket_size")),
 		Metadata:   metadataFilters(query),
-		GroupBy:    query.Get("group_by"),
+		GroupBy:    domainusage.SplitGroupByValues(query["group_by"]),
 		Limit:      limit,
 	}, true
 }

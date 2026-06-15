@@ -1,0 +1,33 @@
+version: '3'
+
+tasks:
+  run:
+    desc: Run the API server
+    cmds:
+      - go run ./cmd/api
+
+  run:sqlite:
+    desc: Run the API server with SQLite storage
+    env:
+      OPEN_SPANNER_DB_DRIVER: sqlite
+      OPEN_SPANNER_SQLITE_PATH: open-spanner.db
+    cmds:
+      - go run ./cmd/api
+
+  run:postgres:
+    desc: Run the API server with Postgres storage
+    env:
+      OPEN_SPANNER_DB_DRIVER: postgres
+      OPEN_SPANNER_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/open_spanner?sslmode=disable
+    cmds:
+      - go run ./cmd/api
+
+  postgres:up:
+    desc: Start local Postgres for development and integration tests
+    cmds:
+      - docker compose up -d --wait postgres
+
+  postgres:down:
+    desc: Stop local Postgres
+    cmds:
+      - docker compose down

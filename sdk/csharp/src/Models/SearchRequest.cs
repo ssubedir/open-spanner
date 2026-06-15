@@ -41,10 +41,10 @@ namespace OpenSpanner.Models
         /// <summary>The group_by property</summary>
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
 #nullable enable
-        public string? GroupBy { get; set; }
+        public List<string>? GroupBy { get; set; }
 #nullable restore
 #else
-        public string GroupBy { get; set; }
+        public List<string> GroupBy { get; set; }
 #endif
         /// <summary>The limit property</summary>
         public int? Limit { get; set; }
@@ -100,7 +100,7 @@ namespace OpenSpanner.Models
                 { "bucket_size", n => { BucketSize = n.GetStringValue(); } },
                 { "filter", n => { Filter = n.GetObjectValue<global::OpenSpanner.Models.FilterRequest>(global::OpenSpanner.Models.FilterRequest.CreateFromDiscriminatorValue); } },
                 { "from", n => { From = n.GetStringValue(); } },
-                { "group_by", n => { GroupBy = n.GetStringValue(); } },
+                { "group_by", n => { GroupBy = n.GetCollectionOfPrimitiveValues<string>()?.AsList(); } },
                 { "limit", n => { Limit = n.GetIntValue(); } },
                 { "meter", n => { Meter = n.GetStringValue(); } },
                 { "subject", n => { Subject = n.GetStringValue(); } },
@@ -117,7 +117,7 @@ namespace OpenSpanner.Models
             writer.WriteStringValue("bucket_size", BucketSize);
             writer.WriteObjectValue<global::OpenSpanner.Models.FilterRequest>("filter", Filter);
             writer.WriteStringValue("from", From);
-            writer.WriteStringValue("group_by", GroupBy);
+            writer.WriteCollectionOfPrimitiveValues<string>("group_by", GroupBy);
             writer.WriteIntValue("limit", Limit);
             writer.WriteStringValue("meter", Meter);
             writer.WriteStringValue("subject", Subject);

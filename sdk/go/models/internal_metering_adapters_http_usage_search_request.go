@@ -27,7 +27,7 @@ type InternalMeteringAdaptersHTTPUsageSearchRequest struct {
 	From string `json:"from,omitempty"`
 
 	// group by
-	GroupBy string `json:"group_by,omitempty"`
+	GroupBy []string `json:"group_by"`
 
 	// limit
 	Limit int64 `json:"limit,omitempty"`

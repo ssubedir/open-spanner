@@ -77,9 +77,33 @@ func TestRegisterRoutesRequiresAPIKeyForSDKClients(t *testing.T) {
 	if res.Code != http.StatusOK {
 		t.Fatalf("api-key meters status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
 	}
+
+	savedQueryPayload := map[string]any{
+		"name":        "API usage by endpoint",
+		"query":       map[string]any{"combinator": "and", "rules": []any{}},
+		"group_by":    []string{"endpoint"},
+		"bucket_size": "day",
+		"limit":       500,
+	}
+
+	apiKeySavedQuery := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usage/saved-queries", savedQueryPayload, map[string]string{
+		"Authorization": "Bearer " + key.Key,
+	}, nil)
+	if apiKeySavedQuery.Code != http.StatusUnauthorized {
+		t.Fatalf("api-key saved query status = %d, want %d: %s", apiKeySavedQuery.Code, http.StatusUnauthorized, apiKeySavedQuery.Body.String())
+	}
+
+	sessionSavedQuery := requestJSON(t, router, http.MethodPost, "/v1/usage/saved-queries", savedQueryPayload, login.Result().Cookies())
+	if sessionSavedQuery.Code != http.StatusCreated {
+		t.Fatalf("session saved query status = %d, want %d: %s", sessionSavedQuery.Code, http.StatusCreated, sessionSavedQuery.Body.String())
+	}
 }
 
 func requestJSON(t *testing.T, handler http.Handler, method string, path string, body any, cookies []*http.Cookie) *httptest.ResponseRecorder {
+	return requestJSONWithHeaders(t, handler, method, path, body, nil, cookies)
+}
+
+func requestJSONWithHeaders(t *testing.T, handler http.Handler, method string, path string, body any, headers map[string]string, cookies []*http.Cookie) *httptest.ResponseRecorder {
 	t.Helper()
 
 	var payload bytes.Buffer
@@ -91,6 +115,9 @@ func requestJSON(t *testing.T, handler http.Handler, method string, path string,
 
 	req := httptest.NewRequest(method, path, &payload)
 	req.Header.Set("Content-Type", "application/json")
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
 	for _, cookie := range cookies {
 		req.AddCookie(cookie)
 	}

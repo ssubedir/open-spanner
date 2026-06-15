@@ -1,0 +1,38 @@
+---
+title: Storage Usage
+description: Report capacity usage by tier, region, and resource type.
+---
+
+Use storage metering when usage is based on capacity, files, objects, records, or retained data. This works for SaaS products, developer tools, data platforms, backups, logs, media storage, and document systems.
+
+## Model
+
+Create a meter such as `storage_gb` with:
+
+| Field | Value |
+| --- | --- |
+| Unit | `gb` |
+| Aggregation | `sum`, `max`, or `last` depending on your billing model |
+| Quantity | Capacity observed or capacity delta |
+
+Useful dimensions:
+
+- `tier`
+- `region`
+- `resource_type`
+- `storage_class`
+
+## How To Use It
+
+Use `sum` when recording deltas, such as bytes added. Use `last` or `max` when recording observed capacity snapshots. Keep the event shape consistent for each meter so billing and reporting queries are easy to reason about.
+
+This lets you answer:
+
+- How much storage does each customer use?
+- Which storage tier is growing fastest?
+- Which resource types dominate capacity?
+- Which regions hold the most data?
+
+## Example
+
+See [`examples/advance/storage-usage`](https://github.com/ssubedir/open-spanner/tree/main/examples/advance/storage-usage) for Go, TypeScript, Python, and C# examples.

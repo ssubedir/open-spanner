@@ -1,5 +1,12 @@
 package usage
 
+import (
+	"encoding/json"
+	"fmt"
+
+	domainusage "github.com/ssubedir/open-spanner/internal/metering/domain/usage"
+)
+
 // CreateRequest creates a usage event. IdempotencyKey replays a previously accepted event with the same key.
 type CreateRequest struct {
 	// IdempotencyKey replays the original accepted event when reused.
@@ -22,14 +29,55 @@ type FilterRequest struct {
 
 // SearchRequest searches bucketed usage with an advanced filter.
 type SearchRequest struct {
-	Subject    string         `json:"subject"`
+	Subject    string         `json:"subject,omitempty"`
 	Meter      string         `json:"meter"`
 	From       string         `json:"from"`
 	To         string         `json:"to"`
 	BucketSize string         `json:"bucket_size"`
-	GroupBy    string         `json:"group_by,omitempty"`
+	GroupBy    GroupByRequest `json:"group_by,omitempty" swaggertype:"array,string"`
 	Limit      int            `json:"limit,omitempty"`
 	Filter     *FilterRequest `json:"filter,omitempty"`
+}
+
+// BreakdownRequest searches top usage breakdown values.
+type BreakdownRequest struct {
+	Subject string         `json:"subject,omitempty"`
+	Meter   string         `json:"meter"`
+	Field   string         `json:"field"`
+	From    string         `json:"from"`
+	To      string         `json:"to"`
+	Limit   int            `json:"limit,omitempty"`
+	Filter  *FilterRequest `json:"filter,omitempty"`
+}
+
+// GroupByRequest accepts a single metadata key or an ordered list of metadata keys.
+type GroupByRequest []string
+
+func (g *GroupByRequest) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		*g = nil
+		return nil
+	}
+
+	var values []string
+	if err := json.Unmarshal(data, &values); err == nil {
+		*g = GroupByRequest(domainusage.SplitGroupByValues(values))
+		return nil
+	}
+
+	var value string
+	if err := json.Unmarshal(data, &value); err == nil {
+		*g = GroupByRequest(domainusage.SplitGroupBy(value))
+		return nil
+	}
+
+	return fmt.Errorf("group_by must be a string or array of strings")
+}
+
+func (g GroupByRequest) Fields() []string {
+	fields := make([]string, len(g))
+	copy(fields, g)
+	return fields
 }
 
 // EventSearchRequest searches raw usage events with an advanced filter.
@@ -59,6 +107,33 @@ type Response struct {
 type EventListResponse struct {
 	Items      []Response `json:"items"`
 	NextCursor string     `json:"next_cursor,omitempty"`
+}
+
+// DimensionValueResponse is a discovered metadata dimension value.
+type DimensionValueResponse struct {
+	Field       string `json:"field"`
+	Value       string `json:"value"`
+	UsageEvents int    `json:"events"`
+}
+
+// DimensionValueListResponse is a list of discovered metadata dimension values.
+type DimensionValueListResponse struct {
+	Items []DimensionValueResponse `json:"items"`
+}
+
+// BreakdownResponse is an aggregated usage breakdown item.
+type BreakdownResponse struct {
+	Field       string  `json:"field"`
+	Value       string  `json:"value"`
+	Quantity    float64 `json:"quantity"`
+	UsageEvents int     `json:"events"`
+	Aggregation string  `json:"aggregation"`
+	Unit        string  `json:"unit"`
+}
+
+// BreakdownListResponse is a list of aggregated usage breakdown items.
+type BreakdownListResponse struct {
+	Items []BreakdownResponse `json:"items"`
 }
 
 // PruneListResponse is a paged prune run list.

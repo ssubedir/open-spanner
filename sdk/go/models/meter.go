@@ -4,9 +4,13 @@ package models
 
 import (
 	"context"
+	stderrors "errors"
+	"strconv"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag/jsonutils"
+	"github.com/go-openapi/swag/typeutils"
 )
 
 // Meter Meter
@@ -22,6 +26,9 @@ type Meter struct {
 
 	// description
 	Description string `json:"description,omitempty"`
+
+	// dimensions
+	Dimensions []*MeterDimension `json:"dimensions"`
 
 	// event retention days
 	EventRetentionDays int64 `json:"event_retention_days,omitempty"`
@@ -41,11 +48,88 @@ type Meter struct {
 
 // Validate validates this meter
 func (m *Meter) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.validateDimensions(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
 	return nil
 }
 
-// ContextValidate validates this meter based on context it is used
+func (m *Meter) validateDimensions(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.Dimensions) { // not required
+		return nil
+	}
+
+	for i := 0; i < len(m.Dimensions); i++ {
+		if typeutils.IsZero(m.Dimensions[i]) { // not required
+			continue
+		}
+
+		if m.Dimensions[i] != nil {
+			if err := m.Dimensions[i].Validate(formats); err != nil {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
+					return ve.ValidateName("dimensions" + "." + strconv.Itoa(i))
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
+					return ce.ValidateName("dimensions" + "." + strconv.Itoa(i))
+				}
+
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+// ContextValidate validate this meter based on the context it is used
 func (m *Meter) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateDimensions(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *Meter) contextValidateDimensions(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(m.Dimensions); i++ {
+
+		if m.Dimensions[i] != nil {
+
+			if typeutils.IsZero(m.Dimensions[i]) { // not required
+				return nil
+			}
+
+			if err := m.Dimensions[i].ContextValidate(ctx, formats); err != nil {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
+					return ve.ValidateName("dimensions" + "." + strconv.Itoa(i))
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
+					return ce.ValidateName("dimensions" + "." + strconv.Itoa(i))
+				}
+
+				return err
+			}
+		}
+
+	}
+
 	return nil
 }
 

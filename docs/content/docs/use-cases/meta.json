@@ -1,0 +1,14 @@
+{
+  "title": "Use Cases",
+  "defaultOpen": true,
+  "pages": [
+    "index",
+    "api-requests",
+    "ai-tokens",
+    "storage-usage",
+    "active-users",
+    "background-jobs",
+    "feature-usage",
+    "historical-backfill"
+  ]
+}

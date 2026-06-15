@@ -30,6 +30,14 @@ namespace OpenSpanner.Models
 #else
         public string Description { get; set; }
 #endif
+        /// <summary>The dimensions property</summary>
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
+#nullable enable
+        public List<global::OpenSpanner.Models.MeterDimensionRequest>? Dimensions { get; set; }
+#nullable restore
+#else
+        public List<global::OpenSpanner.Models.MeterDimensionRequest> Dimensions { get; set; }
+#endif
         /// <summary>The event_retention_days property</summary>
         public int? EventRetentionDays { get; set; }
         /// <summary>The metadata_schema property</summary>
@@ -75,6 +83,7 @@ namespace OpenSpanner.Models
             {
                 { "aggregation", n => { Aggregation = n.GetStringValue(); } },
                 { "description", n => { Description = n.GetStringValue(); } },
+                { "dimensions", n => { Dimensions = n.GetCollectionOfObjectValues<global::OpenSpanner.Models.MeterDimensionRequest>(global::OpenSpanner.Models.MeterDimensionRequest.CreateFromDiscriminatorValue)?.AsList(); } },
                 { "event_retention_days", n => { EventRetentionDays = n.GetIntValue(); } },
                 { "metadata_schema", n => { MetadataSchema = n.GetObjectValue<global::OpenSpanner.Models.MeterUpdateRequest_metadata_schema>(global::OpenSpanner.Models.MeterUpdateRequest_metadata_schema.CreateFromDiscriminatorValue); } },
                 { "unit", n => { Unit = n.GetStringValue(); } },
@@ -89,6 +98,7 @@ namespace OpenSpanner.Models
             if(ReferenceEquals(writer, null)) throw new ArgumentNullException(nameof(writer));
             writer.WriteStringValue("aggregation", Aggregation);
             writer.WriteStringValue("description", Description);
+            writer.WriteCollectionOfObjectValues<global::OpenSpanner.Models.MeterDimensionRequest>("dimensions", Dimensions);
             writer.WriteIntValue("event_retention_days", EventRetentionDays);
             writer.WriteObjectValue<global::OpenSpanner.Models.MeterUpdateRequest_metadata_schema>("metadata_schema", MetadataSchema);
             writer.WriteStringValue("unit", Unit);

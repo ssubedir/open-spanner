@@ -100,6 +100,10 @@ definitions:
         type: string
       description:
         type: string
+      dimensions:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_meter.DimensionRequest'
+        type: array
       event_retention_days:
         type: integer
       metadata_schema:
@@ -109,6 +113,36 @@ definitions:
       name:
         type: string
       unit:
+        type: string
+    type: object
+  internal_metering_adapters_http_meter.DimensionRequest:
+    properties:
+      deprecated:
+        type: boolean
+      description:
+        type: string
+      display_name:
+        type: string
+      name:
+        type: string
+      required:
+        type: boolean
+      type:
+        type: string
+    type: object
+  internal_metering_adapters_http_meter.DimensionResponse:
+    properties:
+      deprecated:
+        type: boolean
+      description:
+        type: string
+      display_name:
+        type: string
+      name:
+        type: string
+      required:
+        type: boolean
+      type:
         type: string
     type: object
   internal_metering_adapters_http_meter.ListResponse:
@@ -128,6 +162,10 @@ definitions:
         type: string
       description:
         type: string
+      dimensions:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_meter.DimensionResponse'
+        type: array
       event_retention_days:
         type: integer
       id:
@@ -167,6 +205,10 @@ definitions:
         type: string
       description:
         type: string
+      dimensions:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_meter.DimensionRequest'
+        type: array
       event_retention_days:
         type: integer
       metadata_schema:
@@ -238,6 +280,45 @@ definitions:
       usage_events:
         type: integer
     type: object
+  internal_metering_adapters_http_usage.BreakdownListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_usage.BreakdownResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_usage.BreakdownRequest:
+    properties:
+      field:
+        type: string
+      filter:
+        $ref: '#/definitions/internal_metering_adapters_http_usage.FilterRequest'
+      from:
+        type: string
+      limit:
+        type: integer
+      meter:
+        type: string
+      subject:
+        type: string
+      to:
+        type: string
+    type: object
+  internal_metering_adapters_http_usage.BreakdownResponse:
+    properties:
+      aggregation:
+        type: string
+      events:
+        type: integer
+      field:
+        type: string
+      quantity:
+        type: number
+      unit:
+        type: string
+      value:
+        type: string
+    type: object
   internal_metering_adapters_http_usage.BulkFailureResponse:
     properties:
       code:
@@ -283,6 +364,22 @@ definitions:
       subject:
         type: string
       timestamp:
+        type: string
+    type: object
+  internal_metering_adapters_http_usage.DimensionValueListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_usage.DimensionValueResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_usage.DimensionValueResponse:
+    properties:
+      events:
+        type: integer
+      field:
+        type: string
+      value:
         type: string
     type: object
   internal_metering_adapters_http_usage.EventListResponse:
@@ -432,7 +529,9 @@ definitions:
       from:
         type: string
       group_by:
-        type: string
+        items:
+          type: string
+        type: array
       limit:
         type: integer
       meter:
@@ -1157,7 +1256,6 @@ paths:
       - description: Subject
         in: query
         name: subject
-        required: true
         type: string
       - description: Meter name
         in: query
@@ -1178,10 +1276,14 @@ paths:
         in: query
         name: bucket_size
         type: string
-      - description: Metadata key to group by
+      - collectionFormat: multi
+        description: Subject or metadata keys to group by. Repeat the parameter or
+          use comma-separated values.
         in: query
+        items:
+          type: string
         name: group_by
-        type: string
+        type: array
       - description: Result limit
         in: query
         name: limit
@@ -1250,6 +1352,40 @@ paths:
       summary: Create usage
       tags:
       - usages
+  /v1/usages/breakdowns/search:
+    post:
+      consumes:
+      - application/json
+      operationId: searchUsageBreakdown
+      parameters:
+      - description: Usage breakdown search
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_usage.BreakdownRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_usage.BreakdownListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Search usage breakdown
+      tags:
+      - usages
   /v1/usages/bulk:
     post:
       consumes:
@@ -1297,6 +1433,58 @@ paths:
       summary: Create usage in bulk
       tags:
       - usages
+  /v1/usages/dimensions:
+    get:
+      operationId: listUsageDimensionValues
+      parameters:
+      - description: Meter name
+        in: query
+        name: meter
+        required: true
+        type: string
+      - description: Metadata dimension field
+        in: query
+        name: field
+        required: true
+        type: string
+      - description: Subject
+        in: query
+        name: subject
+        type: string
+      - description: RFC3339 start time
+        in: query
+        name: from
+        type: string
+      - description: RFC3339 end time
+        in: query
+        name: to
+        type: string
+      - description: Result limit
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_usage.DimensionValueListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List usage dimension values
+      tags:
+      - usages
   /v1/usages/export:
     get:
       operationId: exportUsageBuckets
@@ -1304,7 +1492,6 @@ paths:
       - description: Subject
         in: query
         name: subject
-        required: true
         type: string
       - description: Meter name
         in: query
@@ -1325,10 +1512,14 @@ paths:
         in: query
         name: bucket_size
         type: string
-      - description: Metadata key to group by
+      - collectionFormat: multi
+        description: Subject or metadata keys to group by. Repeat the parameter or
+          use comma-separated values.
         in: query
+        items:
+          type: string
         name: group_by
-        type: string
+        type: array
       - description: Result limit
         in: query
         name: limit

@@ -49,6 +49,8 @@ Use Postgres when:
 - You want to tune connection pooling.
 - You expect higher write or query volume.
 
+Usage metadata is stored as `jsonb` in Postgres. Open Spanner keeps a GIN index on that metadata so exact dimension filters from usage search requests can stay flexible without requiring a schema migration for every new dimension. If a small set of dimensions becomes especially hot, you can still add dedicated Postgres expression indexes later without changing how events are written.
+
 ## Connection Pooling
 
 Connection pool settings apply to SQL storage:
