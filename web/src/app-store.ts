@@ -11,6 +11,8 @@ import {
   deleteAuthSession,
   deleteMeter as deleteMeterRequest,
   deleteSavedUsageQuery,
+  exportUsageBuckets,
+  exportUsageEvents,
   getSystemStats,
   listAPIKeys,
   listIngestions,
@@ -45,16 +47,19 @@ import {
 import {
   defaultFilterQuery,
   firstEqualRuleValue,
+  metadataEqualsFromQuery,
   metadataTypesByField,
   queryFromSavedValue,
   queryWithBreakdownFilter,
   queryWithAvailableMeter,
   queryWithSubject,
   selectedMeterSchemaKeys,
+  unsupportedBucketExportRuleCount,
   usageFilterFromQuery,
   usageScopeFromQuery,
   usageTimeRangeFromQuery,
 } from './lib/usage-query'
+import { downloadBlob, safeDownloadName } from './lib/download'
 import type { LoadState } from './types'
 
 export type MeterDimensionDraft = {
@@ -115,6 +120,8 @@ type AppState = {
     detailStatus: LoadState
     error: string
     events: UsageEvent[]
+    exportError: string
+    exporting: boolean
     items: SubjectStats[]
     searchQuery: string
     selectedSubject: string
@@ -128,6 +135,8 @@ type AppState = {
     buckets: UsageBucket[]
     dimensionValues: Record<string, UsageDimensionValue[]>
     error: string
+    exportError: string
+    exporting: boolean
     filterQuery: RuleGroupType
     groupBy: string[]
     limit: number
@@ -185,6 +194,8 @@ export const appStore = createStore<AppState>({
     detailStatus: 'idle',
     error: '',
     events: [],
+    exportError: '',
+    exporting: false,
     items: [],
     searchQuery: '',
     selectedSubject: '',
@@ -198,6 +209,8 @@ export const appStore = createStore<AppState>({
     buckets: [],
     dimensionValues: {},
     error: '',
+    exportError: '',
+    exporting: false,
     filterQuery: defaultFilterQuery(),
     groupBy: [],
     limit: 500,
@@ -371,7 +384,7 @@ export const appStoreActions = {
       return
     }
 
-    setSubjectsState({ detailStatus: 'loading', error: '', selectedSubject: subject })
+    setSubjectsState({ detailStatus: 'loading', error: '', exportError: '', selectedSubject: subject })
     try {
       const events = await listSubjectEvents(subject, 25)
       setSubjectsState({ detailStatus: 'ready', events })
@@ -379,8 +392,24 @@ export const appStoreActions = {
       setSubjectsState({ detailStatus: 'error', error: errorMessage(err, 'Unable to load subject activity'), events: [] })
     }
   },
+  async exportSelectedSubjectEvents() {
+    const subject = appStore.state.subjects.selectedSubject
+    if (!subject) {
+      return
+    }
+
+    setSubjectsState({ exportError: '', exporting: true })
+    try {
+      const blob = await exportUsageEvents({ limit: 1000, subject })
+      downloadBlob(blob, `${safeDownloadName(subject)}-usage-events.csv`)
+    } catch (err) {
+      setSubjectsState({ exportError: errorMessage(err, 'Unable to export subject events') })
+    } finally {
+      setSubjectsState({ exporting: false })
+    }
+  },
   async loadUsageControls() {
-    setUsageState({ error: '', savedQueryError: '', savedQueryStatus: 'loading', status: 'loading' })
+    setUsageState({ error: '', exportError: '', savedQueryError: '', savedQueryStatus: 'loading', status: 'loading' })
     try {
       const [nextMeters, savedQueries] = await Promise.all([
         listMeters(),
@@ -529,6 +558,7 @@ export const appStoreActions = {
     const meters = appStore.state.usage.meters
     setUsageState({
       bucketSize: 'day',
+      exportError: '',
       filterQuery: queryWithAvailableMeter(defaultFilterQuery(), meters),
       groupBy: [],
       limit: 500,
@@ -545,6 +575,7 @@ export const appStoreActions = {
     setUsageState((state) => ({
       buckets: [],
       error: '',
+      exportError: '',
       filterQuery: queryWithSubject(state.filterQuery, normalizedSubject),
       savedQueryName: '',
       selectedSavedQueryID: '',
@@ -651,7 +682,7 @@ export const appStoreActions = {
     })
   },
   async submitUsageQuery(groupByValue: string[], limit = 500, bucketSize = 'day') {
-    setUsageState({ error: '', status: 'loading' })
+    setUsageState({ error: '', exportError: '', status: 'loading' })
     try {
       const query = appStore.state.usage.filterQuery
       const scope = usageScopeFromQuery(query)
@@ -671,6 +702,36 @@ export const appStoreActions = {
       setUsageState({ buckets, status: 'ready' })
     } catch (err) {
       setUsageState({ error: errorMessage(err, 'Unable to query usage'), status: 'error' })
+    }
+  },
+  async exportCurrentUsageBuckets(groupByValue: string[], limit = 500, bucketSize = 'day') {
+    setUsageState({ exportError: '', exporting: true })
+    try {
+      const query = appStore.state.usage.filterQuery
+      const unsupportedRules = unsupportedBucketExportRuleCount(query)
+      if (unsupportedRules > 0) {
+        throw new Error('CSV export supports meter, subject, timestamp range, group-by, and equals metadata filters. Remove advanced filter rules before exporting.')
+      }
+
+      const scope = usageScopeFromQuery(query)
+      const timeRange = usageTimeRangeFromQuery(query)
+      const groupBy = groupByValue.filter(Boolean)
+      const blob = await exportUsageBuckets({
+        bucket_size: bucketSize,
+        from: timeRange.from,
+        group_by: groupBy.length > 0 ? groupBy : undefined,
+        limit,
+        metadata: metadataEqualsFromQuery(query),
+        meter: scope.meter,
+        subject: scope.subject || undefined,
+        to: timeRange.to,
+      })
+      const fileParts = ['usage-buckets', scope.meter, scope.subject].filter((part): part is string => Boolean(part))
+      downloadBlob(blob, `${fileParts.map(safeDownloadName).join('-')}.csv`)
+    } catch (err) {
+      setUsageState({ exportError: errorMessage(err, 'Unable to export usage buckets') })
+    } finally {
+      setUsageState({ exporting: false })
     }
   },
   async saveCurrentUsageQuery() {

@@ -1,5 +1,5 @@
 import { useSelector } from '@tanstack/react-store'
-import { BarChart3, Loader2, Pin, PinOff, RefreshCw, Save, Search, Trash2 } from 'lucide-react'
+import { BarChart3, Download, Loader2, Pin, PinOff, RefreshCw, Save, Search, Trash2 } from 'lucide-react'
 import { type FormEvent, useCallback, useEffect, useMemo } from 'react'
 
 import { appStore, appStoreActions } from '../app-store'
@@ -31,6 +31,8 @@ export function UsagePage() {
     buckets,
     dimensionValues,
     error,
+    exportError,
+    exporting,
     filterQuery,
     groupBy,
     limit,
@@ -55,6 +57,10 @@ export function UsagePage() {
 
   async function saveQuery() {
     await appStoreActions.saveCurrentUsageQuery()
+  }
+
+  async function exportBuckets() {
+    await appStoreActions.exportCurrentUsageBuckets(activeGroupBy, limit, bucketSize)
   }
 
   async function confirmDeleteSavedQuery() {
@@ -224,12 +230,17 @@ export function UsagePage() {
                     <RefreshCw aria-hidden="true" />
                     Reset
                   </Button>
+                  <Button disabled={exporting} onClick={() => void exportBuckets()} type="button" variant="outline">
+                    {exporting ? <Loader2 className="spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
+                    Export CSV
+                  </Button>
                   <Button disabled={status === 'loading'} type="submit">
                     {status === 'loading' ? <Loader2 className="spin" aria-hidden="true" /> : <Search aria-hidden="true" />}
                     Run Query
                   </Button>
                 </div>
               </div>
+              {exportError ? <div className="inline-error wide">{exportError}</div> : null}
             </form>
           </CardContent>
         </Card>

@@ -218,6 +218,48 @@ export function countQueryRules(query: RuleGroupType): number {
   return query.rules.reduce((sum, rule) => sum + (isQueryGroup(rule) ? countQueryRules(rule) : 1), 0)
 }
 
+export function metadataEqualsFromQuery(query: RuleGroupType) {
+  const metadata: Record<string, string> = {}
+
+  function visit(group: RuleGroupType) {
+    for (const rule of group.rules) {
+      if (isQueryGroup(rule)) {
+        visit(rule)
+        continue
+      }
+      if (rule.field.startsWith('metadata.') && rule.operator === '=' && rule.value !== '' && rule.value !== undefined) {
+        metadata[rule.field.replace(/^metadata\./, '')] = String(rule.value)
+      }
+    }
+  }
+
+  visit(query)
+  return metadata
+}
+
+export function unsupportedBucketExportRuleCount(query: RuleGroupType) {
+  let unsupported = query.combinator === 'or' ? 1 : 0
+
+  function visit(group: RuleGroupType, isRoot = false) {
+    if (!isRoot && group.combinator === 'or') {
+      unsupported += 1
+    }
+
+    for (const rule of group.rules) {
+      if (isQueryGroup(rule)) {
+        visit(rule)
+        continue
+      }
+      if (!isBucketExportRuleSupported(rule)) {
+        unsupported += 1
+      }
+    }
+  }
+
+  visit(query, true)
+  return unsupported
+}
+
 export function queryFromSavedValue(value: unknown, fallback: RuleGroupType): RuleGroupType {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return fallback
@@ -335,6 +377,22 @@ function usageOperatorFromQueryOperator(operator: string): UsageFilterCondition[
     default:
       return undefined
   }
+}
+
+function isBucketExportRuleSupported(rule: RuleType) {
+  if (!rule.field || !rule.operator || rule.value === '' || rule.value === undefined) {
+    return true
+  }
+  if ((rule.field === 'meter' || rule.field === 'subject') && rule.operator === '=') {
+    return true
+  }
+  if (rule.field === 'timestamp' && ['>', '>=', '<', '<='].includes(rule.operator)) {
+    return true
+  }
+  if (rule.field.startsWith('metadata.') && rule.operator === '=') {
+    return true
+  }
+  return false
 }
 
 function usageValueFromRule(rule: RuleType, metadataTypes: MetadataTypes) {

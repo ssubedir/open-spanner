@@ -142,6 +142,25 @@ export type UsageBucketQuery = {
   filter?: UsageFilter
 }
 
+export type UsageBucketExportQuery = {
+  subject?: string
+  meter: string
+  from: string
+  to: string
+  bucket_size: string
+  group_by?: string[]
+  limit?: number
+  metadata?: Record<string, string>
+}
+
+export type UsageEventExportQuery = {
+  subject?: string
+  meter?: string
+  from?: string
+  to?: string
+  limit?: number
+}
+
 export type UsageDimensionValue = {
   field: string
   value: string
@@ -316,6 +335,18 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return response.json() as Promise<T>
 }
 
+async function requestBlob(path: string, options: RequestInit = {}) {
+  const response = await fetchWithAuthRefresh(path, options)
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({ error: { message: response.statusText } }))
+    const error = typeof payload.error === 'string' ? payload.error : payload.error?.message
+    throw new Error(error || response.statusText)
+  }
+
+  return response.blob()
+}
+
 export async function createAuthSession(input: { email: string; password: string }) {
   return request<AuthSession>('/v1/auth/sessions', {
     body: JSON.stringify(input),
@@ -411,6 +442,54 @@ export async function listUsageBuckets(query: UsageBucketQuery) {
     }),
     method: 'POST',
   })
+}
+
+export async function exportUsageBuckets(query: UsageBucketExportQuery) {
+  const params = new URLSearchParams({
+    bucket_size: query.bucket_size,
+    from: query.from,
+    meter: query.meter,
+    to: query.to,
+  })
+  if (query.subject) {
+    params.set('subject', query.subject)
+  }
+  if (query.limit) {
+    params.set('limit', String(query.limit))
+  }
+  query.group_by?.forEach((field) => {
+    if (field) {
+      params.append('group_by', field)
+    }
+  })
+  Object.entries(query.metadata || {}).forEach(([key, value]) => {
+    if (key && value !== '') {
+      params.set(`metadata.${key}`, value)
+    }
+  })
+
+  return requestBlob(`/v1/usages/export?${params.toString()}`)
+}
+
+export async function exportUsageEvents(query: UsageEventExportQuery) {
+  const params = new URLSearchParams()
+  if (query.subject) {
+    params.set('subject', query.subject)
+  }
+  if (query.meter) {
+    params.set('meter', query.meter)
+  }
+  if (query.from) {
+    params.set('from', query.from)
+  }
+  if (query.to) {
+    params.set('to', query.to)
+  }
+  if (query.limit) {
+    params.set('limit', String(query.limit))
+  }
+
+  return requestBlob(`/v1/usageevents/export?${params.toString()}`)
 }
 
 export async function listUsageDimensionValues(query: UsageDimensionValueQuery) {

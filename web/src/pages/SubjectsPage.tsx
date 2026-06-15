@@ -1,6 +1,6 @@
 import { useParams, useRouter } from '@tanstack/react-router'
 import { useSelector } from '@tanstack/react-store'
-import { BarChart3, Clock, Database, Hash, Search, Users } from 'lucide-react'
+import { BarChart3, Clock, Database, Download, Hash, Loader2, Search, Users } from 'lucide-react'
 import type React from 'react'
 import { useCallback, useMemo } from 'react'
 
@@ -29,6 +29,8 @@ export function SubjectsPage({ routeSubject = '' }: SubjectsPageProps) {
     detailStatus,
     error,
     events,
+    exportError,
+    exporting,
     items,
     searchQuery,
     selectedSubject,
@@ -57,6 +59,10 @@ export function SubjectsPage({ routeSubject = '' }: SubjectsPageProps) {
     }
     appStoreActions.prepareUsageForSubject(selectedSubject)
     void router.navigate({ to: '/usage' })
+  }
+
+  async function exportSubjectEvents() {
+    await appStoreActions.exportSelectedSubjectEvents()
   }
 
   return (
@@ -131,12 +137,17 @@ export function SubjectsPage({ routeSubject = '' }: SubjectsPageProps) {
                 <BarChart3 aria-hidden="true" />
                 Open Usage
               </Button>
+              <Button disabled={!selectedSubject || exporting} onClick={() => void exportSubjectEvents()} type="button" variant="outline">
+                {exporting ? <Loader2 className="spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
+                Export Events
+              </Button>
               <Badge variant={detailStatus === 'loading' ? 'muted' : selectedSubject ? 'success' : 'muted'}>
                 {detailStatus === 'loading' ? 'Loading' : selectedSubject ? 'Selected' : 'Idle'}
               </Badge>
             </div>
           </CardHeader>
           <CardContent className="subject-detail-content">
+            {exportError ? <div className="inline-error">{exportError}</div> : null}
             {selectedStats ? (
               <div className="subject-snapshot" aria-label="Selected subject summary">
                 <SnapshotMetric icon={<BarChart3 />} label="Events" value={formatNumber(selectedStats.usage_events)} />
