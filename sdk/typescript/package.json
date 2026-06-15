@@ -1,6 +1,6 @@
 {
   "name": "@ssubedir/open-spanner",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "TypeScript and JavaScript SDK for Open Spanner.",
   "license": "MIT",
   "type": "module",

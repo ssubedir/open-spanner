@@ -1,6 +1,13 @@
 version: '3'
 
 tasks:
+  release:version:
+    desc: Update SDK package versions before a release, for example task release:version VERSION=0.1.4
+    requires:
+      vars: [VERSION]
+    cmds:
+      - node scripts/set-release-version.mjs {{.VERSION}}
+
   release:check:
     desc: Verify tests, generated OpenAPI docs, and all SDK packages before a release
     cmds:

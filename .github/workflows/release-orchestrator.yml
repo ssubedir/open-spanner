@@ -95,6 +95,7 @@ jobs:
           VERSION="${{ steps.release.outputs.version }}"
           TYPESCRIPT_VERSION="$(node -p "require('./sdk/typescript/package.json').version")"
           PYTHON_VERSION="$(python -c "import tomllib; print(tomllib.load(open('sdk/python/pyproject.toml', 'rb'))['project']['version'])")"
+          PYTHON_GENERATOR_VERSION="$(sed -n 's/^package_version_override: //p' sdk/python-client.yml)"
           CSHARP_VERSION="$(dotnet msbuild sdk/csharp/OpenSpanner.csproj -getProperty:Version)"
 
           if [ "$TYPESCRIPT_VERSION" != "$VERSION" ]; then
@@ -104,6 +105,11 @@ jobs:
 
           if [ "$PYTHON_VERSION" != "$VERSION" ]; then
             echo "Python SDK version mismatch: pyproject.toml=$PYTHON_VERSION release=$VERSION"
+            exit 1
+          fi
+
+          if [ "$PYTHON_GENERATOR_VERSION" != "$VERSION" ]; then
+            echo "Python SDK generator version mismatch: sdk/python-client.yml=$PYTHON_GENERATOR_VERSION release=$VERSION"
             exit 1
           fi
 
