@@ -411,6 +411,84 @@
         }
       }
     },
+    "/v1/usages/dimensions": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "usages"
+        ],
+        "summary": "List usage dimension values",
+        "operationId": "listUsageDimensionValues",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Meter name",
+            "name": "meter",
+            "in": "query",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "Metadata dimension field",
+            "name": "field",
+            "in": "query",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "Subject",
+            "name": "subject",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "RFC3339 start time",
+            "name": "from",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "RFC3339 end time",
+            "name": "to",
+            "in": "query"
+          },
+          {
+            "type": "integer",
+            "description": "Result limit",
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/UsageDimensionValueListResponse"
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/v1/usages/export": {
       "get": {
         "produces": [
@@ -783,6 +861,33 @@
         }
       },
       "title": "UsageCreateRequest"
+    },
+    "UsageDimensionValueListResponse": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/UsageDimensionValue"
+          }
+        }
+      },
+      "title": "UsageDimensionValueListResponse"
+    },
+    "UsageDimensionValue": {
+      "type": "object",
+      "properties": {
+        "events": {
+          "type": "integer"
+        },
+        "field": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "title": "UsageDimensionValue"
     },
     "UsageBucket": {
       "type": "object",

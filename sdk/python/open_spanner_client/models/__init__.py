@@ -17,6 +17,8 @@ from .usage_bulk_failure import UsageBulkFailure
 from .usage_bulk_result import UsageBulkResult
 from .usage_create_request import UsageCreateRequest
 from .usage_create_request_metadata import UsageCreateRequestMetadata
+from .usage_dimension_value import UsageDimensionValue
+from .usage_dimension_value_list_response import UsageDimensionValueListResponse
 from .usage_event import UsageEvent
 from .usage_event_metadata import UsageEventMetadata
 
@@ -38,6 +40,8 @@ __all__ = (
     "UsageBulkResult",
     "UsageCreateRequest",
     "UsageCreateRequestMetadata",
+    "UsageDimensionValue",
+    "UsageDimensionValueListResponse",
     "UsageEvent",
     "UsageEventMetadata",
 )

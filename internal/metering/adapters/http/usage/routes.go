@@ -8,6 +8,7 @@ func (h *Handler) RegisterRoutes(router chi.Router) {
 	router.Post("/usages/search", h.Search)
 	router.Post("/usageevents/prune", h.PruneEvents)
 	router.Post("/usageevents/search", h.SearchEvents)
+	router.Get("/usages/dimensions", h.ListDimensionValues)
 	router.Get("/usages", h.List)
 	router.Get("/usages/export", h.Export)
 	router.Get("/usageingestions", h.ListIngestions)

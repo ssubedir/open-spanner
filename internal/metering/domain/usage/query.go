@@ -48,6 +48,15 @@ type EventQuery struct {
 	filter    Filter
 }
 
+type DimensionValueQuery struct {
+	meterName string
+	field     string
+	subject   string
+	from      time.Time
+	to        time.Time
+	limit     int
+}
+
 type EventCursor struct {
 	eventTime time.Time
 	id        string
@@ -82,6 +91,12 @@ type Bucket struct {
 	bucketStart time.Time
 	quantity    float64
 	group       map[string]string
+}
+
+type DimensionValue struct {
+	field       string
+	value       string
+	usageEvents int
 }
 
 func NewPruneQuery(meterName string, before time.Time) (PruneQuery, error) {
@@ -145,6 +160,39 @@ func NewEventPage(events []Event, limit int) EventPage {
 	}
 
 	return page
+}
+
+func NewDimensionValueQuery(meterName string, field string, subject string, from time.Time, to time.Time, limit int) (DimensionValueQuery, error) {
+	meterName = strings.TrimSpace(meterName)
+	field = strings.TrimPrefix(strings.TrimSpace(field), "metadata.")
+	subject = strings.TrimSpace(subject)
+
+	if meterName == "" {
+		return DimensionValueQuery{}, fmt.Errorf("%w: meter is required", domain.ErrInvalidInput)
+	}
+	if field == "" {
+		return DimensionValueQuery{}, fmt.Errorf("%w: dimension field is required", domain.ErrInvalidInput)
+	}
+	if !from.IsZero() && !to.IsZero() && !from.Before(to) {
+		return DimensionValueQuery{}, fmt.Errorf("%w: valid from and to range is required", domain.ErrInvalidInput)
+	}
+
+	return DimensionValueQuery{
+		meterName: meterName,
+		field:     field,
+		subject:   subject,
+		from:      from.UTC(),
+		to:        to.UTC(),
+		limit:     NormalizeLimit(limit),
+	}, nil
+}
+
+func NewDimensionValue(field string, value string, usageEvents int) DimensionValue {
+	return DimensionValue{
+		field:       field,
+		value:       value,
+		usageEvents: usageEvents,
+	}
 }
 
 func NewSubjectStatsQuery(limit int, lastEventAt time.Time, subject string) SubjectStatsQuery {
@@ -396,6 +444,30 @@ func (q RunQuery) HasCursor() bool {
 	return !q.createdAt.IsZero() && q.id != ""
 }
 
+func (q DimensionValueQuery) MeterName() string {
+	return q.meterName
+}
+
+func (q DimensionValueQuery) Field() string {
+	return q.field
+}
+
+func (q DimensionValueQuery) Subject() string {
+	return q.subject
+}
+
+func (q DimensionValueQuery) From() time.Time {
+	return q.from
+}
+
+func (q DimensionValueQuery) To() time.Time {
+	return q.to
+}
+
+func (q DimensionValueQuery) Limit() int {
+	return q.limit
+}
+
 func (c EventCursor) EventTime() time.Time {
 	return c.eventTime
 }
@@ -497,4 +569,16 @@ func (b Bucket) Group() map[string]string {
 		group[key] = value
 	}
 	return group
+}
+
+func (v DimensionValue) Field() string {
+	return v.field
+}
+
+func (v DimensionValue) Value() string {
+	return v.value
+}
+
+func (v DimensionValue) UsageEvents() int {
+	return v.usageEvents
 }

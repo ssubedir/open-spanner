@@ -267,6 +267,51 @@ func Run(t *testing.T, setup SetupFunc) {
 		}
 	})
 
+	t.Run("usage discovers dimension values", func(t *testing.T) {
+		ctx := context.Background()
+		meterRepo, usageRepo, _ := setup(t, ctx)
+		saveMeter(t, ctx, meterRepo, "meter-1", "discoverable")
+
+		events := []domainusage.Event{
+			newEvent(t, "event-1", "", "org_123", "discoverable", 2, time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC), map[string]any{"region": "us-east-1"}),
+			newEvent(t, "event-2", "", "org_123", "discoverable", 3, time.Date(2026, 6, 8, 11, 0, 0, 0, time.UTC), map[string]any{"region": "us-west-2"}),
+			newEvent(t, "event-3", "", "org_123", "discoverable", 5, time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC), map[string]any{"region": "us-east-1"}),
+			newEvent(t, "event-4", "", "org_456", "discoverable", 7, time.Date(2026, 6, 8, 13, 0, 0, 0, time.UTC), map[string]any{"region": "us-central-1"}),
+			newEvent(t, "event-5", "", "org_123", "discoverable", 11, time.Date(2026, 6, 11, 10, 0, 0, 0, time.UTC), map[string]any{"region": "eu-west-1"}),
+		}
+		for _, event := range events {
+			if _, err := usageRepo.Save(ctx, event); err != nil {
+				t.Fatalf("save usage %s: %v", event.ID(), err)
+			}
+		}
+
+		query, err := domainusage.NewDimensionValueQuery(
+			"discoverable",
+			"region",
+			"org_123",
+			time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC),
+			time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC),
+			10,
+		)
+		if err != nil {
+			t.Fatalf("new dimension value query: %v", err)
+		}
+
+		values, err := usageRepo.FindDimensionValues(ctx, query)
+		if err != nil {
+			t.Fatalf("find dimension values: %v", err)
+		}
+		if len(values) != 2 {
+			t.Fatalf("dimension values = %#v, want two values", values)
+		}
+		if values[0].Field() != "region" || values[0].Value() != "us-east-1" || values[0].UsageEvents() != 2 {
+			t.Fatalf("first dimension value = %#v", values[0])
+		}
+		if values[1].Value() != "us-west-2" || values[1].UsageEvents() != 1 {
+			t.Fatalf("second dimension value = %#v", values[1])
+		}
+	})
+
 	t.Run("prune transaction rollback", func(t *testing.T) {
 		ctx := context.Background()
 		meterRepo, usageRepo, transactor := setup(t, ctx)

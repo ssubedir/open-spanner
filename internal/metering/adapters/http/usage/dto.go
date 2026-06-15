@@ -98,6 +98,18 @@ type EventListResponse struct {
 	NextCursor string     `json:"next_cursor,omitempty"`
 }
 
+// DimensionValueResponse is a discovered metadata dimension value.
+type DimensionValueResponse struct {
+	Field       string `json:"field"`
+	Value       string `json:"value"`
+	UsageEvents int    `json:"events"`
+}
+
+// DimensionValueListResponse is a list of discovered metadata dimension values.
+type DimensionValueListResponse struct {
+	Items []DimensionValueResponse `json:"items"`
+}
+
 // PruneListResponse is a paged prune run list.
 type PruneListResponse struct {
 	Items      []PruneResponse `json:"items"`

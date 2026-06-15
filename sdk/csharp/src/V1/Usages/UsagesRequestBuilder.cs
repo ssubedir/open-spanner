@@ -5,6 +5,7 @@ using Microsoft.Kiota.Abstractions.Serialization;
 using Microsoft.Kiota.Abstractions;
 using OpenSpanner.Models;
 using OpenSpanner.V1.Usages.Bulk;
+using OpenSpanner.V1.Usages.Dimensions;
 using OpenSpanner.V1.Usages.Export;
 using OpenSpanner.V1.Usages.Search;
 using System.Collections.Generic;
@@ -24,6 +25,11 @@ namespace OpenSpanner.V1.Usages
         public global::OpenSpanner.V1.Usages.Bulk.BulkRequestBuilder Bulk
         {
             get => new global::OpenSpanner.V1.Usages.Bulk.BulkRequestBuilder(PathParameters, RequestAdapter);
+        }
+        /// <summary>The dimensions property</summary>
+        public global::OpenSpanner.V1.Usages.Dimensions.DimensionsRequestBuilder Dimensions
+        {
+            get => new global::OpenSpanner.V1.Usages.Dimensions.DimensionsRequestBuilder(PathParameters, RequestAdapter);
         }
         /// <summary>The export property</summary>
         public global::OpenSpanner.V1.Usages.Export.ExportRequestBuilder Export

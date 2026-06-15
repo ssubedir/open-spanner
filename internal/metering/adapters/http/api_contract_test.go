@@ -565,6 +565,83 @@ func TestUsageAPIContract(t *testing.T) {
 	}
 }
 
+func TestUsageDimensionValuesAPIContract(t *testing.T) {
+	router := newTestRouter()
+
+	createMeter := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name":            "requests",
+		"description":     "Requests",
+		"unit":            "request",
+		"aggregation":     "sum",
+		"metadata_schema": map[string]string{"region": "string"},
+	})
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create meter status = %d: %s", createMeter.Code, createMeter.Body.String())
+	}
+
+	for _, event := range []map[string]any{
+		{
+			"idempotency_key": "dimension-1",
+			"subject":         "org_123",
+			"meter":           "requests",
+			"quantity":        1,
+			"timestamp":       "2026-06-08T10:00:00Z",
+			"metadata":        map[string]any{"region": "us-east-1"},
+		},
+		{
+			"idempotency_key": "dimension-2",
+			"subject":         "org_123",
+			"meter":           "requests",
+			"quantity":        1,
+			"timestamp":       "2026-06-08T11:00:00Z",
+			"metadata":        map[string]any{"region": "us-west-2"},
+		},
+		{
+			"idempotency_key": "dimension-3",
+			"subject":         "org_123",
+			"meter":           "requests",
+			"quantity":        1,
+			"timestamp":       "2026-06-08T12:00:00Z",
+			"metadata":        map[string]any{"region": "us-east-1"},
+		},
+		{
+			"idempotency_key": "dimension-4",
+			"subject":         "org_456",
+			"meter":           "requests",
+			"quantity":        1,
+			"timestamp":       "2026-06-08T13:00:00Z",
+			"metadata":        map[string]any{"region": "us-central-1"},
+		},
+	} {
+		createUsage := requestJSON(t, router, http.MethodPost, "/v1/usages", event)
+		if createUsage.Code != http.StatusCreated {
+			t.Fatalf("create usage status = %d: %s", createUsage.Code, createUsage.Body.String())
+		}
+	}
+
+	list := requestJSON(t, router, http.MethodGet, "/v1/usages/dimensions?meter=requests&field=region&subject=org_123&from=2026-06-08T00:00:00Z&to=2026-06-09T00:00:00Z", nil)
+	if list.Code != http.StatusOK {
+		t.Fatalf("dimension values status = %d, want %d: %s", list.Code, http.StatusOK, list.Body.String())
+	}
+
+	var values dimensionValueListResponse
+	decodeJSON(t, list, &values)
+	if len(values.Items) != 2 {
+		t.Fatalf("dimension values = %#v, want 2 items", values.Items)
+	}
+	if values.Items[0].Field != "region" || values.Items[0].Value != "us-east-1" || values.Items[0].UsageEvents != 2 {
+		t.Fatalf("first dimension value = %#v", values.Items[0])
+	}
+	if values.Items[1].Field != "region" || values.Items[1].Value != "us-west-2" || values.Items[1].UsageEvents != 1 {
+		t.Fatalf("second dimension value = %#v", values.Items[1])
+	}
+
+	unknown := requestJSON(t, router, http.MethodGet, "/v1/usages/dimensions?meter=requests&field=plan", nil)
+	if unknown.Code != http.StatusBadRequest {
+		t.Fatalf("unknown dimension status = %d, want %d: %s", unknown.Code, http.StatusBadRequest, unknown.Body.String())
+	}
+}
+
 func TestUsageEventPruneAPIContract(t *testing.T) {
 	router := newTestRouter()
 
@@ -1553,6 +1630,16 @@ type usageResponse struct {
 type eventListResponse struct {
 	Items      []usageResponse `json:"items"`
 	NextCursor string          `json:"next_cursor"`
+}
+
+type dimensionValueResponse struct {
+	Field       string `json:"field"`
+	Value       string `json:"value"`
+	UsageEvents int    `json:"events"`
+}
+
+type dimensionValueListResponse struct {
+	Items []dimensionValueResponse `json:"items"`
 }
 
 type bulkResponse struct {

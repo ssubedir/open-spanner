@@ -283,6 +283,67 @@ LIMIT ?
 	return buckets, nil
 }
 
+func (r *UsageRepository) FindDimensionValues(ctx context.Context, query domainusage.DimensionValueQuery) ([]domainusage.DimensionValue, error) {
+	args := []any{}
+	valueSQL, err := metadataValueSQL(query.Field(), &args)
+	if err != nil {
+		return nil, err
+	}
+	path, err := sqliteJSONPath(query.Field())
+	if err != nil {
+		return nil, err
+	}
+
+	sqlQuery := strings.Builder{}
+	sqlQuery.WriteString("SELECT value, COUNT(*) AS usage_events\n")
+	sqlQuery.WriteString("FROM (\n")
+	sqlQuery.WriteString("\tSELECT " + valueSQL + " AS value\n")
+	sqlQuery.WriteString("\tFROM usage_events\n")
+	sqlQuery.WriteString("\tWHERE meter_name = ?\n")
+	args = append(args, query.MeterName())
+	sqlQuery.WriteString("\t\tAND json_type(metadata, ?) IS NOT NULL\n")
+	args = append(args, path)
+	if query.Subject() != "" {
+		sqlQuery.WriteString("\t\tAND subject = ?\n")
+		args = append(args, query.Subject())
+	}
+	if !query.From().IsZero() {
+		sqlQuery.WriteString("\t\tAND event_time >= ?\n")
+		args = append(args, formatTime(query.From()))
+	}
+	if !query.To().IsZero() {
+		sqlQuery.WriteString("\t\tAND event_time < ?\n")
+		args = append(args, formatTime(query.To()))
+	}
+	sqlQuery.WriteString(") discovered\n")
+	sqlQuery.WriteString("WHERE value IS NOT NULL AND value != ''\n")
+	sqlQuery.WriteString("GROUP BY value\n")
+	sqlQuery.WriteString("ORDER BY usage_events DESC, value ASC\n")
+	sqlQuery.WriteString("LIMIT ?")
+	args = append(args, query.Limit())
+
+	rows, err := r.store.db.QueryContext(ctx, sqlQuery.String(), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	values := []domainusage.DimensionValue{}
+	for rows.Next() {
+		var value string
+		var usageEvents int
+		if err := rows.Scan(&value, &usageEvents); err != nil {
+			return nil, err
+		}
+		values = append(values, domainusage.NewDimensionValue(query.Field(), value, usageEvents))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return values, nil
+}
+
 func bucketStartSQL(size domainusage.BucketSize) string {
 	switch size {
 	case domainusage.BucketHour:
@@ -339,12 +400,28 @@ func groupOrderColumns(aliases []string) string {
 }
 
 func metadataTextSQL(key string, args *[]any) (string, error) {
+	path, err := sqliteJSONPath(key)
+	if err != nil {
+		return "", err
+	}
+	*args = append(*args, path, path)
+	return "CASE json_type(metadata, ?) WHEN 'true' THEN 'true' WHEN 'false' THEN 'false' ELSE COALESCE(CAST(json_extract(metadata, ?) AS TEXT), '<nil>') END", nil
+}
+
+func metadataValueSQL(key string, args *[]any) (string, error) {
+	path, err := sqliteJSONPath(key)
+	if err != nil {
+		return "", err
+	}
+	*args = append(*args, path, path)
+	return "CASE json_type(metadata, ?) WHEN 'true' THEN 'true' WHEN 'false' THEN 'false' ELSE CAST(json_extract(metadata, ?) AS TEXT) END", nil
+}
+
+func sqliteJSONPath(key string) (string, error) {
 	if !metadataKeyPattern.MatchString(key) {
 		return "", fmt.Errorf("unsupported metadata key %q", key)
 	}
-	path := "$." + key
-	*args = append(*args, path, path)
-	return "CASE json_type(metadata, ?) WHEN 'true' THEN 'true' WHEN 'false' THEN 'false' ELSE COALESCE(CAST(json_extract(metadata, ?) AS TEXT), '<nil>') END", nil
+	return "$." + key, nil
 }
 
 func aggregateSQL(aggregation domainmeter.Aggregation, bucketSize domainusage.BucketSize) string {

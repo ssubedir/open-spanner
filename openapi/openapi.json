@@ -1609,6 +1609,109 @@
                 }
             }
         },
+        "/v1/usages/dimensions": {
+            "get": {
+                "tags": [
+                    "usages"
+                ],
+                "summary": "List usage dimension values",
+                "operationId": "listUsageDimensionValues",
+                "parameters": [
+                    {
+                        "description": "Meter name",
+                        "name": "meter",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Metadata dimension field",
+                        "name": "field",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Subject",
+                        "name": "subject",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "RFC3339 start time",
+                        "name": "from",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "RFC3339 end time",
+                        "name": "to",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Result limit",
+                        "name": "limit",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/internal_metering_adapters_http_usage.DimensionValueListResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/usages/export": {
             "get": {
                 "tags": [
@@ -2234,6 +2337,31 @@
                         "type": "string"
                     },
                     "timestamp": {
+                        "type": "string"
+                    }
+                }
+            },
+            "internal_metering_adapters_http_usage.DimensionValueListResponse": {
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/internal_metering_adapters_http_usage.DimensionValueResponse"
+                        }
+                    }
+                }
+            },
+            "internal_metering_adapters_http_usage.DimensionValueResponse": {
+                "type": "object",
+                "properties": {
+                    "events": {
+                        "type": "integer"
+                    },
+                    "field": {
+                        "type": "string"
+                    },
+                    "value": {
                         "type": "string"
                     }
                 }

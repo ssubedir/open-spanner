@@ -113,6 +113,22 @@ export type UsageCreateRequest = {
 };
 
 /**
+ * UsageDimensionValueListResponse
+ */
+export type UsageDimensionValueListResponse = {
+    items?: Array<UsageDimensionValue>;
+};
+
+/**
+ * UsageDimensionValue
+ */
+export type UsageDimensionValue = {
+    events?: number;
+    field?: string;
+    value?: string;
+};
+
+/**
  * UsageBucket
  */
 export type UsageBucket = {
@@ -474,6 +490,64 @@ export type CreateUsageBulkResponses = {
 };
 
 export type CreateUsageBulkResponse = CreateUsageBulkResponses[keyof CreateUsageBulkResponses];
+
+export type ListUsageDimensionValuesData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Meter name
+         */
+        meter: string;
+        /**
+         * Metadata dimension field
+         */
+        field: string;
+        /**
+         * Subject
+         */
+        subject?: string;
+        /**
+         * RFC3339 start time
+         */
+        from?: string;
+        /**
+         * RFC3339 end time
+         */
+        to?: string;
+        /**
+         * Result limit
+         */
+        limit?: number;
+    };
+    url: '/v1/usages/dimensions';
+};
+
+export type ListUsageDimensionValuesErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorResponse;
+};
+
+export type ListUsageDimensionValuesError = ListUsageDimensionValuesErrors[keyof ListUsageDimensionValuesErrors];
+
+export type ListUsageDimensionValuesResponses = {
+    /**
+     * OK
+     */
+    200: UsageDimensionValueListResponse;
+};
+
+export type ListUsageDimensionValuesResponse = ListUsageDimensionValuesResponses[keyof ListUsageDimensionValuesResponses];
 
 export type ExportUsageBucketsData = {
     body?: never;

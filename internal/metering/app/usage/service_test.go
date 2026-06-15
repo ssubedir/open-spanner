@@ -605,6 +605,76 @@ func TestServiceListGroupsByMultipleMetadataFields(t *testing.T) {
 	}
 }
 
+func TestServiceListDimensionValues(t *testing.T) {
+	ctx := context.Background()
+	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
+
+	meter, err := domainmeter.New(
+		"meter-1",
+		"api_calls",
+		"API calls",
+		"call",
+		domainmeter.AggregationSum,
+		map[string]domainmeter.MetadataType{
+			"region": domainmeter.MetadataString,
+		},
+		0,
+		time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatalf("new meter: %v", err)
+	}
+	if _, err := meterRepo.Save(ctx, meter); err != nil {
+		t.Fatalf("save meter: %v", err)
+	}
+
+	service := NewService(meterRepo, usageRepo, store)
+	for _, event := range []CreateCommand{
+		{Subject: "org_123", MeterName: "api_calls", Quantity: 2, EventTime: time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC), Metadata: map[string]any{"region": "us-east-1"}},
+		{Subject: "org_123", MeterName: "api_calls", Quantity: 3, EventTime: time.Date(2026, 6, 8, 11, 0, 0, 0, time.UTC), Metadata: map[string]any{"region": "us-west-2"}},
+		{Subject: "org_123", MeterName: "api_calls", Quantity: 5, EventTime: time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC), Metadata: map[string]any{"region": "us-east-1"}},
+		{Subject: "org_456", MeterName: "api_calls", Quantity: 7, EventTime: time.Date(2026, 6, 8, 13, 0, 0, 0, time.UTC), Metadata: map[string]any{"region": "us-central-1"}},
+	} {
+		if _, err := service.Create(ctx, event); err != nil {
+			t.Fatalf("create usage: %v", err)
+		}
+	}
+
+	values, err := service.ListDimensionValues(ctx, DimensionValueListQuery{
+		MeterName: "api_calls",
+		Field:     "region",
+		Subject:   "org_123",
+		From:      time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC),
+		To:        time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC),
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("list dimension values: %v", err)
+	}
+	if len(values.Items) != 2 {
+		t.Fatalf("dimension values = %#v, want two values", values.Items)
+	}
+	if values.Items[0].Field != "region" || values.Items[0].Value != "us-east-1" || values.Items[0].UsageEvents != 2 {
+		t.Fatalf("first dimension value = %#v", values.Items[0])
+	}
+	if values.Items[1].Value != "us-west-2" || values.Items[1].UsageEvents != 1 {
+		t.Fatalf("second dimension value = %#v", values.Items[1])
+	}
+}
+
+func TestServiceListDimensionValuesRejectsUnknownField(t *testing.T) {
+	ctx := context.Background()
+	service := newTestService(t, ctx)
+
+	_, err := service.ListDimensionValues(ctx, DimensionValueListQuery{
+		MeterName: "api_calls",
+		Field:     "region",
+	})
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("dimension field error = %v, want ErrInvalidInput", err)
+	}
+}
+
 func TestServiceCreateMissingMeterReturnsNotFound(t *testing.T) {
 	ctx := context.Background()
 	store, meterRepo, usageRepo := newTestRepositories(t, ctx)

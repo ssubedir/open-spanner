@@ -500,6 +500,109 @@
         }
       }
     },
+    "/v1/usages/dimensions": {
+      "get": {
+        "tags": [
+          "usages"
+        ],
+        "summary": "List usage dimension values",
+        "operationId": "listUsageDimensionValues",
+        "parameters": [
+          {
+            "description": "Meter name",
+            "name": "meter",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Metadata dimension field",
+            "name": "field",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Subject",
+            "name": "subject",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "RFC3339 start time",
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "RFC3339 end time",
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Result limit",
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageDimensionValueListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/usages/export": {
       "get": {
         "tags": [
@@ -915,6 +1018,33 @@
           }
         },
         "title": "UsageCreateRequest"
+      },
+      "UsageDimensionValueListResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UsageDimensionValue"
+            }
+          }
+        },
+        "title": "UsageDimensionValueListResponse"
+      },
+      "UsageDimensionValue": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "integer"
+          },
+          "field": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "title": "UsageDimensionValue"
       },
       "UsageBucket": {
         "type": "object",

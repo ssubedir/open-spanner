@@ -16,6 +16,7 @@ import {
   listMeters,
   listSubjects,
   listUsageBuckets,
+  listUsageDimensionValues,
   refreshAuthSession,
   updateMeter as updateMeterRequest,
   type APIKey,
@@ -26,13 +27,17 @@ import {
   type MeterStats,
   type MeterUpdateRequest,
   type UsageBucket,
+  type UsageDimensionValue,
   type IngestionRun,
   type SubjectStats,
   type SystemStats,
 } from './api'
 import {
   defaultFilterQuery,
+  firstEqualRuleValue,
+  metadataTypesByField,
   queryWithAvailableMeter,
+  selectedMeterSchemaKeys,
   usageFilterFromQuery,
   usageScopeFromQuery,
   usageTimeRangeFromQuery,
@@ -81,6 +86,7 @@ type AppState = {
   }
   usage: {
     buckets: UsageBucket[]
+    dimensionValues: Record<string, UsageDimensionValue[]>
     error: string
     filterQuery: RuleGroupType
     groupBy: string[]
@@ -127,6 +133,7 @@ export const appStore = createStore<AppState>({
   },
   usage: {
     buckets: [],
+    dimensionValues: {},
     error: '',
     filterQuery: defaultFilterQuery(),
     groupBy: [],
@@ -273,6 +280,44 @@ export const appStoreActions = {
       setUsageState({ error: errorMessage(err, 'Unable to load usage controls'), status: 'error' })
     }
   },
+  async loadUsageDimensionValues() {
+    const query = appStore.state.usage.filterQuery
+    const meters = appStore.state.usage.meters
+    const meter = firstEqualRuleValue(query, 'meter')
+    const fields = selectedMeterSchemaKeys(meters, meter)
+    if (!meter || fields.length === 0) {
+      setUsageState({ dimensionValues: {} })
+      return
+    }
+
+    const subject = firstEqualRuleValue(query, 'subject')
+    let from = ''
+    let to = ''
+    try {
+      const timeRange = usageTimeRangeFromQuery(query)
+      from = timeRange.from
+      to = timeRange.to
+    } catch {
+      // Discovery is still useful without a complete time window.
+    }
+
+    try {
+      const values = await Promise.all(fields.map(async (field) => {
+        const response = await listUsageDimensionValues({
+          field,
+          from,
+          limit: 20,
+          meter,
+          subject,
+          to,
+        })
+        return [field, response.items] as const
+      }))
+      setUsageState({ dimensionValues: Object.fromEntries(values) })
+    } catch {
+      setUsageState({ dimensionValues: {} })
+    }
+  },
   async login(input: { email: string; password: string }) {
     setAuthState({ loading: true, loginError: '', registerError: '' })
     try {
@@ -391,7 +436,7 @@ export const appStoreActions = {
       const query = appStore.state.usage.filterQuery
       const scope = usageScopeFromQuery(query)
       const timeRange = usageTimeRangeFromQuery(query)
-      const filter = usageFilterFromQuery(query)
+      const filter = usageFilterFromQuery(query, metadataTypesByField(appStore.state.usage.meters, scope.meter))
       const groupBy = groupByValue.filter(Boolean)
       const buckets = await listUsageBuckets({
         bucket_size: bucketSize,

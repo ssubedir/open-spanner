@@ -32,6 +32,8 @@ const schemaNames = new Map([
   ["internal_metering_adapters_http_usage.BulkFailureResponse", "UsageBulkFailure"],
   ["internal_metering_adapters_http_usage.BulkResponse", "UsageBulkResult"],
   ["internal_metering_adapters_http_usage.CreateRequest", "UsageCreateRequest"],
+  ["internal_metering_adapters_http_usage.DimensionValueListResponse", "UsageDimensionValueListResponse"],
+  ["internal_metering_adapters_http_usage.DimensionValueResponse", "UsageDimensionValue"],
   ["internal_metering_adapters_http_usage.EventListResponse", "UsageEventListResponse"],
   ["internal_metering_adapters_http_usage.IngestionListResponse", "UsageIngestionListResponse"],
   ["internal_metering_adapters_http_usage.IngestionResponse", "UsageIngestionRun"],
@@ -55,6 +57,7 @@ const sdkOperations = new Map([
   ["/v1/meters/{id}", new Set(["delete", "get", "put"])],
   ["/v1/usages", new Set(["post"])],
   ["/v1/usages/bulk", new Set(["post"])],
+  ["/v1/usages/dimensions", new Set(["get"])],
   ["/v1/usages/export", new Set(["get"])],
   ["/v1/usages/search", new Set(["post"])],
 ]);

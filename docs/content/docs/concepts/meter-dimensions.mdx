@@ -55,6 +55,28 @@ Every usage event for a meter must match that meter's metadata schema.
 
 Unknown metadata keys are rejected. Missing schema keys are also rejected. This keeps usage data consistent for filtering, grouping, and export.
 
+## Discover Dimension Values
+
+Open Spanner can list observed values for a dimension. Use this when you want to build filter pickers, audit which values are being sent, or help users choose valid grouping values.
+
+```sh
+curl "http://localhost:18081/v1/usages/dimensions?meter=api_requests&field=region&subject=org_123&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z" \
+  -H "Authorization: Bearer osp_live_your_api_key"
+```
+
+The response is ordered by the number of matching usage events:
+
+```json
+{
+  "items": [
+    { "field": "region", "value": "us-east", "events": 128 },
+    { "field": "region", "value": "eu-west", "events": 42 }
+  ]
+}
+```
+
+The dashboard usage page uses discovered values to make metadata filters easier to select.
+
 ## Query By Dimension
 
 Use metadata filters for direct queries:
@@ -101,4 +123,4 @@ Avoid putting high-cardinality values in dimensions unless you really need to qu
 
 ## Planned Direction
 
-Open Spanner may add more dimension management over time, such as easier discovery, richer dashboard controls, and looser ingestion modes. Today, dimensions are explicit and schema-backed.
+Open Spanner may add more dimension management over time, such as richer dashboard controls, dimension catalogs, and looser ingestion modes. Today, dimensions are explicit and schema-backed.

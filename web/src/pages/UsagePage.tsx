@@ -1,6 +1,6 @@
 import { useSelector } from '@tanstack/react-store'
 import { BarChart3, Loader2, RefreshCw, Search } from 'lucide-react'
-import { type FormEvent, useCallback, useMemo } from 'react'
+import { type FormEvent, useCallback, useEffect, useMemo } from 'react'
 
 import { appStore, appStoreActions } from '../app-store'
 import { DataTable, PageHeader } from '../components/dashboard'
@@ -13,13 +13,15 @@ import { useInitialLoad } from '../lib/hooks'
 import {
   buildFilterFields,
   firstEqualRuleValue,
+  metadataTypesByField,
   selectedMeterSchemaKeys,
+  usageDimensionDiscoveryKey,
 } from '../lib/usage-query'
 
 const maxGroupByFields = 5
 
 export function UsagePage() {
-  const { buckets, error, filterQuery, groupBy, meters, status } = useSelector(appStore, (state) => state.usage)
+  const { buckets, dimensionValues, error, filterQuery, groupBy, meters, status } = useSelector(appStore, (state) => state.usage)
   const load = useCallback(() => appStoreActions.loadUsageControls(), [])
 
   useInitialLoad(load)
@@ -33,7 +35,16 @@ export function UsagePage() {
   const selectedMeterName = firstEqualRuleValue(filterQuery, 'meter')
   const groupKeys = useMemo(() => selectedMeterSchemaKeys(meters, selectedMeterName), [meters, selectedMeterName])
   const activeGroupBy = groupBy.filter((key) => groupKeys.includes(key))
-  const filterFields = useMemo(() => buildFilterFields(groupKeys, meters), [groupKeys, meters])
+  const metadataTypes = useMemo(() => metadataTypesByField(meters, selectedMeterName), [meters, selectedMeterName])
+  const filterFields = useMemo(
+    () => buildFilterFields(groupKeys, meters, dimensionValues, metadataTypes),
+    [dimensionValues, groupKeys, metadataTypes, meters],
+  )
+  const discoveryKey = useMemo(() => usageDimensionDiscoveryKey(filterQuery, meters), [filterQuery, meters])
+
+  useEffect(() => {
+    void appStoreActions.loadUsageDimensionValues()
+  }, [discoveryKey])
 
   function resetQuery() {
     appStoreActions.resetUsageQuery()
@@ -63,6 +74,7 @@ export function UsagePage() {
             <form className="form-grid usage-query-form" onSubmit={(event) => void submitQuery(event)}>
               <FilterBuilder
                 fields={filterFields}
+                metadataTypes={metadataTypes}
                 onChange={appStoreActions.setUsageFilterQuery}
                 query={filterQuery}
               />

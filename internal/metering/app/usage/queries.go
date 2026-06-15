@@ -2,6 +2,7 @@ package usage
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/ssubedir/open-spanner/internal/metering/app/page"
@@ -30,6 +31,15 @@ type EventListQuery struct {
 	Limit     int
 	Cursor    string
 	Filter    domainusage.Filter
+}
+
+type DimensionValueListQuery struct {
+	MeterName string
+	Field     string
+	Subject   string
+	From      time.Time
+	To        time.Time
+	Limit     int
 }
 
 type PruneRunListQuery struct {
@@ -148,6 +158,46 @@ func (s *service) List(ctx context.Context, input ListQuery) ([]ListItemResult, 
 	}
 
 	return results, nil
+}
+
+func (s *service) ListDimensionValues(ctx context.Context, input DimensionValueListQuery) (DimensionValueListResult, error) {
+	meters, err := s.meterRepo.Find(ctx, domainmeter.Query{Name: input.MeterName})
+	if err != nil {
+		return DimensionValueListResult{}, err
+	}
+	if len(meters) == 0 {
+		return DimensionValueListResult{}, domain.ErrNotFound
+	}
+	meter := meters[0]
+
+	field := strings.TrimPrefix(strings.TrimSpace(input.Field), "metadata.")
+	if _, exists := meter.MetadataSchema()[field]; !exists {
+		return DimensionValueListResult{}, domain.ErrInvalidInput
+	}
+
+	query, err := domainusage.NewDimensionValueQuery(
+		meter.Name(),
+		field,
+		input.Subject,
+		input.From,
+		input.To,
+		input.Limit,
+	)
+	if err != nil {
+		return DimensionValueListResult{}, err
+	}
+
+	values, err := s.usageRepo.FindDimensionValues(ctx, query)
+	if err != nil {
+		return DimensionValueListResult{}, err
+	}
+
+	results := make([]DimensionValueResult, 0, len(values))
+	for _, value := range values {
+		results = append(results, dimensionValueResultFromDomain(value))
+	}
+
+	return DimensionValueListResult{Items: results}, nil
 }
 
 func (s *service) ListEvents(ctx context.Context, input EventListQuery) (EventListResult, error) {

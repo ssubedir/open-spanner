@@ -366,6 +366,66 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 	respond.JSON(w, http.StatusOK, res)
 }
 
+// ListDimensionValues lists discovered values for a meter metadata dimension.
+//
+// @Summary List usage dimension values
+// @ID listUsageDimensionValues
+// @Tags usages
+// @Produce json
+// @Param meter query string true "Meter name"
+// @Param field query string true "Metadata dimension field"
+// @Param subject query string false "Subject"
+// @Param from query string false "RFC3339 start time"
+// @Param to query string false "RFC3339 end time"
+// @Param limit query int false "Result limit"
+// @Success 200 {object} DimensionValueListResponse
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 404 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/usages/dimensions [get]
+func (h *Handler) ListDimensionValues(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	limit, err := request.ParseLimit(query.Get("limit"))
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+	from, err := request.OptionalTime("from", query.Get("from"))
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+	to, err := request.OptionalTime("to", query.Get("to"))
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+
+	values, err := h.service.ListDimensionValues(r.Context(), appusage.DimensionValueListQuery{
+		MeterName: query.Get("meter"),
+		Field:     query.Get("field"),
+		Subject:   query.Get("subject"),
+		From:      from,
+		To:        to,
+		Limit:     limit,
+	})
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+
+	res := make([]DimensionValueResponse, 0, len(values.Items))
+	for _, item := range values.Items {
+		res = append(res, DimensionValueResponse{
+			Field:       item.Field,
+			Value:       item.Value,
+			UsageEvents: item.UsageEvents,
+		})
+	}
+
+	respond.JSON(w, http.StatusOK, DimensionValueListResponse{Items: res})
+}
+
 // ListEvents lists raw usage events.
 //
 // @Summary List usage events

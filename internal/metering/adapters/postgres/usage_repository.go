@@ -269,6 +269,57 @@ LIMIT ` + bindArg(&args, query.Limit()) + `
 	return buckets, nil
 }
 
+func (r *UsageRepository) FindDimensionValues(ctx context.Context, query domainusage.DimensionValueQuery) ([]domainusage.DimensionValue, error) {
+	if !metadataKeyPattern.MatchString(query.Field()) {
+		return nil, fmt.Errorf("unsupported metadata field %q", query.Field())
+	}
+
+	args := []any{}
+	valueSQL := "metadata #>> " + postgresJSONPath(query.Field())
+	sqlQuery := strings.Builder{}
+	sqlQuery.WriteString("SELECT value, COUNT(*) AS usage_events\n")
+	sqlQuery.WriteString("FROM (\n")
+	sqlQuery.WriteString("\tSELECT " + valueSQL + " AS value\n")
+	sqlQuery.WriteString("\tFROM usage_events\n")
+	sqlQuery.WriteString("\tWHERE meter_name = " + bindArg(&args, query.MeterName()) + "\n")
+	sqlQuery.WriteString("\t\tAND " + valueSQL + " IS NOT NULL\n")
+	if query.Subject() != "" {
+		sqlQuery.WriteString("\t\tAND subject = " + bindArg(&args, query.Subject()) + "\n")
+	}
+	if !query.From().IsZero() {
+		sqlQuery.WriteString("\t\tAND event_time >= " + bindArg(&args, formatTime(query.From())) + "\n")
+	}
+	if !query.To().IsZero() {
+		sqlQuery.WriteString("\t\tAND event_time < " + bindArg(&args, formatTime(query.To())) + "\n")
+	}
+	sqlQuery.WriteString(") discovered\n")
+	sqlQuery.WriteString("WHERE value IS NOT NULL AND value != ''\n")
+	sqlQuery.WriteString("GROUP BY value\n")
+	sqlQuery.WriteString("ORDER BY usage_events DESC, value ASC\n")
+	sqlQuery.WriteString("LIMIT " + bindArg(&args, query.Limit()))
+
+	rows, err := r.store.query(ctx, sqlQuery.String(), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	values := []domainusage.DimensionValue{}
+	for rows.Next() {
+		var value string
+		var usageEvents int
+		if err := rows.Scan(&value, &usageEvents); err != nil {
+			return nil, err
+		}
+		values = append(values, domainusage.NewDimensionValue(query.Field(), value, usageEvents))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return values, nil
+}
+
 func bucketStartSQL(size domainusage.BucketSize) string {
 	switch size {
 	case domainusage.BucketHour:

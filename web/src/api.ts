@@ -123,6 +123,25 @@ export type UsageBucketQuery = {
   filter?: UsageFilter
 }
 
+export type UsageDimensionValue = {
+  field: string
+  value: string
+  events: number
+}
+
+export type UsageDimensionValueList = {
+  items: UsageDimensionValue[]
+}
+
+export type UsageDimensionValueQuery = {
+  meter: string
+  field: string
+  subject?: string
+  from?: string
+  to?: string
+  limit?: number
+}
+
 export type UsageFilter = UsageFilterGroup | UsageFilterCondition
 
 export type UsageFilterGroup = {
@@ -319,4 +338,24 @@ export async function listUsageBuckets(query: UsageBucketQuery) {
     }),
     method: 'POST',
   })
+}
+
+export async function listUsageDimensionValues(query: UsageDimensionValueQuery) {
+  const params = new URLSearchParams({
+    field: query.field,
+    meter: query.meter,
+  })
+  if (query.subject) {
+    params.set('subject', query.subject)
+  }
+  if (query.from) {
+    params.set('from', query.from)
+  }
+  if (query.to) {
+    params.set('to', query.to)
+  }
+  if (query.limit) {
+    params.set('limit', String(query.limit))
+  }
+  return request<UsageDimensionValueList>(`/v1/usages/dimensions?${params.toString()}`)
 }
