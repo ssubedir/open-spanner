@@ -38,6 +38,7 @@ import {
   defaultFilterQuery,
   firstEqualRuleValue,
   metadataTypesByField,
+  queryWithBreakdownFilter,
   queryWithAvailableMeter,
   selectedMeterSchemaKeys,
   usageFilterFromQuery,
@@ -471,6 +472,11 @@ export const appStoreActions = {
   },
   setUsageFilterQuery(filterQuery: RuleGroupType) {
     setUsageState({ filterQuery })
+  },
+  applyUsageBreakdownFilter(field: string, value: string) {
+    setUsageState((state) => ({
+      filterQuery: queryWithBreakdownFilter(state.filterQuery, field, value),
+    }))
   },
   setUsageGroupBy(groupBy: string[]) {
     setUsageState({ groupBy })

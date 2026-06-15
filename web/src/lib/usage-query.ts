@@ -119,8 +119,8 @@ export function metadataTypesByField(meters: Meter[], selectedMeterName?: string
 }
 
 export function usageDimensionDiscoveryKey(query: RuleGroupType, meters: Meter[]) {
-	const meter = firstEqualRuleValue(query, 'meter')
-	const metadataKeys = selectedMeterSchemaKeys(meters, meter)
+  const meter = firstEqualRuleValue(query, 'meter')
+  const metadataKeys = selectedMeterSchemaKeys(meters, meter)
   if (!meter || metadataKeys.length === 0) {
     return ''
   }
@@ -207,6 +207,12 @@ export function getFilterInputType(field: string, metadataTypes: MetadataTypes =
 
 export function countQueryRules(query: RuleGroupType): number {
   return query.rules.reduce((sum, rule) => sum + (isQueryGroup(rule) ? countQueryRules(rule) : 1), 0)
+}
+
+export function queryWithBreakdownFilter(query: RuleGroupType, field: string, value: string): RuleGroupType {
+  const filterField = field === 'subject' ? 'subject' : `metadata.${field.replace(/^metadata\./, '')}`
+
+  return replaceRuleValue(query, filterField, () => value)
 }
 
 function metadataFilterField(key: string, values: UsageDimensionValue[], metadataType?: string): Field {

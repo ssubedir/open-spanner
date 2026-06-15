@@ -534,8 +534,26 @@ svg {
   gap: 10px;
   align-items: center;
   min-height: 48px;
+  width: 100%;
+  border: 0;
   border-bottom: 1px solid #eef1f5;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
   padding: 9px 0;
+  text-align: left;
+  transition: background-color 120ms ease;
+}
+
+.breakdown-row:hover {
+  background: #f8fafc;
+}
+
+.breakdown-row:focus-visible {
+  border-radius: 6px;
+  outline: 3px solid var(--ring);
+  outline-offset: -3px;
 }
 
 .breakdown-row:last-child {

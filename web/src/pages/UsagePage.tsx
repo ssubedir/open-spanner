@@ -163,7 +163,12 @@ export function UsagePage() {
             {breakdownSections.length > 0 ? (
               <div className="breakdown-grid">
                 {breakdownSections.map((section) => (
-                  <BreakdownPanel field={section.field} items={section.items} key={section.field} />
+                  <BreakdownPanel
+                    field={section.field}
+                    items={section.items}
+                    key={section.field}
+                    onApplyFilter={appStoreActions.applyUsageBreakdownFilter}
+                  />
                 ))}
               </div>
             ) : (
@@ -201,21 +206,37 @@ export function UsagePage() {
   )
 }
 
-function BreakdownPanel({ field, items }: { field: string; items: Array<{ value: string; quantity: number; events: number; unit: string }> }) {
+function BreakdownPanel({
+  field,
+  items,
+  onApplyFilter,
+}: {
+  field: string
+  items: Array<{ value: string; quantity: number; events: number; unit: string }>
+  onApplyFilter: (field: string, value: string) => void
+}) {
   const maxQuantity = Math.max(...items.map((item) => item.quantity), 0)
+  const label = breakdownLabel(field)
 
   return (
     <section className="breakdown-panel">
       <div className="breakdown-panel-header">
         <div>
-          <h2>{breakdownLabel(field)}</h2>
+          <h2>{label}</h2>
           <span>{items.length} values</span>
         </div>
       </div>
       {items.length > 0 ? (
         <div className="breakdown-list">
           {items.map((item, index) => (
-            <div className="breakdown-row" key={item.value}>
+            <button
+              aria-label={`Filter by ${label}: ${item.value}`}
+              className="breakdown-row"
+              key={item.value}
+              onClick={() => onApplyFilter(field, item.value)}
+              title={`Filter by ${label}: ${item.value}`}
+              type="button"
+            >
               <span className="breakdown-rank">{index + 1}</span>
               <div className="breakdown-row-main">
                 <div className="breakdown-label">
@@ -230,7 +251,7 @@ function BreakdownPanel({ field, items }: { field: string; items: Array<{ value:
                 <strong>{formatNumber(item.quantity)}</strong>
                 <small>{item.unit}</small>
               </div>
-            </div>
+            </button>
           ))}
         </div>
       ) : (
