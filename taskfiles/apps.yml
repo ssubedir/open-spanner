@@ -1,0 +1,22 @@
+version: '3'
+
+tasks:
+  admin:dev:
+    desc: Run the React admin UI dev server
+    cmds:
+      - cd web; npm run dev
+
+  admin:build:
+    desc: Build the React admin UI into embedded static files
+    cmds:
+      - cd web; npm run build
+
+  docs:dev:
+    desc: Run the Fumadocs documentation site dev server
+    cmds:
+      - cd docs; npm run dev
+
+  docs:build:
+    desc: Build the Fumadocs documentation site
+    cmds:
+      - cd docs; npm run build

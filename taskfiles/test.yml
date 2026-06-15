@@ -1,0 +1,214 @@
+version: '3'
+
+tasks:
+  test:
+    desc: Run all Go tests
+    cmds:
+      - go test -count=1 ./...
+
+  test:postgres:
+    desc: Run Postgres integration tests
+    cmds:
+      - task: postgres:up
+      - go test ./internal/metering/adapters/postgres -run Integration -count=1
+    env:
+      OPEN_SPANNER_TEST_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/open_spanner?sslmode=disable
+
+  test:examples:
+    desc: Verify local SDK examples compile and build without calling the API
+    cmds:
+      - task: test:examples:basic
+      - task: test:examples:advance
+
+  test:examples:basic:
+    desc: Verify all basic SDK examples
+    cmds:
+      - task: test:examples:basic:go
+      - task: test:examples:basic:csharp
+      - task: test:examples:basic:python
+      - task: test:examples:basic:typescript
+
+  test:examples:basic:go:
+    desc: Verify the basic Go example
+    cmds:
+      - task: _test:example:go
+        vars:
+          DIR: examples/basic/go
+
+  test:examples:basic:csharp:
+    desc: Verify the basic C# example
+    cmds:
+      - task: _test:example:csharp
+        vars:
+          PROJECT: examples/basic/csharp/OpenSpanner.Example.csproj
+
+  test:examples:basic:python:
+    desc: Verify the basic Python example
+    cmds:
+      - task: _test:example:python
+        vars:
+          FILE: examples/basic/python/basic.py
+
+  test:examples:basic:typescript:
+    desc: Verify the basic TypeScript example
+    cmds:
+      - task: _test:example:typescript
+        vars:
+          CONFIG: examples/basic/typescript/tsconfig.json
+
+  test:examples:advance:
+    desc: Verify all advanced scenario examples
+    cmds:
+      - task: test:examples:advance:active-users
+      - task: test:examples:advance:ai-tokens
+      - task: test:examples:advance:api-requests
+      - task: test:examples:advance:background-jobs
+      - task: test:examples:advance:feature-usage
+      - task: test:examples:advance:historical-backfill
+      - task: test:examples:advance:storage-usage
+
+  test:examples:advance:active-users:
+    desc: Verify the active users advanced example
+    cmds:
+      - task: _test:example:go
+        vars:
+          DIR: examples/advance/active-users
+      - task: _test:example:csharp
+        vars:
+          PROJECT: examples/advance/active-users/OpenSpanner.ActiveUsers.csproj
+      - task: _test:example:python
+        vars:
+          FILE: examples/advance/active-users/python.py
+      - task: _test:example:typescript
+        vars:
+          CONFIG: examples/advance/active-users/tsconfig.json
+
+  test:examples:advance:ai-tokens:
+    desc: Verify the AI tokens advanced example
+    cmds:
+      - task: _test:example:go
+        vars:
+          DIR: examples/advance/ai-tokens
+      - task: _test:example:csharp
+        vars:
+          PROJECT: examples/advance/ai-tokens/OpenSpanner.AiTokens.csproj
+      - task: _test:example:python
+        vars:
+          FILE: examples/advance/ai-tokens/python.py
+      - task: _test:example:typescript
+        vars:
+          CONFIG: examples/advance/ai-tokens/tsconfig.json
+
+  test:examples:advance:api-requests:
+    desc: Verify the API requests advanced example
+    cmds:
+      - task: _test:example:go
+        vars:
+          DIR: examples/advance/api-requests
+      - task: _test:example:csharp
+        vars:
+          PROJECT: examples/advance/api-requests/OpenSpanner.ApiRequests.csproj
+      - task: _test:example:python
+        vars:
+          FILE: examples/advance/api-requests/python.py
+      - task: _test:example:typescript
+        vars:
+          CONFIG: examples/advance/api-requests/tsconfig.json
+
+  test:examples:advance:background-jobs:
+    desc: Verify the background jobs advanced example
+    cmds:
+      - task: _test:example:go
+        vars:
+          DIR: examples/advance/background-jobs
+      - task: _test:example:csharp
+        vars:
+          PROJECT: examples/advance/background-jobs/OpenSpanner.BackgroundJobs.csproj
+      - task: _test:example:python
+        vars:
+          FILE: examples/advance/background-jobs/python.py
+      - task: _test:example:typescript
+        vars:
+          CONFIG: examples/advance/background-jobs/tsconfig.json
+
+  test:examples:advance:feature-usage:
+    desc: Verify the feature usage advanced example
+    cmds:
+      - task: _test:example:go
+        vars:
+          DIR: examples/advance/feature-usage
+      - task: _test:example:csharp
+        vars:
+          PROJECT: examples/advance/feature-usage/OpenSpanner.FeatureUsage.csproj
+      - task: _test:example:python
+        vars:
+          FILE: examples/advance/feature-usage/python.py
+      - task: _test:example:typescript
+        vars:
+          CONFIG: examples/advance/feature-usage/tsconfig.json
+
+  test:examples:advance:historical-backfill:
+    desc: Verify the historical backfill advanced example
+    cmds:
+      - task: _test:example:go
+        vars:
+          DIR: examples/advance/historical-backfill
+      - task: _test:example:csharp
+        vars:
+          PROJECT: examples/advance/historical-backfill/OpenSpanner.HistoricalBackfill.csproj
+      - task: _test:example:python
+        vars:
+          FILE: examples/advance/historical-backfill/python.py
+      - task: _test:example:typescript
+        vars:
+          CONFIG: examples/advance/historical-backfill/tsconfig.json
+
+  test:examples:advance:storage-usage:
+    desc: Verify the storage usage advanced example
+    cmds:
+      - task: _test:example:go
+        vars:
+          DIR: examples/advance/storage-usage
+      - task: _test:example:csharp
+        vars:
+          PROJECT: examples/advance/storage-usage/OpenSpanner.StorageUsage.csproj
+      - task: _test:example:python
+        vars:
+          FILE: examples/advance/storage-usage/python.py
+      - task: _test:example:typescript
+        vars:
+          CONFIG: examples/advance/storage-usage/tsconfig.json
+
+  vet:
+    desc: Run Go vet
+    cmds:
+      - go vet ./...
+
+  _test:example:go:
+    internal: true
+    cmds:
+      - cd {{.DIR}}; go test ./...
+
+  _test:example:csharp:
+    internal: true
+    cmds:
+      - dotnet build {{.PROJECT}}
+
+  _test:example:python:
+    internal: true
+    cmds:
+      - uv run --isolated --with-editable ./sdk/python python -c "import open_spanner_client"
+      - uv run --isolated --with-editable ./sdk/python python -m py_compile {{.FILE}}
+
+  _test:example:typescript:
+    internal: true
+    cmds:
+      - task: _test:example:typescript:deps
+      - node sdk/typescript/node_modules/typescript/bin/tsc --noEmit -p {{.CONFIG}}
+
+  _test:example:typescript:deps:
+    internal: true
+    status:
+      - node -e "require('node:fs').existsSync('sdk/typescript/node_modules/typescript/bin/tsc') || process.exit(1)"
+    cmds:
+      - cd sdk/typescript; npm ci

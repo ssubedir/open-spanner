@@ -136,10 +136,10 @@ Dashboard access uses HttpOnly cookies. SDKs and service-to-service clients use 
 
 | Language | Package | Install | Example |
 | --- | --- | --- | --- |
-| Go | [`sdk/go`](sdk/go) | `go get github.com/ssubedir/open-spanner/sdk/go` | [`examples/go/basic`](examples/go/basic) |
-| Python | [`open-spanner`](https://pypi.org/project/open-spanner/) | `pip install open-spanner` | [`examples/python`](examples/python) |
-| TypeScript | [`@ssubedir/open-spanner`](https://www.npmjs.com/package/@ssubedir/open-spanner) | `npm install @ssubedir/open-spanner` | [`examples/typescript`](examples/typescript) |
-| C# | [`OpenSpanner`](https://www.nuget.org/packages/OpenSpanner/) | `dotnet add package OpenSpanner` | [`examples/csharp`](examples/csharp) |
+| Go | [`sdk/go`](sdk/go) | `go get github.com/ssubedir/open-spanner/sdk/go` | [`examples/basic/go`](examples/basic/go) |
+| Python | [`open-spanner`](https://pypi.org/project/open-spanner/) | `pip install open-spanner` | [`examples/basic/python`](examples/basic/python) |
+| TypeScript | [`@ssubedir/open-spanner`](https://www.npmjs.com/package/@ssubedir/open-spanner) | `npm install @ssubedir/open-spanner` | [`examples/basic/typescript`](examples/basic/typescript) |
+| C# | [`OpenSpanner`](https://www.nuget.org/packages/OpenSpanner/) | `dotnet add package OpenSpanner` | [`examples/basic/csharp`](examples/basic/csharp) |
 
 Regenerate SDKs:
 

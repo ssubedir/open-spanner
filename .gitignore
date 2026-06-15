@@ -10,5 +10,8 @@ internal/ui/static/**
 .tools/
 sdk/csharp/bin/
 sdk/csharp/obj/
-examples/csharp/bin/
-examples/csharp/obj/
+examples/**/bin/
+examples/**/obj/
+examples/**/node_modules/
+examples/**/.venv/
+examples/**/__pycache__/
