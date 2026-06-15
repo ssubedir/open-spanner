@@ -7,6 +7,9 @@ import (
 	"strings"
 	"time"
 
+	httptransport "github.com/go-openapi/runtime/client"
+	"github.com/go-openapi/strfmt"
+
 	"github.com/ssubedir/open-spanner/sdk/go/client"
 	"github.com/ssubedir/open-spanner/sdk/go/client/meters"
 	"github.com/ssubedir/open-spanner/sdk/go/client/usages"
@@ -19,10 +22,11 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	apiKey := env("OPEN_SPANNER_API_KEY", "osp_...")
 
-	api := client.NewHTTPClientWithConfig(nil, client.DefaultTransportConfig().
-		WithHost(host).
-		WithSchemes(schemes))
+	transport := httptransport.New(host, client.DefaultBasePath, schemes)
+	transport.DefaultAuthentication = httptransport.BearerToken(apiKey)
+	api := client.New(transport, strfmt.Default)
 
 	now := time.Now().UTC()
 	meterName := fmt.Sprintf("sdk_go_requests_%d", now.Unix())

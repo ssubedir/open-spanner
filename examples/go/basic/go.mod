@@ -2,7 +2,11 @@ module github.com/ssubedir/open-spanner/examples/go/basic
 
 go 1.25.5
 
-require github.com/ssubedir/open-spanner/sdk/go v0.1.1
+require (
+	github.com/go-openapi/runtime v0.32.3
+	github.com/go-openapi/strfmt v0.26.3
+	github.com/ssubedir/open-spanner/sdk/go v0.1.3
+)
 
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -13,10 +17,8 @@ require (
 	github.com/go-openapi/jsonpointer v0.23.1 // indirect
 	github.com/go-openapi/jsonreference v0.21.6 // indirect
 	github.com/go-openapi/loads v0.23.3 // indirect
-	github.com/go-openapi/runtime v0.32.3 // indirect
 	github.com/go-openapi/runtime/server-middleware v0.30.0 // indirect
 	github.com/go-openapi/spec v0.22.5 // indirect
-	github.com/go-openapi/strfmt v0.26.3 // indirect
 	github.com/go-openapi/swag/conv v0.26.1 // indirect
 	github.com/go-openapi/swag/fileutils v0.26.0 // indirect
 	github.com/go-openapi/swag/jsonname v0.26.0 // indirect
@@ -39,4 +41,3 @@ require (
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
 )
-

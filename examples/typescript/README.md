@@ -7,4 +7,6 @@ npm install
 npm run start
 ```
 
-Set `OPEN_SPANNER_BASE_URL` to point at your Open Spanner API.
+Create an API key in the dashboard first, then replace `osp_...` in `basic.ts`.
+Set `OPEN_SPANNER_BASE_URL` when your Open Spanner API is not running at
+`http://localhost:18081`.
