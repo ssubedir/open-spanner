@@ -9,34 +9,17 @@ Install:
 npm install @ssubedir/open-spanner
 ```
 
-Configure the client with an API key:
+## Runnable Example
 
-```ts
-import { client, createUsage } from "@ssubedir/open-spanner";
+Use the repository example as the canonical TypeScript sample:
 
-const apiKey = "...";
+- Example project: [`examples/typescript`](https://github.com/ssubedir/open-spanner/tree/main/examples/typescript)
+- Source file: [`examples/typescript/basic.ts`](https://github.com/ssubedir/open-spanner/blob/main/examples/typescript/basic.ts)
 
-client.setConfig({
-  baseUrl: "https://api.example.com",
-  headers: {
-    Authorization: `Bearer ${apiKey}`,
-  },
-});
+```sh
+cd examples/typescript
+npm install
+npm run start
 ```
 
-Record usage:
-
-```ts
-const { data: usage } = await createUsage({
-  body: {
-    idempotency_key: crypto.randomUUID(),
-    subject: "org_123",
-    meter: "api_requests",
-    quantity: 1,
-    timestamp: new Date().toISOString(),
-  },
-  throwOnError: true,
-});
-
-console.log(usage.id);
-```
+Create an API key in the dashboard first, then replace the `osp_...` placeholder in `basic.ts`. Set `OPEN_SPANNER_BASE_URL` when your service is not running at `http://localhost:18081`.

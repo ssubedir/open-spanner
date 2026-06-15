@@ -9,34 +9,16 @@ Install:
 pip install open-spanner
 ```
 
-Record usage:
+## Runnable Example
 
-```python
-from datetime import UTC, datetime
-from uuid import uuid4
+Use the repository example as the canonical Python sample:
 
-from open_spanner_client import AuthenticatedClient
-from open_spanner_client.api.usages import create_usage
-from open_spanner_client.models.usage_create_request import UsageCreateRequest
+- Example project: [`examples/python`](https://github.com/ssubedir/open-spanner/tree/main/examples/python)
+- Source file: [`examples/python/basic.py`](https://github.com/ssubedir/open-spanner/blob/main/examples/python/basic.py)
 
-api_key = "..."
-
-client = AuthenticatedClient(
-    base_url="https://api.example.com",
-    token=api_key,
-    raise_on_unexpected_status=True,
-)
-
-usage = create_usage.sync(
-    client=client,
-    body=UsageCreateRequest(
-        idempotency_key=str(uuid4()),
-        subject="org_123",
-        meter="api_requests",
-        quantity=1,
-        timestamp=datetime.now(UTC).isoformat(),
-    ),
-)
-
-print(usage.id)
+```sh
+cd examples/python
+uv run python basic.py
 ```
+
+Create an API key in the dashboard first, then replace the `osp_...` placeholder in `basic.py`. Set `OPEN_SPANNER_BASE_URL` when your service is not running at `http://localhost:18081`.

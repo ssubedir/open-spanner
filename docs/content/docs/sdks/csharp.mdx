@@ -9,43 +9,16 @@ Install:
 dotnet add package OpenSpanner
 ```
 
-Record usage:
+## Runnable Example
 
-```csharp
-using Microsoft.Kiota.Abstractions.Authentication;
-using Microsoft.Kiota.Http.HttpClientLibrary;
-using OpenSpanner;
-using OpenSpanner.Models;
+Use the repository example as the canonical C# sample:
 
-var apiKey = "...";
-var authProvider = new BaseBearerTokenAuthenticationProvider(new ApiKeyProvider(apiKey));
-var adapter = new HttpClientRequestAdapter(authProvider)
-{
-    BaseUrl = "https://api.example.com",
-};
-var client = new OpenSpannerClient(adapter);
+- Example project: [`examples/csharp`](https://github.com/ssubedir/open-spanner/tree/main/examples/csharp)
+- Source file: [`examples/csharp/Program.cs`](https://github.com/ssubedir/open-spanner/blob/main/examples/csharp/Program.cs)
 
-var usage = await client.V1.Usages.PostAsync(new UsageCreateRequest
-{
-    IdempotencyKey = Guid.NewGuid().ToString(),
-    Subject = "org_123",
-    Meter = "api_requests",
-    Quantity = 1,
-    Timestamp = DateTimeOffset.UtcNow.ToString("O"),
-});
-
-Console.WriteLine(usage?.Id);
-
-sealed class ApiKeyProvider(string apiKey) : IAccessTokenProvider
-{
-    public AllowedHostsValidator AllowedHostsValidator { get; } = new();
-
-    public Task<string> GetAuthorizationTokenAsync(
-        Uri uri,
-        Dictionary<string, object>? additionalAuthenticationContext = null,
-        CancellationToken cancellationToken = default)
-    {
-        return Task.FromResult(apiKey);
-    }
-}
+```sh
+cd examples/csharp
+dotnet run --project OpenSpanner.Example.csproj
 ```
+
+Create an API key in the dashboard first, then replace the `osp_...` placeholder in `Program.cs`. Set `OPEN_SPANNER_BASE_URL` when your service is not running at `http://localhost:18081`.

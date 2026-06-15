@@ -9,45 +9,16 @@ Install:
 go get github.com/ssubedir/open-spanner/sdk/go@latest
 ```
 
-Record usage for a meter that already exists:
+## Runnable Example
 
-```go
-package main
+Use the repository example as the canonical Go sample:
 
-import (
-	"fmt"
-	"time"
+- Example project: [`examples/go/basic`](https://github.com/ssubedir/open-spanner/tree/main/examples/go/basic)
+- Source file: [`examples/go/basic/main.go`](https://github.com/ssubedir/open-spanner/blob/main/examples/go/basic/main.go)
 
-	httptransport "github.com/go-openapi/runtime/client"
-	"github.com/go-openapi/strfmt"
-
-	"github.com/ssubedir/open-spanner/sdk/go/client"
-	"github.com/ssubedir/open-spanner/sdk/go/client/usages"
-	"github.com/ssubedir/open-spanner/sdk/go/models"
-)
-
-func main() {
-	apiKey := "..."
-
-	cfg := client.DefaultTransportConfig().
-		WithHost("api.example.com").
-		WithSchemes([]string{"https"})
-
-	transport := httptransport.New(cfg.Host, cfg.BasePath, cfg.Schemes)
-	transport.DefaultAuthentication = httptransport.BearerToken(apiKey)
-	api := client.New(transport, strfmt.Default)
-
-	usage, err := api.Usages.CreateUsage(usages.NewCreateUsageParams().WithRequest(&models.UsageCreateRequest{
-		IdempotencyKey: fmt.Sprintf("api_requests-%d", time.Now().UnixNano()),
-		Subject:        "org_123",
-		Meter:          "api_requests",
-		Quantity:       1,
-		Timestamp:      time.Now().UTC().Format(time.RFC3339),
-	}))
-	if err != nil {
-		panic(err)
-	}
-
-	fmt.Println(usage.Payload.ID)
-}
+```sh
+cd examples/go/basic
+go run main.go
 ```
+
+Create an API key in the dashboard first, then replace the `osp_...` placeholder in `main.go`. Set `OPEN_SPANNER_BASE_URL` when your service is not running at `http://localhost:18081`.
