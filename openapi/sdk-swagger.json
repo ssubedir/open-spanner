@@ -749,6 +749,12 @@
         "description": {
           "type": "string"
         },
+        "dimensions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MeterDimensionRequest"
+          }
+        },
         "event_retention_days": {
           "type": "integer"
         },
@@ -766,6 +772,48 @@
         }
       },
       "title": "MeterCreateRequest"
+    },
+    "MeterDimensionRequest": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "title": "MeterDimensionRequest"
+    },
+    "MeterDimension": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "title": "MeterDimension"
     },
     "MeterListResponse": {
       "type": "object",
@@ -793,6 +841,12 @@
         },
         "description": {
           "type": "string"
+        },
+        "dimensions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MeterDimension"
+          }
         },
         "event_retention_days": {
           "type": "integer"
@@ -823,6 +877,12 @@
         },
         "description": {
           "type": "string"
+        },
+        "dimensions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MeterDimensionRequest"
+          }
         },
         "event_retention_days": {
           "type": "integer"

@@ -19,6 +19,8 @@ const schemaNames = new Map([
   ["internal_metering_adapters_http_auth.SessionResponse", "AuthSessionResponse"],
   ["internal_metering_adapters_http_auth.UserResponse", "AuthUser"],
   ["internal_metering_adapters_http_meter.CreateRequest", "MeterCreateRequest"],
+  ["internal_metering_adapters_http_meter.DimensionRequest", "MeterDimensionRequest"],
+  ["internal_metering_adapters_http_meter.DimensionResponse", "MeterDimension"],
   ["internal_metering_adapters_http_meter.ListResponse", "MeterListResponse"],
   ["internal_metering_adapters_http_meter.Response", "Meter"],
   ["internal_metering_adapters_http_meter.StatsListResponse", "MeterStatsListResponse"],

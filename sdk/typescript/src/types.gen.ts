@@ -29,12 +29,35 @@ export type InternalMeteringAdaptersHttpUsageSearchRequest = {
 export type MeterCreateRequest = {
     aggregation?: string;
     description?: string;
+    dimensions?: Array<MeterDimensionRequest>;
     event_retention_days?: number;
     metadata_schema?: {
         [key: string]: string;
     };
     name?: string;
     unit?: string;
+};
+
+/**
+ * MeterDimensionRequest
+ */
+export type MeterDimensionRequest = {
+    description?: string;
+    display_name?: string;
+    name?: string;
+    required?: boolean;
+    type?: string;
+};
+
+/**
+ * MeterDimension
+ */
+export type MeterDimension = {
+    description?: string;
+    display_name?: string;
+    name?: string;
+    required?: boolean;
+    type?: string;
 };
 
 /**
@@ -52,6 +75,7 @@ export type Meter = {
     aggregation?: string;
     created_at?: string;
     description?: string;
+    dimensions?: Array<MeterDimension>;
     event_retention_days?: number;
     id?: string;
     metadata_schema?: {
@@ -67,6 +91,7 @@ export type Meter = {
 export type MeterUpdateRequest = {
     aggregation?: string;
     description?: string;
+    dimensions?: Array<MeterDimensionRequest>;
     event_retention_days?: number;
     metadata_schema?: {
         [key: string]: string;

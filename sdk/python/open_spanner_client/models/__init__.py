@@ -7,6 +7,8 @@ from .internal_metering_adapters_http_usage_search_request import InternalMeteri
 from .meter import Meter
 from .meter_create_request import MeterCreateRequest
 from .meter_create_request_metadata_schema import MeterCreateRequestMetadataSchema
+from .meter_dimension import MeterDimension
+from .meter_dimension_request import MeterDimensionRequest
 from .meter_list_response import MeterListResponse
 from .meter_metadata_schema import MeterMetadataSchema
 from .meter_update_request import MeterUpdateRequest
@@ -33,6 +35,8 @@ __all__ = (
     "Meter",
     "MeterCreateRequest",
     "MeterCreateRequestMetadataSchema",
+    "MeterDimension",
+    "MeterDimensionRequest",
     "MeterListResponse",
     "MeterMetadataSchema",
     "MeterUpdateRequest",

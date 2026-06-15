@@ -9,19 +9,11 @@ namespace OpenSpanner.Models
 {
     [global::System.CodeDom.Compiler.GeneratedCode("Kiota", "1.0.0")]
     #pragma warning disable CS1591
-    public partial class MeterUpdateRequest : IAdditionalDataHolder, IParsable
+    public partial class MeterDimension : IAdditionalDataHolder, IParsable
     #pragma warning restore CS1591
     {
         /// <summary>Stores additional data not described in the OpenAPI description found when deserializing. Can be used for serialization as well.</summary>
         public IDictionary<string, object> AdditionalData { get; set; }
-        /// <summary>The aggregation property</summary>
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
-#nullable enable
-        public string? Aggregation { get; set; }
-#nullable restore
-#else
-        public string Aggregation { get; set; }
-#endif
         /// <summary>The description property</summary>
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
 #nullable enable
@@ -30,48 +22,48 @@ namespace OpenSpanner.Models
 #else
         public string Description { get; set; }
 #endif
-        /// <summary>The dimensions property</summary>
+        /// <summary>The display_name property</summary>
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
 #nullable enable
-        public List<global::OpenSpanner.Models.MeterDimensionRequest>? Dimensions { get; set; }
+        public string? DisplayName { get; set; }
 #nullable restore
 #else
-        public List<global::OpenSpanner.Models.MeterDimensionRequest> Dimensions { get; set; }
+        public string DisplayName { get; set; }
 #endif
-        /// <summary>The event_retention_days property</summary>
-        public int? EventRetentionDays { get; set; }
-        /// <summary>The metadata_schema property</summary>
+        /// <summary>The name property</summary>
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
 #nullable enable
-        public global::OpenSpanner.Models.MeterUpdateRequest_metadata_schema? MetadataSchema { get; set; }
+        public string? Name { get; set; }
 #nullable restore
 #else
-        public global::OpenSpanner.Models.MeterUpdateRequest_metadata_schema MetadataSchema { get; set; }
+        public string Name { get; set; }
 #endif
-        /// <summary>The unit property</summary>
+        /// <summary>The required property</summary>
+        public bool? Required { get; set; }
+        /// <summary>The type property</summary>
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
 #nullable enable
-        public string? Unit { get; set; }
+        public string? Type { get; set; }
 #nullable restore
 #else
-        public string Unit { get; set; }
+        public string Type { get; set; }
 #endif
         /// <summary>
-        /// Instantiates a new <see cref="global::OpenSpanner.Models.MeterUpdateRequest"/> and sets the default values.
+        /// Instantiates a new <see cref="global::OpenSpanner.Models.MeterDimension"/> and sets the default values.
         /// </summary>
-        public MeterUpdateRequest()
+        public MeterDimension()
         {
             AdditionalData = new Dictionary<string, object>();
         }
         /// <summary>
         /// Creates a new instance of the appropriate class based on discriminator value
         /// </summary>
-        /// <returns>A <see cref="global::OpenSpanner.Models.MeterUpdateRequest"/></returns>
+        /// <returns>A <see cref="global::OpenSpanner.Models.MeterDimension"/></returns>
         /// <param name="parseNode">The parse node to use to read the discriminator value and create the object</param>
-        public static global::OpenSpanner.Models.MeterUpdateRequest CreateFromDiscriminatorValue(IParseNode parseNode)
+        public static global::OpenSpanner.Models.MeterDimension CreateFromDiscriminatorValue(IParseNode parseNode)
         {
             if(ReferenceEquals(parseNode, null)) throw new ArgumentNullException(nameof(parseNode));
-            return new global::OpenSpanner.Models.MeterUpdateRequest();
+            return new global::OpenSpanner.Models.MeterDimension();
         }
         /// <summary>
         /// The deserialization information for the current model
@@ -81,12 +73,11 @@ namespace OpenSpanner.Models
         {
             return new Dictionary<string, Action<IParseNode>>
             {
-                { "aggregation", n => { Aggregation = n.GetStringValue(); } },
                 { "description", n => { Description = n.GetStringValue(); } },
-                { "dimensions", n => { Dimensions = n.GetCollectionOfObjectValues<global::OpenSpanner.Models.MeterDimensionRequest>(global::OpenSpanner.Models.MeterDimensionRequest.CreateFromDiscriminatorValue)?.AsList(); } },
-                { "event_retention_days", n => { EventRetentionDays = n.GetIntValue(); } },
-                { "metadata_schema", n => { MetadataSchema = n.GetObjectValue<global::OpenSpanner.Models.MeterUpdateRequest_metadata_schema>(global::OpenSpanner.Models.MeterUpdateRequest_metadata_schema.CreateFromDiscriminatorValue); } },
-                { "unit", n => { Unit = n.GetStringValue(); } },
+                { "display_name", n => { DisplayName = n.GetStringValue(); } },
+                { "name", n => { Name = n.GetStringValue(); } },
+                { "required", n => { Required = n.GetBoolValue(); } },
+                { "type", n => { Type = n.GetStringValue(); } },
             };
         }
         /// <summary>
@@ -96,12 +87,11 @@ namespace OpenSpanner.Models
         public virtual void Serialize(ISerializationWriter writer)
         {
             if(ReferenceEquals(writer, null)) throw new ArgumentNullException(nameof(writer));
-            writer.WriteStringValue("aggregation", Aggregation);
             writer.WriteStringValue("description", Description);
-            writer.WriteCollectionOfObjectValues<global::OpenSpanner.Models.MeterDimensionRequest>("dimensions", Dimensions);
-            writer.WriteIntValue("event_retention_days", EventRetentionDays);
-            writer.WriteObjectValue<global::OpenSpanner.Models.MeterUpdateRequest_metadata_schema>("metadata_schema", MetadataSchema);
-            writer.WriteStringValue("unit", Unit);
+            writer.WriteStringValue("display_name", DisplayName);
+            writer.WriteStringValue("name", Name);
+            writer.WriteBoolValue("required", Required);
+            writer.WriteStringValue("type", Type);
             writer.WriteAdditionalData(AdditionalData);
         }
     }

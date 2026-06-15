@@ -9,6 +9,7 @@ from attrs import field as _attrs_field
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
+    from ..models.meter_dimension_request import MeterDimensionRequest
     from ..models.meter_update_request_metadata_schema import MeterUpdateRequestMetadataSchema
 
 
@@ -21,6 +22,7 @@ class MeterUpdateRequest:
     Attributes:
         aggregation (str | Unset):
         description (str | Unset):
+        dimensions (list[MeterDimensionRequest] | Unset):
         event_retention_days (int | Unset):
         metadata_schema (MeterUpdateRequestMetadataSchema | Unset):
         unit (str | Unset):
@@ -28,6 +30,7 @@ class MeterUpdateRequest:
 
     aggregation: str | Unset = UNSET
     description: str | Unset = UNSET
+    dimensions: list[MeterDimensionRequest] | Unset = UNSET
     event_retention_days: int | Unset = UNSET
     metadata_schema: MeterUpdateRequestMetadataSchema | Unset = UNSET
     unit: str | Unset = UNSET
@@ -37,6 +40,13 @@ class MeterUpdateRequest:
         aggregation = self.aggregation
 
         description = self.description
+
+        dimensions: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.dimensions, Unset):
+            dimensions = []
+            for dimensions_item_data in self.dimensions:
+                dimensions_item = dimensions_item_data.to_dict()
+                dimensions.append(dimensions_item)
 
         event_retention_days = self.event_retention_days
 
@@ -53,6 +63,8 @@ class MeterUpdateRequest:
             field_dict["aggregation"] = aggregation
         if description is not UNSET:
             field_dict["description"] = description
+        if dimensions is not UNSET:
+            field_dict["dimensions"] = dimensions
         if event_retention_days is not UNSET:
             field_dict["event_retention_days"] = event_retention_days
         if metadata_schema is not UNSET:
@@ -64,12 +76,22 @@ class MeterUpdateRequest:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.meter_dimension_request import MeterDimensionRequest
         from ..models.meter_update_request_metadata_schema import MeterUpdateRequestMetadataSchema
 
         d = dict(src_dict)
         aggregation = d.pop("aggregation", UNSET)
 
         description = d.pop("description", UNSET)
+
+        _dimensions = d.pop("dimensions", UNSET)
+        dimensions: list[MeterDimensionRequest] | Unset = UNSET
+        if _dimensions is not UNSET:
+            dimensions = []
+            for dimensions_item_data in _dimensions:
+                dimensions_item = MeterDimensionRequest.from_dict(dimensions_item_data)
+
+                dimensions.append(dimensions_item)
 
         event_retention_days = d.pop("event_retention_days", UNSET)
 
@@ -85,6 +107,7 @@ class MeterUpdateRequest:
         meter_update_request = cls(
             aggregation=aggregation,
             description=description,
+            dimensions=dimensions,
             event_retention_days=event_retention_days,
             metadata_schema=metadata_schema,
             unit=unit,
