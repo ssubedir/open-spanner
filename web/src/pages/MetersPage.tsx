@@ -1,5 +1,5 @@
 import { useSelector } from '@tanstack/react-store'
-import { Boxes, Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Boxes, Loader2, Lock, Pencil, Plus, Trash2 } from 'lucide-react'
 import { type FormEvent, useCallback } from 'react'
 
 import { appStore, appStoreActions, type MeterDimensionDraft } from '../app-store'
@@ -21,6 +21,9 @@ export function MetersPage() {
   const load = useCallback(() => appStoreActions.loadMeters(), [])
 
   useInitialLoad(load)
+
+  const editingUsageEvents = editing ? stats[editing.name]?.usage_events ?? 0 : 0
+  const editingDimensionsLocked = editingUsageEvents > 0
 
   async function submitCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -56,6 +59,14 @@ export function MetersPage() {
       return
     }
     const form = new FormData(event.currentTarget)
+
+    if (editingDimensionsLocked) {
+      const lockedError = lockedDimensionDraftError(editDimensions)
+      if (lockedError) {
+        appStoreActions.setMetersError(lockedError)
+        return
+      }
+    }
 
     const dimensions = readMeterDimensions(editDimensions)
     if (!dimensions) {
@@ -231,7 +242,9 @@ export function MetersPage() {
               <input defaultValue={editing.description} name="description" />
             </label>
             <DimensionSchemaEditor
+              lockedByUsage={editingDimensionsLocked}
               rows={editDimensions}
+              usageEvents={editingUsageEvents}
               onAdd={() => appStoreActions.addMeterEditDimension()}
               onRemove={(id) => appStoreActions.removeMeterEditDimension(id)}
               onUpdate={(id, update) => appStoreActions.updateMeterEditDimension(id, update)}
@@ -266,16 +279,45 @@ function readMeterDimensions(rows: MeterDimensionDraft[]) {
   }
 }
 
+function lockedDimensionDraftError(rows: MeterDimensionDraft[]) {
+  for (const row of rows) {
+    if (!row.originalName) {
+      if (!row.name.trim()) {
+        continue
+      }
+      if (row.required) {
+        return 'New dimensions must be optional after usage has been recorded.'
+      }
+      continue
+    }
+
+    if (row.name !== row.originalName) {
+      return 'Existing dimension names cannot change after usage has been recorded.'
+    }
+    if (row.originalType && row.type !== row.originalType) {
+      return 'Existing dimension types cannot change after usage has been recorded.'
+    }
+    if (row.originalRequired === false && row.required) {
+      return 'Optional dimensions cannot become required after usage has been recorded.'
+    }
+  }
+  return ''
+}
+
 function DimensionSchemaEditor({
+  lockedByUsage = false,
   onAdd,
   onRemove,
   onUpdate,
   rows,
+  usageEvents = 0,
 }: {
+  lockedByUsage?: boolean
   onAdd: () => void
   onRemove: (id: string) => void
   onUpdate: (id: string, update: Partial<Omit<MeterDimensionDraft, 'id'>>) => void
   rows: MeterDimensionDraft[]
+  usageEvents?: number
 }) {
   return (
     <div className="schema-builder wide">
@@ -286,59 +328,86 @@ function DimensionSchemaEditor({
           Add
         </Button>
       </div>
+      {lockedByUsage ? (
+        <div className="schema-lock-note">
+          <Lock aria-hidden="true" />
+          <span>{formatNumber(usageEvents)} usage events recorded. Existing dimension identity is locked.</span>
+        </div>
+      ) : null}
       <div className="schema-rows">
-        {rows.map((row) => (
-          <div className="schema-row" key={row.id}>
-            <label>
-              Name
-              <input
-                aria-label="Dimension name"
-                onChange={(event) => onUpdate(row.id, { name: event.currentTarget.value })}
-                placeholder="region"
-                value={row.name}
-              />
-            </label>
-            <label>
-              Display
-              <input
-                aria-label="Dimension display name"
-                onChange={(event) => onUpdate(row.id, { displayName: event.currentTarget.value })}
-                placeholder="Region"
-                value={row.displayName}
-              />
-            </label>
-            <label>
-              Type
-              <select
-                aria-label="Dimension type"
-                onChange={(event) => onUpdate(row.id, { type: event.currentTarget.value })}
-                value={row.type}
+        {rows.map((row) => {
+          const isExisting = Boolean(row.originalName)
+          const existingLocked = lockedByUsage && isExisting
+          const requiredLocked = lockedByUsage && (!isExisting || row.originalRequired === false)
+          const identityLockTitle = existingLocked ? 'Existing dimension identity is locked after usage exists' : undefined
+          const requiredLockTitle = requiredLocked ? 'New dimensions and previously optional dimensions cannot become required after usage exists' : undefined
+          return (
+            <div className="schema-row" key={row.id}>
+              <label>
+                Name
+                <input
+                  aria-label="Dimension name"
+                  disabled={existingLocked}
+                  onChange={(event) => onUpdate(row.id, { name: event.currentTarget.value })}
+                  placeholder="region"
+                  title={identityLockTitle}
+                  value={row.name}
+                />
+              </label>
+              <label>
+                Display
+                <input
+                  aria-label="Dimension display name"
+                  onChange={(event) => onUpdate(row.id, { displayName: event.currentTarget.value })}
+                  placeholder="Region"
+                  value={row.displayName}
+                />
+              </label>
+              <label>
+                Type
+                <select
+                  aria-label="Dimension type"
+                  disabled={existingLocked}
+                  onChange={(event) => onUpdate(row.id, { type: event.currentTarget.value })}
+                  title={identityLockTitle}
+                  value={row.type}
+                >
+                  {metadataTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+                </select>
+              </label>
+              <label className="schema-required">
+                <input
+                  checked={row.required}
+                  disabled={requiredLocked}
+                  onChange={(event) => onUpdate(row.id, { required: event.currentTarget.checked })}
+                  title={requiredLockTitle}
+                  type="checkbox"
+                />
+                Required
+              </label>
+              <Button
+                aria-label={`Remove ${row.name || 'dimension'}`}
+                disabled={existingLocked}
+                onClick={() => onRemove(row.id)}
+                size="icon"
+                title={identityLockTitle}
+                type="button"
+                variant="ghost"
               >
-                {metadataTypes.map((type) => <option key={type} value={type}>{type}</option>)}
-              </select>
-            </label>
-            <label className="schema-required">
-              <input
-                checked={row.required}
-                onChange={(event) => onUpdate(row.id, { required: event.currentTarget.checked })}
-                type="checkbox"
-              />
-              Required
-            </label>
-            <Button aria-label={`Remove ${row.name || 'dimension'}`} onClick={() => onRemove(row.id)} size="icon" type="button" variant="ghost">
-              <Trash2 aria-hidden="true" />
-            </Button>
-            <label className="schema-description">
-              Description
-              <input
-                aria-label="Dimension description"
-                onChange={(event) => onUpdate(row.id, { description: event.currentTarget.value })}
-                placeholder="Deployment region"
-                value={row.description}
-              />
-            </label>
-          </div>
-        ))}
+                <Trash2 aria-hidden="true" />
+              </Button>
+              <label className="schema-description">
+                Description
+                <input
+                  aria-label="Dimension description"
+                  onChange={(event) => onUpdate(row.id, { description: event.currentTarget.value })}
+                  placeholder="Deployment region"
+                  value={row.description}
+                />
+              </label>
+            </div>
+          )
+        })}
       </div>
     </div>
   )
