@@ -41,6 +41,8 @@ type SavedQuery struct {
 	GroupBy    []string
 	BucketSize string
 	Limit      int
+	Pinned     bool
+	Position   int
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 }
@@ -57,6 +59,8 @@ type SaveCommand struct {
 	GroupBy    []string
 	BucketSize string
 	Limit      int
+	Pinned     bool
+	Position   int
 }
 
 type UpdateCommand struct {
@@ -67,6 +71,8 @@ type UpdateCommand struct {
 	GroupBy    []string
 	BucketSize string
 	Limit      int
+	Pinned     *bool
+	Position   *int
 }
 
 type DeleteCommand struct {
@@ -85,6 +91,8 @@ type Result struct {
 	GroupBy    []string
 	BucketSize string
 	Limit      int
+	Pinned     bool
+	Position   int
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 }
@@ -112,6 +120,8 @@ func (s *service) Create(ctx context.Context, cmd SaveCommand) (Result, error) {
 	}
 
 	query.ID = uuid.NewString()
+	query.Pinned = cmd.Pinned
+	query.Position = normalizePosition(cmd.Position)
 	saved, err := s.repo.Save(ctx, query)
 	if err != nil {
 		return Result{}, err
@@ -158,6 +168,14 @@ func (s *service) Update(ctx context.Context, cmd UpdateCommand) (Result, error)
 	next, err := savedQueryFromInput(id, userID, cmd.Name, cmd.Query, cmd.GroupBy, cmd.BucketSize, cmd.Limit, existing[0].CreatedAt)
 	if err != nil {
 		return Result{}, err
+	}
+	next.Pinned = existing[0].Pinned
+	if cmd.Pinned != nil {
+		next.Pinned = *cmd.Pinned
+	}
+	next.Position = existing[0].Position
+	if cmd.Position != nil {
+		next.Position = normalizePosition(*cmd.Position)
 	}
 	next.UpdatedAt = s.now().UTC()
 
@@ -214,6 +232,7 @@ func savedQueryFromInput(id string, userID string, name string, query json.RawMe
 		GroupBy:    groupBy,
 		BucketSize: bucketSize,
 		Limit:      normalizeLimit(limit),
+		Position:   0,
 		CreatedAt:  createdAt.UTC(),
 		UpdatedAt:  createdAt.UTC(),
 	}, nil
@@ -283,6 +302,13 @@ func normalizeLimit(value int) int {
 	return value
 }
 
+func normalizePosition(value int) int {
+	if value < 0 {
+		return 0
+	}
+	return value
+}
+
 func resultFromSavedQuery(query SavedQuery) Result {
 	groupBy := make([]string, len(query.GroupBy))
 	copy(groupBy, query.GroupBy)
@@ -293,6 +319,8 @@ func resultFromSavedQuery(query SavedQuery) Result {
 		GroupBy:    groupBy,
 		BucketSize: query.BucketSize,
 		Limit:      query.Limit,
+		Pinned:     query.Pinned,
+		Position:   query.Position,
 		CreatedAt:  query.CreatedAt,
 		UpdatedAt:  query.UpdatedAt,
 	}

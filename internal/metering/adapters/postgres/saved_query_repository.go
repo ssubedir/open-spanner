@@ -26,16 +26,18 @@ func (r *SavedQueryRepository) Save(ctx context.Context, query appsavedquery.Sav
 	}
 
 	_, err = r.store.exec(ctx, `
-INSERT INTO usage_saved_queries (id, user_id, name, query_json, group_by, bucket_size, result_limit, created_at, updated_at)
-VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8, $9)
+INSERT INTO usage_saved_queries (id, user_id, name, query_json, group_by, bucket_size, result_limit, pinned, position, created_at, updated_at)
+VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8, $9, $10, $11)
 ON CONFLICT(id) DO UPDATE SET
 	name = excluded.name,
 	query_json = excluded.query_json,
 	group_by = excluded.group_by,
 	bucket_size = excluded.bucket_size,
 	result_limit = excluded.result_limit,
+	pinned = excluded.pinned,
+	position = excluded.position,
 	updated_at = excluded.updated_at
-`, query.ID, query.UserID, query.Name, string(query.Query), string(groupBy), query.BucketSize, query.Limit, formatTime(query.CreatedAt), formatTime(query.UpdatedAt))
+`, query.ID, query.UserID, query.Name, string(query.Query), string(groupBy), query.BucketSize, query.Limit, query.Pinned, query.Position, formatTime(query.CreatedAt), formatTime(query.UpdatedAt))
 	if err != nil {
 		if isUniqueConstraint(err) {
 			return appsavedquery.SavedQuery{}, errors.Join(domain.ErrConflict, err)
@@ -49,7 +51,7 @@ ON CONFLICT(id) DO UPDATE SET
 func (r *SavedQueryRepository) Find(ctx context.Context, query appsavedquery.FindQuery) ([]appsavedquery.SavedQuery, error) {
 	if query.ID != "" {
 		saved, err := scanSavedQuery(r.store.queryRow(ctx, `
-SELECT id, user_id, name, query_json, group_by, bucket_size, result_limit, created_at, updated_at
+SELECT id, user_id, name, query_json, group_by, bucket_size, result_limit, pinned, position, created_at, updated_at
 FROM usage_saved_queries
 WHERE user_id = $1 AND id = $2
 `, query.UserID, query.ID))
@@ -63,10 +65,10 @@ WHERE user_id = $1 AND id = $2
 	}
 
 	rows, err := r.store.query(ctx, `
-SELECT id, user_id, name, query_json, group_by, bucket_size, result_limit, created_at, updated_at
+SELECT id, user_id, name, query_json, group_by, bucket_size, result_limit, pinned, position, created_at, updated_at
 FROM usage_saved_queries
 WHERE user_id = $1
-ORDER BY updated_at DESC, id DESC
+ORDER BY pinned DESC, position ASC, updated_at DESC, id DESC
 `, query.UserID)
 	if err != nil {
 		return nil, err
@@ -109,7 +111,7 @@ func scanSavedQuery(scanner interface {
 	var groupByJSON string
 	var createdAt string
 	var updatedAt string
-	if err := scanner.Scan(&query.ID, &query.UserID, &query.Name, &queryJSON, &groupByJSON, &query.BucketSize, &query.Limit, &createdAt, &updatedAt); err != nil {
+	if err := scanner.Scan(&query.ID, &query.UserID, &query.Name, &queryJSON, &groupByJSON, &query.BucketSize, &query.Limit, &query.Pinned, &query.Position, &createdAt, &updatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return appsavedquery.SavedQuery{}, domain.ErrNotFound
 		}

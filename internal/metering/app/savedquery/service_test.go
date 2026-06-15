@@ -23,11 +23,13 @@ func TestServiceCreatesListsUpdatesAndDeletesSavedQuery(t *testing.T) {
 		GroupBy:    []string{"endpoint", "endpoint", "status"},
 		BucketSize: "hour",
 		Limit:      200,
+		Pinned:     true,
+		Position:   3,
 	})
 	if err != nil {
 		t.Fatalf("create saved query: %v", err)
 	}
-	if created.ID == "" || created.Name != "API usage by endpoint" || created.BucketSize != "hour" || created.Limit != 200 {
+	if created.ID == "" || created.Name != "API usage by endpoint" || created.BucketSize != "hour" || created.Limit != 200 || !created.Pinned || created.Position != 3 {
 		t.Fatalf("created saved query = %#v", created)
 	}
 	if len(created.GroupBy) != 2 || created.GroupBy[0] != "endpoint" || created.GroupBy[1] != "status" {
@@ -55,8 +57,26 @@ func TestServiceCreatesListsUpdatesAndDeletesSavedQuery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("update saved query: %v", err)
 	}
-	if updated.Name != "Status errors" || updated.Limit != DefaultLimit || !updated.CreatedAt.Equal(created.CreatedAt) || !updated.UpdatedAt.Equal(later) {
+	if updated.Name != "Status errors" || updated.Limit != DefaultLimit || !updated.Pinned || updated.Position != 3 || !updated.CreatedAt.Equal(created.CreatedAt) || !updated.UpdatedAt.Equal(later) {
 		t.Fatalf("updated saved query = %#v", updated)
+	}
+
+	unpinned := false
+	position := -1
+	updated, err = service.Update(context.Background(), UpdateCommand{
+		ID:         created.ID,
+		UserID:     "user-1",
+		Name:       "Status errors",
+		Query:      json.RawMessage(`{"combinator":"and","rules":[]}`),
+		BucketSize: "day",
+		Pinned:     &unpinned,
+		Position:   &position,
+	})
+	if err != nil {
+		t.Fatalf("unpin saved query: %v", err)
+	}
+	if updated.Pinned || updated.Position != 0 {
+		t.Fatalf("unpinned saved query = %#v", updated)
 	}
 
 	if err := service.Delete(context.Background(), DeleteCommand{ID: created.ID, UserID: "user-1"}); err != nil {

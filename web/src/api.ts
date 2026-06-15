@@ -187,6 +187,8 @@ export type SavedUsageQuery = {
   group_by: string[]
   bucket_size: string
   limit: number
+  pinned: boolean
+  position: number
   created_at: string
   updated_at: string
 }
@@ -201,6 +203,8 @@ export type SavedUsageQueryRequest = {
   group_by: string[]
   bucket_size: string
   limit: number
+  pinned: boolean
+  position: number
 }
 
 export type AuthUser = {

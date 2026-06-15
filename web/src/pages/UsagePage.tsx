@@ -1,5 +1,5 @@
 import { useSelector } from '@tanstack/react-store'
-import { BarChart3, Loader2, RefreshCw, Save, Search, Trash2 } from 'lucide-react'
+import { BarChart3, Loader2, Pin, PinOff, RefreshCw, Save, Search, Trash2 } from 'lucide-react'
 import { type FormEvent, useCallback, useEffect, useMemo } from 'react'
 
 import { appStore, appStoreActions } from '../app-store'
@@ -145,6 +145,15 @@ export function UsagePage() {
                   >
                     {savedQuerySaving ? <Loader2 className="spin" aria-hidden="true" /> : <Save aria-hidden="true" />}
                     {selectedSavedQueryID ? 'Update' : 'Save'}
+                  </Button>
+                  <Button
+                    disabled={!selectedSavedQuery || savedQuerySaving}
+                    onClick={() => selectedSavedQuery && void appStoreActions.toggleSavedUsageQueryPinned(selectedSavedQuery)}
+                    type="button"
+                    variant="outline"
+                  >
+                    {selectedSavedQuery?.pinned ? <PinOff aria-hidden="true" /> : <Pin aria-hidden="true" />}
+                    {selectedSavedQuery?.pinned ? 'Unpin' : 'Pin'}
                   </Button>
                   <Button
                     disabled={!selectedSavedQuery || savedQuerySaving}

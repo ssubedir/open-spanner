@@ -40,6 +40,8 @@ func TestSavedQueryRepositoryCRUD(t *testing.T) {
 		GroupBy:    []string{"endpoint"},
 		BucketSize: "day",
 		Limit:      500,
+		Pinned:     true,
+		Position:   2,
 		CreatedAt:  time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC),
 		UpdatedAt:  time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC),
 	}
@@ -51,12 +53,14 @@ func TestSavedQueryRepositoryCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("find queries: %v", err)
 	}
-	if len(list) != 1 || list[0].Name != query.Name || list[0].GroupBy[0] != "endpoint" {
+	if len(list) != 1 || list[0].Name != query.Name || list[0].GroupBy[0] != "endpoint" || !list[0].Pinned || list[0].Position != 2 {
 		t.Fatalf("queries = %#v", list)
 	}
 
 	query.Name = "Usage by status"
 	query.GroupBy = []string{"status"}
+	query.Pinned = false
+	query.Position = 0
 	query.UpdatedAt = query.UpdatedAt.Add(time.Hour)
 	if _, err := repo.Save(ctx, query); err != nil {
 		t.Fatalf("update query: %v", err)
@@ -65,7 +69,7 @@ func TestSavedQueryRepositoryCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("find query by id: %v", err)
 	}
-	if len(byID) != 1 || byID[0].Name != "Usage by status" || byID[0].GroupBy[0] != "status" {
+	if len(byID) != 1 || byID[0].Name != "Usage by status" || byID[0].GroupBy[0] != "status" || byID[0].Pinned || byID[0].Position != 0 {
 		t.Fatalf("query by id = %#v", byID)
 	}
 

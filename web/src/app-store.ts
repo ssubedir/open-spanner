@@ -59,6 +59,16 @@ export type MeterDimensionDraft = {
   type: string
 }
 
+export type PinnedUsageQuerySummary = {
+  bucketSize: string
+  error: string
+  lastBucket: string
+  query: SavedUsageQuery
+  rows: number
+  total: number
+  unit: string
+}
+
 type AppState = {
   auth: {
     checked: boolean
@@ -89,6 +99,7 @@ type AppState = {
   overview: {
     error: string
     ingestions: IngestionRun[]
+    pinnedUsageQueries: PinnedUsageQuerySummary[]
     stats: SystemStats | null
     status: LoadState
     subjects: SubjectStats[]
@@ -149,6 +160,7 @@ export const appStore = createStore<AppState>({
   overview: {
     error: '',
     ingestions: [],
+    pinnedUsageQueries: [],
     stats: null,
     status: 'idle',
     subjects: [],
@@ -286,13 +298,21 @@ export const appStoreActions = {
   async loadOverview() {
     setOverviewState({ error: '', status: 'loading' })
     try {
-      const [nextStats, nextSubjects, nextIngestions] = await Promise.all([
+      const [nextStats, nextSubjects, nextIngestions, savedQueries, meters] = await Promise.all([
         getSystemStats(),
         listSubjects(),
         listIngestions(),
+        listSavedUsageQueries(),
+        listMeters(),
       ])
+      const pinned = savedQueries.items
+        .filter((query) => query.pinned)
+        .sort((left, right) => left.position - right.position || left.name.localeCompare(right.name))
+        .slice(0, 6)
+      const pinnedUsageQueries = await Promise.all(pinned.map((query) => summarizePinnedUsageQuery(query, meters.items)))
       setOverviewState({
         ingestions: nextIngestions.items,
+        pinnedUsageQueries,
         stats: nextStats,
         status: 'ready',
         subjects: nextSubjects.items,
@@ -540,14 +560,7 @@ export const appStoreActions = {
         return { selectedSavedQueryID: '' }
       }
 
-      return {
-        bucketSize: saved.bucket_size || 'day',
-        filterQuery: queryFromSavedValue(saved.query, state.filterQuery),
-        groupBy: saved.group_by || [],
-        limit: saved.limit || 500,
-        savedQueryName: saved.name,
-        selectedSavedQueryID: saved.id,
-      }
+      return usageStateFromSavedQuery(saved, state)
     })
   },
   setUsageGroupBy(groupBy: string[]) {
@@ -594,6 +607,8 @@ export const appStoreActions = {
         group_by: state.groupBy,
         limit: state.limit,
         name: state.savedQueryName,
+        pinned: state.savedQueries.find((item) => item.id === selectedID)?.pinned ?? false,
+        position: state.savedQueries.find((item) => item.id === selectedID)?.position ?? 0,
         query: state.filterQuery,
       }
       const saved = selectedID
@@ -614,6 +629,12 @@ export const appStoreActions = {
       setUsageState({ savedQuerySaving: false })
     }
   },
+  applySavedUsageQuery(query: SavedUsageQuery) {
+    setUsageState((state) => ({
+      ...usageStateFromSavedQuery(query, state),
+      savedQueries: mergeSavedUsageQuery(state.savedQueries, query),
+    }))
+  },
   async deleteSelectedSavedUsageQuery() {
     const deleting = appStore.state.usage.savedQueryDeleting
     if (!deleting) {
@@ -631,6 +652,29 @@ export const appStoreActions = {
       }))
     } catch (err) {
       setUsageState({ savedQueryError: errorMessage(err, 'Unable to delete usage query') })
+      throw err
+    } finally {
+      setUsageState({ savedQuerySaving: false })
+    }
+  },
+  async toggleSavedUsageQueryPinned(query: SavedUsageQuery) {
+    const state = appStore.state.usage
+    const pinned = !query.pinned
+    const position = pinned
+      ? nextPinnedPosition(state.savedQueries, query.id)
+      : 0
+
+    setUsageState({ savedQueryError: '', savedQuerySaving: true })
+    try {
+      const updated = await updateSavedUsageQuery(query.id, savedUsageQueryRequest(query, { pinned, position }))
+      const list = await listSavedUsageQueries()
+      setUsageState({
+        savedQueries: list.items,
+        selectedSavedQueryID: state.selectedSavedQueryID === query.id ? updated.id : state.selectedSavedQueryID,
+      })
+      return updated
+    } catch (err) {
+      setUsageState({ savedQueryError: errorMessage(err, 'Unable to update pinned query') })
       throw err
     } finally {
       setUsageState({ savedQuerySaving: false })
@@ -708,6 +752,80 @@ function setUsageState(update: Partial<AppState['usage']> | ((state: AppState['u
       ...(typeof update === 'function' ? update(state.usage) : update),
     },
   }))
+}
+
+async function summarizePinnedUsageQuery(query: SavedUsageQuery, meters: Meter[]): Promise<PinnedUsageQuerySummary> {
+  try {
+    const filterQuery = queryFromSavedValue(query.query, defaultFilterQuery())
+    const scope = usageScopeFromQuery(filterQuery)
+    const timeRange = usageTimeRangeFromQuery(filterQuery)
+    const filter = usageFilterFromQuery(filterQuery, metadataTypesByField(meters, scope.meter))
+    const buckets = await listUsageBuckets({
+      bucket_size: query.bucket_size || 'day',
+      filter,
+      from: timeRange.from,
+      group_by: query.group_by && query.group_by.length > 0 ? query.group_by : undefined,
+      limit: query.limit || 500,
+      meter: scope.meter,
+      subject: scope.subject || undefined,
+      to: timeRange.to,
+    })
+
+    return {
+      bucketSize: query.bucket_size || 'day',
+      error: '',
+      lastBucket: buckets.reduce((latest, bucket) => bucket.bucket_start > latest ? bucket.bucket_start : latest, ''),
+      query,
+      rows: buckets.length,
+      total: buckets.reduce((sum, bucket) => sum + bucket.quantity, 0),
+      unit: buckets.find((bucket) => bucket.unit)?.unit || '',
+    }
+  } catch (err) {
+    return {
+      bucketSize: query.bucket_size || 'day',
+      error: errorMessage(err, 'Unable to load pinned query'),
+      lastBucket: '',
+      query,
+      rows: 0,
+      total: 0,
+      unit: '',
+    }
+  }
+}
+
+function usageStateFromSavedQuery(query: SavedUsageQuery, state: AppState['usage']): Partial<AppState['usage']> {
+  return {
+    bucketSize: query.bucket_size || 'day',
+    filterQuery: queryFromSavedValue(query.query, state.filterQuery),
+    groupBy: query.group_by || [],
+    limit: query.limit || 500,
+    savedQueryName: query.name,
+    selectedSavedQueryID: query.id,
+  }
+}
+
+function mergeSavedUsageQuery(items: SavedUsageQuery[], query: SavedUsageQuery) {
+  const next = items.filter((item) => item.id !== query.id)
+  next.push(query)
+  return next.sort((left, right) => Number(right.pinned) - Number(left.pinned) || left.position - right.position || left.name.localeCompare(right.name))
+}
+
+function savedUsageQueryRequest(query: SavedUsageQuery, overrides: Partial<Pick<SavedUsageQuery, 'pinned' | 'position'>> = {}) {
+  return {
+    bucket_size: query.bucket_size,
+    group_by: query.group_by,
+    limit: query.limit,
+    name: query.name,
+    pinned: overrides.pinned ?? query.pinned,
+    position: overrides.position ?? query.position,
+    query: query.query,
+  }
+}
+
+function nextPinnedPosition(items: SavedUsageQuery[], excludeID: string) {
+  return items
+    .filter((query) => query.pinned && query.id !== excludeID)
+    .reduce((position, query) => Math.max(position, query.position), 0) + 1
 }
 
 function newMeterDimensionDraft(name = '', type = 'string'): MeterDimensionDraft {

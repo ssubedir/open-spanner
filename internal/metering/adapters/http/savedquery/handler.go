@@ -61,6 +61,8 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		GroupBy:    req.GroupBy,
 		BucketSize: req.BucketSize,
 		Limit:      req.Limit,
+		Pinned:     boolValue(req.Pinned),
+		Position:   intValue(req.Position),
 	})
 	if err != nil {
 		respond.ServiceError(w, err)
@@ -91,6 +93,8 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		GroupBy:    req.GroupBy,
 		BucketSize: req.BucketSize,
 		Limit:      req.Limit,
+		Pinned:     req.Pinned,
+		Position:   req.Position,
 	})
 	if err != nil {
 		respond.ServiceError(w, err)
@@ -125,7 +129,20 @@ func responseFromResult(result appsavedquery.Result) Response {
 		GroupBy:    result.GroupBy,
 		BucketSize: result.BucketSize,
 		Limit:      result.Limit,
+		Pinned:     result.Pinned,
+		Position:   result.Position,
 		CreatedAt:  result.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:  result.UpdatedAt.Format(time.RFC3339),
 	}
+}
+
+func boolValue(value *bool) bool {
+	return value != nil && *value
+}
+
+func intValue(value *int) int {
+	if value == nil {
+		return 0
+	}
+	return *value
 }

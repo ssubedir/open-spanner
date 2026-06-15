@@ -8,6 +8,8 @@ type SaveRequest struct {
 	GroupBy    []string        `json:"group_by"`
 	BucketSize string          `json:"bucket_size"`
 	Limit      int             `json:"limit"`
+	Pinned     *bool           `json:"pinned,omitempty"`
+	Position   *int            `json:"position,omitempty"`
 }
 
 type Response struct {
@@ -17,6 +19,8 @@ type Response struct {
 	GroupBy    []string        `json:"group_by"`
 	BucketSize string          `json:"bucket_size"`
 	Limit      int             `json:"limit"`
+	Pinned     bool            `json:"pinned"`
+	Position   int             `json:"position"`
 	CreatedAt  string          `json:"created_at"`
 	UpdatedAt  string          `json:"updated_at"`
 }
