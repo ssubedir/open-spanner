@@ -20,8 +20,8 @@ func TestServiceCreateListAndGet(t *testing.T) {
 		Description: "API calls",
 		Unit:        "call",
 		Aggregation: domainmeter.AggregationSum,
-		MetadataSchema: map[string]domainmeter.MetadataType{
-			"region": domainmeter.MetadataString,
+		Dimensions: []domainmeter.Dimension{
+			mustDimension(t, "region", domainmeter.MetadataString, "Region", "Deployment region", true),
 		},
 	})
 	if err != nil {
@@ -32,6 +32,9 @@ func TestServiceCreateListAndGet(t *testing.T) {
 	}
 	if created.MetadataSchema["region"] != "string" {
 		t.Fatalf("metadata schema = %#v", created.MetadataSchema)
+	}
+	if len(created.Dimensions) != 1 || created.Dimensions[0].DisplayName != "Region" || created.Dimensions[0].Description != "Deployment region" || !created.Dimensions[0].Required {
+		t.Fatalf("dimensions = %#v", created.Dimensions)
 	}
 	if created.EventRetentionDays != domainmeter.DefaultEventRetentionDays {
 		t.Fatalf("event retention days = %d, want %d", created.EventRetentionDays, domainmeter.DefaultEventRetentionDays)
@@ -174,6 +177,39 @@ func TestServiceUpdateDefinitionSettings(t *testing.T) {
 	}
 }
 
+func TestServiceUpdateDimensions(t *testing.T) {
+	ctx := context.Background()
+	service := newTestService()
+
+	created, err := service.Create(ctx, CreateCommand{
+		Name: "api_calls",
+		Unit: "call",
+		Dimensions: []domainmeter.Dimension{
+			mustDimension(t, "region", domainmeter.MetadataString, "Region", "", true),
+		},
+	})
+	if err != nil {
+		t.Fatalf("create meter: %v", err)
+	}
+
+	dimensions := []domainmeter.Dimension{
+		mustDimension(t, "status", domainmeter.MetadataNumber, "HTTP status", "Response status code", false),
+	}
+	updated, err := service.Update(ctx, UpdateCommand{
+		ID:         created.ID,
+		Dimensions: &dimensions,
+	})
+	if err != nil {
+		t.Fatalf("update meter dimensions: %v", err)
+	}
+	if len(updated.Dimensions) != 1 || updated.Dimensions[0].Name != "status" || updated.Dimensions[0].Type != "number" || updated.Dimensions[0].Required {
+		t.Fatalf("updated dimensions = %#v", updated.Dimensions)
+	}
+	if updated.MetadataSchema["status"] != "number" || updated.MetadataSchema["region"] != "" {
+		t.Fatalf("updated metadata schema = %#v", updated.MetadataSchema)
+	}
+}
+
 func TestServiceDelete(t *testing.T) {
 	ctx := context.Background()
 	service := newTestService()
@@ -229,4 +265,14 @@ func newTestService() Service {
 		panic(err)
 	}
 	return NewService(sqlite.NewMeterRepository(store))
+}
+
+func mustDimension(t *testing.T, name string, metadataType domainmeter.MetadataType, displayName string, description string, required bool) domainmeter.Dimension {
+	t.Helper()
+
+	dimension, err := domainmeter.NewDimension(name, metadataType, displayName, description, required)
+	if err != nil {
+		t.Fatalf("new dimension: %v", err)
+	}
+	return dimension
 }

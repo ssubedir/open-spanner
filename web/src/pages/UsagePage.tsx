@@ -13,6 +13,7 @@ import { useInitialLoad } from '../lib/hooks'
 import {
   buildFilterFields,
   firstEqualRuleValue,
+  metadataLabelsByField,
   metadataTypesByField,
   selectedMeterSchemaKeys,
   usageBreakdownQueryKey,
@@ -65,10 +66,11 @@ export function UsagePage() {
   const groupKeys = useMemo(() => ['subject', ...metadataKeys], [metadataKeys])
   const breakdownFields = useMemo(() => ['subject', ...metadataKeys].slice(0, 5), [metadataKeys])
   const activeGroupBy = groupBy.filter((key) => groupKeys.includes(key))
+  const metadataLabels = useMemo(() => metadataLabelsByField(meters, selectedMeterName), [meters, selectedMeterName])
   const metadataTypes = useMemo(() => metadataTypesByField(meters, selectedMeterName), [meters, selectedMeterName])
   const filterFields = useMemo(
-    () => buildFilterFields(metadataKeys, meters, dimensionValues, metadataTypes),
-    [dimensionValues, metadataKeys, metadataTypes, meters],
+    () => buildFilterFields(metadataKeys, meters, dimensionValues, metadataTypes, metadataLabels),
+    [dimensionValues, metadataKeys, metadataLabels, metadataTypes, meters],
   )
   const discoveryKey = useMemo(() => usageDimensionDiscoveryKey(filterQuery, meters), [filterQuery, meters])
   const breakdownKey = useMemo(() => usageBreakdownQueryKey(filterQuery, meters), [filterQuery, meters])
@@ -200,7 +202,7 @@ export function UsagePage() {
                             onChange={() => appStoreActions.toggleUsageGroupBy(key)}
                             type="checkbox"
                           />
-                          <span>{groupLabel(key)}</span>
+                          <span>{groupLabel(key, metadataLabels)}</span>
                         </label>
                       )
                     })}
@@ -250,6 +252,7 @@ export function UsagePage() {
                   <BreakdownPanel
                     field={section.field}
                     items={section.items}
+                    label={breakdownLabel(section.field, metadataLabels)}
                     key={section.field}
                     onApplyFilter={appStoreActions.applyUsageBreakdownFilter}
                   />
@@ -303,14 +306,15 @@ export function UsagePage() {
 function BreakdownPanel({
   field,
   items,
+  label,
   onApplyFilter,
 }: {
   field: string
   items: Array<{ value: string; quantity: number; events: number; unit: string }>
+  label: string
   onApplyFilter: (field: string, value: string) => void
 }) {
   const maxQuantity = Math.max(...items.map((item) => item.quantity), 0)
-  const label = breakdownLabel(field)
 
   return (
     <section className="breakdown-panel">
@@ -381,12 +385,12 @@ function GroupValues({ group }: { group?: Record<string, string> }) {
   )
 }
 
-function groupLabel(key: string) {
-  return key === 'subject' ? 'Subject' : humanizeField(key)
+function groupLabel(key: string, metadataLabels: Record<string, string> = {}) {
+  return key === 'subject' ? 'Subject' : metadataLabels[`metadata.${key}`] || humanizeField(key)
 }
 
-function breakdownLabel(key: string) {
-  return key === 'subject' ? 'Subjects' : humanizeField(key)
+function breakdownLabel(key: string, metadataLabels: Record<string, string> = {}) {
+  return key === 'subject' ? 'Subjects' : metadataLabels[`metadata.${key}`] || humanizeField(key)
 }
 
 function breakdownWidth(quantity: number, maxQuantity: number) {

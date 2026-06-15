@@ -4,6 +4,7 @@ import type { Meter, UsageDimensionValue, UsageFilter, UsageFilterCondition } fr
 import { defaultQueryDates, localDateTimeToISO } from './datetime'
 
 export type MetadataTypes = Record<string, string>
+export type MetadataLabels = Record<string, string>
 
 export function defaultFilterQuery(): RuleGroupType {
   const dates = defaultQueryDates()
@@ -22,6 +23,7 @@ export function buildFilterFields(
   meters: Meter[],
   dimensionValues: Record<string, UsageDimensionValue[]> = {},
   metadataTypes: MetadataTypes = {},
+  metadataLabels: MetadataLabels = {},
 ): Field[] {
   return [
     { name: 'subject', label: 'Subject' },
@@ -35,7 +37,7 @@ export function buildFilterFields(
     { name: 'timestamp', label: 'Timestamp', inputType: 'datetime-local' },
     { name: 'received_at', label: 'Received At', inputType: 'datetime-local' },
     { name: 'idempotency_key', label: 'Idempotency Key' },
-    ...metadataKeys.map((key) => metadataFilterField(key, dimensionValues[key] || [], metadataTypes[`metadata.${key}`])),
+    ...metadataKeys.map((key) => metadataFilterField(key, dimensionValues[key] || [], metadataTypes[`metadata.${key}`], metadataLabels[`metadata.${key}`])),
   ]
 }
 
@@ -106,15 +108,22 @@ export function firstEqualRuleValue(query: RuleGroupType, field: string): string
 export function selectedMeterSchemaKeys(meters: Meter[], selectedMeterName?: string) {
   const selectedMeter = meters.find((meter) => meter.name === selectedMeterName)
   if (selectedMeter) {
-    return Object.keys(selectedMeter.metadata_schema || {}).sort()
+    return meterDimensions(selectedMeter).map((dimension) => dimension.name).sort()
   }
-  return Array.from(new Set(meters.flatMap((meter) => Object.keys(meter.metadata_schema || {})))).sort()
+  return Array.from(new Set(meters.flatMap((meter) => meterDimensions(meter).map((dimension) => dimension.name)))).sort()
 }
 
 export function metadataTypesByField(meters: Meter[], selectedMeterName?: string): MetadataTypes {
   const selectedMeter = meters.find((meter) => meter.name === selectedMeterName)
   return Object.fromEntries(
-    Object.entries(selectedMeter?.metadata_schema || {}).map(([key, value]) => [`metadata.${key}`, value]),
+    meterDimensions(selectedMeter).map((dimension) => [`metadata.${dimension.name}`, dimension.type]),
+  )
+}
+
+export function metadataLabelsByField(meters: Meter[], selectedMeterName?: string): MetadataLabels {
+  const selectedMeter = meters.find((meter) => meter.name === selectedMeterName)
+  return Object.fromEntries(
+    meterDimensions(selectedMeter).map((dimension) => [`metadata.${dimension.name}`, dimension.display_name || humanizeField(dimension.name)]),
   )
 }
 
@@ -231,7 +240,7 @@ export function queryWithBreakdownFilter(query: RuleGroupType, field: string, va
   return replaceRuleValue(query, filterField, () => value)
 }
 
-function metadataFilterField(key: string, values: UsageDimensionValue[], metadataType?: string): Field {
+function metadataFilterField(key: string, values: UsageDimensionValue[], metadataType?: string, label?: string): Field {
   const options = values.map((item) => ({
     name: item.value,
     label: `${item.value} (${item.events})`,
@@ -246,9 +255,34 @@ function metadataFilterField(key: string, values: UsageDimensionValue[], metadat
 
   return {
     name: `metadata.${key}`,
-    label: `Metadata: ${key}`,
+    label: label || humanizeField(key),
     ...(options.length > 0 ? { valueEditorType: 'select' as const, values: options } : {}),
   }
+}
+
+function meterDimensions(meter?: Meter) {
+  if (!meter) {
+    return []
+  }
+  if (meter.dimensions && meter.dimensions.length > 0) {
+    return meter.dimensions
+  }
+  return Object.entries(meter.metadata_schema || {}).map(([name, type]) => ({
+    description: '',
+    display_name: humanizeField(name),
+    name,
+    required: true,
+    type,
+  }))
+}
+
+function humanizeField(key: string) {
+  return key
+    .replace(/^metadata\./, '')
+    .split(/[._-]/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
 }
 
 function usageFilterFromRule(rule: RuleType, metadataTypes: MetadataTypes): UsageFilter | undefined {

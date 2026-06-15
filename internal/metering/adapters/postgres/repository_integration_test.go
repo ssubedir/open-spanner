@@ -531,8 +531,8 @@ LIMIT 1
 		t.Fatalf("query schema migration version: %v", err)
 	}
 
-	if version != 10 || dirty {
-		t.Fatalf("schema migration version = %d dirty=%v, want version 10 dirty=false", version, dirty)
+	if version != 11 || dirty {
+		t.Fatalf("schema migration version = %d dirty=%v, want version 11 dirty=false", version, dirty)
 	}
 }
 

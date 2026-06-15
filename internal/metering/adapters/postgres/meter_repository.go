@@ -25,17 +25,22 @@ func (r *MeterRepository) Save(ctx context.Context, meter domainmeter.Meter) (do
 	if err != nil {
 		return domainmeter.Meter{}, err
 	}
+	dimensions, err := marshalDimensions(meter.Dimensions())
+	if err != nil {
+		return domainmeter.Meter{}, err
+	}
 
 	_, err = r.store.exec(ctx, `
-INSERT INTO meters (id, name, description, unit, aggregation, metadata_schema, event_retention_days, created_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO meters (id, name, description, unit, aggregation, metadata_schema, dimensions, event_retention_days, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 ON CONFLICT(id) DO UPDATE SET
 	description = excluded.description,
 	unit = excluded.unit,
 	aggregation = excluded.aggregation,
 	metadata_schema = excluded.metadata_schema,
+	dimensions = excluded.dimensions,
 	event_retention_days = excluded.event_retention_days
-`, meter.ID(), meter.Name(), meter.Description(), meter.Unit(), string(meter.Aggregation()), metadataSchema, meter.EventRetentionDays(), formatTime(meter.CreatedAt()))
+`, meter.ID(), meter.Name(), meter.Description(), meter.Unit(), string(meter.Aggregation()), metadataSchema, dimensions, meter.EventRetentionDays(), formatTime(meter.CreatedAt()))
 	if err != nil {
 		if isUniqueConstraint(err) {
 			return domainmeter.Meter{}, errors.Join(domain.ErrConflict, err)
@@ -62,7 +67,7 @@ func (r *MeterRepository) Find(ctx context.Context, query domainmeter.Query) ([]
 	limitRef := bindArg(&args, domainmeter.NormalizeLimit(query.Limit))
 
 	rows, err := r.store.query(ctx, `
-SELECT id, name, description, unit, aggregation, metadata_schema, event_retention_days, created_at
+SELECT id, name, description, unit, aggregation, metadata_schema, dimensions, event_retention_days, created_at
 FROM meters
 WHERE `+strings.Join(where, " AND ")+`
 ORDER BY name
@@ -135,10 +140,11 @@ func scanMeter(scanner interface {
 	var unit string
 	var aggregation string
 	var metadataSchemaText string
+	var dimensionsText string
 	var eventRetentionDays int
 	var createdAtText string
 
-	if err := scanner.Scan(&id, &name, &description, &unit, &aggregation, &metadataSchemaText, &eventRetentionDays, &createdAtText); err != nil {
+	if err := scanner.Scan(&id, &name, &description, &unit, &aggregation, &metadataSchemaText, &dimensionsText, &eventRetentionDays, &createdAtText); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return domainmeter.Meter{}, domain.ErrNotFound
 		}
@@ -153,8 +159,12 @@ func scanMeter(scanner interface {
 	if err != nil {
 		return domainmeter.Meter{}, err
 	}
+	dimensions, err := unmarshalDimensions(dimensionsText, metadataSchema)
+	if err != nil {
+		return domainmeter.Meter{}, err
+	}
 
-	return domainmeter.New(id, name, description, unit, domainmeter.Aggregation(aggregation), metadataSchema, eventRetentionDays, createdAt)
+	return domainmeter.NewWithDimensions(id, name, description, unit, domainmeter.Aggregation(aggregation), dimensions, eventRetentionDays, createdAt)
 }
 
 func marshalMetadataSchema(schema map[string]domainmeter.MetadataType) (string, error) {
@@ -182,4 +192,53 @@ func unmarshalMetadataSchema(payload string) (map[string]domainmeter.MetadataTyp
 		schema[key] = domainmeter.MetadataType(value)
 	}
 	return schema, nil
+}
+
+type dimensionPayload struct {
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name,omitempty"`
+	Description string `json:"description,omitempty"`
+	Type        string `json:"type"`
+	Required    bool   `json:"required"`
+}
+
+func marshalDimensions(dimensions []domainmeter.Dimension) (string, error) {
+	payload := make([]dimensionPayload, 0, len(dimensions))
+	for _, dimension := range dimensions {
+		payload = append(payload, dimensionPayload{
+			Name:        dimension.Name(),
+			DisplayName: dimension.DisplayName(),
+			Description: dimension.Description(),
+			Type:        string(dimension.Type()),
+			Required:    dimension.Required(),
+		})
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func unmarshalDimensions(payload string, fallbackSchema map[string]domainmeter.MetadataType) ([]domainmeter.Dimension, error) {
+	if payload == "" {
+		payload = "[]"
+	}
+	values := []dimensionPayload{}
+	if err := json.Unmarshal([]byte(payload), &values); err != nil {
+		return nil, err
+	}
+	if len(values) == 0 {
+		return domainmeter.DimensionsFromMetadataSchema(fallbackSchema)
+	}
+
+	dimensions := make([]domainmeter.Dimension, 0, len(values))
+	for _, value := range values {
+		dimension, err := domainmeter.NewDimension(value.Name, domainmeter.MetadataType(value.Type), value.DisplayName, value.Description, value.Required)
+		if err != nil {
+			return nil, err
+		}
+		dimensions = append(dimensions, dimension)
+	}
+	return dimensions, nil
 }

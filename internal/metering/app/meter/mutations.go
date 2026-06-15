@@ -12,6 +12,7 @@ type UpdateCommand struct {
 	Description        *string
 	Unit               *string
 	Aggregation        *domainmeter.Aggregation
+	Dimensions         *[]domainmeter.Dimension
 	MetadataSchema     *map[string]domainmeter.MetadataType
 	EventRetentionDays *int
 }
@@ -42,25 +43,44 @@ func (s *service) Update(ctx context.Context, cmd UpdateCommand) (Result, error)
 	if cmd.Aggregation != nil {
 		aggregation = *cmd.Aggregation
 	}
+	dimensions := existing.Dimensions()
 	metadataSchema := existing.MetadataSchema()
-	if cmd.MetadataSchema != nil {
+	useDimensions := true
+	if cmd.Dimensions != nil {
+		dimensions = *cmd.Dimensions
+	} else if cmd.MetadataSchema != nil {
 		metadataSchema = *cmd.MetadataSchema
+		useDimensions = false
 	}
 	eventRetentionDays := existing.EventRetentionDays()
 	if cmd.EventRetentionDays != nil {
 		eventRetentionDays = *cmd.EventRetentionDays
 	}
 
-	next, err := domainmeter.New(
-		existing.ID(),
-		existing.Name(),
-		description,
-		unit,
-		aggregation,
-		metadataSchema,
-		eventRetentionDays,
-		existing.CreatedAt(),
-	)
+	var next domainmeter.Meter
+	if useDimensions {
+		next, err = domainmeter.NewWithDimensions(
+			existing.ID(),
+			existing.Name(),
+			description,
+			unit,
+			aggregation,
+			dimensions,
+			eventRetentionDays,
+			existing.CreatedAt(),
+		)
+	} else {
+		next, err = domainmeter.New(
+			existing.ID(),
+			existing.Name(),
+			description,
+			unit,
+			aggregation,
+			metadataSchema,
+			eventRetentionDays,
+			existing.CreatedAt(),
+		)
+	}
 	if err != nil {
 		return Result{}, err
 	}

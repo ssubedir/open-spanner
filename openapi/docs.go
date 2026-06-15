@@ -1732,6 +1732,12 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "dimensions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_meter.DimensionRequest"
+                    }
+                },
                 "event_retention_days": {
                     "type": "integer"
                 },
@@ -1745,6 +1751,46 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "unit": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_meter.DimensionRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "required": {
+                    "type": "boolean"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_meter.DimensionResponse": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "required": {
+                    "type": "boolean"
+                },
+                "type": {
                     "type": "string"
                 }
             }
@@ -1774,6 +1820,12 @@ const docTemplate = `{
                 },
                 "description": {
                     "type": "string"
+                },
+                "dimensions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_meter.DimensionResponse"
+                    }
                 },
                 "event_retention_days": {
                     "type": "integer"
@@ -1834,6 +1886,12 @@ const docTemplate = `{
                 },
                 "description": {
                     "type": "string"
+                },
+                "dimensions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_meter.DimensionRequest"
+                    }
                 },
                 "event_retention_days": {
                     "type": "integer"

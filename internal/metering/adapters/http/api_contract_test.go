@@ -183,10 +183,19 @@ func TestMeterAPIContract(t *testing.T) {
 	router := newTestRouter()
 
 	create := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
-		"name":                 "api_calls",
-		"description":          "API calls",
-		"unit":                 "call",
-		"aggregation":          "sum",
+		"name":        "api_calls",
+		"description": "API calls",
+		"unit":        "call",
+		"aggregation": "sum",
+		"dimensions": []map[string]any{
+			{
+				"name":         "region",
+				"display_name": "Region",
+				"description":  "Deployment region",
+				"type":         "string",
+				"required":     true,
+			},
+		},
 		"event_retention_days": 30,
 	})
 	if create.Code != http.StatusCreated {
@@ -197,6 +206,9 @@ func TestMeterAPIContract(t *testing.T) {
 	decodeJSON(t, create, &created)
 	if created.ID == "" || created.Name != "api_calls" || created.EventRetentionDays != 30 {
 		t.Fatalf("created meter = %#v", created)
+	}
+	if created.MetadataSchema["region"] != "string" || len(created.Dimensions) != 1 || created.Dimensions[0].DisplayName != "Region" {
+		t.Fatalf("created meter dimensions = %#v metadata=%#v", created.Dimensions, created.MetadataSchema)
 	}
 
 	list := requestJSON(t, router, http.MethodGet, "/v1/meters", nil)
@@ -226,14 +238,22 @@ func TestMeterAPIContract(t *testing.T) {
 		"unit":                 "request",
 		"aggregation":          "count",
 		"event_retention_days": 365,
-		"metadata_schema":      map[string]string{"plan": "string"},
+		"dimensions": []map[string]any{
+			{
+				"name":         "plan",
+				"display_name": "Plan",
+				"description":  "Billing plan",
+				"type":         "string",
+				"required":     false,
+			},
+		},
 	})
 	if update.Code != http.StatusOK {
 		t.Fatalf("update meter status = %d, want %d: %s", update.Code, http.StatusOK, update.Body.String())
 	}
 	var updated meterResponse
 	decodeJSON(t, update, &updated)
-	if updated.Description != "Updated API calls" || updated.Name != created.Name || updated.Unit != "request" || updated.Aggregation != "count" || updated.EventRetentionDays != 365 || updated.MetadataSchema["plan"] != "string" {
+	if updated.Description != "Updated API calls" || updated.Name != created.Name || updated.Unit != "request" || updated.Aggregation != "count" || updated.EventRetentionDays != 365 || updated.MetadataSchema["plan"] != "string" || len(updated.Dimensions) != 1 || updated.Dimensions[0].DisplayName != "Plan" || updated.Dimensions[0].Required {
 		t.Fatalf("updated meter = %#v", updated)
 	}
 
@@ -1757,14 +1777,23 @@ func findCookie(cookies []*http.Cookie, name string) *http.Cookie {
 }
 
 type meterResponse struct {
-	ID                 string            `json:"id"`
-	Name               string            `json:"name"`
-	Description        string            `json:"description"`
-	Unit               string            `json:"unit"`
-	Aggregation        string            `json:"aggregation"`
-	MetadataSchema     map[string]string `json:"metadata_schema"`
-	EventRetentionDays int               `json:"event_retention_days"`
-	CreatedAt          string            `json:"created_at"`
+	ID                 string                   `json:"id"`
+	Name               string                   `json:"name"`
+	Description        string                   `json:"description"`
+	Unit               string                   `json:"unit"`
+	Aggregation        string                   `json:"aggregation"`
+	Dimensions         []meterDimensionResponse `json:"dimensions"`
+	MetadataSchema     map[string]string        `json:"metadata_schema"`
+	EventRetentionDays int                      `json:"event_retention_days"`
+	CreatedAt          string                   `json:"created_at"`
+}
+
+type meterDimensionResponse struct {
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name"`
+	Description string `json:"description"`
+	Type        string `json:"type"`
+	Required    bool   `json:"required"`
 }
 
 type meterListResponse struct {

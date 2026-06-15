@@ -1001,15 +1001,44 @@ svg {
 
 .schema-row {
   display: grid;
-  grid-template-columns: minmax(160px, 1fr) minmax(120px, 160px) 36px;
+  grid-template-columns: minmax(130px, 1fr) minmax(130px, 1fr) minmax(105px, 130px) minmax(96px, auto) 36px;
   gap: 8px;
   align-items: center;
+  min-width: 0;
+}
+
+.schema-row label {
+  display: grid;
+  gap: 5px;
   min-width: 0;
 }
 
 .schema-row input,
 .schema-row select {
   min-height: 36px;
+}
+
+.schema-required {
+  align-self: end;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  min-height: 36px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0 10px;
+  background: #ffffff;
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.schema-required input {
+  min-height: auto;
+}
+
+.schema-description {
+  grid-column: 1 / -2;
 }
 
 .schema-chips {
@@ -1454,7 +1483,10 @@ input:disabled {
     grid-template-columns: minmax(0, 1fr) 36px;
   }
 
-  .schema-row select {
+  .schema-row label,
+  .schema-row select,
+  .schema-description,
+  .schema-required {
     grid-column: 1 / -1;
   }
 

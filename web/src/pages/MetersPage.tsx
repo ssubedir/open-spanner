@@ -3,6 +3,7 @@ import { Boxes, Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
 import { type FormEvent, useCallback } from 'react'
 
 import { appStore, appStoreActions, type MeterDimensionDraft } from '../app-store'
+import type { Meter, MeterDimension } from '../api'
 import { EmptyRow, Modal, PageHeader } from '../components/dashboard'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
@@ -10,7 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
 import { formatDate, formatNumber } from '../lib/format'
 import { useInitialLoad } from '../lib/hooks'
-import { metadataSchemaFromRows } from '../lib/metadata'
+import { metadataSchemaFromDimensions, meterDimensionsFromRows } from '../lib/metadata'
 
 const aggregations = ['sum', 'count', 'avg', 'min', 'max', 'first', 'last', 'rate']
 const metadataTypes = ['string', 'number', 'boolean']
@@ -26,15 +27,17 @@ export function MetersPage() {
     const formElement = event.currentTarget
     const form = new FormData(formElement)
 
-    const metadataSchema = readMetadataSchema(createDimensions)
-    if (!metadataSchema) {
+    const dimensions = readMeterDimensions(createDimensions)
+    if (!dimensions) {
       return
     }
+    const metadataSchema = metadataSchemaFromDimensions(dimensions)
 
     try {
       await appStoreActions.createMeter({
         aggregation: String(form.get('aggregation') || 'sum'),
         description: String(form.get('description') || ''),
+        dimensions,
         event_retention_days: Number(form.get('event_retention_days') || 90),
         metadata_schema: metadataSchema,
         name: String(form.get('name') || ''),
@@ -54,15 +57,17 @@ export function MetersPage() {
     }
     const form = new FormData(event.currentTarget)
 
-    const metadataSchema = readMetadataSchema(editDimensions)
-    if (!metadataSchema) {
+    const dimensions = readMeterDimensions(editDimensions)
+    if (!dimensions) {
       return
     }
+    const metadataSchema = metadataSchemaFromDimensions(dimensions)
 
     try {
       await appStoreActions.updateEditingMeter({
         aggregation: String(form.get('aggregation') || editing.aggregation),
         description: String(form.get('description') || ''),
+        dimensions,
         event_retention_days: Number(form.get('event_retention_days') || editing.event_retention_days),
         metadata_schema: metadataSchema,
         unit: String(form.get('unit') || ''),
@@ -179,7 +184,7 @@ export function MetersPage() {
                         <TableCell>{meter.event_retention_days} days</TableCell>
                         <TableCell>{formatNumber(stat?.usage_events ?? 0)}</TableCell>
                         <TableCell>{stat?.last_event_at ? formatDate(stat.last_event_at) : 'Never'}</TableCell>
-                        <TableCell><DimensionChips schema={meter.metadata_schema} /></TableCell>
+                        <TableCell><DimensionChips meter={meter} /></TableCell>
                         <TableCell>
                           <div className="table-actions">
                             <Button aria-label={`Edit ${meter.name}`} onClick={() => appStoreActions.setMeterEditing(meter)} size="icon" type="button" variant="ghost">
@@ -252,9 +257,9 @@ export function MetersPage() {
   )
 }
 
-function readMetadataSchema(rows: MeterDimensionDraft[]) {
+function readMeterDimensions(rows: MeterDimensionDraft[]) {
   try {
-    return metadataSchemaFromRows(rows)
+    return meterDimensionsFromRows(rows)
   } catch (err) {
     appStoreActions.setMetersError(err instanceof Error ? err.message : 'Unable to read meter dimensions')
     return null
@@ -284,22 +289,54 @@ function DimensionSchemaEditor({
       <div className="schema-rows">
         {rows.map((row) => (
           <div className="schema-row" key={row.id}>
-            <input
-              aria-label="Dimension name"
-              onChange={(event) => onUpdate(row.id, { name: event.currentTarget.value })}
-              placeholder="region"
-              value={row.name}
-            />
-            <select
-              aria-label="Dimension type"
-              onChange={(event) => onUpdate(row.id, { type: event.currentTarget.value })}
-              value={row.type}
-            >
-              {metadataTypes.map((type) => <option key={type} value={type}>{type}</option>)}
-            </select>
+            <label>
+              Name
+              <input
+                aria-label="Dimension name"
+                onChange={(event) => onUpdate(row.id, { name: event.currentTarget.value })}
+                placeholder="region"
+                value={row.name}
+              />
+            </label>
+            <label>
+              Display
+              <input
+                aria-label="Dimension display name"
+                onChange={(event) => onUpdate(row.id, { displayName: event.currentTarget.value })}
+                placeholder="Region"
+                value={row.displayName}
+              />
+            </label>
+            <label>
+              Type
+              <select
+                aria-label="Dimension type"
+                onChange={(event) => onUpdate(row.id, { type: event.currentTarget.value })}
+                value={row.type}
+              >
+                {metadataTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+              </select>
+            </label>
+            <label className="schema-required">
+              <input
+                checked={row.required}
+                onChange={(event) => onUpdate(row.id, { required: event.currentTarget.checked })}
+                type="checkbox"
+              />
+              Required
+            </label>
             <Button aria-label={`Remove ${row.name || 'dimension'}`} onClick={() => onRemove(row.id)} size="icon" type="button" variant="ghost">
               <Trash2 aria-hidden="true" />
             </Button>
+            <label className="schema-description">
+              Description
+              <input
+                aria-label="Dimension description"
+                onChange={(event) => onUpdate(row.id, { description: event.currentTarget.value })}
+                placeholder="Deployment region"
+                value={row.description}
+              />
+            </label>
           </div>
         ))}
       </div>
@@ -307,20 +344,44 @@ function DimensionSchemaEditor({
   )
 }
 
-function DimensionChips({ schema }: { schema: Record<string, string> }) {
-  const dimensions = Object.entries(schema || {}).sort(([left], [right]) => left.localeCompare(right))
+function DimensionChips({ meter }: { meter: Meter }) {
+  const dimensions = normalizedMeterDimensions(meter)
   if (dimensions.length === 0) {
     return <span className="muted">No dimensions</span>
   }
 
   return (
     <div className="schema-chips">
-      {dimensions.map(([name, type]) => (
-        <span className="schema-chip" key={name}>
-          <span>{name}</span>
-          <strong>{type}</strong>
+      {dimensions.map((dimension) => (
+        <span className="schema-chip" key={dimension.name}>
+          <span>{dimension.display_name || humanizeField(dimension.name)}</span>
+          <strong>{dimension.required ? dimension.type : `${dimension.type} optional`}</strong>
         </span>
       ))}
     </div>
   )
+}
+
+function normalizedMeterDimensions(meter: Meter): MeterDimension[] {
+  if (meter.dimensions && meter.dimensions.length > 0) {
+    return meter.dimensions
+  }
+  return Object.entries(meter.metadata_schema || {})
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, type]) => ({
+      description: '',
+      display_name: humanizeField(name),
+      name,
+      required: true,
+      type,
+    }))
+}
+
+function humanizeField(key: string) {
+  return key
+    .replace(/^metadata\./, '')
+    .split(/[._-]/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
 }

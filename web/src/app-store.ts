@@ -28,6 +28,7 @@ import {
   type APIKeyCreateResponse,
   type AuthSession,
   type Meter,
+  type MeterDimension,
   type MeterCreateRequest,
   type MeterStats,
   type MeterUpdateRequest,
@@ -54,8 +55,11 @@ import {
 import type { LoadState } from './types'
 
 export type MeterDimensionDraft = {
+  description: string
+  displayName: string
   id: string
   name: string
+  required: boolean
   type: string
 }
 
@@ -515,7 +519,7 @@ export const appStoreActions = {
   setMeterEditing(editing: Meter | null) {
     setMetersState({
       editing,
-      editDimensions: editing ? meterDimensionDraftsFromSchema(editing.metadata_schema) : [],
+      editDimensions: editing ? meterDimensionDraftsFromMeter(editing) : [],
     })
   },
   updateMeterCreateDimension(id: string, update: Partial<Omit<MeterDimensionDraft, 'id'>>) {
@@ -828,13 +832,30 @@ function nextPinnedPosition(items: SavedUsageQuery[], excludeID: string) {
     .reduce((position, query) => Math.max(position, query.position), 0) + 1
 }
 
-function newMeterDimensionDraft(name = '', type = 'string'): MeterDimensionDraft {
+function newMeterDimensionDraft(name = '', type = 'string', displayName = '', description = '', required = true): MeterDimensionDraft {
   meterDimensionID += 1
   return {
+    description,
+    displayName,
     id: `meter-dimension-${meterDimensionID}`,
     name,
+    required,
     type,
   }
+}
+
+function meterDimensionDraftsFromMeter(meter: Meter) {
+  const dimensions = normalizedMeterDimensions(meter)
+  if (dimensions.length > 0) {
+    return dimensions.map((dimension) => newMeterDimensionDraft(
+      dimension.name,
+      dimension.type,
+      dimension.display_name,
+      dimension.description,
+      dimension.required,
+    ))
+  }
+  return meterDimensionDraftsFromSchema(meter.metadata_schema)
 }
 
 function meterDimensionDraftsFromSchema(schema: Record<string, string>) {
@@ -842,4 +863,28 @@ function meterDimensionDraftsFromSchema(schema: Record<string, string>) {
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([name, type]) => newMeterDimensionDraft(name, type))
   return rows.length > 0 ? rows : [newMeterDimensionDraft()]
+}
+
+function normalizedMeterDimensions(meter: Meter): MeterDimension[] {
+  if (meter.dimensions && meter.dimensions.length > 0) {
+    return meter.dimensions
+  }
+  return Object.entries(meter.metadata_schema || {})
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, type]) => ({
+      description: '',
+      display_name: humanizeDimensionName(name),
+      name,
+      required: true,
+      type,
+    }))
+}
+
+function humanizeDimensionName(name: string) {
+  return name
+    .replace(/^metadata\./, '')
+    .split(/[._-]/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
 }

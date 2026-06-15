@@ -28,13 +28,13 @@ func Run(t *testing.T, setup SetupFunc) {
 		if _, err := meterRepo.Save(ctx, meter.WithDescription("updated")); err != nil {
 			t.Fatalf("update meter: %v", err)
 		}
-		updatedDefinition, err := domainmeter.New(
+		updatedDefinition, err := domainmeter.NewWithDimensions(
 			meter.ID(),
 			meter.Name(),
 			"updated definition",
 			"request",
 			domainmeter.AggregationCount,
-			map[string]domainmeter.MetadataType{"plan": domainmeter.MetadataString},
+			[]domainmeter.Dimension{newDimension(t, "plan", domainmeter.MetadataString, "Plan", "Billing plan", true)},
 			365,
 			meter.CreatedAt(),
 		)
@@ -49,7 +49,7 @@ func Run(t *testing.T, setup SetupFunc) {
 		if err != nil {
 			t.Fatalf("find meter by id: %v", err)
 		}
-		if len(byID) != 1 || byID[0].Description() != "updated definition" || byID[0].Unit() != "request" || byID[0].Aggregation() != domainmeter.AggregationCount || byID[0].EventRetentionDays() != 365 || byID[0].MetadataSchema()["plan"] != domainmeter.MetadataString {
+		if len(byID) != 1 || byID[0].Description() != "updated definition" || byID[0].Unit() != "request" || byID[0].Aggregation() != domainmeter.AggregationCount || byID[0].EventRetentionDays() != 365 || byID[0].MetadataSchema()["plan"] != domainmeter.MetadataString || len(byID[0].Dimensions()) != 1 || byID[0].Dimensions()[0].DisplayName() != "Plan" {
 			t.Fatalf("meter by id = %#v", byID)
 		}
 
@@ -510,6 +510,15 @@ func newMeter(t *testing.T, id string, name string) domainmeter.Meter {
 		t.Fatalf("new meter: %v", err)
 	}
 	return meter
+}
+
+func newDimension(t *testing.T, name string, metadataType domainmeter.MetadataType, displayName string, description string, required bool) domainmeter.Dimension {
+	t.Helper()
+	dimension, err := domainmeter.NewDimension(name, metadataType, displayName, description, required)
+	if err != nil {
+		t.Fatalf("new dimension: %v", err)
+	}
+	return dimension
 }
 
 func newEvent(t *testing.T, id string, idempotencyKey string, subject string, meterName string, quantity float64, eventTime time.Time, metadata map[string]any) domainusage.Event {
