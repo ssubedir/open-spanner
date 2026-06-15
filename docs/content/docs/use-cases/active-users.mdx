@@ -1,0 +1,38 @@
+---
+title: Active Users
+description: Track seats, active users, workspaces, and plan-level adoption.
+---
+
+Use active-user metering when your product needs to report seats, monthly active users, active workspaces, or similar account-level activity. This is useful for SaaS pricing, customer health, entitlement audits, and adoption reporting.
+
+## Model
+
+Create a meter such as `active_users` with:
+
+| Field | Value |
+| --- | --- |
+| Unit | `user` |
+| Aggregation | `sum` for activity events, or `last` for observed seat counts |
+| Quantity | `1` per active user event, or a count snapshot |
+
+Useful dimensions:
+
+- `plan`
+- `workspace`
+- `role`
+- `source`
+
+## How To Use It
+
+For activity-based metering, emit events when users perform meaningful product actions. For seat-count metering, emit snapshots from your account or identity system.
+
+This lets you answer:
+
+- Which customers are active this week or month?
+- Which plans drive the most active usage?
+- How many seats or workspaces should be billed?
+- Which roles are using the product most?
+
+## Example
+
+See [`examples/advance/active-users`](https://github.com/ssubedir/open-spanner/tree/main/examples/advance/active-users) for Go, TypeScript, Python, and C# examples.

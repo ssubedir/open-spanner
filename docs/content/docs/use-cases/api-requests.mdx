@@ -1,0 +1,38 @@
+---
+title: API Request Metering
+description: Track API traffic, customer activity, and request mix.
+---
+
+Use API request metering when each accepted request represents product usage. This is common for developer platforms, internal APIs, hosted services, and products with request-based plans.
+
+## Model
+
+Create a meter such as `api_requests` with:
+
+| Field | Value |
+| --- | --- |
+| Unit | `request` |
+| Aggregation | `sum` |
+| Quantity | Usually `1` per accepted request |
+
+Useful dimensions:
+
+- `endpoint`
+- `method`
+- `status`
+- `region`
+
+## How To Use It
+
+Record usage after your service accepts or completes the request. Use the customer, organization, account, or workspace as `subject`.
+
+This lets you answer:
+
+- How many requests did a customer make this billing period?
+- Which endpoints are driving usage?
+- How much traffic is erroring by status code?
+- Which regions serve the most traffic?
+
+## Example
+
+See [`examples/advance/api-requests`](https://github.com/ssubedir/open-spanner/tree/main/examples/advance/api-requests) for Go, TypeScript, Python, and C# examples.

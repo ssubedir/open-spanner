@@ -1,0 +1,38 @@
+---
+title: Feature Usage
+description: Measure adoption and entitlement usage across product features.
+---
+
+Use feature usage metering when you need to understand which features customers use, gate features by plan, or report adoption to customer-facing teams.
+
+## Model
+
+Create a meter such as `feature_usage` with:
+
+| Field | Value |
+| --- | --- |
+| Unit | `event` |
+| Aggregation | `sum` |
+| Quantity | Usually `1` per feature action |
+
+Useful dimensions:
+
+- `feature`
+- `plan`
+- `source`
+- `environment`
+
+## How To Use It
+
+Record usage after a feature action succeeds. Keep `feature` names stable and product-oriented, not tied to temporary internal implementation names.
+
+This lets you answer:
+
+- Which customers use a feature?
+- Which plans rely on a feature most?
+- Which features are rarely used?
+- Which features should be expanded, limited, or packaged differently?
+
+## Example
+
+See [`examples/advance/feature-usage`](https://github.com/ssubedir/open-spanner/tree/main/examples/advance/feature-usage) for Go, TypeScript, Python, and C# examples.
