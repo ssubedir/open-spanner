@@ -32,7 +32,7 @@ export function UsagePage() {
 
   const selectedMeterName = firstEqualRuleValue(filterQuery, 'meter')
   const groupKeys = useMemo(() => selectedMeterSchemaKeys(meters, selectedMeterName), [meters, selectedMeterName])
-  const activeGroupBy = useMemo(() => groupBy.filter((key) => groupKeys.includes(key)), [groupBy, groupKeys])
+  const activeGroupBy = groupBy.filter((key) => groupKeys.includes(key))
   const filterFields = useMemo(() => buildFilterFields(groupKeys, meters), [groupKeys, meters])
 
   function resetQuery() {

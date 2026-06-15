@@ -39,6 +39,12 @@ import {
 } from './lib/usage-query'
 import type { LoadState } from './types'
 
+export type MeterDimensionDraft = {
+  id: string
+  name: string
+  type: string
+}
+
 type AppState = {
   auth: {
     checked: boolean
@@ -56,7 +62,9 @@ type AppState = {
     status: LoadState
   }
   meters: {
+    createDimensions: MeterDimensionDraft[]
     deleting: Meter | null
+    editDimensions: MeterDimensionDraft[]
     editing: Meter | null
     error: string
     items: Meter[]
@@ -81,6 +89,8 @@ type AppState = {
   }
 }
 
+let meterDimensionID = 0
+
 export const appStore = createStore<AppState>({
   auth: {
     checked: false,
@@ -98,7 +108,9 @@ export const appStore = createStore<AppState>({
     status: 'idle',
   },
   meters: {
+    createDimensions: [newMeterDimensionDraft()],
     deleting: null,
+    editDimensions: [],
     editing: null,
     error: '',
     items: [],
@@ -309,6 +321,34 @@ export const appStoreActions = {
       groupBy: [],
     })
   },
+  addMeterCreateDimension() {
+    setMetersState((state) => ({
+      createDimensions: [...state.createDimensions, newMeterDimensionDraft()],
+    }))
+  },
+  addMeterEditDimension() {
+    setMetersState((state) => ({
+      editDimensions: [...state.editDimensions, newMeterDimensionDraft()],
+    }))
+  },
+  removeMeterCreateDimension(id: string) {
+    setMetersState((state) => {
+      const next = state.createDimensions.filter((row) => row.id !== id)
+      return { createDimensions: next.length > 0 ? next : [newMeterDimensionDraft()] }
+    })
+  },
+  removeMeterEditDimension(id: string) {
+    setMetersState((state) => {
+      const next = state.editDimensions.filter((row) => row.id !== id)
+      return { editDimensions: next.length > 0 ? next : [newMeterDimensionDraft()] }
+    })
+  },
+  resetMeterCreateDimensions() {
+    setMetersState({ createDimensions: [newMeterDimensionDraft()] })
+  },
+  setMetersError(error: string) {
+    setMetersState({ error })
+  },
   setMeterDeleting(deleting: Meter | null) {
     setMetersState({ deleting })
   },
@@ -316,7 +356,20 @@ export const appStoreActions = {
     setAPIKeysState({ deleting })
   },
   setMeterEditing(editing: Meter | null) {
-    setMetersState({ editing })
+    setMetersState({
+      editing,
+      editDimensions: editing ? meterDimensionDraftsFromSchema(editing.metadata_schema) : [],
+    })
+  },
+  updateMeterCreateDimension(id: string, update: Partial<Omit<MeterDimensionDraft, 'id'>>) {
+    setMetersState((state) => ({
+      createDimensions: state.createDimensions.map((row) => row.id === id ? { ...row, ...update } : row),
+    }))
+  },
+  updateMeterEditDimension(id: string, update: Partial<Omit<MeterDimensionDraft, 'id'>>) {
+    setMetersState((state) => ({
+      editDimensions: state.editDimensions.map((row) => row.id === id ? { ...row, ...update } : row),
+    }))
   },
   setUsageFilterQuery(filterQuery: RuleGroupType) {
     setUsageState({ filterQuery })
@@ -399,12 +452,12 @@ function setAPIKeysState(update: Partial<AppState['apiKeys']> | ((state: AppStat
   }))
 }
 
-function setMetersState(update: Partial<AppState['meters']>) {
+function setMetersState(update: Partial<AppState['meters']> | ((state: AppState['meters']) => Partial<AppState['meters']>)) {
   appStore.setState((state) => ({
     ...state,
     meters: {
       ...state.meters,
-      ...update,
+      ...(typeof update === 'function' ? update(state.meters) : update),
     },
   }))
 }
@@ -427,4 +480,20 @@ function setUsageState(update: Partial<AppState['usage']> | ((state: AppState['u
       ...(typeof update === 'function' ? update(state.usage) : update),
     },
   }))
+}
+
+function newMeterDimensionDraft(name = '', type = 'string'): MeterDimensionDraft {
+  meterDimensionID += 1
+  return {
+    id: `meter-dimension-${meterDimensionID}`,
+    name,
+    type,
+  }
+}
+
+function meterDimensionDraftsFromSchema(schema: Record<string, string>) {
+  const rows = Object.entries(schema || {})
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, type]) => newMeterDimensionDraft(name, type))
+  return rows.length > 0 ? rows : [newMeterDimensionDraft()]
 }
