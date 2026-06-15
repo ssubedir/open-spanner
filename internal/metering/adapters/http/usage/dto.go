@@ -29,7 +29,7 @@ type FilterRequest struct {
 
 // SearchRequest searches bucketed usage with an advanced filter.
 type SearchRequest struct {
-	Subject    string         `json:"subject"`
+	Subject    string         `json:"subject,omitempty"`
 	Meter      string         `json:"meter"`
 	From       string         `json:"from"`
 	To         string         `json:"to"`

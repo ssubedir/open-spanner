@@ -257,12 +257,12 @@ func (h *Handler) ListIngestions(w http.ResponseWriter, r *http.Request) {
 // @ID listUsageBuckets
 // @Tags usages
 // @Produce json
-// @Param subject query string true "Subject"
+// @Param subject query string false "Subject"
 // @Param meter query string true "Meter name"
 // @Param from query string true "RFC3339 start time"
 // @Param to query string true "RFC3339 end time"
 // @Param bucket_size query string false "Bucket size: hour, day, month"
-// @Param group_by query []string false "Metadata keys to group by. Repeat the parameter or use comma-separated values." collectionFormat(multi)
+// @Param group_by query []string false "Subject or metadata keys to group by. Repeat the parameter or use comma-separated values." collectionFormat(multi)
 // @Param limit query int false "Result limit"
 // @Success 200 {array} ListItemResponse
 // @Failure 400 {object} respond.ErrorResponse
@@ -531,12 +531,12 @@ func (h *Handler) SearchEvents(w http.ResponseWriter, r *http.Request) {
 // @ID exportUsageBuckets
 // @Tags usages
 // @Produce text/csv
-// @Param subject query string true "Subject"
+// @Param subject query string false "Subject"
 // @Param meter query string true "Meter name"
 // @Param from query string true "RFC3339 start time"
 // @Param to query string true "RFC3339 end time"
 // @Param bucket_size query string false "Bucket size: hour, day, month"
-// @Param group_by query []string false "Metadata keys to group by. Repeat the parameter or use comma-separated values." collectionFormat(multi)
+// @Param group_by query []string false "Subject or metadata keys to group by. Repeat the parameter or use comma-separated values." collectionFormat(multi)
 // @Param limit query int false "Result limit"
 // @Success 200 {string} string "CSV"
 // @Failure 400 {object} respond.ErrorResponse
@@ -562,7 +562,12 @@ func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 	writer := csv.NewWriter(w)
 	header := []string{"bucket_start", "subject", "meter", "bucket_size", "aggregation", "unit", "quantity"}
 	if len(listQuery.GroupBy) > 0 {
-		header = append(header, listQuery.GroupBy...)
+		for _, groupBy := range listQuery.GroupBy {
+			if domainusage.IsSubjectGroupBy(groupBy) {
+				continue
+			}
+			header = append(header, groupBy)
+		}
 	}
 	_ = writer.Write(header)
 	for _, bucket := range buckets {
@@ -576,6 +581,9 @@ func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 			strconv.FormatFloat(bucket.Quantity, 'f', -1, 64),
 		}
 		for _, groupBy := range listQuery.GroupBy {
+			if domainusage.IsSubjectGroupBy(groupBy) {
+				continue
+			}
 			row = append(row, bucket.Group[groupBy])
 		}
 		_ = writer.Write(row)

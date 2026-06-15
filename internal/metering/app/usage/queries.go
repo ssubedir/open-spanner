@@ -126,6 +126,9 @@ func (s *service) List(ctx context.Context, input ListQuery) ([]ListItemResult, 
 		return nil, err
 	}
 	for _, field := range groupBy {
+		if domainusage.IsSubjectGroupBy(field) {
+			continue
+		}
 		if _, exists := meter.MetadataSchema()[field]; !exists {
 			return nil, domain.ErrInvalidInput
 		}

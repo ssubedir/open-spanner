@@ -23,6 +23,8 @@ const (
 	MaxHourRange  = 31 * 24 * time.Hour
 	MaxDayRange   = 366 * 24 * time.Hour
 	MaxMonthYears = 5
+
+	GroupBySubject = "subject"
 )
 
 type Query struct {
@@ -231,9 +233,6 @@ func NewGroupedFilteredQuery(subject, meterName string, from, to time.Time, buck
 		return Query{}, err
 	}
 
-	if subject == "" {
-		return Query{}, fmt.Errorf("%w: subject is required", domain.ErrInvalidInput)
-	}
 	if meterName == "" {
 		return Query{}, fmt.Errorf("%w: meter is required", domain.ErrInvalidInput)
 	}
@@ -354,6 +353,10 @@ func NormalizeGroupBy(fields []string) ([]string, error) {
 		return nil, fmt.Errorf("%w: group_by supports up to %d fields", domain.ErrInvalidInput, MaxGroupBy)
 	}
 	return normalized, nil
+}
+
+func IsSubjectGroupBy(field string) bool {
+	return strings.TrimSpace(field) == GroupBySubject
 }
 
 func NewBucket(subject, meterName string, bucketSize BucketSize, bucketStart time.Time, quantity float64) Bucket {

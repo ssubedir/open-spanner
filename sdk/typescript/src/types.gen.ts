@@ -556,7 +556,7 @@ export type ExportUsageBucketsData = {
         /**
          * Subject
          */
-        subject: string;
+        subject?: string;
         /**
          * Meter name
          */
@@ -574,7 +574,7 @@ export type ExportUsageBucketsData = {
          */
         bucket_size?: string;
         /**
-         * Metadata keys to group by. Repeat the parameter or use comma-separated values.
+         * Subject or metadata keys to group by. Repeat the parameter or use comma-separated values.
          */
         group_by?: Array<string>;
         /**

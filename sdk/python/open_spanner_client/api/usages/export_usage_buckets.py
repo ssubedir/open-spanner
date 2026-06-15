@@ -11,7 +11,7 @@ from ...types import UNSET, Response, Unset
 
 def _get_kwargs(
     *,
-    subject: str,
+    subject: str | Unset = UNSET,
     meter: str,
     from_: str,
     to: str,
@@ -89,7 +89,7 @@ def _build_response(*, client: AuthenticatedClient | Client, response: httpx.Res
 def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
-    subject: str,
+    subject: str | Unset = UNSET,
     meter: str,
     from_: str,
     to: str,
@@ -100,7 +100,7 @@ def sync_detailed(
     """Export usage buckets
 
     Args:
-        subject (str):
+        subject (str | Unset):
         meter (str):
         from_ (str):
         to (str):
@@ -136,7 +136,7 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient | Client,
-    subject: str,
+    subject: str | Unset = UNSET,
     meter: str,
     from_: str,
     to: str,
@@ -147,7 +147,7 @@ def sync(
     """Export usage buckets
 
     Args:
-        subject (str):
+        subject (str | Unset):
         meter (str):
         from_ (str):
         to (str):
@@ -178,7 +178,7 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
-    subject: str,
+    subject: str | Unset = UNSET,
     meter: str,
     from_: str,
     to: str,
@@ -189,7 +189,7 @@ async def asyncio_detailed(
     """Export usage buckets
 
     Args:
-        subject (str):
+        subject (str | Unset):
         meter (str):
         from_ (str):
         to (str):
@@ -223,7 +223,7 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient | Client,
-    subject: str,
+    subject: str | Unset = UNSET,
     meter: str,
     from_: str,
     to: str,
@@ -234,7 +234,7 @@ async def asyncio(
     """Export usage buckets
 
     Args:
-        subject (str):
+        subject (str | Unset):
         meter (str):
         from_ (str):
         to (str):

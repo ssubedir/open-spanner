@@ -615,7 +615,6 @@
             "description": "Subject",
             "name": "subject",
             "in": "query",
-            "required": true,
             "schema": {
               "type": "string"
             }
@@ -656,7 +655,7 @@
             }
           },
           {
-            "description": "Metadata keys to group by. Repeat the parameter or use comma-separated values.",
+            "description": "Subject or metadata keys to group by. Repeat the parameter or use comma-separated values.",
             "name": "group_by",
             "in": "query",
             "explode": true,

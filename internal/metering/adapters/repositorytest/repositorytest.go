@@ -267,6 +267,47 @@ func Run(t *testing.T, setup SetupFunc) {
 		}
 	})
 
+	t.Run("usage aggregates across subjects", func(t *testing.T) {
+		ctx := context.Background()
+		meterRepo, usageRepo, _ := setup(t, ctx)
+		saveMeter(t, ctx, meterRepo, "meter-1", "accounts")
+
+		events := []domainusage.Event{
+			newEvent(t, "event-1", "", "org_123", "accounts", 2, time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC), nil),
+			newEvent(t, "event-2", "", "org_123", "accounts", 3, time.Date(2026, 6, 8, 11, 0, 0, 0, time.UTC), nil),
+			newEvent(t, "event-3", "", "org_456", "accounts", 5, time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC), nil),
+		}
+		for _, event := range events {
+			if _, err := usageRepo.Save(ctx, event); err != nil {
+				t.Fatalf("save usage %s: %v", event.ID(), err)
+			}
+		}
+
+		query := newQuery(t, "", "accounts", domainusage.BucketDay, domainmeter.AggregationSum, domainusage.EmptyFilter(), "")
+		buckets, err := usageRepo.Query(ctx, query)
+		if err != nil {
+			t.Fatalf("query all subject usage: %v", err)
+		}
+		if len(buckets) != 1 || buckets[0].Subject() != "" || buckets[0].Quantity() != 10 {
+			t.Fatalf("all subject buckets = %#v, want one unscoped bucket with quantity 10", buckets)
+		}
+
+		groupedQuery := newGroupedQuery(t, "", "accounts", domainusage.BucketDay, domainmeter.AggregationSum, domainusage.EmptyFilter(), []string{domainusage.GroupBySubject})
+		groupedBuckets, err := usageRepo.Query(ctx, groupedQuery)
+		if err != nil {
+			t.Fatalf("query grouped subject usage: %v", err)
+		}
+		if len(groupedBuckets) != 2 {
+			t.Fatalf("grouped bucket count = %d, want 2: %#v", len(groupedBuckets), groupedBuckets)
+		}
+		if groupedBuckets[0].Subject() != "org_123" || groupedBuckets[0].Group()[domainusage.GroupBySubject] != "org_123" || groupedBuckets[0].Quantity() != 5 {
+			t.Fatalf("first grouped subject bucket = %#v", groupedBuckets[0])
+		}
+		if groupedBuckets[1].Subject() != "org_456" || groupedBuckets[1].Group()[domainusage.GroupBySubject] != "org_456" || groupedBuckets[1].Quantity() != 5 {
+			t.Fatalf("second grouped subject bucket = %#v", groupedBuckets[1])
+		}
+	})
+
 	t.Run("usage discovers dimension values", func(t *testing.T) {
 		ctx := context.Background()
 		meterRepo, usageRepo, _ := setup(t, ctx)

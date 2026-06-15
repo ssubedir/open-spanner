@@ -78,7 +78,7 @@ type ExportUsageBucketsParams struct {
 
 	/* GroupBy.
 
-	   Metadata keys to group by. Repeat the parameter or use comma-separated values.
+	   Subject or metadata keys to group by. Repeat the parameter or use comma-separated values.
 	*/
 	GroupBy []string
 
@@ -98,7 +98,7 @@ type ExportUsageBucketsParams struct {
 
 	   Subject
 	*/
-	Subject string
+	Subject *string
 
 	/* To.
 
@@ -219,13 +219,13 @@ func (o *ExportUsageBucketsParams) SetMeter(meter string) {
 }
 
 // WithSubject adds the subject to the export usage buckets params.
-func (o *ExportUsageBucketsParams) WithSubject(subject string) *ExportUsageBucketsParams {
+func (o *ExportUsageBucketsParams) WithSubject(subject *string) *ExportUsageBucketsParams {
 	o.SetSubject(subject)
 	return o
 }
 
 // SetSubject adds the subject to the export usage buckets params.
-func (o *ExportUsageBucketsParams) SetSubject(subject string) {
+func (o *ExportUsageBucketsParams) SetSubject(subject *string) {
 	o.Subject = subject
 }
 
@@ -312,13 +312,20 @@ func (o *ExportUsageBucketsParams) WriteToRequest(r runtime.ClientRequest, reg s
 		}
 	}
 
-	// query param subject
-	qrSubject := o.Subject
-	qSubject := qrSubject
-	if qSubject != "" {
+	if o.Subject != nil {
 
-		if err := r.SetQueryParam("subject", qSubject); err != nil {
-			return err
+		// query param subject
+		var qrSubject string
+
+		if o.Subject != nil {
+			qrSubject = *o.Subject
+		}
+		qSubject := qrSubject
+		if qSubject != "" {
+
+			if err := r.SetQueryParam("subject", qSubject); err != nil {
+				return err
+			}
 		}
 	}
 

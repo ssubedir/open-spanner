@@ -199,13 +199,15 @@ WITH filtered AS (
 		quantity,
 		event_time::timestamptz AS event_at
 	FROM usage_events
-	WHERE subject = `)
+	WHERE meter_name = `)
 	args := []any{}
-	sqlQuery.WriteString(bindArg(&args, query.Subject()))
+	sqlQuery.WriteString(bindArg(&args, query.MeterName()))
 	sqlQuery.WriteString("\n")
-	sqlQuery.WriteString("\t\tAND meter_name = " + bindArg(&args, query.MeterName()) + "\n")
 	sqlQuery.WriteString("\t\tAND event_time >= " + bindArg(&args, formatTime(query.From())) + "\n")
 	sqlQuery.WriteString("\t\tAND event_time < " + bindArg(&args, formatTime(query.To())) + "\n")
+	if query.Subject() != "" {
+		sqlQuery.WriteString("\t\tAND subject = " + bindArg(&args, query.Subject()) + "\n")
+	}
 	for key, value := range query.Metadata() {
 		if !metadataKeyPattern.MatchString(key) {
 			return nil, fmt.Errorf("unsupported metadata filter key %q", key)
@@ -249,11 +251,15 @@ LIMIT ` + bindArg(&args, query.Limit()) + `
 			return nil, err
 		}
 		group := map[string]string{}
+		bucketSubject := query.Subject()
 		for index, field := range groupBy {
 			group[field] = groupValues[index]
+			if domainusage.IsSubjectGroupBy(field) {
+				bucketSubject = groupValues[index]
+			}
 		}
 		buckets = append(buckets, domainusage.NewBucketWithGroup(
-			query.Subject(),
+			bucketSubject,
 			query.MeterName(),
 			query.BucketSize(),
 			bucketStart,
@@ -335,13 +341,17 @@ func groupValueSelectSQL(groupBy []string) (string, []string, error) {
 	columns := strings.Builder{}
 	aliases := make([]string, 0, len(groupBy))
 	for index, field := range groupBy {
-		if !metadataKeyPattern.MatchString(field) {
-			return "", nil, fmt.Errorf("unsupported group by field %q", field)
-		}
 		alias := fmt.Sprintf("group_%d", index)
-		columns.WriteString("\t\tCOALESCE(metadata #>> ")
-		columns.WriteString(postgresJSONPath(field))
-		columns.WriteString(", '<nil>') AS ")
+		if domainusage.IsSubjectGroupBy(field) {
+			columns.WriteString("\t\tsubject AS ")
+		} else {
+			if !metadataKeyPattern.MatchString(field) {
+				return "", nil, fmt.Errorf("unsupported group by field %q", field)
+			}
+			columns.WriteString("\t\tCOALESCE(metadata #>> ")
+			columns.WriteString(postgresJSONPath(field))
+			columns.WriteString(", '<nil>') AS ")
+		}
 		columns.WriteString(alias)
 		columns.WriteString(",\n")
 		aliases = append(aliases, alias)

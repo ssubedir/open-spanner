@@ -445,7 +445,7 @@ export const appStoreActions = {
         group_by: groupBy.length > 0 ? groupBy : undefined,
         limit,
         meter: scope.meter,
-        subject: scope.subject,
+        subject: scope.subject || undefined,
         to: timeRange.to,
       })
       setUsageState({ buckets, status: 'ready' })

@@ -1188,6 +1188,74 @@ func TestUsageAPIGroupByMetadata(t *testing.T) {
 	}
 }
 
+func TestUsageAPIAggregatesAcrossSubjects(t *testing.T) {
+	router := newTestRouter()
+
+	createMeter := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name":        "api_calls",
+		"description": "API calls",
+		"unit":        "call",
+		"aggregation": "sum",
+	})
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create meter status = %d: %s", createMeter.Code, createMeter.Body.String())
+	}
+
+	events := []map[string]any{
+		{"subject": "org_123", "meter": "api_calls", "quantity": 2, "timestamp": "2026-06-08T10:00:00Z", "metadata": map[string]any{}},
+		{"subject": "org_123", "meter": "api_calls", "quantity": 3, "timestamp": "2026-06-08T11:00:00Z", "metadata": map[string]any{}},
+		{"subject": "org_456", "meter": "api_calls", "quantity": 5, "timestamp": "2026-06-08T12:00:00Z", "metadata": map[string]any{}},
+	}
+	for _, event := range events {
+		createUsage := requestJSON(t, router, http.MethodPost, "/v1/usages", event)
+		if createUsage.Code != http.StatusCreated {
+			t.Fatalf("create usage status = %d: %s", createUsage.Code, createUsage.Body.String())
+		}
+	}
+
+	list := requestJSON(t, router, http.MethodGet, "/v1/usages?meter=api_calls&from=2026-06-08T00:00:00Z&to=2026-06-09T00:00:00Z&bucket_size=day", nil)
+	if list.Code != http.StatusOK {
+		t.Fatalf("list usages status = %d, want %d: %s", list.Code, http.StatusOK, list.Body.String())
+	}
+	var buckets []usageListItemResponse
+	decodeJSON(t, list, &buckets)
+	if len(buckets) != 1 || buckets[0].Subject != "" || buckets[0].Quantity != 10 {
+		t.Fatalf("all subject buckets = %#v, want one unscoped bucket with quantity 10", buckets)
+	}
+
+	search := requestJSON(t, router, http.MethodPost, "/v1/usages/search", map[string]any{
+		"meter":       "api_calls",
+		"from":        "2026-06-08T00:00:00Z",
+		"to":          "2026-06-09T00:00:00Z",
+		"bucket_size": "day",
+		"group_by":    "subject",
+	})
+	if search.Code != http.StatusOK {
+		t.Fatalf("search usages status = %d, want %d: %s", search.Code, http.StatusOK, search.Body.String())
+	}
+	var groupedBuckets []usageListItemResponse
+	decodeJSON(t, search, &groupedBuckets)
+	if len(groupedBuckets) != 2 {
+		t.Fatalf("grouped bucket count = %d, want 2: %#v", len(groupedBuckets), groupedBuckets)
+	}
+	if groupedBuckets[0].Subject != "org_123" || groupedBuckets[0].Group["subject"] != "org_123" || groupedBuckets[0].Quantity != 5 {
+		t.Fatalf("first grouped subject bucket = %#v", groupedBuckets[0])
+	}
+	if groupedBuckets[1].Subject != "org_456" || groupedBuckets[1].Group["subject"] != "org_456" || groupedBuckets[1].Quantity != 5 {
+		t.Fatalf("second grouped subject bucket = %#v", groupedBuckets[1])
+	}
+
+	export := requestJSON(t, router, http.MethodGet, "/v1/usages/export?meter=api_calls&from=2026-06-08T00:00:00Z&to=2026-06-09T00:00:00Z&bucket_size=day&group_by=subject", nil)
+	if export.Code != http.StatusOK {
+		t.Fatalf("export status = %d, want %d: %s", export.Code, http.StatusOK, export.Body.String())
+	}
+
+	want := "bucket_start,subject,meter,bucket_size,aggregation,unit,quantity\n2026-06-08T00:00:00Z,org_123,api_calls,day,sum,call,5\n2026-06-08T00:00:00Z,org_456,api_calls,day,sum,call,5\n"
+	if export.Body.String() != want {
+		t.Fatalf("csv = %q, want %q", export.Body.String(), want)
+	}
+}
+
 func TestUsageAPIRejectsInvalidLimit(t *testing.T) {
 	router := newTestRouter()
 

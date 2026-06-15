@@ -13,6 +13,7 @@ A bucket has:
 - Meter
 - Unit
 - Aggregated value
+- Subject, when the query is scoped to one subject or grouped by subject
 - Optional dimension group values
 
 The meter's aggregation mode decides how the value is calculated.
@@ -22,9 +23,11 @@ The meter's aggregation mode decides how the value is calculated.
 Use query parameters when you know the direct filters:
 
 ```sh
-curl "http://localhost:18081/v1/usages?subject=org_123&meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z&bucket_size=day" \
+curl "http://localhost:18081/v1/usages?meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z&bucket_size=day" \
   -H "Authorization: Bearer $OPEN_SPANNER_API_KEY"
 ```
+
+Omit `subject` to aggregate every subject for the meter. Add `subject=org_123` when you want a single customer's bucket series.
 
 ## Advanced Query
 
@@ -32,27 +35,24 @@ Use `POST /v1/usages/search` when you need nested filter groups or grouping:
 
 ```json
 {
+  "meter": "api_requests",
   "from": "2026-06-01T00:00:00Z",
   "to": "2026-06-10T00:00:00Z",
   "bucket_size": "day",
-  "group_by": ["region", "plan"],
+  "group_by": ["subject", "region"],
   "filter": {
     "type": "group",
     "op": "and",
     "rules": [
       {
         "type": "condition",
-        "field": "subject",
+        "field": "metadata.plan",
         "op": "eq",
-        "value": "org_123"
-      },
-      {
-        "type": "condition",
-        "field": "meter",
-        "op": "eq",
-        "value": "api_requests"
+        "value": "pro"
       }
     ]
   }
 }
 ```
+
+Use `group_by: ["subject"]` to return one row per subject in each bucket. Combine `subject` with metadata dimensions when you need customer-by-region or customer-by-plan reports.

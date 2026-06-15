@@ -10,7 +10,6 @@ export function defaultFilterQuery(): RuleGroupType {
   return {
     combinator: 'and',
     rules: [
-      { field: 'subject', operator: '=', value: 'org_123' },
       { field: 'meter', operator: '=', value: '' },
       { field: 'timestamp', operator: '>=', value: dates.from },
       { field: 'timestamp', operator: '<=', value: dates.to },
@@ -61,8 +60,8 @@ export function usageFilterFromQuery(query: RuleGroupType, metadataTypes: Metada
 export function usageScopeFromQuery(query: RuleGroupType) {
   const subject = firstEqualRuleValue(query, 'subject')
   const meter = firstEqualRuleValue(query, 'meter')
-  if (!subject || !meter) {
-    throw new Error('Usage query needs subject and meter filters')
+  if (!meter) {
+    throw new Error('Usage query needs a meter filter')
   }
   return { meter, subject }
 }

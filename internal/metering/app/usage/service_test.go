@@ -605,6 +605,54 @@ func TestServiceListGroupsByMultipleMetadataFields(t *testing.T) {
 	}
 }
 
+func TestServiceListAggregatesAcrossSubjects(t *testing.T) {
+	ctx := context.Background()
+	service := newTestService(t, ctx)
+
+	for _, event := range []CreateCommand{
+		{Subject: "org_123", MeterName: "api_calls", Quantity: 2, EventTime: time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC)},
+		{Subject: "org_123", MeterName: "api_calls", Quantity: 3, EventTime: time.Date(2026, 6, 8, 11, 0, 0, 0, time.UTC)},
+		{Subject: "org_456", MeterName: "api_calls", Quantity: 5, EventTime: time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)},
+	} {
+		if _, err := service.Create(ctx, event); err != nil {
+			t.Fatalf("create usage: %v", err)
+		}
+	}
+
+	buckets, err := service.List(ctx, ListQuery{
+		MeterName:  "api_calls",
+		From:       time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC),
+		To:         time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC),
+		BucketSize: domainusage.BucketDay,
+	})
+	if err != nil {
+		t.Fatalf("list all subject usage: %v", err)
+	}
+	if len(buckets) != 1 || buckets[0].Subject != "" || buckets[0].Quantity != 10 {
+		t.Fatalf("all subject buckets = %#v, want one unscoped bucket with quantity 10", buckets)
+	}
+
+	grouped, err := service.List(ctx, ListQuery{
+		MeterName:  "api_calls",
+		From:       time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC),
+		To:         time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC),
+		BucketSize: domainusage.BucketDay,
+		GroupBy:    []string{domainusage.GroupBySubject},
+	})
+	if err != nil {
+		t.Fatalf("list grouped subject usage: %v", err)
+	}
+	if len(grouped) != 2 {
+		t.Fatalf("grouped bucket count = %d, want 2: %#v", len(grouped), grouped)
+	}
+	if grouped[0].Subject != "org_123" || grouped[0].Group[domainusage.GroupBySubject] != "org_123" || grouped[0].Quantity != 5 {
+		t.Fatalf("first grouped subject bucket = %#v", grouped[0])
+	}
+	if grouped[1].Subject != "org_456" || grouped[1].Group[domainusage.GroupBySubject] != "org_456" || grouped[1].Quantity != 5 {
+		t.Fatalf("second grouped subject bucket = %#v", grouped[1])
+	}
+}
+
 func TestServiceListDimensionValues(t *testing.T) {
 	ctx := context.Background()
 	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
@@ -690,15 +738,14 @@ func TestServiceCreateMissingMeterReturnsNotFound(t *testing.T) {
 	}
 }
 
-func TestServiceListInvalidQueryReturnsInvalidInput(t *testing.T) {
+func TestServiceListInvalidTimeRangeReturnsInvalidInput(t *testing.T) {
 	ctx := context.Background()
 	service := newTestService(t, ctx)
 
 	_, err := service.List(ctx, ListQuery{
-		Subject:   "",
 		MeterName: "api_calls",
-		From:      time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC),
-		To:        time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC),
+		From:      time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC),
+		To:        time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC),
 	})
 	if !errors.Is(err, domain.ErrInvalidInput) {
 		t.Fatalf("invalid query error = %v, want ErrInvalidInput", err)

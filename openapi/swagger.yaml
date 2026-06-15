@@ -1175,7 +1175,6 @@ paths:
       - description: Subject
         in: query
         name: subject
-        required: true
         type: string
       - description: Meter name
         in: query
@@ -1197,8 +1196,8 @@ paths:
         name: bucket_size
         type: string
       - collectionFormat: multi
-        description: Metadata keys to group by. Repeat the parameter or use comma-separated
-          values.
+        description: Subject or metadata keys to group by. Repeat the parameter or
+          use comma-separated values.
         in: query
         items:
           type: string
@@ -1378,7 +1377,6 @@ paths:
       - description: Subject
         in: query
         name: subject
-        required: true
         type: string
       - description: Meter name
         in: query
@@ -1400,8 +1398,8 @@ paths:
         name: bucket_size
         type: string
       - collectionFormat: multi
-        description: Metadata keys to group by. Repeat the parameter or use comma-separated
-          values.
+        description: Subject or metadata keys to group by. Repeat the parameter or
+          use comma-separated values.
         in: query
         items:
           type: string

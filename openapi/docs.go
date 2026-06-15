@@ -1098,8 +1098,7 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Subject",
                         "name": "subject",
-                        "in": "query",
-                        "required": true
+                        "in": "query"
                     },
                     {
                         "type": "string",
@@ -1134,7 +1133,7 @@ const docTemplate = `{
                             "type": "string"
                         },
                         "collectionFormat": "multi",
-                        "description": "Metadata keys to group by. Repeat the parameter or use comma-separated values.",
+                        "description": "Subject or metadata keys to group by. Repeat the parameter or use comma-separated values.",
                         "name": "group_by",
                         "in": "query"
                     },
@@ -1394,8 +1393,7 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Subject",
                         "name": "subject",
-                        "in": "query",
-                        "required": true
+                        "in": "query"
                     },
                     {
                         "type": "string",
@@ -1430,7 +1428,7 @@ const docTemplate = `{
                             "type": "string"
                         },
                         "collectionFormat": "multi",
-                        "description": "Metadata keys to group by. Repeat the parameter or use comma-separated values.",
+                        "description": "Subject or metadata keys to group by. Repeat the parameter or use comma-separated values.",
                         "name": "group_by",
                         "in": "query"
                     },

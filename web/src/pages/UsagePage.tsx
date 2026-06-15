@@ -33,12 +33,13 @@ export function UsagePage() {
   }
 
   const selectedMeterName = firstEqualRuleValue(filterQuery, 'meter')
-  const groupKeys = useMemo(() => selectedMeterSchemaKeys(meters, selectedMeterName), [meters, selectedMeterName])
+  const metadataKeys = useMemo(() => selectedMeterSchemaKeys(meters, selectedMeterName), [meters, selectedMeterName])
+  const groupKeys = useMemo(() => ['subject', ...metadataKeys], [metadataKeys])
   const activeGroupBy = groupBy.filter((key) => groupKeys.includes(key))
   const metadataTypes = useMemo(() => metadataTypesByField(meters, selectedMeterName), [meters, selectedMeterName])
   const filterFields = useMemo(
-    () => buildFilterFields(groupKeys, meters, dimensionValues, metadataTypes),
-    [dimensionValues, groupKeys, metadataTypes, meters],
+    () => buildFilterFields(metadataKeys, meters, dimensionValues, metadataTypes),
+    [dimensionValues, metadataKeys, metadataTypes, meters],
   )
   const discoveryKey = useMemo(() => usageDimensionDiscoveryKey(filterQuery, meters), [filterQuery, meters])
 
@@ -88,9 +89,9 @@ export function UsagePage() {
                   </select>
                 </label>
                 <div className="dimension-picker">
-                  <span>Dimensions</span>
+                  <span>Group By</span>
                   <div className="dimension-options">
-                    {groupKeys.length === 0 ? <small>No dimensions</small> : groupKeys.map((key) => {
+                    {groupKeys.map((key) => {
                       const active = activeGroupBy.includes(key)
                       return (
                         <label className="dimension-option" key={key}>
@@ -100,7 +101,7 @@ export function UsagePage() {
                             onChange={() => appStoreActions.toggleUsageGroupBy(key)}
                             type="checkbox"
                           />
-                          <span>{key}</span>
+                          <span>{groupLabel(key)}</span>
                         </label>
                       )
                     })}
@@ -139,7 +140,7 @@ export function UsagePage() {
               headers={['Bucket Start', 'Subject', 'Meter', 'Aggregation', 'Unit', 'Group', 'Quantity']}
               rows={buckets.map((bucket) => [
                 formatDate(bucket.bucket_start),
-                <span className="mono strong">{bucket.subject}</span>,
+                <SubjectValue subject={bucket.subject} />,
                 bucket.meter,
                 <Badge variant="muted">{bucket.aggregation}</Badge>,
                 bucket.unit,
@@ -152,6 +153,14 @@ export function UsagePage() {
       </section>
     </>
   )
+}
+
+function SubjectValue({ subject }: { subject: string }) {
+  if (!subject) {
+    return <span className="muted">all subjects</span>
+  }
+
+  return <span className="mono strong">{subject}</span>
 }
 
 function GroupValues({ group }: { group?: Record<string, string> }) {
@@ -170,4 +179,8 @@ function GroupValues({ group }: { group?: Record<string, string> }) {
       ))}
     </div>
   )
+}
+
+function groupLabel(key: string) {
+  return key === 'subject' ? 'Subject' : key
 }

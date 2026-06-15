@@ -196,12 +196,15 @@ WITH filtered AS (
 		quantity,
 		event_time AS event_at
 	FROM usage_events
-	WHERE subject = ?
-		AND meter_name = ?
+	WHERE meter_name = ?
 		AND event_time >= ?
 		AND event_time < ?
 `)
-	args = append(args, query.Subject(), query.MeterName(), formatTime(query.From()), formatTime(query.To()))
+	args = append(args, query.MeterName(), formatTime(query.From()), formatTime(query.To()))
+	if query.Subject() != "" {
+		sqlQuery.WriteString("\t\tAND subject = ?\n")
+		args = append(args, query.Subject())
+	}
 	for key, value := range query.Metadata() {
 		fieldSQL, err := metadataTextSQL(key, &args)
 		if err != nil {
@@ -263,11 +266,15 @@ LIMIT ?
 			return nil, err
 		}
 		group := map[string]string{}
+		bucketSubject := query.Subject()
 		for index, field := range groupBy {
 			group[field] = groupValues[index]
+			if domainusage.IsSubjectGroupBy(field) {
+				bucketSubject = groupValues[index]
+			}
 		}
 		buckets = append(buckets, domainusage.NewBucketWithGroup(
-			query.Subject(),
+			bucketSubject,
 			query.MeterName(),
 			query.BucketSize(),
 			bucketStart,
@@ -359,9 +366,13 @@ func groupValueSelectSQL(groupBy []string, args *[]any) (string, []string, error
 	columns := strings.Builder{}
 	aliases := make([]string, 0, len(groupBy))
 	for index, field := range groupBy {
-		valueSQL, err := metadataTextSQL(field, args)
-		if err != nil {
-			return "", nil, err
+		valueSQL := "subject"
+		if !domainusage.IsSubjectGroupBy(field) {
+			var err error
+			valueSQL, err = metadataTextSQL(field, args)
+			if err != nil {
+				return "", nil, err
+			}
 		}
 		alias := fmt.Sprintf("group_%d", index)
 		columns.WriteString("\t\t")

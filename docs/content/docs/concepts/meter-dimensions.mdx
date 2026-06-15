@@ -60,9 +60,11 @@ Unknown metadata keys are rejected. Missing schema keys are also rejected. This 
 Open Spanner can list observed values for a dimension. Use this when you want to build filter pickers, audit which values are being sent, or help users choose valid grouping values.
 
 ```sh
-curl "http://localhost:18081/v1/usages/dimensions?meter=api_requests&field=region&subject=org_123&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z" \
+curl "http://localhost:18081/v1/usages/dimensions?meter=api_requests&field=region&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z" \
   -H "Authorization: Bearer osp_live_your_api_key"
 ```
+
+Add `subject=org_123` when you only want values observed for one subject.
 
 The response is ordered by the number of matching usage events:
 
@@ -82,14 +84,14 @@ The dashboard usage page uses discovered values to make metadata filters easier 
 Use metadata filters for direct queries:
 
 ```sh
-curl "http://localhost:18081/v1/usages?subject=org_123&meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z&bucket_size=day&metadata.region=us-east" \
+curl "http://localhost:18081/v1/usages?meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z&bucket_size=day&metadata.region=us-east" \
   -H "Authorization: Bearer $OPEN_SPANNER_API_KEY"
 ```
 
 Use `group_by` to split buckets by one or more dimensions. Repeat the query parameter or send a comma-separated list:
 
 ```sh
-curl "http://localhost:18081/v1/usages?subject=org_123&meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z&bucket_size=day&group_by=region&group_by=plan" \
+curl "http://localhost:18081/v1/usages?meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z&bucket_size=day&group_by=region&group_by=plan" \
   -H "Authorization: Bearer $OPEN_SPANNER_API_KEY"
 ```
 
@@ -97,7 +99,6 @@ The search endpoint accepts the same grouping as an array:
 
 ```json
 {
-  "subject": "org_123",
   "meter": "api_requests",
   "from": "2026-06-01T00:00:00Z",
   "to": "2026-06-10T00:00:00Z",
@@ -107,6 +108,15 @@ The search endpoint accepts the same grouping as an array:
 ```
 
 The dashboard usage page uses the same dimension fields for filtering and grouping. Grouping by several fields returns one bucket per unique dimension combination.
+
+`subject` is built in, not part of `metadata_schema`, but it can be used with `group_by`:
+
+```sh
+curl "http://localhost:18081/v1/usages?meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z&bucket_size=day&group_by=subject&group_by=region" \
+  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY"
+```
+
+Use this when you want a report like daily requests by customer and region.
 
 ## Good Dimension Names
 
