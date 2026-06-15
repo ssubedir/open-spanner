@@ -2,6 +2,7 @@ import { createStore } from '@tanstack/react-store'
 import type { RuleGroupType } from 'react-querybuilder'
 
 import {
+  APIError,
   createAPIKey as createAPIKeyRequest,
   createAuthSession,
   createAuthUser,
@@ -528,7 +529,7 @@ export const appStoreActions = {
       setAuthState({
         checked: true,
         loading: false,
-        loginError: errorMessage(err, 'Unable to authenticate'),
+        loginError: authErrorMessage(err, 'Unable to sign in'),
         session: null,
       })
       throw err
@@ -845,6 +846,14 @@ export const appStoreActions = {
 
 function errorMessage(err: unknown, fallback: string) {
   return err instanceof Error ? err.message : fallback
+}
+
+function authErrorMessage(err: unknown, fallback: string) {
+  if (err instanceof APIError && (err.status === 401 || err.code === 'unauthorized')) {
+    return 'Email or password is incorrect.'
+  }
+
+  return errorMessage(err, fallback)
 }
 
 function setAuthState(update: Partial<AppState['auth']>) {

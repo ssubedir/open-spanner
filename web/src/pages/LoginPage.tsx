@@ -1,6 +1,6 @@
 import { Link, useRouter } from '@tanstack/react-router'
 import { useSelector } from '@tanstack/react-store'
-import { Loader2, LogIn, ShieldCheck } from 'lucide-react'
+import { AlertCircle, Loader2, LockKeyhole, LogIn, Mail, ShieldCheck } from 'lucide-react'
 import type { FormEvent } from 'react'
 
 import { appStore, appStoreActions } from '../app-store'
@@ -32,19 +32,34 @@ export function LoginPage() {
           <div className="auth-icon"><ShieldCheck aria-hidden="true" /></div>
           <div>
             <h1 id="auth-title">Sign in</h1>
+            <p>Use your dashboard account.</p>
           </div>
         </div>
 
-        {error ? <div className="error-banner">{error}</div> : null}
+        {error ? (
+          <div aria-label={`Could not sign in. ${error}`} className="auth-error" role="alert">
+            <AlertCircle aria-hidden="true" />
+            <div>
+              <strong>Could not sign in</strong>
+              <span>{error}</span>
+            </div>
+          </div>
+        ) : null}
 
-        <form className="auth-form" onSubmit={(event) => void submit(event)}>
-          <label>
-            Email
-            <input autoComplete="email" name="email" placeholder="admin@example.com" required type="email" />
+        <form className="auth-form login-form" onSubmit={(event) => void submit(event)}>
+          <label className="auth-field">
+            <span>Email</span>
+            <span className="auth-input-shell">
+              <Mail aria-hidden="true" />
+              <input autoComplete="email" name="email" placeholder="admin@example.com" required type="email" />
+            </span>
           </label>
-          <label>
-            Password
-            <input autoComplete="current-password" minLength={8} name="password" required type="password" />
+          <label className="auth-field">
+            <span>Password</span>
+            <span className="auth-input-shell">
+              <LockKeyhole aria-hidden="true" />
+              <input autoComplete="current-password" minLength={8} name="password" required type="password" />
+            </span>
           </label>
           <Button disabled={loading} type="submit">
             {loading ? <Loader2 className="spin" aria-hidden="true" /> : <LogIn aria-hidden="true" />}

@@ -274,6 +274,18 @@ export type APIKeyCreateResponse = APIKey & {
   key: string
 }
 
+export class APIError extends Error {
+  code: string
+  status: number
+
+  constructor(message: string, status: number, code: string) {
+    super(message)
+    this.name = 'APIError'
+    this.code = code
+    this.status = status
+  }
+}
+
 export async function createAuthUser(input: { email: string; password: string }) {
   return request<AuthUser>('/v1/auth/users', {
     body: JSON.stringify(input),
@@ -291,9 +303,7 @@ export async function refreshAuthSession() {
     return null
   }
   if (!response.ok) {
-    const payload = await response.json().catch(() => ({ error: { message: response.statusText } }))
-    const error = typeof payload.error === 'string' ? payload.error : payload.error?.message
-    throw new Error(error || response.statusText)
+    throw await apiError(response)
   }
 
   return response.json() as Promise<AuthSession>
@@ -325,9 +335,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   })
 
   if (!response.ok) {
-    const payload = await response.json().catch(() => ({ error: { message: response.statusText } }))
-    const error = typeof payload.error === 'string' ? payload.error : payload.error?.message
-    throw new Error(error || response.statusText)
+    throw await apiError(response)
   }
 
   if (response.status === 204) {
@@ -341,9 +349,7 @@ async function requestBlob(path: string, options: RequestInit = {}) {
   const response = await fetchWithAuthRefresh(path, options)
 
   if (!response.ok) {
-    const payload = await response.json().catch(() => ({ error: { message: response.statusText } }))
-    const error = typeof payload.error === 'string' ? payload.error : payload.error?.message
-    throw new Error(error || response.statusText)
+    throw await apiError(response)
   }
 
   return response.blob()
@@ -354,6 +360,14 @@ export async function createAuthSession(input: { email: string; password: string
     body: JSON.stringify(input),
     method: 'POST',
   })
+}
+
+async function apiError(response: Response) {
+  const payload = await response.json().catch(() => ({ error: { code: '', message: response.statusText } }))
+  const message = typeof payload.error === 'string' ? payload.error : payload.error?.message
+  const code = typeof payload.error === 'string' ? '' : payload.error?.code
+
+  return new APIError(message || response.statusText, response.status, code || '')
 }
 
 export async function deleteAuthSession() {
