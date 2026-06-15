@@ -494,18 +494,157 @@ func TestServiceListUsesMeterAggregation(t *testing.T) {
 	}
 }
 
-func TestServiceCreateRejectsMetadataOutsideMeterSchema(t *testing.T) {
+func TestServiceCreateAllowsMetadataOutsideMeterDimensions(t *testing.T) {
 	ctx := context.Background()
 	service := newTestService(t, ctx)
 
-	_, err := service.Create(ctx, CreateCommand{
+	created, err := service.Create(ctx, CreateCommand{
 		Subject:   "org_123",
 		MeterName: "api_calls",
 		Quantity:  1,
 		Metadata:  map[string]any{"region": "us-east-1"},
 	})
-	if !errors.Is(err, domain.ErrInvalidInput) {
-		t.Fatalf("metadata schema error = %v, want ErrInvalidInput", err)
+	if err != nil {
+		t.Fatalf("create usage with extra metadata: %v", err)
+	}
+	if created.Metadata["region"] != "us-east-1" {
+		t.Fatalf("created metadata = %#v", created.Metadata)
+	}
+}
+
+func TestServiceCreateValidatesMeterDimensions(t *testing.T) {
+	ctx := context.Background()
+	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
+
+	region, err := domainmeter.NewDimension("region", domainmeter.MetadataString, "Region", "", true)
+	if err != nil {
+		t.Fatalf("new region dimension: %v", err)
+	}
+	status, err := domainmeter.NewDimension("status", domainmeter.MetadataNumber, "Status", "", false)
+	if err != nil {
+		t.Fatalf("new status dimension: %v", err)
+	}
+	retry, err := domainmeter.NewDimension("retry", domainmeter.MetadataBoolean, "Retry", "", false)
+	if err != nil {
+		t.Fatalf("new retry dimension: %v", err)
+	}
+	meter, err := domainmeter.NewWithDimensions(
+		"meter-1",
+		"api_calls",
+		"API calls",
+		"call",
+		domainmeter.AggregationSum,
+		[]domainmeter.Dimension{region, status, retry},
+		0,
+		time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatalf("new meter: %v", err)
+	}
+	if _, err := meterRepo.Save(ctx, meter); err != nil {
+		t.Fatalf("save meter: %v", err)
+	}
+
+	service := NewService(meterRepo, usageRepo, store)
+	created, err := service.Create(ctx, CreateCommand{
+		Subject:   "org_123",
+		MeterName: "api_calls",
+		Quantity:  1,
+		Metadata:  map[string]any{"region": "us-east-1", "request_id": "req_123"},
+	})
+	if err != nil {
+		t.Fatalf("create usage with required dimension: %v", err)
+	}
+	if created.Metadata["request_id"] != "req_123" {
+		t.Fatalf("created metadata = %#v", created.Metadata)
+	}
+
+	for name, metadata := range map[string]map[string]any{
+		"missing required dimension": {"status": 200},
+		"wrong number dimension":     {"region": "us-east-1", "status": "200"},
+		"wrong boolean dimension":    {"region": "us-east-1", "retry": "false"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := service.Create(ctx, CreateCommand{
+				Subject:   "org_123",
+				MeterName: "api_calls",
+				Quantity:  1,
+				Metadata:  metadata,
+			})
+			if !errors.Is(err, domain.ErrInvalidInput) {
+				t.Fatalf("dimension validation error = %v, want ErrInvalidInput", err)
+			}
+		})
+	}
+}
+
+func TestServiceCreateBulkReportsDimensionValidationFailures(t *testing.T) {
+	ctx := context.Background()
+	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
+
+	region, err := domainmeter.NewDimension("region", domainmeter.MetadataString, "Region", "", true)
+	if err != nil {
+		t.Fatalf("new region dimension: %v", err)
+	}
+	status, err := domainmeter.NewDimension("status", domainmeter.MetadataNumber, "Status", "", false)
+	if err != nil {
+		t.Fatalf("new status dimension: %v", err)
+	}
+	meter, err := domainmeter.NewWithDimensions(
+		"meter-1",
+		"api_calls",
+		"API calls",
+		"call",
+		domainmeter.AggregationSum,
+		[]domainmeter.Dimension{region, status},
+		0,
+		time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatalf("new meter: %v", err)
+	}
+	if _, err := meterRepo.Save(ctx, meter); err != nil {
+		t.Fatalf("save meter: %v", err)
+	}
+
+	service := NewService(meterRepo, usageRepo, store)
+	result, err := service.CreateBulk(ctx, "", []CreateCommand{
+		{
+			Index:     0,
+			Subject:   "org_123",
+			MeterName: "api_calls",
+			Quantity:  2,
+			Metadata:  map[string]any{"status": 200},
+		},
+		{
+			Index:     1,
+			Subject:   "org_123",
+			MeterName: "api_calls",
+			Quantity:  3,
+			Metadata:  map[string]any{"region": "us-east-1", "status": "200"},
+		},
+		{
+			Index:     2,
+			Subject:   "org_123",
+			MeterName: "api_calls",
+			Quantity:  5,
+			Metadata:  map[string]any{"region": "us-east-1", "status": 201, "trace_id": "trace-1"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create bulk usage with dimension failures: %v", err)
+	}
+	if len(result.Accepted) != 1 || len(result.Failed) != 2 || len(result.Duplicates) != 0 {
+		t.Fatalf("bulk result = %#v", result)
+	}
+	if result.Failed[0].Index != 0 || result.Failed[0].Code != "invalid_input" {
+		t.Fatalf("first failed item = %#v", result.Failed[0])
+	}
+	if result.Failed[1].Index != 1 || result.Failed[1].Code != "invalid_input" {
+		t.Fatalf("second failed item = %#v", result.Failed[1])
+	}
+	if result.Accepted[0].Metadata["trace_id"] != "trace-1" {
+		t.Fatalf("accepted metadata = %#v", result.Accepted[0].Metadata)
 	}
 }
 

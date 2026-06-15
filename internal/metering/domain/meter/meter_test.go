@@ -22,8 +22,8 @@ func TestMeterDimensionsValidateOptionalMetadata(t *testing.T) {
 		t.Fatalf("new meter: %v", err)
 	}
 
-	if err := meter.ValidateMetadata(map[string]any{"region": "us-east"}); err != nil {
-		t.Fatalf("validate without optional metadata: %v", err)
+	if err := meter.ValidateMetadata(map[string]any{"region": "us-east", "request_id": "req_123"}); err != nil {
+		t.Fatalf("validate without optional metadata and with extra metadata: %v", err)
 	}
 	if err := meter.ValidateMetadata(map[string]any{"region": "us-east", "status": "200"}); !errors.Is(err, domain.ErrInvalidInput) {
 		t.Fatalf("validate wrong optional metadata type error = %v, want ErrInvalidInput", err)

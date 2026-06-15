@@ -1480,7 +1480,41 @@ func TestUsageAPIRejectsUnknownMeter(t *testing.T) {
 	}
 }
 
-func TestUsageAPIRejectsMetadataOutsideMeterSchema(t *testing.T) {
+func TestUsageAPIAcceptsExtraMetadataOutsideMeterDimensions(t *testing.T) {
+	router := newTestRouter()
+
+	createMeter := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name":            "api_calls",
+		"description":     "API calls",
+		"unit":            "call",
+		"aggregation":     "sum",
+		"metadata_schema": map[string]string{"region": "string"},
+	})
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create meter status = %d: %s", createMeter.Code, createMeter.Body.String())
+	}
+
+	res := requestJSON(t, router, http.MethodPost, "/v1/usages", map[string]any{
+		"subject":  "org_123",
+		"meter":    "api_calls",
+		"quantity": 1,
+		"metadata": map[string]any{
+			"region": "us-east-1",
+			"regoin": "us-east-1",
+		},
+	})
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+
+	var usage usageResponse
+	decodeJSON(t, res, &usage)
+	if usage.Metadata["regoin"] != "us-east-1" {
+		t.Fatalf("usage metadata = %#v", usage.Metadata)
+	}
+}
+
+func TestUsageAPIRejectsInvalidDimensions(t *testing.T) {
 	router := newTestRouter()
 
 	createMeter := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
