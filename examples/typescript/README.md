@@ -1,6 +1,6 @@
 # TypeScript Basic Example
 
-Install the published TypeScript SDK from npm, then run this example:
+Run this example with the TypeScript SDK from this checkout:
 
 ```sh
 npm install

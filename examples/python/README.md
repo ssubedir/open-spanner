@@ -1,10 +1,9 @@
 # Python Basic Example
 
-Install the published Python SDK from PyPI, then run this example:
+Run this example with the Python SDK from this checkout:
 
 ```sh
-pip install open-spanner
-python basic.py
+uv run python basic.py
 ```
 
 Create an API key in the dashboard first, then replace `osp_...` in `basic.py`.

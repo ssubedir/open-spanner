@@ -8,6 +8,8 @@ require (
 	github.com/ssubedir/open-spanner/sdk/go v0.1.3
 )
 
+replace github.com/ssubedir/open-spanner/sdk/go => ../../../sdk/go
+
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect

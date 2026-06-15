@@ -81,14 +81,16 @@ wheels = [
 [[package]]
 name = "open-spanner"
 version = "0.1.3"
-source = { registry = "https://pypi.org/simple" }
+source = { directory = "../../sdk/python" }
 dependencies = [
     { name = "attrs" },
     { name = "httpx" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9f/a9/9472538d2ab37ee4b01634c05f5c53bbc661f2dd6758a22c57f97e474ec7/open_spanner-0.1.3.tar.gz", hash = "sha256:c15f4de8254d39022b904020c1904cf4bf1bef090a5700698c88220c00e2a678", size = 12117 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ae/04/62dd38d33e285ac7f7b8a353ed8f25446d74dbbac911198cc6adc921c66d/open_spanner-0.1.3-py3-none-any.whl", hash = "sha256:1a8798e130bbbd7d22c243cbab26df576d5f11aa163b530ee5722b6c202bed08", size = 37856 },
+
+[package.metadata]
+requires-dist = [
+    { name = "attrs", specifier = ">=22.2.0" },
+    { name = "httpx", specifier = ">=0.23.1,<0.29.0" },
 ]
 
 [[package]]
@@ -100,4 +102,4 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "open-spanner", specifier = ">=0.1.3" }]
+requires-dist = [{ name = "open-spanner", directory = "../../sdk/python" }]
