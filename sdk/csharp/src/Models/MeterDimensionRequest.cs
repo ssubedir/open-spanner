@@ -14,6 +14,8 @@ namespace OpenSpanner.Models
     {
         /// <summary>Stores additional data not described in the OpenAPI description found when deserializing. Can be used for serialization as well.</summary>
         public IDictionary<string, object> AdditionalData { get; set; }
+        /// <summary>The deprecated property</summary>
+        public bool? Deprecated { get; set; }
         /// <summary>The description property</summary>
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
 #nullable enable
@@ -73,6 +75,7 @@ namespace OpenSpanner.Models
         {
             return new Dictionary<string, Action<IParseNode>>
             {
+                { "deprecated", n => { Deprecated = n.GetBoolValue(); } },
                 { "description", n => { Description = n.GetStringValue(); } },
                 { "display_name", n => { DisplayName = n.GetStringValue(); } },
                 { "name", n => { Name = n.GetStringValue(); } },
@@ -87,6 +90,7 @@ namespace OpenSpanner.Models
         public virtual void Serialize(ISerializationWriter writer)
         {
             if(ReferenceEquals(writer, null)) throw new ArgumentNullException(nameof(writer));
+            writer.WriteBoolValue("deprecated", Deprecated);
             writer.WriteStringValue("description", Description);
             writer.WriteStringValue("display_name", DisplayName);
             writer.WriteStringValue("name", Name);

@@ -1758,6 +1758,9 @@ const docTemplate = `{
         "internal_metering_adapters_http_meter.DimensionRequest": {
             "type": "object",
             "properties": {
+                "deprecated": {
+                    "type": "boolean"
+                },
                 "description": {
                     "type": "string"
                 },
@@ -1778,6 +1781,9 @@ const docTemplate = `{
         "internal_metering_adapters_http_meter.DimensionResponse": {
             "type": "object",
             "properties": {
+                "deprecated": {
+                    "type": "boolean"
+                },
                 "description": {
                     "type": "string"
                 },

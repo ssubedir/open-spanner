@@ -63,10 +63,15 @@ import { downloadBlob, safeDownloadName } from './lib/download'
 import type { LoadState } from './types'
 
 export type MeterDimensionDraft = {
+  deprecated: boolean
   description: string
   displayName: string
   id: string
   name: string
+  originalDeprecated?: boolean
+  originalName?: string
+  originalRequired?: boolean
+  originalType?: string
   required: boolean
   type: string
 }
@@ -589,7 +594,7 @@ export const appStoreActions = {
   },
   addMeterEditDimension() {
     setMetersState((state) => ({
-      editDimensions: [...state.editDimensions, newMeterDimensionDraft()],
+      editDimensions: [...state.editDimensions, newMeterDimensionDraft('', 'string', '', '', !meterHasUsage(state.editing, state.stats))],
     }))
   },
   removeMeterCreateDimension(id: string) {
@@ -601,7 +606,7 @@ export const appStoreActions = {
   removeMeterEditDimension(id: string) {
     setMetersState((state) => {
       const next = state.editDimensions.filter((row) => row.id !== id)
-      return { editDimensions: next.length > 0 ? next : [newMeterDimensionDraft()] }
+      return { editDimensions: next.length > 0 ? next : [newMeterDimensionDraft('', 'string', '', '', !meterHasUsage(state.editing, state.stats))] }
     })
   },
   resetMeterCreateDimensions() {
@@ -620,9 +625,10 @@ export const appStoreActions = {
     setAPIKeysState({ deleting })
   },
   setMeterEditing(editing: Meter | null) {
+    const stats = appStore.state.meters.stats
     setMetersState({
       editing,
-      editDimensions: editing ? meterDimensionDraftsFromMeter(editing) : [],
+      editDimensions: editing ? meterDimensionDraftsFromMeter(editing, meterHasUsage(editing, stats)) : [],
     })
   },
   updateMeterCreateDimension(id: string, update: Partial<Omit<MeterDimensionDraft, 'id'>>) {
@@ -982,19 +988,32 @@ function nextPinnedPosition(items: SavedUsageQuery[], excludeID: string) {
     .reduce((position, query) => Math.max(position, query.position), 0) + 1
 }
 
-function newMeterDimensionDraft(name = '', type = 'string', displayName = '', description = '', required = true): MeterDimensionDraft {
+function newMeterDimensionDraft(
+  name = '',
+  type = 'string',
+  displayName = '',
+  description = '',
+  required = true,
+  deprecated = false,
+  original?: { deprecated: boolean; name: string; required: boolean; type: string },
+): MeterDimensionDraft {
   meterDimensionID += 1
   return {
+    deprecated,
     description,
     displayName,
     id: `meter-dimension-${meterDimensionID}`,
     name,
+    originalDeprecated: original?.deprecated,
+    originalName: original?.name,
+    originalRequired: original?.required,
+    originalType: original?.type,
     required,
     type,
   }
 }
 
-function meterDimensionDraftsFromMeter(meter: Meter) {
+function meterDimensionDraftsFromMeter(meter: Meter, lockedByUsage = false) {
   const dimensions = normalizedMeterDimensions(meter)
   if (dimensions.length > 0) {
     return dimensions.map((dimension) => newMeterDimensionDraft(
@@ -1003,16 +1022,28 @@ function meterDimensionDraftsFromMeter(meter: Meter) {
       dimension.display_name,
       dimension.description,
       dimension.required,
+      dimension.deprecated,
+      {
+        deprecated: dimension.deprecated,
+        name: dimension.name,
+        required: dimension.required,
+        type: dimension.type,
+      },
     ))
   }
-  return meterDimensionDraftsFromSchema(meter.metadata_schema)
+  return meterDimensionDraftsFromSchema(meter.metadata_schema, lockedByUsage)
 }
 
-function meterDimensionDraftsFromSchema(schema: Record<string, string>) {
+function meterDimensionDraftsFromSchema(schema: Record<string, string>, lockedByUsage = false) {
   const rows = Object.entries(schema || {})
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([name, type]) => newMeterDimensionDraft(name, type))
-  return rows.length > 0 ? rows : [newMeterDimensionDraft()]
+    .map(([name, type]) => newMeterDimensionDraft(name, type, '', '', true, false, {
+      deprecated: false,
+      name,
+      required: true,
+      type,
+    }))
+  return rows.length > 0 ? rows : [newMeterDimensionDraft('', 'string', '', '', !lockedByUsage)]
 }
 
 function normalizedMeterDimensions(meter: Meter): MeterDimension[] {
@@ -1024,10 +1055,15 @@ function normalizedMeterDimensions(meter: Meter): MeterDimension[] {
     .map(([name, type]) => ({
       description: '',
       display_name: humanizeDimensionName(name),
+      deprecated: false,
       name,
       required: true,
       type,
     }))
+}
+
+function meterHasUsage(meter: Meter | null, stats: Record<string, MeterStats>) {
+  return meter ? (stats[meter.name]?.usage_events ?? 0) > 0 : false
 }
 
 function humanizeDimensionName(name: string) {

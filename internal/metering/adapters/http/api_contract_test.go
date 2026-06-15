@@ -194,6 +194,7 @@ func TestMeterAPIContract(t *testing.T) {
 				"description":  "Deployment region",
 				"type":         "string",
 				"required":     true,
+				"deprecated":   true,
 			},
 		},
 		"event_retention_days": 30,
@@ -207,7 +208,7 @@ func TestMeterAPIContract(t *testing.T) {
 	if created.ID == "" || created.Name != "api_calls" || created.EventRetentionDays != 30 {
 		t.Fatalf("created meter = %#v", created)
 	}
-	if created.MetadataSchema["region"] != "string" || len(created.Dimensions) != 1 || created.Dimensions[0].DisplayName != "Region" {
+	if created.MetadataSchema["region"] != "string" || len(created.Dimensions) != 1 || created.Dimensions[0].DisplayName != "Region" || !created.Dimensions[0].Deprecated {
 		t.Fatalf("created meter dimensions = %#v metadata=%#v", created.Dimensions, created.MetadataSchema)
 	}
 
@@ -245,6 +246,7 @@ func TestMeterAPIContract(t *testing.T) {
 				"description":  "Billing plan",
 				"type":         "string",
 				"required":     false,
+				"deprecated":   true,
 			},
 		},
 	})
@@ -253,7 +255,7 @@ func TestMeterAPIContract(t *testing.T) {
 	}
 	var updated meterResponse
 	decodeJSON(t, update, &updated)
-	if updated.Description != "Updated API calls" || updated.Name != created.Name || updated.Unit != "request" || updated.Aggregation != "count" || updated.EventRetentionDays != 365 || updated.MetadataSchema["plan"] != "string" || len(updated.Dimensions) != 1 || updated.Dimensions[0].DisplayName != "Plan" || updated.Dimensions[0].Required {
+	if updated.Description != "Updated API calls" || updated.Name != created.Name || updated.Unit != "request" || updated.Aggregation != "count" || updated.EventRetentionDays != 365 || updated.MetadataSchema["plan"] != "string" || len(updated.Dimensions) != 1 || updated.Dimensions[0].DisplayName != "Plan" || updated.Dimensions[0].Required || !updated.Dimensions[0].Deprecated {
 		t.Fatalf("updated meter = %#v", updated)
 	}
 
@@ -1480,7 +1482,41 @@ func TestUsageAPIRejectsUnknownMeter(t *testing.T) {
 	}
 }
 
-func TestUsageAPIRejectsMetadataOutsideMeterSchema(t *testing.T) {
+func TestUsageAPIAcceptsExtraMetadataOutsideMeterDimensions(t *testing.T) {
+	router := newTestRouter()
+
+	createMeter := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name":            "api_calls",
+		"description":     "API calls",
+		"unit":            "call",
+		"aggregation":     "sum",
+		"metadata_schema": map[string]string{"region": "string"},
+	})
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create meter status = %d: %s", createMeter.Code, createMeter.Body.String())
+	}
+
+	res := requestJSON(t, router, http.MethodPost, "/v1/usages", map[string]any{
+		"subject":  "org_123",
+		"meter":    "api_calls",
+		"quantity": 1,
+		"metadata": map[string]any{
+			"region": "us-east-1",
+			"regoin": "us-east-1",
+		},
+	})
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+
+	var usage usageResponse
+	decodeJSON(t, res, &usage)
+	if usage.Metadata["regoin"] != "us-east-1" {
+		t.Fatalf("usage metadata = %#v", usage.Metadata)
+	}
+}
+
+func TestUsageAPIRejectsInvalidDimensions(t *testing.T) {
 	router := newTestRouter()
 
 	createMeter := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
@@ -1544,6 +1580,66 @@ func TestMeterAPIDeleteWithUsageReturnsConflict(t *testing.T) {
 
 	var errRes errorResponse
 	decodeJSON(t, del, &errRes)
+	if errRes.Error.Code != "conflict" {
+		t.Fatalf("error code = %q, want conflict", errRes.Error.Code)
+	}
+}
+
+func TestMeterAPIRejectsUnsafeDimensionUpdateWithUsage(t *testing.T) {
+	router := newTestRouter()
+
+	createMeter := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name":        "api_calls",
+		"description": "API calls",
+		"unit":        "call",
+		"aggregation": "sum",
+		"dimensions": []map[string]any{
+			{
+				"name":     "region",
+				"type":     "string",
+				"required": true,
+			},
+			{
+				"name":     "status",
+				"type":     "number",
+				"required": false,
+			},
+		},
+	})
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create meter status = %d: %s", createMeter.Code, createMeter.Body.String())
+	}
+	var created meterResponse
+	decodeJSON(t, createMeter, &created)
+
+	createUsage := requestJSON(t, router, http.MethodPost, "/v1/usages", map[string]any{
+		"subject":  "org_123",
+		"meter":    "api_calls",
+		"quantity": 1,
+		"metadata": map[string]any{
+			"region": "us-east-1",
+			"status": 200,
+		},
+	})
+	if createUsage.Code != http.StatusCreated {
+		t.Fatalf("create usage status = %d: %s", createUsage.Code, createUsage.Body.String())
+	}
+
+	update := requestJSON(t, router, http.MethodPut, "/v1/meters/"+created.ID, map[string]any{
+		"dimensions": []map[string]any{
+			{
+				"name":     "region",
+				"type":     "string",
+				"required": true,
+			},
+		},
+	})
+	if update.Code != http.StatusConflict {
+		t.Fatalf("update meter status = %d, want %d: %s", update.Code, http.StatusConflict, update.Body.String())
+	}
+
+	var errRes errorResponse
+	decodeJSON(t, update, &errRes)
 	if errRes.Error.Code != "conflict" {
 		t.Fatalf("error code = %q, want conflict", errRes.Error.Code)
 	}
@@ -1794,6 +1890,7 @@ type meterDimensionResponse struct {
 	Description string `json:"description"`
 	Type        string `json:"type"`
 	Required    bool   `json:"required"`
+	Deprecated  bool   `json:"deprecated"`
 }
 
 type meterListResponse struct {

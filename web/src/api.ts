@@ -54,6 +54,7 @@ export type MeterDimension = {
   description: string
   type: string
   required: boolean
+  deprecated: boolean
 }
 
 export type MeterList = {
@@ -98,6 +99,7 @@ export type MeterDimensionRequest = {
   description: string
   type: string
   required: boolean
+  deprecated: boolean
 }
 
 export type UsageEvent = {

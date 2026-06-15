@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/ssubedir/open-spanner/internal/config"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/sqlite"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
 	domainmeter "github.com/ssubedir/open-spanner/internal/metering/domain/meter"
+	domainusage "github.com/ssubedir/open-spanner/internal/metering/domain/usage"
 )
 
 func TestServiceCreateListAndGet(t *testing.T) {
@@ -210,6 +212,98 @@ func TestServiceUpdateDimensions(t *testing.T) {
 	}
 }
 
+func TestServiceUpdateDimensionsAllowsSafeChangesWithUsage(t *testing.T) {
+	ctx := context.Background()
+	service, usageRepo := newTestServiceWithUsage(t, ctx)
+
+	created, err := service.Create(ctx, CreateCommand{
+		Name: "api_calls",
+		Unit: "call",
+		Dimensions: []domainmeter.Dimension{
+			mustDimension(t, "region", domainmeter.MetadataString, "Region", "", true),
+			mustDimension(t, "status", domainmeter.MetadataNumber, "Status", "", false),
+		},
+	})
+	if err != nil {
+		t.Fatalf("create meter: %v", err)
+	}
+	recordUsage(t, ctx, usageRepo, created.Name, map[string]any{"region": "us-east", "status": 200})
+
+	dimensions := []domainmeter.Dimension{
+		mustDimension(t, "region", domainmeter.MetadataString, "Serving region", "Updated display metadata", true, true),
+		mustDimension(t, "status", domainmeter.MetadataNumber, "HTTP status", "Response status code", false),
+		mustDimension(t, "legacy", domainmeter.MetadataString, "Legacy", "Deprecated required dimension", true, true),
+		mustDimension(t, "plan", domainmeter.MetadataString, "Plan", "Optional billing plan", false),
+	}
+	updated, err := service.Update(ctx, UpdateCommand{
+		ID:         created.ID,
+		Dimensions: &dimensions,
+	})
+	if err != nil {
+		t.Fatalf("update safe dimensions: %v", err)
+	}
+	if len(updated.Dimensions) != 4 || updated.Dimensions[0].Name != "region" || !updated.Dimensions[0].Required || !updated.Dimensions[0].Deprecated {
+		t.Fatalf("updated dimensions = %#v", updated.Dimensions)
+	}
+	if !updated.Dimensions[2].Deprecated {
+		t.Fatalf("deprecated dimension not preserved: %#v", updated.Dimensions)
+	}
+	if updated.MetadataSchema["plan"] != "string" {
+		t.Fatalf("updated metadata schema = %#v", updated.MetadataSchema)
+	}
+}
+
+func TestServiceUpdateDimensionsRejectsUnsafeChangesWithUsage(t *testing.T) {
+	ctx := context.Background()
+
+	for name, dimensions := range map[string][]domainmeter.Dimension{
+		"remove dimension": {
+			mustDimension(t, "region", domainmeter.MetadataString, "Region", "", true),
+		},
+		"rename dimension": {
+			mustDimension(t, "region", domainmeter.MetadataString, "Region", "", true),
+			mustDimension(t, "code", domainmeter.MetadataNumber, "Status", "", false),
+		},
+		"change type": {
+			mustDimension(t, "region", domainmeter.MetadataString, "Region", "", true),
+			mustDimension(t, "status", domainmeter.MetadataString, "Status", "", false),
+		},
+		"make optional dimension required": {
+			mustDimension(t, "region", domainmeter.MetadataString, "Region", "", true),
+			mustDimension(t, "status", domainmeter.MetadataNumber, "Status", "", true),
+		},
+		"add required dimension": {
+			mustDimension(t, "region", domainmeter.MetadataString, "Region", "", true),
+			mustDimension(t, "status", domainmeter.MetadataNumber, "Status", "", false),
+			mustDimension(t, "plan", domainmeter.MetadataString, "Plan", "", true),
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			service, usageRepo := newTestServiceWithUsage(t, ctx)
+			created, err := service.Create(ctx, CreateCommand{
+				Name: "api_calls",
+				Unit: "call",
+				Dimensions: []domainmeter.Dimension{
+					mustDimension(t, "region", domainmeter.MetadataString, "Region", "", true),
+					mustDimension(t, "status", domainmeter.MetadataNumber, "Status", "", false),
+				},
+			})
+			if err != nil {
+				t.Fatalf("create meter: %v", err)
+			}
+			recordUsage(t, ctx, usageRepo, created.Name, map[string]any{"region": "us-east", "status": 200})
+
+			_, err = service.Update(ctx, UpdateCommand{
+				ID:         created.ID,
+				Dimensions: &dimensions,
+			})
+			if !errors.Is(err, domain.ErrConflict) {
+				t.Fatalf("update unsafe dimensions error = %v, want ErrConflict", err)
+			}
+		})
+	}
+}
+
 func TestServiceDelete(t *testing.T) {
 	ctx := context.Background()
 	service := newTestService()
@@ -267,10 +361,42 @@ func newTestService() Service {
 	return NewService(sqlite.NewMeterRepository(store))
 }
 
-func mustDimension(t *testing.T, name string, metadataType domainmeter.MetadataType, displayName string, description string, required bool) domainmeter.Dimension {
+func newTestServiceWithUsage(t *testing.T, ctx context.Context) (Service, *sqlite.UsageRepository) {
 	t.Helper()
 
-	dimension, err := domainmeter.NewDimension(name, metadataType, displayName, description, required)
+	store, err := sqlite.NewStore(ctx, ":memory:", config.DBPoolConfig{MaxOpenConns: 1})
+	if err != nil {
+		t.Fatalf("new sqlite store: %v", err)
+	}
+	usageRepo := sqlite.NewUsageRepository(store)
+	return NewService(sqlite.NewMeterRepository(store), usageRepo), usageRepo
+}
+
+func recordUsage(t *testing.T, ctx context.Context, usageRepo *sqlite.UsageRepository, meterName string, metadata map[string]any) {
+	t.Helper()
+
+	event, err := domainusage.NewEvent(
+		"usage-1",
+		"",
+		"org_123",
+		meterName,
+		1,
+		time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC),
+		time.Date(2026, 6, 8, 12, 0, 1, 0, time.UTC),
+		metadata,
+	)
+	if err != nil {
+		t.Fatalf("new usage event: %v", err)
+	}
+	if _, err := usageRepo.Save(ctx, event); err != nil {
+		t.Fatalf("save usage event: %v", err)
+	}
+}
+
+func mustDimension(t *testing.T, name string, metadataType domainmeter.MetadataType, displayName string, description string, required bool, deprecated ...bool) domainmeter.Dimension {
+	t.Helper()
+
+	dimension, err := domainmeter.NewDimension(name, metadataType, displayName, description, required, deprecated...)
 	if err != nil {
 		t.Fatalf("new dimension: %v", err)
 	}

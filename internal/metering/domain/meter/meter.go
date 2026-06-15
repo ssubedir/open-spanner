@@ -194,23 +194,18 @@ func (m Meter) ValidateMetadata(metadata map[string]any) error {
 	if metadata == nil {
 		metadata = map[string]any{}
 	}
-	for key := range metadata {
-		if _, exists := m.metadataSchema[key]; !exists {
-			return fmt.Errorf("%w: metadata key %q is not allowed", domain.ErrInvalidInput, key)
-		}
-	}
 	for _, dimension := range m.dimensions {
 		key := dimension.Name()
 		expected := dimension.Type()
 		value, exists := metadata[key]
 		if !exists {
-			if dimension.Required() {
-				return fmt.Errorf("%w: metadata key %q is required", domain.ErrInvalidInput, key)
+			if dimension.RequiresValue() {
+				return fmt.Errorf("%w: dimension %q is required", domain.ErrInvalidInput, key)
 			}
 			continue
 		}
 		if !metadataValueMatches(value, expected) {
-			return fmt.Errorf("%w: metadata key %q must be %s", domain.ErrInvalidInput, key, expected)
+			return fmt.Errorf("%w: dimension %q must be %s", domain.ErrInvalidInput, key, expected)
 		}
 	}
 	return nil

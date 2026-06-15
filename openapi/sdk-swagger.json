@@ -776,6 +776,9 @@
     "MeterDimensionRequest": {
       "type": "object",
       "properties": {
+        "deprecated": {
+          "type": "boolean"
+        },
         "description": {
           "type": "string"
         },
@@ -797,6 +800,9 @@
     "MeterDimension": {
       "type": "object",
       "properties": {
+        "deprecated": {
+          "type": "boolean"
+        },
         "description": {
           "type": "string"
         },

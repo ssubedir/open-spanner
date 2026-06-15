@@ -993,6 +993,31 @@ svg {
   font-weight: 700;
 }
 
+.schema-lock-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid #cfe4e0;
+  border-radius: 6px;
+  padding: 8px 9px;
+  background: #f0faf8;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.schema-lock-note svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  color: var(--primary);
+}
+
+.schema-lock-note span {
+  min-width: 0;
+}
+
 .schema-rows {
   display: grid;
   gap: 8px;
@@ -1001,7 +1026,7 @@ svg {
 
 .schema-row {
   display: grid;
-  grid-template-columns: minmax(130px, 1fr) minmax(130px, 1fr) minmax(105px, 130px) minmax(96px, auto) 36px;
+  grid-template-columns: minmax(130px, 1fr) minmax(130px, 1fr) minmax(105px, 130px) minmax(96px, auto) minmax(120px, auto) 36px;
   gap: 8px;
   align-items: center;
   min-width: 0;
@@ -1039,6 +1064,34 @@ svg {
 
 .schema-description {
   grid-column: 1 / -2;
+}
+
+.modal-form .schema-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 36px;
+}
+
+.modal-form .schema-row > label:nth-child(1),
+.modal-form .schema-row > label:nth-child(3) {
+  grid-column: 1;
+}
+
+.modal-form .schema-row > label:nth-child(2),
+.modal-form .schema-required {
+  grid-column: 2;
+}
+
+.modal-form .schema-deprecated {
+  grid-column: 1;
+}
+
+.modal-form .schema-row > .button {
+  grid-column: 3;
+  grid-row: 1;
+  align-self: end;
+}
+
+.modal-form .schema-description {
+  grid-column: 1 / -1;
 }
 
 .schema-chips {
@@ -1237,6 +1290,13 @@ textarea:focus {
 input:disabled {
   background: #eef1f5;
   color: var(--muted);
+}
+
+select:disabled,
+.schema-required:has(input:disabled) {
+  background: #eef1f5;
+  color: var(--muted);
+  cursor: not-allowed;
 }
 
 .badge {
@@ -1668,6 +1728,11 @@ input:disabled {
   .schema-description,
   .schema-required {
     grid-column: 1 / -1;
+  }
+
+  .modal-form .schema-row > .button {
+    grid-column: 2;
+    grid-row: auto;
   }
 
   .filter-builder .ruleGroup-header,

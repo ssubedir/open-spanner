@@ -7,7 +7,7 @@
     "start": "tsx basic.ts"
   },
   "dependencies": {
-    "@ssubedir/open-spanner": "^0.1.3"
+    "@ssubedir/open-spanner": "file:../../sdk/typescript"
   },
   "devDependencies": {
     "tsx": "^4.21.0"

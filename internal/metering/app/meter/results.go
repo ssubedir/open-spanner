@@ -24,6 +24,7 @@ type DimensionResult struct {
 	Description string
 	Type        string
 	Required    bool
+	Deprecated  bool
 }
 
 type StatsResult struct {
@@ -56,6 +57,7 @@ func resultFromDomain(meter domainmeter.Meter) Result {
 			Description: dimension.Description(),
 			Type:        string(dimension.Type()),
 			Required:    dimension.Required(),
+			Deprecated:  dimension.Deprecated(),
 		})
 	}
 

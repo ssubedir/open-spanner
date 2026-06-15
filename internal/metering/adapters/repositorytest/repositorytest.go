@@ -34,7 +34,7 @@ func Run(t *testing.T, setup SetupFunc) {
 			"updated definition",
 			"request",
 			domainmeter.AggregationCount,
-			[]domainmeter.Dimension{newDimension(t, "plan", domainmeter.MetadataString, "Plan", "Billing plan", true)},
+			[]domainmeter.Dimension{newDimension(t, "plan", domainmeter.MetadataString, "Plan", "Billing plan", true, true)},
 			365,
 			meter.CreatedAt(),
 		)
@@ -49,7 +49,7 @@ func Run(t *testing.T, setup SetupFunc) {
 		if err != nil {
 			t.Fatalf("find meter by id: %v", err)
 		}
-		if len(byID) != 1 || byID[0].Description() != "updated definition" || byID[0].Unit() != "request" || byID[0].Aggregation() != domainmeter.AggregationCount || byID[0].EventRetentionDays() != 365 || byID[0].MetadataSchema()["plan"] != domainmeter.MetadataString || len(byID[0].Dimensions()) != 1 || byID[0].Dimensions()[0].DisplayName() != "Plan" {
+		if len(byID) != 1 || byID[0].Description() != "updated definition" || byID[0].Unit() != "request" || byID[0].Aggregation() != domainmeter.AggregationCount || byID[0].EventRetentionDays() != 365 || byID[0].MetadataSchema()["plan"] != domainmeter.MetadataString || len(byID[0].Dimensions()) != 1 || byID[0].Dimensions()[0].DisplayName() != "Plan" || !byID[0].Dimensions()[0].Deprecated() {
 			t.Fatalf("meter by id = %#v", byID)
 		}
 
@@ -512,9 +512,9 @@ func newMeter(t *testing.T, id string, name string) domainmeter.Meter {
 	return meter
 }
 
-func newDimension(t *testing.T, name string, metadataType domainmeter.MetadataType, displayName string, description string, required bool) domainmeter.Dimension {
+func newDimension(t *testing.T, name string, metadataType domainmeter.MetadataType, displayName string, description string, required bool, deprecated ...bool) domainmeter.Dimension {
 	t.Helper()
-	dimension, err := domainmeter.NewDimension(name, metadataType, displayName, description, required)
+	dimension, err := domainmeter.NewDimension(name, metadataType, displayName, description, required, deprecated...)
 	if err != nil {
 		t.Fatalf("new dimension: %v", err)
 	}

@@ -32,13 +32,34 @@ func main() {
 	meterName := fmt.Sprintf("sdk_go_requests_%d", now.Unix())
 	subject := "org_sdk_go"
 
-	schema := map[string]string{"plan": "string", "region": "string"}
 	meterRes, err := api.Meters.CreateMeter(meters.NewCreateMeterParams().WithRequest(&models.MeterCreateRequest{
-		Name:               meterName,
-		Description:        "Go SDK example request counter",
-		Unit:               "request",
-		Aggregation:        "sum",
-		MetadataSchema:     schema,
+		Name:        meterName,
+		Description: "Go SDK example request counter",
+		Unit:        "request",
+		Aggregation: "sum",
+		Dimensions: []*models.MeterDimensionRequest{
+			{
+				Name:        "endpoint",
+				DisplayName: "Endpoint",
+				Description: "API route that handled the request",
+				Type:        "string",
+				Required:    true,
+			},
+			{
+				Name:        "status",
+				DisplayName: "HTTP status",
+				Description: "Response status code",
+				Type:        "number",
+				Required:    true,
+			},
+			{
+				Name:        "region",
+				DisplayName: "Region",
+				Description: "Serving region",
+				Type:        "string",
+				Required:    false,
+			},
+		},
 		EventRetentionDays: 30,
 	}))
 	if err != nil {
@@ -52,16 +73,34 @@ func main() {
 		Quantity:       42,
 		Timestamp:      now.Format(time.RFC3339),
 		Metadata: map[string]any{
-			"plan":   "pro",
-			"region": "us-east",
+			"endpoint": "/v1/orders",
+			"status":   200,
+			"region":   "us-east",
+			"trace_id": "trace-go-example",
 		},
 	}))
 	if err != nil {
 		panic(err)
 	}
 
+	_, validationErr := api.Usages.CreateUsage(usages.NewCreateUsageParams().WithRequest(&models.UsageCreateRequest{
+		IdempotencyKey: fmt.Sprintf("%s-invalid-%d", meterName, now.UnixNano()),
+		Subject:        subject,
+		Meter:          meterName,
+		Quantity:       1,
+		Timestamp:      now.Format(time.RFC3339),
+		Metadata: map[string]any{
+			"endpoint": "/v1/orders",
+			"status":   "200",
+		},
+	}))
+	if validationErr == nil {
+		panic("expected dimension validation error")
+	}
+
 	fmt.Printf("created meter: %s (%s)\n", meterRes.Payload.Name, meterRes.Payload.ID)
 	fmt.Printf("recorded usage: %s quantity=%.2f\n", usageRes.Payload.ID, usageRes.Payload.Quantity)
+	fmt.Printf("dimension validation rejected invalid usage: %v\n", validationErr)
 }
 
 func env(key string, fallback string) string {
