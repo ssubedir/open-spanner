@@ -1,0 +1,40 @@
+---
+title: Retrying Usage Writes
+description: Use idempotency keys so retries do not double-count usage.
+---
+
+Usage writes should be safe to retry. Open Spanner uses `idempotency_key` to accept retries without counting the same event twice.
+
+## Pick A Stable Key
+
+Use a key that represents the work being metered:
+
+- Request ID for an API call
+- Job ID for a background task
+- Message ID for a queued event
+- Provider event ID for webhook processing
+
+Avoid using a new random value for every retry. A different key means a different usage event.
+
+## Send The Event
+
+```sh
+curl -X POST http://localhost:18081/v1/usages \
+  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "subject": "org_123",
+    "meter": "api_requests",
+    "quantity": 1,
+    "idempotency_key": "request_123",
+    "metadata": {
+      "route": "/v1/messages"
+    }
+  }'
+```
+
+If the client times out before receiving the response, retry with the same `idempotency_key`.
+
+## Bulk Writes
+
+Use `POST /v1/usages/bulk` when a worker reports a batch. Each event in the batch should still have its own idempotency key.

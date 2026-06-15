@@ -1,0 +1,18 @@
+---
+title: Auth Model
+description: Browser sessions for people, API keys for services.
+---
+
+Open Spanner separates dashboard login from service authentication. People sign in through the dashboard; backend services, SDKs, workers, and scripts use API keys.
+
+## API Keys
+
+```text
+Authorization: Bearer <api_key>
+```
+
+Create API keys from the dashboard. Copy them when they are created; the full key is not shown again.
+
+## Current Scope
+
+API keys authenticate service clients. They are not scoped to a specific meter or operation yet, so treat them like production secrets.

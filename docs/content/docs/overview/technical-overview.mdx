@@ -1,0 +1,27 @@
+---
+title: Technical Overview
+description: How Open Spanner receives, stores, and queries usage.
+---
+
+Open Spanner runs as a Go API process with an embedded React dashboard. It stores metering data in SQLite or Postgres and exposes a REST API for services and SDKs.
+
+## Request Flow
+
+1. A service sends an API key with the request.
+2. The HTTP layer authenticates the key or dashboard cookie.
+3. Metering handlers validate request shape and pass commands into the application layer.
+4. The domain layer applies meter, usage, query, and retention rules.
+5. A storage adapter writes to or reads from SQLite or Postgres.
+
+## Storage Model
+
+Meters are configuration records. Usage events are immutable facts with idempotency keys. Usage queries aggregate retained events at request time using SQL.
+
+Postgres and SQLite share the same domain behavior but use database-specific SQL where it matters for performance.
+
+## API Surfaces
+
+- Dashboard routes use cookie sessions.
+- Service routes accept API keys.
+- SDKs expose meters and usage operations.
+- Swagger UI exposes the full REST reference.

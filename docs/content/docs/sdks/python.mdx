@@ -1,0 +1,42 @@
+---
+title: Python
+description: Use Open Spanner from Python services and jobs.
+---
+
+Install:
+
+```sh
+pip install open-spanner
+```
+
+Record usage:
+
+```python
+from datetime import UTC, datetime
+from uuid import uuid4
+
+from open_spanner_client import AuthenticatedClient
+from open_spanner_client.api.usages import create_usage
+from open_spanner_client.models.usage_create_request import UsageCreateRequest
+
+api_key = "..."
+
+client = AuthenticatedClient(
+    base_url="https://api.example.com",
+    token=api_key,
+    raise_on_unexpected_status=True,
+)
+
+usage = create_usage.sync(
+    client=client,
+    body=UsageCreateRequest(
+        idempotency_key=str(uuid4()),
+        subject="org_123",
+        meter="api_requests",
+        quantity=1,
+        timestamp=datetime.now(UTC).isoformat(),
+    ),
+)
+
+print(usage.id)
+```

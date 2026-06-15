@@ -1,0 +1,30 @@
+---
+title: SDK API Surface
+description: Operations exposed by generated SDK packages.
+---
+
+SDKs expose the application-facing subset of the REST API:
+
+- `GET /health`
+- `GET /ready`
+- `GET /v1/meters`
+- `POST /v1/meters`
+- `GET /v1/meters/{id}`
+- `PUT /v1/meters/{id}`
+- `DELETE /v1/meters/{id}`
+- `POST /v1/usages`
+- `POST /v1/usages/bulk`
+- `GET /v1/usages/export`
+- `POST /v1/usages/search`
+
+These endpoints are intentionally excluded from SDKs:
+
+- Dashboard auth and sessions
+- User registration
+- API key creation and deletion
+- System stats
+- Subject admin views
+- Raw usage event admin views
+- Retention prune endpoints
+- Ingestion run history
+- Meter stats

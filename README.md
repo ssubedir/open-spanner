@@ -8,14 +8,15 @@ Open Spanner is an open source metering service for tracking product usage:
 - **How much** was used
 - **Where / in what context** through typed metadata
 
-It is API-first and intentionally small. Define meters, ingest usage events, query usage buckets, export data, and inspect activity from the embedded dashboard.
+It is API-first and intentionally small. Sign in to the dashboard, create API keys for server-side clients, define meters, ingest usage events, query usage buckets, export data, and inspect activity from the embedded dashboard.
 
 ## Features
 
 - Meter definitions with units, aggregation mode, retention policy, and metadata schema
 - Single and bulk usage ingestion with idempotency
 - Bucketed usage queries with filtering, grouping, and CSV export
-- Raw usage event search, pagination, CSV export, and retention pruning
+- Dashboard registration, cookie sessions, and API key management
+- Raw usage event search, pagination, CSV export, and retention pruning in the service API
 - SQLite and Postgres storage
 - Embedded React dashboard
 - Swagger/OpenAPI docs
@@ -26,7 +27,11 @@ It is API-first and intentionally small. Define meters, ingest usage events, que
 Install Task:
 
 ```sh
-go install github.com/go-task/task/v3/cmd/task@latest
+winget install Task.Task
+# or
+brew install go-task/tap/go-task
+# or
+npm install -g @go-task/cli
 ```
 
 Run the API with SQLite storage:
@@ -38,7 +43,7 @@ task run:sqlite
 Open:
 
 ```text
-Dashboard: http://localhost:18081/overview
+Dashboard: http://localhost:18081/login
 API docs:  http://localhost:18081/docs
 Health:    http://localhost:18081/health
 Ready:     http://localhost:18081/ready
@@ -46,10 +51,19 @@ Ready:     http://localhost:18081/ready
 
 ## Basic Flow
 
+Register or log in through the dashboard, then create an API key from the API Keys page. Copy the key when it is created; only its prefix is shown after that.
+
+Use the API key from SDKs or direct API calls:
+
+```sh
+API_KEY="osp_..."
+```
+
 Create a meter:
 
 ```sh
 curl -X POST http://localhost:18081/v1/meters \
+  -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "api_requests",
@@ -68,6 +82,7 @@ Record usage:
 
 ```sh
 curl -X POST http://localhost:18081/v1/usages \
+  -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "idempotency_key": "usage_001",
@@ -85,7 +100,8 @@ curl -X POST http://localhost:18081/v1/usages \
 Query usage:
 
 ```sh
-curl "http://localhost:18081/v1/usages?subject=org_123&meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-07-01T00:00:00Z&bucket_size=day&limit=100"
+curl "http://localhost:18081/v1/usages?subject=org_123&meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-07-01T00:00:00Z&bucket_size=day&limit=100" \
+  -H "Authorization: Bearer $API_KEY"
 ```
 
 ## Concepts
@@ -113,6 +129,8 @@ The full API reference is available in Swagger UI when the server is running:
 ```text
 http://localhost:18081/docs
 ```
+
+Dashboard access uses HttpOnly cookies. SDKs and service-to-service clients use API keys in the `Authorization: Bearer <key>` header. API keys are created and deleted from the dashboard.
 
 ## SDKs
 

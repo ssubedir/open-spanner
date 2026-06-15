@@ -1,0 +1,27 @@
+---
+title: Environment Variables
+description: Runtime configuration for the Open Spanner service.
+---
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `OPEN_SPANNER_HTTP_ADDR` | `:18081` | API listen address. |
+| `OPEN_SPANNER_DB_DRIVER` | `sqlite` | Storage driver: `sqlite` or `postgres`. |
+| `OPEN_SPANNER_SQLITE_PATH` | `open-spanner.db` | SQLite database path. |
+| `OPEN_SPANNER_POSTGRES_DSN` | | Postgres connection string when `OPEN_SPANNER_DB_DRIVER=postgres`. |
+| `OPEN_SPANNER_DB_MAX_OPEN_CONNS` | `0` | Maximum open SQL connections; `0` keeps Go's default. |
+| `OPEN_SPANNER_DB_MAX_IDLE_CONNS` | `0` | Maximum idle SQL connections; `0` keeps Go's default. |
+| `OPEN_SPANNER_DB_CONN_MAX_LIFETIME` | `0` | Maximum SQL connection lifetime; `0` disables recycling. |
+| `OPEN_SPANNER_DB_CONN_MAX_IDLE_TIME` | `0` | Maximum SQL connection idle time; `0` disables idle-time recycling. |
+| `OPEN_SPANNER_RETENTION_PRUNE_ENABLED` | `false` | Enable automatic retention pruning. |
+| `OPEN_SPANNER_RETENTION_PRUNE_INTERVAL` | `1h` | Background prune interval. |
+| `OPEN_SPANNER_RETENTION_PRUNE_TIMEOUT` | `30m` | Maximum duration for one background prune run. |
+
+## Postgres Example
+
+```sh
+OPEN_SPANNER_DB_DRIVER=postgres
+OPEN_SPANNER_POSTGRES_DSN=postgres://user:password@db.example.com:5432/open_spanner?sslmode=require
+OPEN_SPANNER_DB_MAX_OPEN_CONNS=25
+OPEN_SPANNER_DB_MAX_IDLE_CONNS=25
+```

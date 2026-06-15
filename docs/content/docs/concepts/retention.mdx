@@ -1,0 +1,20 @@
+---
+title: Retention
+description: How long raw usage events are kept.
+---
+
+Meters can define `event_retention_days`. Retention controls how long raw usage events are kept for that meter.
+
+Aggregated query results are calculated from retained events. If raw events are pruned, future queries over that old window cannot use the deleted events.
+
+## Automatic Pruning
+
+Retention pruning runs in the API process when enabled:
+
+```sh
+OPEN_SPANNER_RETENTION_PRUNE_ENABLED=true
+OPEN_SPANNER_RETENTION_PRUNE_INTERVAL=1h
+OPEN_SPANNER_RETENTION_PRUNE_TIMEOUT=30m
+```
+
+Choose retention based on billing, audit, and reporting needs.

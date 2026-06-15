@@ -1,9 +1,9 @@
 ---
-title: Meters
-description: Meter definitions describe what Open Spanner accepts and how it aggregates usage.
+title: Meter Definition
+description: Define a metered product signal and how Open Spanner aggregates it.
 ---
 
-A meter is the contract for one billable signal.
+A meter definition is the contract for one product signal. It tells Open Spanner which usage events are valid, what unit they represent, how values should be aggregated, and which metadata dimensions are accepted.
 
 Common examples:
 
@@ -12,16 +12,39 @@ Common examples:
 - `export_jobs`
 - `seats`
 
-## Fields
+If your application sends usage for `api_requests`, Open Spanner looks up the `api_requests` meter before accepting the event.
 
-- `name` is the stable API name clients send with usage.
-- `description` explains the business meaning.
-- `unit` describes what the quantity represents.
-- `aggregation` controls how events are summarized.
-- `event_retention_days` controls how long raw events are retained.
-- `metadata_schema` optionally constrains metadata accepted for the meter.
+## Meter Fields
 
-## Aggregations
+| Field | Purpose |
+| --- | --- |
+| `name` | Stable API name clients send with usage events. |
+| `description` | Human-readable business meaning shown in the dashboard. |
+| `unit` | What the quantity represents. |
+| `aggregation` | How events are summarized. |
+| `event_retention_days` | How long raw events are retained. |
+| `metadata_schema` | Dimension contract for accepted event metadata. |
+
+Meters can be created and updated from the dashboard or through the meter API. Keep `name` stable once clients are sending usage, because usage events reference meters by name.
+
+## Example Definition
+
+```json
+{
+  "name": "api_requests",
+  "description": "API requests served",
+  "unit": "request",
+  "aggregation": "sum",
+  "event_retention_days": 90,
+  "metadata_schema": {
+    "region": "string",
+    "plan": "string",
+    "cache_hit": "boolean"
+  }
+}
+```
+
+## Aggregation Modes
 
 Open Spanner supports:
 
@@ -34,4 +57,30 @@ Open Spanner supports:
 - `last`
 - `rate`
 
-Use `sum` for additive usage, `count` for event counts, `last` for gauge-like values, and `rate` when you need event velocity over the requested window.
+Use `sum` for additive usage, `count` for event counts, `avg`, `min`, and `max` for sampled values, `first` or `last` for gauge-like values, and `rate` when you need event velocity over the requested window.
+
+## Meter Patterns
+
+Open Spanner does not have separate meter classes for count, continuous, or seat-based meters today. Model those patterns with the meter's unit, aggregation mode, and event shape:
+
+| Pattern | Example meter | Suggested shape |
+| --- | --- | --- |
+| Event count | `api_requests` | `unit=request`, `aggregation=sum`, `quantity=1` per accepted request. |
+| Token or byte volume | `tokens`, `storage_bytes` | `unit=token` or `byte`, `aggregation=sum`, quantity from the completed operation. |
+| Gauge-like state | `active_seats` | `unit=seat`, `aggregation=last`, quantity is the latest observed value. |
+| Duration or utilization | `job_seconds` | `unit=second`, `aggregation=sum`, quantity is the measured duration. |
+
+## Model Product Usage
+
+Start with the thing your product needs to bill, limit, or report. Good meter names are stable, lowercase, and specific:
+
+- `api_requests`
+- `tokens`
+- `storage_gb`
+- `workflow_runs`
+
+Use [meter dimensions](/docs/concepts/meter-dimensions) for context that changes per event, such as `region`, `plan`, or `service`.
+
+## What Is Coming Later
+
+Future versions may add richer meter types and dimension workflows. For now, the stable contract is the meter definition plus metadata schema, and that is the surface your services should depend on.

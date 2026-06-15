@@ -1,7 +1,12 @@
 {
   "title": "Concepts",
+  "defaultOpen": true,
   "pages": [
     "meters",
-    "usage"
+    "meter-dimensions",
+    "usage",
+    "auth-model",
+    "query-model",
+    "retention"
   ]
 }

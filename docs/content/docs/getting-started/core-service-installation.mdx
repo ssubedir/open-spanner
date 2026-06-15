@@ -1,0 +1,95 @@
+---
+title: Core Service Installation
+description: Run Open Spanner locally and send the first usage event.
+---
+
+Start with SQLite when you want a local Open Spanner instance without running a separate database.
+
+## Install Task
+
+Open Spanner uses Taskfile commands for local runs. Install the Task CLI first.
+
+<Tabs items={["npm", "macOS/Linux", "Windows"]}>
+<Tab value="Windows">
+
+  ```sh
+  winget install Task.Task
+  ```
+
+  </Tab>
+<Tab value="macOS/Linux">
+
+  ```sh
+  brew install go-task/tap/go-task
+  ```
+
+  </Tab>
+<Tab value="npm">
+
+  ```sh
+  npm install -g @go-task/cli
+  ```
+
+  </Tab>
+</Tabs>
+
+Confirm it is available:
+
+```sh
+task --version
+```
+
+For other package managers, use the official Task installation guide: `https://taskfile.dev/docs/installation`.
+
+## Run The Service
+
+Clone the project and run Open Spanner with SQLite storage:
+
+```sh
+git clone https://github.com/ssubedir/open-spanner.git
+cd open-spanner
+task run:sqlite
+```
+
+After the service starts, open the dashboard at `http://localhost:18081/register` and create your first user. The API reference is available at `http://localhost:18081/docs`.
+
+## Create An API Key
+
+Open `/api-keys`, create a key for your local service, and copy it immediately.
+
+```sh
+API_KEY="osp_..."
+```
+
+## Create A Meter
+
+```sh
+curl -X POST http://localhost:18081/v1/meters \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "api_requests",
+    "description": "API requests served",
+    "unit": "request",
+    "aggregation": "sum",
+    "event_retention_days": 90
+  }'
+```
+
+## Send Usage
+
+```sh
+curl -X POST http://localhost:18081/v1/usages \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "subject": "org_123",
+    "meter": "api_requests",
+    "quantity": 1,
+    "idempotency_key": "usage_001",
+    "metadata": {
+      "region": "us-east",
+      "plan": "pro"
+    }
+  }'
+```

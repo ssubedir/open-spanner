@@ -1,0 +1,8 @@
+{
+  "title": "Contribute",
+  "pages": [
+    "index",
+    "local-development",
+    "sdk-code-generation"
+  ]
+}

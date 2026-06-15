@@ -1,0 +1,25 @@
+---
+title: SDKs
+description: Open Spanner SDK packages and supported operations.
+---
+
+Open Spanner SDKs are for backend services that need to create meters, report usage, query buckets, or export usage data. Create an API key in the dashboard, pass it into the SDK client, and keep the key server-side.
+
+| Language | Package | Install |
+| --- | --- | --- |
+| Go | `github.com/ssubedir/open-spanner/sdk/go` | `go get github.com/ssubedir/open-spanner/sdk/go@latest` |
+| TypeScript | `@ssubedir/open-spanner` | `npm install @ssubedir/open-spanner` |
+| Python | `open-spanner` | `pip install open-spanner` |
+| C# | `OpenSpanner` | `dotnet add package OpenSpanner` |
+| Java | Coming soon | Coming soon |
+
+## Included Operations
+
+- Health and readiness checks
+- Meter create, list, read, update, and delete
+- Single usage ingestion
+- Bulk usage ingestion
+- Usage search
+- Usage CSV export
+
+SDKs do not manage dashboard users, sessions, API keys, system stats, retention pruning, subjects, ingestion history, or raw event admin endpoints.

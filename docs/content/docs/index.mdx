@@ -3,51 +3,57 @@ title: Open Spanner
 description: Open-source metering for usage-based products.
 ---
 
-Open Spanner is a small metering service for recording usage events and querying usage buckets.
-It is designed around four questions:
+Open Spanner records product usage and turns it into queryable buckets for billing, reporting, limits, and audits.
 
-- Who used something?
-- When did it happen?
-- How much was used?
-- Where should that usage be grouped or filtered?
+Define the signals your product cares about, send usage from your backend, and use the dashboard to manage meters, API keys, and usage views. REST and the official SDKs are available for services that need to write, query, or export usage.
 
-The API is intentionally simple at the edge, while the internals keep domain, application, and adapter code separate so storage and SDK generation can evolve without rewriting the product.
-
-## What You Can Do
+## Start Here
 
 <Cards>
-  <Card title="Create meters" href="/docs/concepts/meters">
-    Define billable signals such as API requests, seats, storage, or export jobs.
+  <Card title="What is Open Spanner?" href="/docs/overview">
+    Understand the product model and where it fits in your stack.
   </Card>
-  <Card title="Record usage" href="/docs/concepts/usage">
-    Send single events or bulk batches with subject, meter, quantity, timestamp, and metadata.
+  <Card title="Core service installation" href="/docs/getting-started/core-service-installation">
+    Run Open Spanner locally and send your first usage event.
   </Card>
-  <Card title="Query buckets" href="/docs/querying">
-    Aggregate usage by time window, bucket size, subject, meter, metadata, and group keys.
+  <Card title="Choosing an SDK" href="/docs/getting-started/choosing-an-sdk">
+    Pick the right client for a backend service or worker.
   </Card>
-  <Card title="Use SDKs" href="/docs/sdks">
-    Install generated clients for Go, TypeScript, Python, and C#.
+  <Card title="Your first query" href="/docs/getting-started/your-first-query">
+    Query daily usage buckets for one subject and meter.
   </Card>
 </Cards>
 
-## Main Surfaces
-
-- API: `/v1`
-- Swagger UI: `/docs`
-- Dashboard: `/overview`, `/meters`, `/usage`
-- OpenAPI spec: `openapi/openapi.json` in the repository
-
-## Local First
-
-Start with SQLite for development:
-
-```sh
-task run:sqlite
-```
-
-Then open the dashboard or API docs in your browser.
+## Product Flow
 
 <Cards>
-  <Card title="Quickstart" href="/docs/quickstart" />
-  <Card title="API and SDKs" href="/docs/sdks" />
+  <Card title="Define meters" href="/docs/concepts/meters">
+    Model the signals your product tracks: requests, seats, storage, tokens, jobs, or anything else you meter.
+  </Card>
+  <Card title="Choose dimensions" href="/docs/concepts/meter-dimensions">
+    Add stable metadata fields for filtering, grouping, and export.
+  </Card>
+  <Card title="Record usage" href="/docs/concepts/usage">
+    Send idempotent usage events from backend services and workers.
+  </Card>
+  <Card title="Query buckets" href="/docs/concepts/query-model">
+    Turn raw usage events into windows for billing, reporting, limits, and exports.
+  </Card>
+  <Card title="Configure auth" href="/docs/concepts/auth-model">
+    Use dashboard sessions for people and API keys for services.
+  </Card>
+</Cards>
+
+## Common Workflows
+
+<Cards>
+  <Card title="Meter an API endpoint" href="/docs/tutorials/meter-an-api-endpoint">
+    Record request usage from a backend API handler.
+  </Card>
+  <Card title="Retry usage writes safely" href="/docs/tutorials/retrying-usage-writes">
+    Use idempotency keys so retries do not double-count usage.
+  </Card>
+  <Card title="Export usage" href="/docs/tutorials/export-usage">
+    Produce CSV usage data for billing, analytics, or audits.
+  </Card>
 </Cards>

@@ -1,0 +1,38 @@
+---
+title: Local Development Setup
+description: Commands used while developing Open Spanner.
+---
+
+Install Task:
+
+```sh
+winget install Task.Task
+# or
+brew install go-task/tap/go-task
+# or
+npm install -g @go-task/cli
+```
+
+Run the API with SQLite:
+
+```sh
+task run:sqlite
+```
+
+Run Go tests:
+
+```sh
+task test
+```
+
+Run the dashboard dev server:
+
+```sh
+task admin:dev
+```
+
+Build the docs site:
+
+```sh
+task docs:build
+```

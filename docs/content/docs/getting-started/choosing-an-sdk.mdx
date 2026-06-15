@@ -1,0 +1,24 @@
+---
+title: Choosing An SDK
+description: Pick an SDK for the service that reports usage.
+---
+
+You can call the REST API directly or use one of the official SDKs. SDKs are a convenience layer for trusted backend code; they are not required to use Open Spanner.
+
+Do not put Open Spanner API keys in browser or mobile clients.
+
+| Runtime | Package | Use it when |
+| --- | --- | --- |
+| Go | `github.com/ssubedir/open-spanner/sdk/go` | Your API or worker is written in Go. |
+| TypeScript | `@ssubedir/open-spanner` | Your service runs on Node.js or a TypeScript backend. |
+| Python | `open-spanner` | You report usage from Python services, scripts, or jobs. |
+| C# | `OpenSpanner` | You run .NET services or workers. |
+
+REST clients and SDKs use the same product model:
+
+1. Create an API key in the dashboard.
+2. Send that key with the request or pass it into the SDK client.
+3. Define meters or send usage from a trusted service.
+4. Query or export usage when another system needs it.
+
+If you only need to inspect usage manually, use the dashboard usage page instead of writing client code.

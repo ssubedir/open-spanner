@@ -1,0 +1,11 @@
+{
+  "title": "SDKs",
+  "defaultOpen": true,
+  "pages": [
+    "index",
+    "go",
+    "typescript",
+    "python",
+    "csharp"
+  ]
+}

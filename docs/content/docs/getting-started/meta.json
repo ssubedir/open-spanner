@@ -1,0 +1,9 @@
+{
+  "title": "Getting Started",
+  "defaultOpen": true,
+  "pages": [
+    "core-service-installation",
+    "choosing-an-sdk",
+    "your-first-query"
+  ]
+}

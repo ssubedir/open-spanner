@@ -1,0 +1,23 @@
+---
+title: SDK Code Generation
+description: Regenerate OpenAPI artifacts and SDK packages.
+---
+
+SDK packages are generated from the SDK OpenAPI spec. The SDK spec is intentionally narrower than the full REST API so package consumers only get the meter and usage surface.
+
+Regenerate all SDK inputs:
+
+```sh
+task openapi:sdk
+```
+
+Check one SDK:
+
+```sh
+task sdk:typescript:check
+task sdk:python:check
+task sdk:csharp:check
+task sdk:go:check
+```
+
+Use the language-specific task when you only changed one generator or README template.

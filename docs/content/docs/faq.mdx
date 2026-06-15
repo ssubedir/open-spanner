@@ -1,0 +1,28 @@
+---
+title: FAQ
+description: Common Open Spanner questions.
+---
+
+## Should usage be written from the dashboard?
+
+No. Production usage should be written by backend services, workers, or scripts with an API key. The dashboard is mainly for setup, inspection, querying, and API key management.
+
+## Can SDKs create API keys?
+
+No. API keys are created in the dashboard. SDKs intentionally expose meters and usage operations, not auth administration.
+
+## Can I put an API key in browser code?
+
+No. Treat API keys as server-side secrets. Browser access should use the dashboard session flow.
+
+## Does Open Spanner process payments?
+
+No. Open Spanner records and aggregates usage. Billing, invoicing, entitlements, and payment processing are separate systems that can consume Open Spanner usage data.
+
+## Does Open Spanner support gRPC or streaming?
+
+Not today. The current public client surface is REST plus generated SDK packages.
+
+## Which database should I use?
+
+Use SQLite for local demos or very small deployments. Use Postgres when you need a networked database, operational tooling, and connection pooling.

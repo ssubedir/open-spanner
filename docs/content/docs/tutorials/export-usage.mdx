@@ -1,0 +1,25 @@
+---
+title: Export Usage
+description: Produce CSV usage data for billing, analytics, or audits.
+---
+
+Open Spanner can export usage query results as CSV. Use exports when another system wants files instead of API responses.
+
+## Export A Window
+
+```sh
+curl "http://localhost:18081/v1/usages/export?subject=org_123&meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z&bucket_size=day" \
+  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY" \
+  -o usage.csv
+```
+
+## Export By Metadata
+
+Use advanced search when you need nested filters or grouping before export. Keep metadata names stable so downstream systems can rely on the output.
+
+Common export consumers include:
+
+- Billing imports
+- Finance reporting
+- Customer support audits
+- Product analytics

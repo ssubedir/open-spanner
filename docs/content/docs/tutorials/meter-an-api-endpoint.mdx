@@ -1,0 +1,54 @@
+---
+title: Meter An API Endpoint
+description: Record request usage from a backend API handler.
+---
+
+This tutorial shows the product pattern, not a framework-specific implementation: create a meter once, then record usage from the backend path that performs the work.
+
+## Create The Meter
+
+Create a meter named `api_requests`:
+
+```sh
+curl -X POST http://localhost:18081/v1/meters \
+  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "api_requests",
+    "description": "API requests served",
+    "unit": "request",
+    "aggregation": "sum",
+    "event_retention_days": 90,
+    "metadata_schema": {
+      "route": "string",
+      "region": "string"
+    }
+  }'
+```
+
+## Record Usage After Work Succeeds
+
+Send the usage event after your application has accepted or completed the request. Use your customer or account ID as the subject.
+
+```sh
+curl -X POST http://localhost:18081/v1/usages \
+  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "subject": "org_123",
+    "meter": "api_requests",
+    "quantity": 1,
+    "idempotency_key": "req_01J00000000000000000000000",
+    "metadata": {
+      "route": "/v1/messages",
+      "region": "us-east"
+    }
+  }'
+```
+
+## Query The Result
+
+```sh
+curl "http://localhost:18081/v1/usages?subject=org_123&meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z&bucket_size=day" \
+  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY"
+```

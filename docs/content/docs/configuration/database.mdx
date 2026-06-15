@@ -1,0 +1,59 @@
+---
+title: Database
+description: Choose SQLite or Postgres storage for Open Spanner.
+---
+
+Open Spanner stores meters, usage events, auth users, dashboard sessions, API keys, ingestion history, and retention state in SQL storage.
+
+Today, Open Spanner supports:
+
+- SQLite
+- Postgres
+
+More database backends may be added over time, but SQLite and Postgres are the supported storage options today.
+
+## SQLite
+
+SQLite is the default storage driver. It is a good fit for local demos, development, small deployments, and simple single-node installs.
+
+```sh
+OPEN_SPANNER_DB_DRIVER=sqlite
+OPEN_SPANNER_SQLITE_PATH=open-spanner.db
+```
+
+Use SQLite when:
+
+- You want the quickest local setup.
+- You do not want to operate a separate database.
+- One Open Spanner process owns the database file.
+
+For production systems with multiple processes, remote database operations, or stricter operational controls, use Postgres.
+
+## Postgres
+
+Postgres is the better fit for long-running deployments that need a networked database, managed backups, connection pooling, and normal database operations.
+
+```sh
+OPEN_SPANNER_DB_DRIVER=postgres
+OPEN_SPANNER_POSTGRES_DSN=postgres://user:password@db.example.com:5432/open_spanner?sslmode=require
+```
+
+Use Postgres when:
+
+- Open Spanner runs outside a local machine.
+- You need managed backups and database observability.
+- You want to tune connection pooling.
+- You expect higher write or query volume.
+
+## Connection Pooling
+
+Connection pool settings apply to SQL storage:
+
+```sh
+OPEN_SPANNER_DB_MAX_OPEN_CONNS=25
+OPEN_SPANNER_DB_MAX_IDLE_CONNS=25
+OPEN_SPANNER_DB_CONN_MAX_LIFETIME=30m
+OPEN_SPANNER_DB_CONN_MAX_IDLE_TIME=5m
+```
+
+Leave these at `0` to use Go's default database behavior.

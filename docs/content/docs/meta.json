@@ -2,10 +2,14 @@
   "title": "Open Spanner",
   "pages": [
     "index",
-    "quickstart",
+    "overview",
+    "getting-started",
     "concepts",
-    "querying",
+    "tutorials",
     "sdks",
-    "deployment"
+    "configuration",
+    "reference",
+    "faq",
+    "contribute"
   ]
 }

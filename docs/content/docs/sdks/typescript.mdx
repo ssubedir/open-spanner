@@ -1,0 +1,42 @@
+---
+title: TypeScript
+description: Use Open Spanner from Node.js or TypeScript services.
+---
+
+Install:
+
+```sh
+npm install @ssubedir/open-spanner
+```
+
+Configure the client with an API key:
+
+```ts
+import { client, createUsage } from "@ssubedir/open-spanner";
+
+const apiKey = "...";
+
+client.setConfig({
+  baseUrl: "https://api.example.com",
+  headers: {
+    Authorization: `Bearer ${apiKey}`,
+  },
+});
+```
+
+Record usage:
+
+```ts
+const { data: usage } = await createUsage({
+  body: {
+    idempotency_key: crypto.randomUUID(),
+    subject: "org_123",
+    meter: "api_requests",
+    quantity: 1,
+    timestamp: new Date().toISOString(),
+  },
+  throwOnError: true,
+});
+
+console.log(usage.id);
+```

@@ -1,0 +1,23 @@
+---
+title: Release And Versioning Policy
+description: How Open Spanner versions the service and SDK packages.
+---
+
+Open Spanner is pre-1.0, so breaking changes can still happen while the API and dashboard settle. Release notes should call out behavior that affects API clients, SDK users, storage, or auth.
+
+## Service Versions
+
+The core service uses project releases such as `v0.1.3`. A service release can include API, dashboard, storage, docs, and generated OpenAPI changes.
+
+## SDK Versions
+
+SDK packages track the service API they were generated from. When the SDK surface changes, each language package should be published with the matching version.
+
+SDKs intentionally expose a narrower surface than the full REST API. Auth management, dashboard sessions, system stats, raw event admin endpoints, and pruning endpoints are not part of the SDKs.
+
+## Compatibility
+
+- Meters and usage ingestion are the main SDK compatibility surface.
+- Auth is required for protected API calls.
+- Browser dashboard access uses cookies.
+- SDK and service clients use API keys.
