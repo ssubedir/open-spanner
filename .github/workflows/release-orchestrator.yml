@@ -21,6 +21,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Require release owner
+        if: github.actor != 'ssubedir'
+        run: |
+          echo "Only @ssubedir can run release workflows."
+          exit 1
+
       - name: Require main branch
         if: github.ref_name != 'main'
         run: |

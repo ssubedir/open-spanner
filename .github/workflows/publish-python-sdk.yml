@@ -19,6 +19,12 @@ jobs:
       id-token: write
 
     steps:
+      - name: Require release owner
+        if: github.actor != 'ssubedir'
+        run: |
+          echo "Only @ssubedir can run release workflows."
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -57,6 +63,15 @@ jobs:
 
       - name: Verify release artifacts
         run: task release:check
+
+      - name: Verify package version matches tag
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#sdk-python-v}"
+          PACKAGE_VERSION="$(python -c "import tomllib; print(tomllib.load(open('sdk/python/pyproject.toml', 'rb'))['project']['version'])")"
+          if [ "$TAG_VERSION" != "$PACKAGE_VERSION" ]; then
+            echo "Version mismatch: tag=$TAG_VERSION pyproject.toml=$PACKAGE_VERSION"
+            exit 1
+          fi
 
       - name: Publish Python SDK
         uses: pypa/gh-action-pypi-publish@release/v1

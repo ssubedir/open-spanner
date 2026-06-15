@@ -19,6 +19,12 @@ jobs:
       id-token: write
 
     steps:
+      - name: Require release owner
+        if: github.actor != 'ssubedir'
+        run: |
+          echo "Only @ssubedir can run release workflows."
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
