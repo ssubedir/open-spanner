@@ -1583,6 +1583,66 @@ func TestMeterAPIDeleteWithUsageReturnsConflict(t *testing.T) {
 	}
 }
 
+func TestMeterAPIRejectsUnsafeDimensionUpdateWithUsage(t *testing.T) {
+	router := newTestRouter()
+
+	createMeter := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name":        "api_calls",
+		"description": "API calls",
+		"unit":        "call",
+		"aggregation": "sum",
+		"dimensions": []map[string]any{
+			{
+				"name":     "region",
+				"type":     "string",
+				"required": true,
+			},
+			{
+				"name":     "status",
+				"type":     "number",
+				"required": false,
+			},
+		},
+	})
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create meter status = %d: %s", createMeter.Code, createMeter.Body.String())
+	}
+	var created meterResponse
+	decodeJSON(t, createMeter, &created)
+
+	createUsage := requestJSON(t, router, http.MethodPost, "/v1/usages", map[string]any{
+		"subject":  "org_123",
+		"meter":    "api_calls",
+		"quantity": 1,
+		"metadata": map[string]any{
+			"region": "us-east-1",
+			"status": 200,
+		},
+	})
+	if createUsage.Code != http.StatusCreated {
+		t.Fatalf("create usage status = %d: %s", createUsage.Code, createUsage.Body.String())
+	}
+
+	update := requestJSON(t, router, http.MethodPut, "/v1/meters/"+created.ID, map[string]any{
+		"dimensions": []map[string]any{
+			{
+				"name":     "region",
+				"type":     "string",
+				"required": true,
+			},
+		},
+	})
+	if update.Code != http.StatusConflict {
+		t.Fatalf("update meter status = %d, want %d: %s", update.Code, http.StatusConflict, update.Body.String())
+	}
+
+	var errRes errorResponse
+	decodeJSON(t, update, &errRes)
+	if errRes.Error.Code != "conflict" {
+		t.Fatalf("error code = %q, want conflict", errRes.Error.Code)
+	}
+}
+
 func TestMeterAPIInvalidJSONErrorContract(t *testing.T) {
 	router := newTestRouter()
 
