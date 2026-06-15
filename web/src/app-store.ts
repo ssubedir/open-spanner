@@ -17,6 +17,7 @@ import {
   listMeterStats,
   listMeters,
   listSavedUsageQueries,
+  listSubjectEvents,
   listSubjects,
   listUsageBreakdowns,
   listUsageBuckets,
@@ -36,6 +37,7 @@ import {
   type UsageBucket,
   type UsageBreakdown,
   type UsageDimensionValue,
+  type UsageEvent,
   type IngestionRun,
   type SubjectStats,
   type SystemStats,
@@ -108,6 +110,15 @@ type AppState = {
     status: LoadState
     subjects: SubjectStats[]
   }
+  subjects: {
+    detailStatus: LoadState
+    error: string
+    events: UsageEvent[]
+    items: SubjectStats[]
+    searchQuery: string
+    selectedSubject: string
+    status: LoadState
+  }
   usage: {
     bucketSize: string
     breakdownError: string
@@ -168,6 +179,15 @@ export const appStore = createStore<AppState>({
     stats: null,
     status: 'idle',
     subjects: [],
+  },
+  subjects: {
+    detailStatus: 'idle',
+    error: '',
+    events: [],
+    items: [],
+    searchQuery: '',
+    selectedSubject: '',
+    status: 'idle',
   },
   usage: {
     bucketSize: 'day',
@@ -323,6 +343,39 @@ export const appStoreActions = {
       })
     } catch (err) {
       setOverviewState({ error: errorMessage(err, 'Unable to load overview'), status: 'error' })
+    }
+  },
+  async loadSubjects() {
+    setSubjectsState({ error: '', status: 'loading' })
+    try {
+      const subjects = await listSubjects(50)
+      const selectedSubject = selectedSubjectForList(appStore.state.subjects.selectedSubject, subjects.items)
+      setSubjectsState({
+        items: subjects.items,
+        selectedSubject,
+        status: 'ready',
+      })
+      if (selectedSubject) {
+        await appStoreActions.loadSubjectEvents(selectedSubject)
+      } else {
+        setSubjectsState({ detailStatus: 'idle', events: [] })
+      }
+    } catch (err) {
+      setSubjectsState({ error: errorMessage(err, 'Unable to load subjects'), status: 'error' })
+    }
+  },
+  async loadSubjectEvents(subject: string) {
+    if (!subject) {
+      setSubjectsState({ detailStatus: 'idle', events: [], selectedSubject: '' })
+      return
+    }
+
+    setSubjectsState({ detailStatus: 'loading', error: '', selectedSubject: subject })
+    try {
+      const events = await listSubjectEvents(subject, 25)
+      setSubjectsState({ detailStatus: 'ready', events })
+    } catch (err) {
+      setSubjectsState({ detailStatus: 'error', error: errorMessage(err, 'Unable to load subject activity'), events: [] })
     }
   },
   async loadUsageControls() {
@@ -509,6 +562,9 @@ export const appStoreActions = {
   },
   setMetersError(error: string) {
     setMetersState({ error })
+  },
+  setSubjectSearchQuery(searchQuery: string) {
+    setSubjectsState({ searchQuery })
   },
   setMeterDeleting(deleting: Meter | null) {
     setMetersState({ deleting })
@@ -748,6 +804,16 @@ function setOverviewState(update: Partial<AppState['overview']>) {
   }))
 }
 
+function setSubjectsState(update: Partial<AppState['subjects']>) {
+  appStore.setState((state) => ({
+    ...state,
+    subjects: {
+      ...state.subjects,
+      ...update,
+    },
+  }))
+}
+
 function setUsageState(update: Partial<AppState['usage']> | ((state: AppState['usage']) => Partial<AppState['usage']>)) {
   appStore.setState((state) => ({
     ...state,
@@ -756,6 +822,13 @@ function setUsageState(update: Partial<AppState['usage']> | ((state: AppState['u
       ...(typeof update === 'function' ? update(state.usage) : update),
     },
   }))
+}
+
+function selectedSubjectForList(selectedSubject: string, subjects: SubjectStats[]) {
+  if (selectedSubject && subjects.some((subject) => subject.subject === selectedSubject)) {
+    return selectedSubject
+  }
+  return subjects[0]?.subject ?? ''
 }
 
 async function summarizePinnedUsageQuery(query: SavedUsageQuery, meters: Meter[]): Promise<PinnedUsageQuerySummary> {

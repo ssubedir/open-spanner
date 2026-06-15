@@ -354,6 +354,10 @@ export async function listSubjects(limit = 8) {
   return request<SubjectList>(`/v1/subjects?limit=${limit}`)
 }
 
+export async function listSubjectEvents(subject: string, limit = 25) {
+  return request<UsageEvent[]>(`/v1/subjects/${encodeURIComponent(subject)}/usageevents?limit=${limit}`)
+}
+
 export async function listIngestions(limit = 8) {
   return request<IngestionList>(`/v1/usageingestions?limit=${limit}`)
 }

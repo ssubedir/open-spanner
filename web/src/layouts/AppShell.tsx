@@ -8,6 +8,7 @@ import { Button } from '../components/ui/button'
 const navItems = [
   { to: '/overview', label: 'Overview' },
   { to: '/meters', label: 'Meters' },
+  { to: '/subjects', label: 'Subjects' },
   { to: '/usage', label: 'Usage' },
   { to: '/api-keys', label: 'API Keys' },
 ] as const
