@@ -1,0 +1,38 @@
+---
+title: AI Token Usage
+description: Meter token consumption across models, providers, and operations.
+---
+
+Use AI token metering when your product consumes language model tokens or similar AI units on behalf of customers. This works for chat products, workflow automation, agents, summarization, embeddings, and internal AI tooling.
+
+## Model
+
+Create a meter such as `ai_tokens` with:
+
+| Field | Value |
+| --- | --- |
+| Unit | `token` |
+| Aggregation | `sum` |
+| Quantity | Tokens consumed by the completed operation |
+
+Useful dimensions:
+
+- `model`
+- `provider`
+- `operation`
+- `cached`
+
+## How To Use It
+
+Record usage after the provider returns a response and you know the final token count. Use dimensions to separate expensive models, cached paths, and product features.
+
+This lets you answer:
+
+- How many tokens did a customer consume?
+- Which models cost the most?
+- Which operations generate the most AI usage?
+- How much traffic is served through cache paths?
+
+## Example
+
+See [`examples/advance/ai-tokens`](https://github.com/ssubedir/open-spanner/tree/main/examples/advance/ai-tokens) for Go, TypeScript, Python, and C# examples.

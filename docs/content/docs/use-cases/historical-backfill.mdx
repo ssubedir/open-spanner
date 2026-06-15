@@ -1,0 +1,32 @@
+---
+title: Historical Backfill
+description: Import older usage safely with stable idempotency keys.
+---
+
+Use historical backfill when you already have usage data in logs, billing systems, event streams, or another metering tool and want Open Spanner to become the queryable source going forward.
+
+## Model
+
+Use the same meter definitions you plan to use for live ingestion. Backfilled events should look like normal usage events, with original timestamps and stable idempotency keys.
+
+Useful dimensions depend on the source meter, but common fields include:
+
+- `source`
+- `import_batch`
+- `region`
+- `plan`
+
+## How To Use It
+
+Generate deterministic idempotency keys from the original event identity, such as source system, customer, meter, timestamp, and source row ID. This lets you retry imports without double-counting usage.
+
+This lets you:
+
+- Rebuild usage history after migrating to Open Spanner.
+- Retry imports safely.
+- Compare old billing exports against new usage queries.
+- Keep historical reporting continuous for customers.
+
+## Example
+
+See [`examples/advance/historical-backfill`](https://github.com/ssubedir/open-spanner/tree/main/examples/advance/historical-backfill) for Go, TypeScript, Python, and C# examples.

@@ -1,0 +1,26 @@
+version: '3'
+
+tasks:
+  openapi:
+    desc: Generate Swagger docs
+    cmds:
+      - go run github.com/swaggo/swag/cmd/swag@v1.16.6 init -g cmd/api/main.go -o openapi --parseDependency --parseInternal
+
+  openapi:check:
+    desc: Verify generated Swagger docs are up to date
+    cmds:
+      - task: openapi
+      - git diff --exit-code openapi
+
+  openapi:convert:
+    desc: Generate OpenAPI 3 docs from Swagger docs
+    cmds:
+      - task: openapi
+      - npx --yes swagger2openapi@7.0.8 openapi/swagger.json -o openapi/openapi.json --patch
+
+  openapi:sdk:
+    desc: Generate SDK-friendly API docs
+    cmds:
+      - task: openapi:convert
+      - node scripts/normalize-sdk-specs.mjs openapi/swagger.json openapi/sdk-swagger.json
+      - node scripts/normalize-sdk-specs.mjs openapi/openapi.json openapi/sdk-openapi.json

@@ -22,6 +22,22 @@ It is API-first and intentionally small. Sign in to the dashboard, create API ke
 - Swagger/OpenAPI docs
 - Generated SDKs for Go, Python, TypeScript, and C#
 
+## Use Cases
+
+Open Spanner is built for products that need a trusted usage record for billing, limits, reporting, and audits. Common patterns include:
+
+| Use case | What you can meter |
+| --- | --- |
+| [API request metering](docs/content/docs/use-cases/api-requests.mdx) | Request volume by endpoint, method, status, and region |
+| [AI token usage](docs/content/docs/use-cases/ai-tokens.mdx) | Tokens by model, provider, operation, and cache path |
+| [Storage usage](docs/content/docs/use-cases/storage-usage.mdx) | Capacity by tier, region, and resource type |
+| [Active users](docs/content/docs/use-cases/active-users.mdx) | Seats, workspaces, roles, plans, and active accounts |
+| [Background jobs](docs/content/docs/use-cases/background-jobs.mdx) | Queue throughput, job outcomes, and worker regions |
+| [Feature usage](docs/content/docs/use-cases/feature-usage.mdx) | Product adoption, entitlement usage, and plan-level behavior |
+| [Historical backfill](docs/content/docs/use-cases/historical-backfill.mdx) | Older usage imported with stable idempotency keys |
+
+Each advanced use case has runnable Go, TypeScript, Python, and C# examples in [`examples/advance`](examples/advance).
+
 ## Quick Start
 
 Install Task:
@@ -136,10 +152,10 @@ Dashboard access uses HttpOnly cookies. SDKs and service-to-service clients use 
 
 | Language | Package | Install | Example |
 | --- | --- | --- | --- |
-| Go | [`sdk/go`](sdk/go) | `go get github.com/ssubedir/open-spanner/sdk/go` | [`examples/go/basic`](examples/go/basic) |
-| Python | [`open-spanner`](https://pypi.org/project/open-spanner/) | `pip install open-spanner` | [`examples/python`](examples/python) |
-| TypeScript | [`@ssubedir/open-spanner`](https://www.npmjs.com/package/@ssubedir/open-spanner) | `npm install @ssubedir/open-spanner` | [`examples/typescript`](examples/typescript) |
-| C# | [`OpenSpanner`](https://www.nuget.org/packages/OpenSpanner/) | `dotnet add package OpenSpanner` | [`examples/csharp`](examples/csharp) |
+| Go | [`sdk/go`](sdk/go) | `go get github.com/ssubedir/open-spanner/sdk/go` | [`examples/basic/go`](examples/basic/go) |
+| Python | [`open-spanner`](https://pypi.org/project/open-spanner/) | `pip install open-spanner` | [`examples/basic/python`](examples/basic/python) |
+| TypeScript | [`@ssubedir/open-spanner`](https://www.npmjs.com/package/@ssubedir/open-spanner) | `npm install @ssubedir/open-spanner` | [`examples/basic/typescript`](examples/basic/typescript) |
+| C# | [`OpenSpanner`](https://www.nuget.org/packages/OpenSpanner/) | `dotnet add package OpenSpanner` | [`examples/basic/csharp`](examples/basic/csharp) |
 
 Regenerate SDKs:
 

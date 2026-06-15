@@ -1,0 +1,171 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "**"
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    name: API checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.5"
+          cache: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Task
+        run: npm install --global @go-task/cli
+
+      - name: Validate Taskfile includes
+        run: task --list
+
+      - name: Run Go tests
+        run: task test
+
+      - name: Run Go vet
+        run: task vet
+
+      - name: Check generated OpenAPI docs
+        run: task openapi:check
+
+  sdks:
+    name: SDK and example checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.5"
+          cache: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            sdk/typescript/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Use locked npm version
+        run: npm install --global npm@11.6.2
+
+      - name: Install Task
+        run: npm install --global @go-task/cli
+
+      - name: Validate Taskfile includes
+        run: task --list
+
+      - name: Install TypeScript SDK dependencies
+        working-directory: sdk/typescript
+        run: npm ci
+
+      - name: Test Go SDK
+        run: task sdk:go:test
+
+      - name: Test TypeScript SDK
+        run: task sdk:typescript:test
+
+      - name: Test Python SDK
+        run: task sdk:python:test
+
+      - name: Test C# SDK
+        run: task sdk:csharp:test
+
+      - name: Test local examples
+        run: task test:examples
+
+  admin:
+    name: Admin UI build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Use locked npm version
+        run: npm install --global npm@11.6.2
+
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Build admin UI
+        working-directory: web
+        run: npm run build
+
+  docs:
+    name: Docs build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+
+      - name: Use locked npm version
+        run: npm install --global npm@11.6.2
+
+      - name: Install dependencies
+        working-directory: docs
+        run: npm ci
+
+      - name: Type check docs
+        working-directory: docs
+        run: npm run types:check
+
+      - name: Build docs
+        working-directory: docs
+        run: npm run build
+        env:
+          NEXT_PUBLIC_BASE_PATH: /open-spanner
+          NEXT_PUBLIC_SITE_URL: https://ssubedir.github.io/open-spanner

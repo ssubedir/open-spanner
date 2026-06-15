@@ -54,6 +54,9 @@ jobs:
       - name: Install Task
         run: npm install --global @go-task/cli
 
+      - name: Validate Taskfile includes
+        run: task --list
+
       - name: Verify release artifacts
         run: task release:check
 

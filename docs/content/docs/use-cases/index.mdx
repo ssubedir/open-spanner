@@ -1,0 +1,51 @@
+---
+title: Use Cases
+description: Practical metering patterns you can build with Open Spanner.
+---
+
+Open Spanner is useful whenever your product needs a trusted record of usage: billing, limits, customer reporting, operations, audits, or internal analytics. The core pattern is the same across use cases:
+
+1. Define a meter for the thing being measured.
+2. Send usage events from trusted backend code.
+3. Add dimensions for the fields you need to filter, group, export, or explain.
+4. Query buckets, breakdowns, and events when you need totals or detail.
+
+## Common Patterns
+
+<Cards>
+  <Card title="API Request Metering" href="/docs/use-cases/api-requests">
+    Track request volume by endpoint, method, status, and region.
+  </Card>
+  <Card title="AI Token Usage" href="/docs/use-cases/ai-tokens">
+    Measure token consumption by model, provider, operation, and cache path.
+  </Card>
+  <Card title="Storage Usage" href="/docs/use-cases/storage-usage">
+    Report capacity usage by tier, region, and resource type.
+  </Card>
+  <Card title="Active Users" href="/docs/use-cases/active-users">
+    Meter seats, workspaces, or active user counts over time.
+  </Card>
+  <Card title="Background Jobs" href="/docs/use-cases/background-jobs">
+    Track async work by queue, status, and worker region.
+  </Card>
+  <Card title="Feature Usage" href="/docs/use-cases/feature-usage">
+    Understand which product features customers actually use.
+  </Card>
+  <Card title="Historical Backfill" href="/docs/use-cases/historical-backfill">
+    Import older usage safely with stable idempotency keys.
+  </Card>
+</Cards>
+
+## Example Projects
+
+Each advanced example is an isolated project with Go, TypeScript, Python, and C# implementations. Start with the use-case docs, then open the matching folder in [`examples/advance`](https://github.com/ssubedir/open-spanner/tree/main/examples/advance).
+
+| Use case | Example |
+| --- | --- |
+| API request metering | [`examples/advance/api-requests`](https://github.com/ssubedir/open-spanner/tree/main/examples/advance/api-requests) |
+| Active users | [`examples/advance/active-users`](https://github.com/ssubedir/open-spanner/tree/main/examples/advance/active-users) |
+| AI token usage | [`examples/advance/ai-tokens`](https://github.com/ssubedir/open-spanner/tree/main/examples/advance/ai-tokens) |
+| Storage usage | [`examples/advance/storage-usage`](https://github.com/ssubedir/open-spanner/tree/main/examples/advance/storage-usage) |
+| Background jobs | [`examples/advance/background-jobs`](https://github.com/ssubedir/open-spanner/tree/main/examples/advance/background-jobs) |
+| Feature usage | [`examples/advance/feature-usage`](https://github.com/ssubedir/open-spanner/tree/main/examples/advance/feature-usage) |
+| Historical backfill | [`examples/advance/historical-backfill`](https://github.com/ssubedir/open-spanner/tree/main/examples/advance/historical-backfill) |
