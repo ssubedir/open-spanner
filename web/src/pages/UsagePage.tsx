@@ -111,15 +111,15 @@ export function UsagePage() {
       {error ? <div className="error-banner">{error}</div> : null}
 
       <section className="usage-grid">
-        <Card>
-          <CardHeader>
+        <Card className="usage-query-card">
+          <CardHeader className="usage-card-header">
             <div>
               <CardTitle>Usage Query</CardTitle>
               <CardDescription>Filter with rules, then choose the result shape.</CardDescription>
             </div>
           </CardHeader>
-          <CardContent className="form-card">
-            <form className="form-grid usage-query-form" onSubmit={(event) => void submitQuery(event)}>
+          <CardContent className="usage-query-content">
+            <form className="usage-query-form" onSubmit={(event) => void submitQuery(event)}>
               <div className="saved-query-controls wide">
                 <label>
                   Saved Query
@@ -175,69 +175,75 @@ export function UsagePage() {
                 </div>
               </div>
               {savedQueryError ? <div className="inline-error wide">{savedQueryError}</div> : null}
-              <FilterBuilder
-                fields={filterFields}
-                metadataTypes={metadataTypes}
-                onChange={appStoreActions.setUsageFilterQuery}
-                query={filterQuery}
-              />
-              <div className="query-controls wide">
-                <label>
-                  Bucket
-                  <select
-                    aria-label="Bucket"
-                    name="bucket_size"
-                    onChange={(event) => appStoreActions.setUsageBucketSize(event.target.value)}
-                    value={bucketSize}
-                  >
-                    <option value="day">Day</option>
-                    <option value="hour">Hour</option>
-                    <option value="month">Month</option>
-                  </select>
-                </label>
-                <div className="dimension-picker">
-                  <span>Group By</span>
-                  <div className="dimension-options">
-                    {groupKeys.map((key) => {
-                      const active = activeGroupBy.includes(key)
-                      return (
-                        <label className="dimension-option" key={key}>
-                          <input
-                            checked={active}
-                            disabled={!active && activeGroupBy.length >= maxGroupByFields}
-                            onChange={() => appStoreActions.toggleUsageGroupBy(key)}
-                            type="checkbox"
-                          />
-                          <span>{groupLabel(key, metadataLabels)}</span>
-                        </label>
-                      )
-                    })}
+              <div className="usage-query-layout wide">
+                <FilterBuilder
+                  fields={filterFields}
+                  metadataTypes={metadataTypes}
+                  onChange={appStoreActions.setUsageFilterQuery}
+                  query={filterQuery}
+                />
+                <div className="query-controls">
+                  <div className="query-control-heading">
+                    <span>Result Shape</span>
+                    <small>{activeGroupBy.length}/{maxGroupByFields} groups</small>
                   </div>
-                </div>
-                <label>
-                  Limit
-                  <input
-                    max="1000"
-                    min="1"
-                    name="limit"
-                    onChange={(event) => appStoreActions.setUsageLimit(Number(event.target.value || 500))}
-                    type="number"
-                    value={limit}
-                  />
-                </label>
-                <div className="query-actions">
-                  <Button onClick={resetQuery} type="button" variant="outline">
-                    <RefreshCw aria-hidden="true" />
-                    Reset
-                  </Button>
-                  <Button disabled={exporting} onClick={() => void exportBuckets()} type="button" variant="outline">
-                    {exporting ? <Loader2 className="spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
-                    Export CSV
-                  </Button>
-                  <Button disabled={status === 'loading'} type="submit">
-                    {status === 'loading' ? <Loader2 className="spin" aria-hidden="true" /> : <Search aria-hidden="true" />}
-                    Run Query
-                  </Button>
+                  <label>
+                    Bucket
+                    <select
+                      aria-label="Bucket"
+                      name="bucket_size"
+                      onChange={(event) => appStoreActions.setUsageBucketSize(event.target.value)}
+                      value={bucketSize}
+                    >
+                      <option value="day">Day</option>
+                      <option value="hour">Hour</option>
+                      <option value="month">Month</option>
+                    </select>
+                  </label>
+                  <div className="dimension-picker">
+                    <span>Group By</span>
+                    <div className="dimension-options">
+                      {groupKeys.map((key) => {
+                        const active = activeGroupBy.includes(key)
+                        return (
+                          <label className="dimension-option" key={key}>
+                            <input
+                              checked={active}
+                              disabled={!active && activeGroupBy.length >= maxGroupByFields}
+                              onChange={() => appStoreActions.toggleUsageGroupBy(key)}
+                              type="checkbox"
+                            />
+                            <span>{groupLabel(key, metadataLabels)}</span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </div>
+                  <label>
+                    Limit
+                    <input
+                      max="1000"
+                      min="1"
+                      name="limit"
+                      onChange={(event) => appStoreActions.setUsageLimit(Number(event.target.value || 500))}
+                      type="number"
+                      value={limit}
+                    />
+                  </label>
+                  <div className="query-actions">
+                    <Button onClick={resetQuery} type="button" variant="outline">
+                      <RefreshCw aria-hidden="true" />
+                      Reset
+                    </Button>
+                    <Button disabled={exporting} onClick={() => void exportBuckets()} type="button" variant="outline">
+                      {exporting ? <Loader2 className="spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
+                      Export CSV
+                    </Button>
+                    <Button disabled={status === 'loading'} type="submit">
+                      {status === 'loading' ? <Loader2 className="spin" aria-hidden="true" /> : <Search aria-hidden="true" />}
+                      Run Query
+                    </Button>
+                  </div>
                 </div>
               </div>
               {exportError ? <div className="inline-error wide">{exportError}</div> : null}
@@ -245,8 +251,8 @@ export function UsagePage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
+        <Card className="usage-breakdown-card">
+          <CardHeader className="usage-card-header">
             <div>
               <CardTitle>Breakdowns</CardTitle>
               <CardDescription>Top subjects and dimensions for the current query window.</CardDescription>
