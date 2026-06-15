@@ -21,6 +21,8 @@ OPEN_SPANNER_DB_DRIVER=sqlite
 OPEN_SPANNER_SQLITE_PATH=open-spanner.db
 ```
 
+The Docker image defaults to SQLite at `/data/open-spanner.db`. Mount `/data` when you want the database to survive container replacement.
+
 Use SQLite when:
 
 - You want the quickest local setup.
@@ -37,6 +39,8 @@ Postgres is the better fit for long-running deployments that need a networked da
 OPEN_SPANNER_DB_DRIVER=postgres
 OPEN_SPANNER_POSTGRES_DSN=postgres://user:password@db.example.com:5432/open_spanner?sslmode=require
 ```
+
+The app Compose file runs Open Spanner with Postgres and keeps the database on the private Compose network.
 
 Use Postgres when:
 

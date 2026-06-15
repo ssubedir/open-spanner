@@ -17,6 +17,16 @@ description: Runtime configuration for the Open Spanner service.
 | `OPEN_SPANNER_RETENTION_PRUNE_INTERVAL` | `1h` | Background prune interval. |
 | `OPEN_SPANNER_RETENTION_PRUNE_TIMEOUT` | `30m` | Maximum duration for one background prune run. |
 
+## Docker Compose Variables
+
+These variables are read by `docker-compose.app.yml` before the Open Spanner container starts:
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `OPEN_SPANNER_HTTP_PORT` | `18081` | Host port published for the app container. |
+| `OPEN_SPANNER_POSTGRES_PASSWORD` | `open_spanner` | Password for the bundled Postgres service and the app connection string. |
+| `OPEN_SPANNER_RETENTION_PRUNE_ENABLED` | `false` | Passed through to the app container. |
+
 ## Postgres Example
 
 ```sh

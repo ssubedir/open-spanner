@@ -1,13 +1,78 @@
 ---
 title: Core Service Installation
-description: Run Open Spanner locally and send the first usage event.
+description: Run Open Spanner and send the first usage event.
 ---
 
-Start with SQLite when you want a local Open Spanner instance without running a separate database.
+Open Spanner can run as a single container with SQLite or as an app plus Postgres stack with Docker Compose.
 
-## Install Task
+Use Docker Run when you want the smallest local instance. Use Docker Compose when you want the service running against Postgres.
 
-Open Spanner uses Taskfile commands for local runs. Install the Task CLI first.
+## Option 1: Docker Run
+
+This starts one Open Spanner container using SQLite storage persisted in a Docker volume.
+
+```sh
+git clone https://github.com/ssubedir/open-spanner.git
+cd open-spanner
+docker build -t open-spanner:local .
+docker volume create open-spanner-data
+docker run --detach \
+  --name open-spanner \
+  --publish 18081:18081 \
+  --volume open-spanner-data:/data \
+  open-spanner:local
+```
+
+Open the dashboard at `http://localhost:18081/register`.
+
+Stop and remove the container:
+
+```sh
+docker rm -f open-spanner
+```
+
+The data stays in the `open-spanner-data` volume until you remove that volume.
+
+## Option 2: Docker Compose
+
+This starts Open Spanner and Postgres together. Postgres is private to the Compose network and is not published on host port `5432`.
+
+```sh
+git clone https://github.com/ssubedir/open-spanner.git
+cd open-spanner
+docker compose -f docker-compose.app.yml up -d --build
+```
+
+Open the dashboard at `http://localhost:18081/register`.
+
+To change the published app port or database password, create a `.env` file next to `docker-compose.app.yml`:
+
+```sh
+OPEN_SPANNER_HTTP_PORT=8080
+OPEN_SPANNER_POSTGRES_PASSWORD=change-me
+```
+
+Then start the stack:
+
+```sh
+docker compose -f docker-compose.app.yml up -d --build
+```
+
+Stop the stack:
+
+```sh
+docker compose -f docker-compose.app.yml down
+```
+
+Remove the Postgres data volume as well:
+
+```sh
+docker compose -f docker-compose.app.yml down -v
+```
+
+## Option 3: Run From Source
+
+Use Task when you want to run the service directly from the repository.
 
 <Tabs items={["npm", "macOS/Linux", "Windows"]}>
 <Tab value="Windows">
@@ -33,17 +98,7 @@ Open Spanner uses Taskfile commands for local runs. Install the Task CLI first.
   </Tab>
 </Tabs>
 
-Confirm it is available:
-
-```sh
-task --version
-```
-
-For other package managers, use the official Task installation guide: `https://taskfile.dev/docs/installation`.
-
-## Run The Service
-
-Clone the project and run Open Spanner with SQLite storage:
+Run with SQLite:
 
 ```sh
 git clone https://github.com/ssubedir/open-spanner.git
@@ -51,11 +106,9 @@ cd open-spanner
 task run:sqlite
 ```
 
-After the service starts, open the dashboard at `http://localhost:18081/register` and create your first user. The API reference is available at `http://localhost:18081/docs`.
-
 ## Create An API Key
 
-Open `/api-keys`, create a key for your local service, and copy it immediately.
+After registering a dashboard user, open `/api-keys`, create a key for your service, and copy it immediately.
 
 ```sh
 API_KEY="osp_..."
