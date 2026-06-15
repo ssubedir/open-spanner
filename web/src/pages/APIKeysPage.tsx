@@ -50,7 +50,7 @@ export function APIKeysPage() {
         eyebrow="API Keys"
         icon={<KeyRound />}
         title="SDK access"
-        description="Create and revoke keys for programmatic access."
+        description="Issue API keys for trusted backend clients and revoke stale credentials."
         action={null}
       />
 
@@ -59,15 +59,15 @@ export function APIKeysPage() {
       {createdKey ? (
         <section className="secret-panel" aria-label="Created API key">
           <div>
-            <span>API key created</span>
+            <span>New key ready</span>
             <strong>{createdKey.name}</strong>
-            <small>You will not see this key again.</small>
+            <small>Copy this secret now. It will not be shown again.</small>
           </div>
-          <code>{createdKey.key}</code>
+          <code title={createdKey.key}>{createdKey.key}</code>
           <div className="secret-actions">
-            <Button onClick={() => void copyCreatedKey()} type="button" variant="outline">
+            <Button onClick={() => void copyCreatedKey()} type="button">
               <Copy aria-hidden="true" />
-              Copy
+              Copy key
             </Button>
             <Button onClick={appStoreActions.clearCreatedAPIKey} type="button" variant="outline">Dismiss</Button>
           </div>
@@ -75,20 +75,20 @@ export function APIKeysPage() {
       ) : null}
 
       <section className="api-key-grid">
-        <Card>
-          <CardHeader>
+        <Card className="api-key-create-card">
+          <CardHeader className="api-key-card-header">
             <div>
               <CardTitle>Create Key</CardTitle>
-              <CardDescription>Name the SDK or integration using this key.</CardDescription>
+              <CardDescription>Name the backend service or integration that will use this key.</CardDescription>
             </div>
           </CardHeader>
-          <CardContent className="form-card">
-            <form className="form-grid" onSubmit={(event) => void submitCreate(event)}>
+          <CardContent className="form-card api-key-create-content">
+            <form className="form-grid api-key-create-form" onSubmit={(event) => void submitCreate(event)}>
               <label className="wide">
                 Name
-                <input name="name" placeholder="billing-worker" required />
+                <input name="name" placeholder="server-billing-sync" required />
               </label>
-              <Button disabled={saving} type="submit">
+              <Button className="api-key-submit-button" disabled={saving} type="submit">
                 {saving ? <Loader2 className="spin" aria-hidden="true" /> : <Plus aria-hidden="true" />}
                 Create
               </Button>
@@ -96,8 +96,8 @@ export function APIKeysPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
+        <Card className="api-key-table-card">
+          <CardHeader className="api-key-card-header">
             <div>
               <CardTitle>Keys</CardTitle>
               <CardDescription>Active keys for SDK clients.</CardDescription>
@@ -109,13 +109,17 @@ export function APIKeysPage() {
               emptyLabel="No API keys yet"
               headers={['Name', 'Prefix', 'Created', 'Last Used', 'Actions']}
               rows={items.map((key) => [
-                <strong>{key.name}</strong>,
-                <span className="mono">{key.prefix}</span>,
+                <strong className="api-key-name">{key.name}</strong>,
+                <Badge className="api-key-prefix" variant="muted">
+                  <span className="mono">{key.prefix}</span>
+                </Badge>,
                 formatDate(key.created_at),
-                key.last_used_at ? formatDate(key.last_used_at) : 'Never',
-                <Button aria-label={`Delete ${key.name}`} disabled={saving} onClick={() => appStoreActions.setAPIKeyDeleting(key)} size="icon" type="button" variant="ghost">
-                  <Trash2 aria-hidden="true" />
-                </Button>,
+                key.last_used_at ? formatDate(key.last_used_at) : <span className="muted">Never</span>,
+                <span className="table-actions">
+                  <Button aria-label={`Delete ${key.name}`} disabled={saving} onClick={() => appStoreActions.setAPIKeyDeleting(key)} size="icon" type="button" variant="ghost">
+                    <Trash2 aria-hidden="true" />
+                  </Button>
+                </span>,
               ])}
             />
           </CardContent>
