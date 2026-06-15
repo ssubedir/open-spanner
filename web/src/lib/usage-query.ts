@@ -209,6 +209,22 @@ export function countQueryRules(query: RuleGroupType): number {
   return query.rules.reduce((sum, rule) => sum + (isQueryGroup(rule) ? countQueryRules(rule) : 1), 0)
 }
 
+export function queryFromSavedValue(value: unknown, fallback: RuleGroupType): RuleGroupType {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return fallback
+  }
+
+  const candidate = value as Partial<RuleGroupType>
+  if (!Array.isArray(candidate.rules)) {
+    return fallback
+  }
+
+  return {
+    combinator: candidate.combinator === 'or' ? 'or' : 'and',
+    rules: candidate.rules,
+  }
+}
+
 export function queryWithBreakdownFilter(query: RuleGroupType, field: string, value: string): RuleGroupType {
   const filterField = field === 'subject' ? 'subject' : `metadata.${field.replace(/^metadata\./, '')}`
 

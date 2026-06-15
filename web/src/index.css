@@ -747,6 +747,24 @@ svg {
   align-self: end;
 }
 
+.saved-query-controls {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.7fr) minmax(220px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  background: #f8fafc;
+}
+
+.saved-query-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .query-controls {
   position: sticky;
   bottom: 0;
@@ -1282,7 +1300,15 @@ input:disabled {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .saved-query-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .query-actions {
+    grid-column: 1 / -1;
+  }
+
+  .saved-query-actions {
     grid-column: 1 / -1;
   }
 }
@@ -1316,6 +1342,7 @@ input:disabled {
   .metric-grid,
   .form-grid,
   .usage-query-form,
+  .saved-query-controls,
   .query-controls {
     grid-template-columns: 1fr;
   }

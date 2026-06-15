@@ -6,20 +6,24 @@ import {
   createAuthSession,
   createAuthUser,
   createMeter as createMeterRequest,
+  createSavedUsageQuery,
   deleteAPIKey as deleteAPIKeyRequest,
   deleteAuthSession,
   deleteMeter as deleteMeterRequest,
+  deleteSavedUsageQuery,
   getSystemStats,
   listAPIKeys,
   listIngestions,
   listMeterStats,
   listMeters,
+  listSavedUsageQueries,
   listSubjects,
   listUsageBreakdowns,
   listUsageBuckets,
   listUsageDimensionValues,
   refreshAuthSession,
   updateMeter as updateMeterRequest,
+  updateSavedUsageQuery,
   type APIKey,
   type APIKeyCreateResponse,
   type AuthSession,
@@ -27,6 +31,7 @@ import {
   type MeterCreateRequest,
   type MeterStats,
   type MeterUpdateRequest,
+  type SavedUsageQuery,
   type UsageBucket,
   type UsageBreakdown,
   type UsageDimensionValue,
@@ -38,6 +43,7 @@ import {
   defaultFilterQuery,
   firstEqualRuleValue,
   metadataTypesByField,
+  queryFromSavedValue,
   queryWithBreakdownFilter,
   queryWithAvailableMeter,
   selectedMeterSchemaKeys,
@@ -88,6 +94,7 @@ type AppState = {
     subjects: SubjectStats[]
   }
   usage: {
+    bucketSize: string
     breakdownError: string
     breakdowns: Record<string, UsageBreakdown[]>
     breakdownStatus: LoadState
@@ -96,7 +103,15 @@ type AppState = {
     error: string
     filterQuery: RuleGroupType
     groupBy: string[]
+    limit: number
     meters: Meter[]
+    savedQueryDeleting: SavedUsageQuery | null
+    savedQueryError: string
+    savedQueryName: string
+    savedQuerySaving: boolean
+    savedQueryStatus: LoadState
+    savedQueries: SavedUsageQuery[]
+    selectedSavedQueryID: string
     status: LoadState
   }
 }
@@ -139,6 +154,7 @@ export const appStore = createStore<AppState>({
     subjects: [],
   },
   usage: {
+    bucketSize: 'day',
     breakdownError: '',
     breakdowns: {},
     breakdownStatus: 'idle',
@@ -147,7 +163,15 @@ export const appStore = createStore<AppState>({
     error: '',
     filterQuery: defaultFilterQuery(),
     groupBy: [],
+    limit: 500,
     meters: [],
+    savedQueryDeleting: null,
+    savedQueryError: '',
+    savedQueryName: '',
+    savedQuerySaving: false,
+    savedQueryStatus: 'idle',
+    savedQueries: [],
+    selectedSavedQueryID: '',
     status: 'idle',
   },
 })
@@ -278,16 +302,26 @@ export const appStoreActions = {
     }
   },
   async loadUsageControls() {
-    setUsageState({ error: '', status: 'loading' })
+    setUsageState({ error: '', savedQueryError: '', savedQueryStatus: 'loading', status: 'loading' })
     try {
-      const nextMeters = await listMeters()
+      const [nextMeters, savedQueries] = await Promise.all([
+        listMeters(),
+        listSavedUsageQueries(),
+      ])
       setUsageState((state) => ({
         meters: nextMeters.items,
+        savedQueries: savedQueries.items,
+        savedQueryStatus: 'ready',
         filterQuery: queryWithAvailableMeter(state.filterQuery, nextMeters.items),
         status: 'ready',
       }))
     } catch (err) {
-      setUsageState({ error: errorMessage(err, 'Unable to load usage controls'), status: 'error' })
+      setUsageState({
+        error: errorMessage(err, 'Unable to load usage controls'),
+        savedQueryError: errorMessage(err, 'Unable to load saved queries'),
+        savedQueryStatus: 'error',
+        status: 'error',
+      })
     }
   },
   async loadUsageDimensionValues() {
@@ -416,8 +450,12 @@ export const appStoreActions = {
   resetUsageQuery() {
     const meters = appStore.state.usage.meters
     setUsageState({
+      bucketSize: 'day',
       filterQuery: queryWithAvailableMeter(defaultFilterQuery(), meters),
       groupBy: [],
+      limit: 500,
+      savedQueryName: '',
+      selectedSavedQueryID: '',
     })
   },
   addMeterCreateDimension() {
@@ -473,10 +511,44 @@ export const appStoreActions = {
   setUsageFilterQuery(filterQuery: RuleGroupType) {
     setUsageState({ filterQuery })
   },
+  setUsageBucketSize(bucketSize: string) {
+    setUsageState({ bucketSize })
+  },
+  setUsageLimit(limit: number) {
+    setUsageState({ limit })
+  },
   applyUsageBreakdownFilter(field: string, value: string) {
     setUsageState((state) => ({
       filterQuery: queryWithBreakdownFilter(state.filterQuery, field, value),
     }))
+  },
+  setSavedUsageQueryDeleting(deleting: SavedUsageQuery | null) {
+    setUsageState({ savedQueryDeleting: deleting })
+  },
+  setSavedUsageQueryName(name: string) {
+    setUsageState({ savedQueryName: name })
+  },
+  selectSavedUsageQuery(id: string) {
+    if (!id) {
+      setUsageState({ savedQueryName: '', selectedSavedQueryID: '' })
+      return
+    }
+
+    setUsageState((state) => {
+      const saved = state.savedQueries.find((item) => item.id === id)
+      if (!saved) {
+        return { selectedSavedQueryID: '' }
+      }
+
+      return {
+        bucketSize: saved.bucket_size || 'day',
+        filterQuery: queryFromSavedValue(saved.query, state.filterQuery),
+        groupBy: saved.group_by || [],
+        limit: saved.limit || 500,
+        savedQueryName: saved.name,
+        selectedSavedQueryID: saved.id,
+      }
+    })
   },
   setUsageGroupBy(groupBy: string[]) {
     setUsageState({ groupBy })
@@ -510,6 +582,58 @@ export const appStoreActions = {
       setUsageState({ buckets, status: 'ready' })
     } catch (err) {
       setUsageState({ error: errorMessage(err, 'Unable to query usage'), status: 'error' })
+    }
+  },
+  async saveCurrentUsageQuery() {
+    const state = appStore.state.usage
+    const selectedID = state.selectedSavedQueryID
+    setUsageState({ savedQueryError: '', savedQuerySaving: true })
+    try {
+      const input = {
+        bucket_size: state.bucketSize,
+        group_by: state.groupBy,
+        limit: state.limit,
+        name: state.savedQueryName,
+        query: state.filterQuery,
+      }
+      const saved = selectedID
+        ? await updateSavedUsageQuery(selectedID, input)
+        : await createSavedUsageQuery(input)
+      const list = await listSavedUsageQueries()
+      setUsageState({
+        savedQueries: list.items,
+        savedQueryName: saved.name,
+        savedQueryStatus: 'ready',
+        selectedSavedQueryID: saved.id,
+      })
+      return saved
+    } catch (err) {
+      setUsageState({ savedQueryError: errorMessage(err, 'Unable to save usage query') })
+      throw err
+    } finally {
+      setUsageState({ savedQuerySaving: false })
+    }
+  },
+  async deleteSelectedSavedUsageQuery() {
+    const deleting = appStore.state.usage.savedQueryDeleting
+    if (!deleting) {
+      return
+    }
+
+    setUsageState({ savedQueryError: '', savedQuerySaving: true })
+    try {
+      await deleteSavedUsageQuery(deleting.id)
+      setUsageState((state) => ({
+        savedQueries: state.savedQueries.filter((item) => item.id !== deleting.id),
+        savedQueryDeleting: null,
+        savedQueryName: state.selectedSavedQueryID === deleting.id ? '' : state.savedQueryName,
+        selectedSavedQueryID: state.selectedSavedQueryID === deleting.id ? '' : state.selectedSavedQueryID,
+      }))
+    } catch (err) {
+      setUsageState({ savedQueryError: errorMessage(err, 'Unable to delete usage query') })
+      throw err
+    } finally {
+      setUsageState({ savedQuerySaving: false })
     }
   },
   async updateEditingMeter(input: MeterUpdateRequest) {

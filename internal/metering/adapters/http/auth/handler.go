@@ -324,17 +324,20 @@ func tokenFromCookie(r *http.Request, name string) (string, error) {
 }
 
 func (h *Handler) AuthenticateRequest(r *http.Request) error {
+	_, err := h.authenticateRequestUser(r)
+	return err
+}
+
+func (h *Handler) authenticateRequestUser(r *http.Request) (appauth.UserResult, error) {
 	if token := apiKeyFromRequest(r); token != "" {
-		_, err := h.service.AuthenticateAPIKey(r.Context(), token)
-		return err
+		return h.service.AuthenticateAPIKey(r.Context(), token)
 	}
 
 	token, err := tokenFromCookie(r, accessCookieName)
 	if err != nil {
-		return err
+		return appauth.UserResult{}, err
 	}
-	_, err = h.service.AuthenticateSession(r.Context(), token)
-	return err
+	return h.service.AuthenticateSession(r.Context(), token)
 }
 
 func apiKeyFromRequest(r *http.Request) string {

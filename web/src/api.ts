@@ -180,6 +180,29 @@ export type UsageFilterCondition = {
   value?: unknown
 }
 
+export type SavedUsageQuery = {
+  id: string
+  name: string
+  query: unknown
+  group_by: string[]
+  bucket_size: string
+  limit: number
+  created_at: string
+  updated_at: string
+}
+
+export type SavedUsageQueryList = {
+  items: SavedUsageQuery[]
+}
+
+export type SavedUsageQueryRequest = {
+  name: string
+  query: unknown
+  group_by: string[]
+  bucket_size: string
+  limit: number
+}
+
 export type AuthUser = {
   id: string
   email: string
@@ -395,5 +418,29 @@ export async function listUsageBreakdowns(query: UsageBreakdownQuery) {
       to: query.to,
     }),
     method: 'POST',
+  })
+}
+
+export async function listSavedUsageQueries() {
+  return request<SavedUsageQueryList>('/v1/usage/saved-queries')
+}
+
+export async function createSavedUsageQuery(input: SavedUsageQueryRequest) {
+  return request<SavedUsageQuery>('/v1/usage/saved-queries', {
+    body: JSON.stringify(input),
+    method: 'POST',
+  })
+}
+
+export async function updateSavedUsageQuery(id: string, input: SavedUsageQueryRequest) {
+  return request<SavedUsageQuery>(`/v1/usage/saved-queries/${encodeURIComponent(id)}`, {
+    body: JSON.stringify(input),
+    method: 'PUT',
+  })
+}
+
+export async function deleteSavedUsageQuery(id: string) {
+  return request<void>(`/v1/usage/saved-queries/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
   })
 }
