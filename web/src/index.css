@@ -664,7 +664,99 @@ svg {
 
 .meters-grid {
   display: grid;
-  gap: 16px;
+  grid-template-columns: minmax(340px, 0.42fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.meter-card-header {
+  padding: 13px 14px 11px;
+}
+
+.meter-create-content {
+  padding: 12px;
+}
+
+.meter-create-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.meter-create-form .schema-builder {
+  gap: 7px;
+  padding: 8px;
+}
+
+.meter-create-form .schema-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 36px;
+  gap: 7px;
+  border: 1px solid #e7ebf1;
+  border-radius: 6px;
+  padding: 7px;
+  background: #ffffff;
+}
+
+.meter-create-form .schema-row > label:nth-child(1),
+.meter-create-form .schema-row > label:nth-child(3) {
+  grid-column: 1;
+}
+
+.meter-create-form .schema-row > label:nth-child(2),
+.meter-create-form .schema-required {
+  grid-column: 2;
+}
+
+.meter-create-form .schema-deprecated {
+  grid-column: 1;
+}
+
+.meter-create-form .schema-row > .button {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.meter-create-form .schema-description {
+  grid-column: 1 / -1;
+}
+
+.meter-create-form .schema-row input,
+.meter-create-form .schema-row select,
+.meter-create-form .schema-required {
+  min-height: 32px;
+}
+
+.meter-submit-button {
+  grid-column: 1 / -1;
+  justify-self: end;
+  min-width: 130px;
+}
+
+.meter-table-card .table {
+  min-width: 880px;
+  font-size: 12px;
+}
+
+.meter-table-card .table-head {
+  height: 36px;
+  padding: 0 10px;
+}
+
+.meter-table-card .table-cell {
+  padding: 10px;
+}
+
+.meter-table-card .stack-cell {
+  min-width: 180px;
+}
+
+.meter-table-card .schema-chips {
+  max-width: 300px;
+  gap: 4px;
+}
+
+.meter-table-card .schema-chip span,
+.meter-table-card .schema-chip strong {
+  padding: 5px 6px;
 }
 
 .api-key-grid {
@@ -1150,10 +1242,58 @@ svg {
   gap: 10px;
 }
 
-.schema-builder-header span {
+.schema-builder-header > span {
   color: var(--muted);
   font-size: 12px;
   font-weight: 700;
+}
+
+.schema-toggle {
+  display: grid;
+  grid-template-columns: auto minmax(0, auto) minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.schema-toggle svg {
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+  transition: transform 120ms ease;
+}
+
+.schema-toggle[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+.schema-toggle span {
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.schema-toggle small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.schema-builder-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
 }
 
 .schema-lock-note {
@@ -1816,6 +1956,33 @@ select:disabled,
     grid-template-columns: 1fr;
   }
 
+  .meter-create-form .schema-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 36px;
+  }
+
+  .meter-create-form .schema-row > label:nth-child(1),
+  .meter-create-form .schema-row > label:nth-child(3) {
+    grid-column: 1;
+  }
+
+  .meter-create-form .schema-row > label:nth-child(2),
+  .meter-create-form .schema-required {
+    grid-column: 2;
+  }
+
+  .meter-create-form .schema-deprecated {
+    grid-column: 1;
+  }
+
+  .meter-create-form .schema-row > .button {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .meter-create-form .schema-description {
+    grid-column: 1 / -1;
+  }
+
   .api-key-grid {
     grid-template-columns: 1fr;
   }
@@ -1901,6 +2068,10 @@ select:disabled,
     grid-template-columns: minmax(0, 1fr) 36px;
   }
 
+  .meter-create-form .schema-row {
+    grid-template-columns: minmax(0, 1fr) 36px;
+  }
+
   .schema-row label,
   .schema-row select,
   .schema-description,
@@ -1908,7 +2079,20 @@ select:disabled,
     grid-column: 1 / -1;
   }
 
+  .meter-create-form .schema-row label,
+  .meter-create-form .schema-row select,
+  .meter-create-form .schema-description,
+  .meter-create-form .schema-required,
+  .meter-create-form .schema-deprecated {
+    grid-column: 1 / -1;
+  }
+
   .modal-form .schema-row > .button {
+    grid-column: 2;
+    grid-row: auto;
+  }
+
+  .meter-create-form .schema-row > .button {
     grid-column: 2;
     grid-row: auto;
   }
