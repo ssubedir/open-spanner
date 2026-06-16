@@ -11,6 +11,7 @@ tasks:
     cmds:
       - task: postgres:up
       - go test ./internal/metering/adapters/postgres -run Integration -count=1
+      - go test ./internal/metering/bootstrap -run Integration -count=1
     env:
       OPEN_SPANNER_TEST_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/open_spanner?sslmode=disable
 

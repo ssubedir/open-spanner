@@ -93,22 +93,35 @@ func (s *Store) configure(ctx context.Context) error {
 	return s.db.PingContext(ctx)
 }
 
-func (s *Store) migrate(ctx context.Context) error {
+func (s *Store) migrate(ctx context.Context) (err error) {
 	sourceDriver, err := iofs.New(migrationFiles, "migrations")
 	if err != nil {
 		return err
 	}
-	defer sourceDriver.Close()
 
-	databaseDriver, err := migratepostgres.WithInstance(s.db, &migratepostgres.Config{})
+	conn, err := s.db.Conn(ctx)
 	if err != nil {
+		_ = sourceDriver.Close()
+		return err
+	}
+
+	databaseDriver, err := migratepostgres.WithConnection(ctx, conn, &migratepostgres.Config{})
+	if err != nil {
+		_ = sourceDriver.Close()
+		_ = conn.Close()
 		return err
 	}
 
 	migration, err := migrate.NewWithInstance("iofs", sourceDriver, "postgres", databaseDriver)
 	if err != nil {
+		_ = sourceDriver.Close()
+		_ = databaseDriver.Close()
 		return err
 	}
+	defer func() {
+		sourceErr, databaseErr := migration.Close()
+		err = errors.Join(err, sourceErr, databaseErr)
+	}()
 
 	if err := migration.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return err
