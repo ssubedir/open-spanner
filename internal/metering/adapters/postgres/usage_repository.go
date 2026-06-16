@@ -178,6 +178,42 @@ func (r *UsageRepository) saveWithDuplicate(ctx context.Context, event domainusa
 }
 
 func (r *UsageRepository) Query(ctx context.Context, query domainusage.Query) ([]domainusage.Bucket, error) {
+	if query.Filter().IsZero() && len(query.Metadata()) == 0 && len(query.GroupByFields()) == 0 {
+		return r.queryBuckets(ctx, query)
+	}
+
+	return r.queryDynamicBuckets(ctx, query)
+}
+
+func (r *UsageRepository) queryBuckets(ctx context.Context, query domainusage.Query) ([]domainusage.Bucket, error) {
+	rows, err := r.queries.ListUsageBuckets(ctx, postgresdb.ListUsageBucketsParams{
+		Aggregation: string(query.Aggregation()),
+		BucketSize:  string(query.BucketSize()),
+		Limit:       int32(query.Limit()),
+		MeterName:   query.MeterName(),
+		FromTime:    formatTime(query.From()),
+		ToTime:      formatTime(query.To()),
+		Subject:     eventStringValue(query.Subject()),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	buckets := make([]domainusage.Bucket, 0, len(rows))
+	for _, row := range rows {
+		buckets = append(buckets, domainusage.NewBucket(
+			query.Subject(),
+			query.MeterName(),
+			query.BucketSize(),
+			row.BucketStart,
+			row.Quantity,
+		))
+	}
+
+	return buckets, nil
+}
+
+func (r *UsageRepository) queryDynamicBuckets(ctx context.Context, query domainusage.Query) ([]domainusage.Bucket, error) {
 	groupBy := query.GroupByFields()
 	groupSelectSQL, groupAliases, err := groupValueSelectSQL(groupBy)
 	if err != nil {
