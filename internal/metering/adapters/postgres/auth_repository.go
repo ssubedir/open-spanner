@@ -20,7 +20,7 @@ func NewAuthRepository(store *Store) *AuthRepository {
 }
 
 func (r *AuthRepository) CountUsers(ctx context.Context) (int, error) {
-	count, err := r.queries.CountUsers(ctx)
+	count, err := queriesFor(ctx, r.queries).CountUsers(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -28,7 +28,7 @@ func (r *AuthRepository) CountUsers(ctx context.Context) (int, error) {
 }
 
 func (r *AuthRepository) SaveUser(ctx context.Context, user appauth.User) (appauth.User, error) {
-	err := r.queries.SaveUser(ctx, postgresdb.SaveUserParams{
+	err := queriesFor(ctx, r.queries).SaveUser(ctx, postgresdb.SaveUserParams{
 		ID:           user.ID,
 		Email:        user.Email,
 		PasswordHash: user.PasswordHash,
@@ -44,17 +44,17 @@ func (r *AuthRepository) SaveUser(ctx context.Context, user appauth.User) (appau
 }
 
 func (r *AuthRepository) FindUserByID(ctx context.Context, id string) (appauth.User, error) {
-	user, err := r.queries.FindUserByID(ctx, id)
+	user, err := queriesFor(ctx, r.queries).FindUserByID(ctx, id)
 	return userFromFields(user.ID, user.Email, user.PasswordHash, user.CreatedAt, err)
 }
 
 func (r *AuthRepository) FindUserByEmail(ctx context.Context, email string) (appauth.User, error) {
-	user, err := r.queries.FindUserByEmail(ctx, email)
+	user, err := queriesFor(ctx, r.queries).FindUserByEmail(ctx, email)
 	return userFromFields(user.ID, user.Email, user.PasswordHash, user.CreatedAt, err)
 }
 
 func (r *AuthRepository) SaveSession(ctx context.Context, session appauth.Session) (appauth.Session, error) {
-	err := r.queries.SaveSession(ctx, postgresdb.SaveSessionParams{
+	err := queriesFor(ctx, r.queries).SaveSession(ctx, postgresdb.SaveSessionParams{
 		ID:        session.ID,
 		UserID:    session.UserID,
 		TokenHash: session.TokenHash,
@@ -72,7 +72,7 @@ func (r *AuthRepository) SaveSession(ctx context.Context, session appauth.Sessio
 }
 
 func (r *AuthRepository) FindSessionByTokenHash(ctx context.Context, tokenHash string, kind string, now time.Time) (appauth.Session, error) {
-	session, err := r.queries.FindSessionByTokenHash(ctx, postgresdb.FindSessionByTokenHashParams{
+	session, err := queriesFor(ctx, r.queries).FindSessionByTokenHash(ctx, postgresdb.FindSessionByTokenHashParams{
 		TokenHash: tokenHash,
 		Kind:      kind,
 		ExpiresAt: formatTime(now),
@@ -81,11 +81,11 @@ func (r *AuthRepository) FindSessionByTokenHash(ctx context.Context, tokenHash s
 }
 
 func (r *AuthRepository) DeleteSessionByTokenHash(ctx context.Context, tokenHash string) error {
-	return r.queries.DeleteSessionByTokenHash(ctx, tokenHash)
+	return queriesFor(ctx, r.queries).DeleteSessionByTokenHash(ctx, tokenHash)
 }
 
 func (r *AuthRepository) SaveAPIKey(ctx context.Context, key appauth.APIKey) (appauth.APIKey, error) {
-	err := r.queries.SaveAPIKey(ctx, postgresdb.SaveAPIKeyParams{
+	err := queriesFor(ctx, r.queries).SaveAPIKey(ctx, postgresdb.SaveAPIKeyParams{
 		ID:         key.ID,
 		UserID:     key.UserID,
 		Name:       key.Name,
@@ -104,7 +104,7 @@ func (r *AuthRepository) SaveAPIKey(ctx context.Context, key appauth.APIKey) (ap
 }
 
 func (r *AuthRepository) ListAPIKeys(ctx context.Context, userID string) ([]appauth.APIKey, error) {
-	rows, err := r.queries.ListAPIKeys(ctx, userID)
+	rows, err := queriesFor(ctx, r.queries).ListAPIKeys(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -121,19 +121,19 @@ func (r *AuthRepository) ListAPIKeys(ctx context.Context, userID string) ([]appa
 }
 
 func (r *AuthRepository) FindAPIKeyByTokenHash(ctx context.Context, tokenHash string) (appauth.APIKey, error) {
-	key, err := r.queries.FindAPIKeyByTokenHash(ctx, tokenHash)
+	key, err := queriesFor(ctx, r.queries).FindAPIKeyByTokenHash(ctx, tokenHash)
 	return apiKeyFromFields(key.ID, key.UserID, key.Name, key.TokenHash, key.Prefix, key.CreatedAt, key.LastUsedAt, err)
 }
 
 func (r *AuthRepository) UpdateAPIKeyLastUsed(ctx context.Context, id string, lastUsedAt time.Time) error {
-	return r.queries.UpdateAPIKeyLastUsed(ctx, postgresdb.UpdateAPIKeyLastUsedParams{
+	return queriesFor(ctx, r.queries).UpdateAPIKeyLastUsed(ctx, postgresdb.UpdateAPIKeyLastUsedParams{
 		LastUsedAt: sql.NullString{String: formatTime(lastUsedAt), Valid: true},
 		ID:         id,
 	})
 }
 
 func (r *AuthRepository) DeleteAPIKey(ctx context.Context, userID string, id string) error {
-	rows, err := r.queries.DeleteAPIKey(ctx, postgresdb.DeleteAPIKeyParams{ID: id, UserID: userID})
+	rows, err := queriesFor(ctx, r.queries).DeleteAPIKey(ctx, postgresdb.DeleteAPIKeyParams{ID: id, UserID: userID})
 	if err != nil {
 		return err
 	}

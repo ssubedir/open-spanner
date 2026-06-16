@@ -92,7 +92,7 @@ func (r *UsageRepository) SaveBulk(ctx context.Context, idempotencyKey string, e
 			return err
 		}
 
-		err = r.queries.SaveBulkUsageIngestion(txCtx, sqlitedb.SaveBulkUsageIngestionParams{
+		err = queriesFor(txCtx, r.queries).SaveBulkUsageIngestion(txCtx, sqlitedb.SaveBulkUsageIngestionParams{
 			IdempotencyKey: idempotencyKey,
 			Response:       response,
 			CreatedAt:      formatTime(time.Now().UTC()),
@@ -148,7 +148,7 @@ func (r *UsageRepository) saveWithDuplicate(ctx context.Context, event domainusa
 		return domainusage.Event{}, false, err
 	}
 
-	err = r.queries.SaveUsageEvent(ctx, sqlitedb.SaveUsageEventParams{
+	err = queriesFor(ctx, r.queries).SaveUsageEvent(ctx, sqlitedb.SaveUsageEventParams{
 		ID:             event.ID(),
 		IdempotencyKey: event.IdempotencyKey(),
 		Subject:        event.Subject(),
@@ -181,7 +181,7 @@ func (r *UsageRepository) Query(ctx context.Context, query domainusage.Query) ([
 }
 
 func (r *UsageRepository) queryBuckets(ctx context.Context, query domainusage.Query) ([]domainusage.Bucket, error) {
-	rows, err := r.queries.ListUsageBuckets(ctx, sqlitedb.ListUsageBucketsParams{
+	rows, err := queriesFor(ctx, r.queries).ListUsageBuckets(ctx, sqlitedb.ListUsageBucketsParams{
 		Aggregation: string(query.Aggregation()),
 		BucketSize:  string(query.BucketSize()),
 		Limit:       int64(query.Limit()),
@@ -278,7 +278,7 @@ LIMIT ?
 `)
 	args = append(args, query.Limit())
 
-	rows, err := r.store.db.QueryContext(ctx, sqlQuery.String(), args...)
+	rows, err := r.store.QueryContext(ctx, sqlQuery.String(), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -332,7 +332,7 @@ func (r *UsageRepository) FindDimensionValues(ctx context.Context, query domainu
 		return nil, err
 	}
 
-	rows, err := r.queries.ListUsageDimensionValues(ctx, sqlitedb.ListUsageDimensionValuesParams{
+	rows, err := queriesFor(ctx, r.queries).ListUsageDimensionValues(ctx, sqlitedb.ListUsageDimensionValuesParams{
 		Path:      path,
 		MeterName: query.MeterName(),
 		Subject:   eventStringValue(query.Subject()),
@@ -366,7 +366,7 @@ func (r *UsageRepository) findBreakdown(ctx context.Context, query domainusage.B
 		return nil, err
 	}
 
-	rows, err := r.queries.ListUsageBreakdown(ctx, sqlitedb.ListUsageBreakdownParams{
+	rows, err := queriesFor(ctx, r.queries).ListUsageBreakdown(ctx, sqlitedb.ListUsageBreakdownParams{
 		Aggregation:     string(query.Aggregation()),
 		DurationSeconds: query.To().Sub(query.From()).Seconds(),
 		Limit:           int64(query.Limit()),
@@ -446,7 +446,7 @@ LIMIT ?
 `)
 	args = append(args, query.Limit())
 
-	rows, err := r.store.db.QueryContext(ctx, sqlQuery.String(), args...)
+	rows, err := r.store.QueryContext(ctx, sqlQuery.String(), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -660,7 +660,7 @@ WHERE 1 = 1
 	sqlQuery.WriteString("ORDER BY event_time DESC, id DESC\nLIMIT ?")
 	args = append(args, query.Limit()+1)
 
-	rows, err := r.store.db.QueryContext(ctx, sqlQuery.String(), args...)
+	rows, err := r.store.QueryContext(ctx, sqlQuery.String(), args...)
 	if err != nil {
 		return domainusage.EventPage{}, err
 	}
@@ -684,7 +684,7 @@ WHERE 1 = 1
 
 func (r *UsageRepository) findEvents(ctx context.Context, query domainusage.EventQuery) (domainusage.EventPage, error) {
 	cursorEventTime, cursorID := eventCursorValues(query.Cursor())
-	rows, err := r.queries.ListUsageEvents(ctx, sqlitedb.ListUsageEventsParams{
+	rows, err := queriesFor(ctx, r.queries).ListUsageEvents(ctx, sqlitedb.ListUsageEventsParams{
 		Subject:         eventStringValue(query.Subject()),
 		MeterName:       eventStringValue(query.MeterName()),
 		FromTime:        eventTimeValue(query.From()),
@@ -844,7 +844,7 @@ func sqlFilterValue(value any, kind string) (any, error) {
 }
 
 func (r *UsageRepository) CountEvents(ctx context.Context) (int, error) {
-	count, err := r.queries.CountUsageEvents(ctx)
+	count, err := queriesFor(ctx, r.queries).CountUsageEvents(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -852,7 +852,7 @@ func (r *UsageRepository) CountEvents(ctx context.Context) (int, error) {
 }
 
 func (r *UsageRepository) FindMeterStats(ctx context.Context) ([]domainusage.MeterStats, error) {
-	rows, err := r.queries.ListUsageMeterStats(ctx)
+	rows, err := queriesFor(ctx, r.queries).ListUsageMeterStats(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -870,7 +870,7 @@ func (r *UsageRepository) FindMeterStats(ctx context.Context) ([]domainusage.Met
 
 func (r *UsageRepository) FindSubjectStats(ctx context.Context, query domainusage.SubjectStatsQuery) ([]domainusage.SubjectStats, error) {
 	cursorLastEventAt, cursorSubject := subjectStatsCursorValues(query)
-	rows, err := r.queries.ListUsageSubjectStats(ctx, sqlitedb.ListUsageSubjectStatsParams{
+	rows, err := queriesFor(ctx, r.queries).ListUsageSubjectStats(ctx, sqlitedb.ListUsageSubjectStatsParams{
 		CursorLastEventAt: cursorLastEventAt,
 		CursorSubject:     cursorSubject,
 		Limit:             int64(query.Limit()),
@@ -891,7 +891,7 @@ func (r *UsageRepository) FindSubjectStats(ctx context.Context, query domainusag
 }
 
 func (r *UsageRepository) PruneEvents(ctx context.Context, query domainusage.PruneQuery) (int, error) {
-	deleted, err := r.queries.PruneUsageEvents(ctx, sqlitedb.PruneUsageEventsParams{
+	deleted, err := queriesFor(ctx, r.queries).PruneUsageEvents(ctx, sqlitedb.PruneUsageEventsParams{
 		MeterName: query.MeterName(),
 		EventTime: formatTime(query.Before()),
 	})
@@ -902,7 +902,7 @@ func (r *UsageRepository) PruneEvents(ctx context.Context, query domainusage.Pru
 }
 
 func (r *UsageRepository) CountPrunableEvents(ctx context.Context, query domainusage.PruneQuery) (int, error) {
-	count, err := r.queries.CountPrunableUsageEvents(ctx, sqlitedb.CountPrunableUsageEventsParams{
+	count, err := queriesFor(ctx, r.queries).CountPrunableUsageEvents(ctx, sqlitedb.CountPrunableUsageEventsParams{
 		MeterName: query.MeterName(),
 		EventTime: formatTime(query.Before()),
 	})
@@ -918,7 +918,7 @@ func (r *UsageRepository) SavePruneRun(ctx context.Context, run domainusage.Prun
 		return domainusage.PruneRun{}, err
 	}
 
-	err = r.queries.SaveUsagePruneRun(ctx, sqlitedb.SaveUsagePruneRunParams{
+	err = queriesFor(ctx, r.queries).SaveUsagePruneRun(ctx, sqlitedb.SaveUsagePruneRunParams{
 		ID:        run.ID(),
 		DryRun:    int64(boolInt(run.DryRun())),
 		Deleted:   int64(run.Deleted()),
@@ -934,7 +934,7 @@ func (r *UsageRepository) SavePruneRun(ctx context.Context, run domainusage.Prun
 
 func (r *UsageRepository) FindPruneRuns(ctx context.Context, query domainusage.RunQuery) ([]domainusage.PruneRun, error) {
 	cursorCreatedAt, cursorID := runCursorValues(query)
-	rows, err := r.queries.ListUsagePruneRuns(ctx, sqlitedb.ListUsagePruneRunsParams{
+	rows, err := queriesFor(ctx, r.queries).ListUsagePruneRuns(ctx, sqlitedb.ListUsagePruneRunsParams{
 		CursorCreatedAt: cursorCreatedAt,
 		CursorID:        cursorID,
 		Limit:           int64(query.Limit()),
@@ -955,7 +955,7 @@ func (r *UsageRepository) FindPruneRuns(ctx context.Context, query domainusage.R
 }
 
 func (r *UsageRepository) CountPruneRuns(ctx context.Context) (int, error) {
-	count, err := r.queries.CountUsagePruneRuns(ctx)
+	count, err := queriesFor(ctx, r.queries).CountUsagePruneRuns(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -963,7 +963,7 @@ func (r *UsageRepository) CountPruneRuns(ctx context.Context) (int, error) {
 }
 
 func (r *UsageRepository) SaveIngestionRun(ctx context.Context, run domainusage.IngestionRun) (domainusage.IngestionRun, error) {
-	err := r.queries.SaveUsageIngestionRun(ctx, sqlitedb.SaveUsageIngestionRunParams{
+	err := queriesFor(ctx, r.queries).SaveUsageIngestionRun(ctx, sqlitedb.SaveUsageIngestionRunParams{
 		ID:         run.ID(),
 		Kind:       string(run.Kind()),
 		Accepted:   int64(run.Accepted()),
@@ -980,7 +980,7 @@ func (r *UsageRepository) SaveIngestionRun(ctx context.Context, run domainusage.
 
 func (r *UsageRepository) FindIngestionRuns(ctx context.Context, query domainusage.RunQuery) ([]domainusage.IngestionRun, error) {
 	cursorCreatedAt, cursorID := runCursorValues(query)
-	rows, err := r.queries.ListUsageIngestionRuns(ctx, sqlitedb.ListUsageIngestionRunsParams{
+	rows, err := queriesFor(ctx, r.queries).ListUsageIngestionRuns(ctx, sqlitedb.ListUsageIngestionRunsParams{
 		CursorCreatedAt: cursorCreatedAt,
 		CursorID:        cursorID,
 		Limit:           int64(query.Limit()),
@@ -1001,17 +1001,17 @@ func (r *UsageRepository) FindIngestionRuns(ctx context.Context, query domainusa
 }
 
 func (r *UsageRepository) findByIdempotencyKey(ctx context.Context, key string) (domainusage.Event, error) {
-	event, err := r.queries.FindUsageEventByIdempotencyKey(ctx, sql.NullString{String: key, Valid: true})
+	event, err := queriesFor(ctx, r.queries).FindUsageEventByIdempotencyKey(ctx, sql.NullString{String: key, Valid: true})
 	return eventFromFields(event.ID, event.IdempotencyKey, event.Subject, event.MeterName, event.Quantity, event.EventTime, event.ReceivedAt, event.Metadata, err)
 }
 
 func (r *UsageRepository) findByID(ctx context.Context, id string) (domainusage.Event, error) {
-	event, err := r.queries.FindUsageEventByID(ctx, id)
+	event, err := queriesFor(ctx, r.queries).FindUsageEventByID(ctx, id)
 	return eventFromFields(event.ID, event.IdempotencyKey, event.Subject, event.MeterName, event.Quantity, event.EventTime, event.ReceivedAt, event.Metadata, err)
 }
 
 func (r *UsageRepository) findBulk(ctx context.Context, idempotencyKey string) (domainusage.BulkSaveResult, error) {
-	response, err := r.queries.FindBulkUsageIngestion(ctx, idempotencyKey)
+	response, err := queriesFor(ctx, r.queries).FindBulkUsageIngestion(ctx, idempotencyKey)
 	if err != nil {
 		return domainusage.BulkSaveResult{}, err
 	}

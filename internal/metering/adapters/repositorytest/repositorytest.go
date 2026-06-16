@@ -486,6 +486,52 @@ func Run(t *testing.T, setup SetupFunc) {
 			t.Fatalf("prune runs = %#v", runs)
 		}
 	})
+
+	t.Run("transaction queries see uncommitted usage", func(t *testing.T) {
+		ctx := context.Background()
+		meterRepo, usageRepo, transactor := setup(t, ctx)
+		saveMeter(t, ctx, meterRepo, "meter-1", "transactional")
+
+		query := newQuery(t, "org_123", "transactional", domainusage.BucketDay, domainmeter.AggregationSum, domainusage.EmptyFilter(), "")
+		groupedQuery := newGroupedQuery(t, "org_123", "transactional", domainusage.BucketDay, domainmeter.AggregationSum, domainusage.EmptyFilter(), []string{"region"})
+		event := newEvent(t, "event-1", "", "org_123", "transactional", 4, time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC), map[string]any{"region": "us-east-1"})
+		rollbackErr := errors.New("rollback uncommitted usage")
+
+		err := transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
+			if _, err := usageRepo.Save(txCtx, event); err != nil {
+				return err
+			}
+
+			buckets, err := usageRepo.Query(txCtx, query)
+			if err != nil {
+				return err
+			}
+			if totalQuantity(buckets) != 4 {
+				t.Fatalf("generated query buckets inside transaction = %#v, want quantity 4", buckets)
+			}
+
+			groupedBuckets, err := usageRepo.Query(txCtx, groupedQuery)
+			if err != nil {
+				return err
+			}
+			if len(groupedBuckets) != 1 || groupedBuckets[0].Group()["region"] != "us-east-1" || groupedBuckets[0].Quantity() != 4 {
+				t.Fatalf("dynamic query buckets inside transaction = %#v, want grouped quantity 4", groupedBuckets)
+			}
+
+			return rollbackErr
+		})
+		if !errors.Is(err, rollbackErr) {
+			t.Fatalf("transaction error = %v, want rollback error", err)
+		}
+
+		buckets, err := usageRepo.Query(ctx, query)
+		if err != nil {
+			t.Fatalf("query after rollback: %v", err)
+		}
+		if totalQuantity(buckets) != 0 {
+			t.Fatalf("rollback buckets = %#v, want no committed usage", buckets)
+		}
+	})
 }
 
 func totalQuantity(buckets []domainusage.Bucket) float64 {

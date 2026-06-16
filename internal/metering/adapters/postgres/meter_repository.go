@@ -31,7 +31,7 @@ func (r *MeterRepository) Save(ctx context.Context, meter domainmeter.Meter) (do
 		return domainmeter.Meter{}, err
 	}
 
-	err = r.queries.SaveMeter(ctx, postgresdb.SaveMeterParams{
+	err = queriesFor(ctx, r.queries).SaveMeter(ctx, postgresdb.SaveMeterParams{
 		ID:                 meter.ID(),
 		Name:               meter.Name(),
 		Description:        meter.Description(),
@@ -53,7 +53,7 @@ func (r *MeterRepository) Save(ctx context.Context, meter domainmeter.Meter) (do
 }
 
 func (r *MeterRepository) Find(ctx context.Context, query domainmeter.Query) ([]domainmeter.Meter, error) {
-	rows, err := r.queries.ListMeters(ctx, postgresdb.ListMetersParams{
+	rows, err := queriesFor(ctx, r.queries).ListMeters(ctx, postgresdb.ListMetersParams{
 		ID:     optionalString(query.ID),
 		Name:   optionalString(query.Name),
 		Cursor: optionalString(query.Cursor),
@@ -86,7 +86,7 @@ func (r *MeterRepository) Find(ctx context.Context, query domainmeter.Query) ([]
 }
 
 func (r *MeterRepository) Count(ctx context.Context) (int, error) {
-	count, err := r.queries.CountMeters(ctx)
+	count, err := queriesFor(ctx, r.queries).CountMeters(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -103,7 +103,7 @@ func (r *MeterRepository) Delete(ctx context.Context, query domainmeter.Query) e
 	}
 
 	meter := meters[0]
-	usageCount, err := r.queries.CountUsageEventsForMeter(ctx, meter.Name())
+	usageCount, err := queriesFor(ctx, r.queries).CountUsageEventsForMeter(ctx, meter.Name())
 	if err != nil {
 		return err
 	}
@@ -111,7 +111,7 @@ func (r *MeterRepository) Delete(ctx context.Context, query domainmeter.Query) e
 		return errors.Join(domain.ErrConflict, errors.New("meter has usage"))
 	}
 
-	return r.queries.DeleteMeter(ctx, meter.ID())
+	return queriesFor(ctx, r.queries).DeleteMeter(ctx, meter.ID())
 }
 
 func scanMeter(scanner interface {

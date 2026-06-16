@@ -26,7 +26,7 @@ func (r *SavedQueryRepository) Save(ctx context.Context, query appsavedquery.Sav
 		return appsavedquery.SavedQuery{}, err
 	}
 
-	err = r.queries.SaveSavedQuery(ctx, sqlitedb.SaveSavedQueryParams{
+	err = queriesFor(ctx, r.queries).SaveSavedQuery(ctx, sqlitedb.SaveSavedQueryParams{
 		ID:          query.ID,
 		UserID:      query.UserID,
 		Name:        query.Name,
@@ -51,7 +51,7 @@ func (r *SavedQueryRepository) Save(ctx context.Context, query appsavedquery.Sav
 
 func (r *SavedQueryRepository) Find(ctx context.Context, query appsavedquery.FindQuery) ([]appsavedquery.SavedQuery, error) {
 	if query.ID != "" {
-		row, err := r.queries.FindSavedQueryByID(ctx, sqlitedb.FindSavedQueryByIDParams{
+		row, err := queriesFor(ctx, r.queries).FindSavedQueryByID(ctx, sqlitedb.FindSavedQueryByIDParams{
 			UserID: query.UserID,
 			ID:     query.ID,
 		})
@@ -65,7 +65,7 @@ func (r *SavedQueryRepository) Find(ctx context.Context, query appsavedquery.Fin
 		return []appsavedquery.SavedQuery{saved}, nil
 	}
 
-	rows, err := r.queries.ListSavedQueries(ctx, query.UserID)
+	rows, err := queriesFor(ctx, r.queries).ListSavedQueries(ctx, query.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +82,7 @@ func (r *SavedQueryRepository) Find(ctx context.Context, query appsavedquery.Fin
 }
 
 func (r *SavedQueryRepository) Delete(ctx context.Context, userID string, id string) error {
-	rows, err := r.queries.DeleteSavedQuery(ctx, sqlitedb.DeleteSavedQueryParams{UserID: userID, ID: id})
+	rows, err := queriesFor(ctx, r.queries).DeleteSavedQuery(ctx, sqlitedb.DeleteSavedQueryParams{UserID: userID, ID: id})
 	if err != nil {
 		return err
 	}
