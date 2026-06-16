@@ -287,61 +287,26 @@ LIMIT ?
 }
 
 func (r *UsageRepository) FindDimensionValues(ctx context.Context, query domainusage.DimensionValueQuery) ([]domainusage.DimensionValue, error) {
-	args := []any{}
-	valueSQL, err := metadataValueSQL(query.Field(), &args)
-	if err != nil {
-		return nil, err
-	}
 	path, err := sqliteJSONPath(query.Field())
 	if err != nil {
 		return nil, err
 	}
 
-	sqlQuery := strings.Builder{}
-	sqlQuery.WriteString("SELECT value, COUNT(*) AS usage_events\n")
-	sqlQuery.WriteString("FROM (\n")
-	sqlQuery.WriteString("\tSELECT " + valueSQL + " AS value\n")
-	sqlQuery.WriteString("\tFROM usage_events\n")
-	sqlQuery.WriteString("\tWHERE meter_name = ?\n")
-	args = append(args, query.MeterName())
-	sqlQuery.WriteString("\t\tAND json_type(metadata, ?) IS NOT NULL\n")
-	args = append(args, path)
-	if query.Subject() != "" {
-		sqlQuery.WriteString("\t\tAND subject = ?\n")
-		args = append(args, query.Subject())
-	}
-	if !query.From().IsZero() {
-		sqlQuery.WriteString("\t\tAND event_time >= ?\n")
-		args = append(args, formatTime(query.From()))
-	}
-	if !query.To().IsZero() {
-		sqlQuery.WriteString("\t\tAND event_time < ?\n")
-		args = append(args, formatTime(query.To()))
-	}
-	sqlQuery.WriteString(") discovered\n")
-	sqlQuery.WriteString("WHERE value IS NOT NULL AND value != ''\n")
-	sqlQuery.WriteString("GROUP BY value\n")
-	sqlQuery.WriteString("ORDER BY usage_events DESC, value ASC\n")
-	sqlQuery.WriteString("LIMIT ?")
-	args = append(args, query.Limit())
-
-	rows, err := r.store.db.QueryContext(ctx, sqlQuery.String(), args...)
+	rows, err := r.queries.ListUsageDimensionValues(ctx, sqlitedb.ListUsageDimensionValuesParams{
+		Path:      path,
+		MeterName: query.MeterName(),
+		Subject:   eventStringValue(query.Subject()),
+		FromTime:  eventTimeValue(query.From()),
+		ToTime:    eventTimeValue(query.To()),
+		Limit:     int64(query.Limit()),
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	values := []domainusage.DimensionValue{}
-	for rows.Next() {
-		var value string
-		var usageEvents int
-		if err := rows.Scan(&value, &usageEvents); err != nil {
-			return nil, err
-		}
-		values = append(values, domainusage.NewDimensionValue(query.Field(), value, usageEvents))
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
+	values := make([]domainusage.DimensionValue, 0, len(rows))
+	for _, row := range rows {
+		values = append(values, domainusage.NewDimensionValue(query.Field(), row.Value, int(row.UsageEvents)))
 	}
 
 	return values, nil
