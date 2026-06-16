@@ -308,6 +308,7 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 	}
 
 	runIntegrationHyphenatedDimensionFlow(t, router, authHeaders, suffix)
+	runIntegrationFirstAggregationFlow(t, router, authHeaders, suffix)
 }
 
 func runIntegrationHyphenatedDimensionFlow(t *testing.T, router http.Handler, authHeaders map[string]string, suffix string) {
@@ -428,6 +429,80 @@ func runIntegrationHyphenatedDimensionFlow(t *testing.T, router http.Handler, au
 	decodeJSON(t, eventsRes, &events)
 	if len(events.Items) != 1 || events.Items[0].Metadata[dimensionField] != "us-east-1" {
 		t.Fatalf("hyphen dimension events = %#v, want matching event", events)
+	}
+}
+
+func runIntegrationFirstAggregationFlow(t *testing.T, router http.Handler, authHeaders map[string]string, suffix string) {
+	t.Helper()
+
+	meterName := "first_aggregation_" + suffix
+	subject := "org_first_" + suffix
+
+	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name":            meterName,
+		"description":     "First value aggregation",
+		"unit":            "event",
+		"aggregation":     "first",
+		"metadata_schema": map[string]string{"endpoint": "string"},
+	}, authHeaders, nil)
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create first-aggregation meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
+	}
+
+	for _, event := range []map[string]any{
+		{
+			"idempotency_key": "first-aggregation-" + suffix + "-later",
+			"subject":         subject,
+			"meter":           meterName,
+			"quantity":        12,
+			"timestamp":       "2026-06-08T11:00:00Z",
+			"metadata":        map[string]any{"endpoint": "/orders"},
+		},
+		{
+			"idempotency_key": "first-aggregation-" + suffix + "-earlier",
+			"subject":         subject,
+			"meter":           meterName,
+			"quantity":        7,
+			"timestamp":       "2026-06-08T09:00:00Z",
+			"metadata":        map[string]any{"endpoint": "/orders"},
+		},
+		{
+			"idempotency_key": "first-aggregation-" + suffix + "-users",
+			"subject":         subject,
+			"meter":           meterName,
+			"quantity":        4,
+			"timestamp":       "2026-06-08T10:00:00Z",
+			"metadata":        map[string]any{"endpoint": "/users"},
+		},
+	} {
+		createUsage := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages", event, authHeaders, nil)
+		if createUsage.Code != http.StatusCreated {
+			t.Fatalf("create first-aggregation usage status = %d, want %d: %s", createUsage.Code, http.StatusCreated, createUsage.Body.String())
+		}
+	}
+
+	searchRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages/search", map[string]any{
+		"subject":     subject,
+		"meter":       meterName,
+		"from":        "2026-06-08T00:00:00Z",
+		"to":          "2026-06-09T00:00:00Z",
+		"bucket_size": "day",
+		"group_by":    []string{"endpoint"},
+		"limit":       10,
+	}, authHeaders, nil)
+	if searchRes.Code != http.StatusOK {
+		t.Fatalf("search first-aggregation usage status = %d, want %d: %s", searchRes.Code, http.StatusOK, searchRes.Body.String())
+	}
+	var buckets []usageBucketResponse
+	decodeJSON(t, searchRes, &buckets)
+	if len(buckets) != 2 {
+		t.Fatalf("first-aggregation buckets = %#v, want two endpoint groups", buckets)
+	}
+	if buckets[0].Group["endpoint"] != "/orders" || buckets[0].Quantity != 7 {
+		t.Fatalf("first-aggregation /orders bucket = %#v, want earliest quantity 7", buckets[0])
+	}
+	if buckets[1].Group["endpoint"] != "/users" || buckets[1].Quantity != 4 {
+		t.Fatalf("first-aggregation /users bucket = %#v, want quantity 4", buckets[1])
 	}
 }
 
