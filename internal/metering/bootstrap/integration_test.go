@@ -312,6 +312,7 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 	runIntegrationFirstAggregationFlow(t, router, authHeaders, suffix)
 	runIntegrationLastAggregationFlow(t, router, authHeaders, suffix)
 	runIntegrationRateAggregationFlow(t, router, authHeaders, suffix)
+	runIntegrationSummaryAggregationFlow(t, router, authHeaders, suffix)
 }
 
 func runIntegrationHyphenatedDimensionFlow(t *testing.T, router http.Handler, authHeaders map[string]string, suffix string) {
@@ -657,6 +658,94 @@ func runIntegrationRateAggregationFlow(t *testing.T, router http.Handler, authHe
 		t.Fatalf("rate-aggregation second bucket = %#v, want /users group", buckets[1])
 	}
 	assertFloatNear(t, buckets[1].Quantity, 1.0/86400.0, "rate-aggregation /users quantity")
+}
+
+func runIntegrationSummaryAggregationFlow(t *testing.T, router http.Handler, authHeaders map[string]string, suffix string) {
+	t.Helper()
+
+	for _, tc := range []struct {
+		aggregation string
+		orders      float64
+		users       float64
+	}{
+		{aggregation: "avg", orders: 5, users: 4},
+		{aggregation: "min", orders: 2, users: 4},
+		{aggregation: "max", orders: 8, users: 4},
+	} {
+		t.Run(tc.aggregation, func(t *testing.T) {
+			meterName := tc.aggregation + "_aggregation_" + suffix
+			subject := "org_" + tc.aggregation + "_" + suffix
+
+			createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
+				"name":            meterName,
+				"description":     tc.aggregation + " aggregation",
+				"unit":            "event",
+				"aggregation":     tc.aggregation,
+				"metadata_schema": map[string]string{"endpoint": "string"},
+			}, authHeaders, nil)
+			if createMeter.Code != http.StatusCreated {
+				t.Fatalf("create %s-aggregation meter status = %d, want %d: %s", tc.aggregation, createMeter.Code, http.StatusCreated, createMeter.Body.String())
+			}
+
+			for _, event := range []map[string]any{
+				{
+					"idempotency_key": tc.aggregation + "-aggregation-" + suffix + "-orders-low",
+					"subject":         subject,
+					"meter":           meterName,
+					"quantity":        2,
+					"timestamp":       "2026-06-08T09:00:00Z",
+					"metadata":        map[string]any{"endpoint": "/orders"},
+				},
+				{
+					"idempotency_key": tc.aggregation + "-aggregation-" + suffix + "-users",
+					"subject":         subject,
+					"meter":           meterName,
+					"quantity":        4,
+					"timestamp":       "2026-06-08T10:00:00Z",
+					"metadata":        map[string]any{"endpoint": "/users"},
+				},
+				{
+					"idempotency_key": tc.aggregation + "-aggregation-" + suffix + "-orders-high",
+					"subject":         subject,
+					"meter":           meterName,
+					"quantity":        8,
+					"timestamp":       "2026-06-08T11:00:00Z",
+					"metadata":        map[string]any{"endpoint": "/orders"},
+				},
+			} {
+				createUsage := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages", event, authHeaders, nil)
+				if createUsage.Code != http.StatusCreated {
+					t.Fatalf("create %s-aggregation usage status = %d, want %d: %s", tc.aggregation, createUsage.Code, http.StatusCreated, createUsage.Body.String())
+				}
+			}
+
+			searchRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages/search", map[string]any{
+				"subject":     subject,
+				"meter":       meterName,
+				"from":        "2026-06-08T00:00:00Z",
+				"to":          "2026-06-09T00:00:00Z",
+				"bucket_size": "day",
+				"group_by":    []string{"endpoint"},
+				"limit":       10,
+			}, authHeaders, nil)
+			if searchRes.Code != http.StatusOK {
+				t.Fatalf("search %s-aggregation usage status = %d, want %d: %s", tc.aggregation, searchRes.Code, http.StatusOK, searchRes.Body.String())
+			}
+			var buckets []usageBucketResponse
+			decodeJSON(t, searchRes, &buckets)
+			if len(buckets) != 2 {
+				t.Fatalf("%s-aggregation buckets = %#v, want two endpoint groups", tc.aggregation, buckets)
+			}
+			if buckets[0].Group["endpoint"] != "/orders" {
+				t.Fatalf("%s-aggregation first bucket = %#v, want /orders group", tc.aggregation, buckets[0])
+			}
+			assertFloatNear(t, buckets[0].Quantity, tc.orders, tc.aggregation+"-aggregation /orders quantity")
+			if buckets[1].Group["endpoint"] != "/users" {
+				t.Fatalf("%s-aggregation second bucket = %#v, want /users group", tc.aggregation, buckets[1])
+			}
+			assertFloatNear(t, buckets[1].Quantity, tc.users, tc.aggregation+"-aggregation /users quantity")
+		})
+	}
 }
 
 func assertFloatNear(t *testing.T, got float64, want float64, label string) {
