@@ -33,6 +33,41 @@ func TestMeterDimensionsValidateOptionalMetadata(t *testing.T) {
 	}
 }
 
+func TestMeterDimensionsNormalizeDottedMetadata(t *testing.T) {
+	tier, err := NewDimension("service.tier", MetadataString, "Service tier", "", true)
+	if err != nil {
+		t.Fatalf("new tier dimension: %v", err)
+	}
+	meter, err := NewWithDimensions("meter-1", "api_calls", "", "request", AggregationSum, []Dimension{tier}, 90, time.Now())
+	if err != nil {
+		t.Fatalf("new meter: %v", err)
+	}
+
+	normalized, err := meter.NormalizeMetadata(map[string]any{
+		"service.tier": "gold",
+		"region":       "us-east",
+	})
+	if err != nil {
+		t.Fatalf("normalize flat dotted metadata: %v", err)
+	}
+	service, ok := normalized["service"].(map[string]any)
+	if !ok || service["tier"] != "gold" {
+		t.Fatalf("normalized service metadata = %#v", normalized["service"])
+	}
+	if _, exists := normalized["service.tier"]; exists {
+		t.Fatalf("normalized metadata kept flat service.tier key: %#v", normalized)
+	}
+	if normalized["region"] != "us-east" {
+		t.Fatalf("normalized metadata dropped extra field: %#v", normalized)
+	}
+
+	if _, err := meter.NormalizeMetadata(map[string]any{
+		"service": map[string]any{"tier": "gold"},
+	}); err != nil {
+		t.Fatalf("normalize nested metadata: %v", err)
+	}
+}
+
 func TestMeterDimensionsTreatDeprecatedAsOptional(t *testing.T) {
 	region, err := NewDimension("region", MetadataString, "Region", "Deployment region", true, true)
 	if err != nil {

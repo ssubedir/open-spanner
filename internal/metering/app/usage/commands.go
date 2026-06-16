@@ -143,7 +143,8 @@ func (s *service) newEvent(ctx context.Context, cmd CreateCommand, meters map[st
 		meter = found[0]
 		meters[cmd.MeterName] = meter
 	}
-	if err := meter.ValidateMetadata(cmd.Metadata); err != nil {
+	metadata, err := meter.NormalizeMetadata(cmd.Metadata)
+	if err != nil {
 		return domainusage.Event{}, err
 	}
 
@@ -155,7 +156,7 @@ func (s *service) newEvent(ctx context.Context, cmd CreateCommand, meters map[st
 		cmd.Quantity,
 		cmd.EventTime,
 		s.now(),
-		cmd.Metadata,
+		metadata,
 	)
 	if err != nil {
 		return domainusage.Event{}, err

@@ -191,24 +191,94 @@ func (m Meter) EventRetentionDays() int {
 }
 
 func (m Meter) ValidateMetadata(metadata map[string]any) error {
+	_, err := m.NormalizeMetadata(metadata)
+	return err
+}
+
+func (m Meter) NormalizeMetadata(metadata map[string]any) (map[string]any, error) {
 	if metadata == nil {
 		metadata = map[string]any{}
 	}
+	normalized := cloneMetadata(metadata)
 	for _, dimension := range m.dimensions {
 		key := dimension.Name()
 		expected := dimension.Type()
-		value, exists := metadata[key]
+		value, exists := metadataPathValue(metadata, key)
 		if !exists {
 			if dimension.RequiresValue() {
-				return fmt.Errorf("%w: dimension %q is required", domain.ErrInvalidInput, key)
+				return nil, fmt.Errorf("%w: dimension %q is required", domain.ErrInvalidInput, key)
 			}
 			continue
 		}
 		if !metadataValueMatches(value, expected) {
-			return fmt.Errorf("%w: dimension %q must be %s", domain.ErrInvalidInput, key, expected)
+			return nil, fmt.Errorf("%w: dimension %q must be %s", domain.ErrInvalidInput, key, expected)
+		}
+		if strings.Contains(key, ".") {
+			if err := setMetadataPathValue(normalized, key, value); err != nil {
+				return nil, err
+			}
+			delete(normalized, key)
 		}
 	}
+	return normalized, nil
+}
+
+func metadataPathValue(metadata map[string]any, key string) (any, bool) {
+	if value, exists := metadata[key]; exists {
+		return value, true
+	}
+
+	parts := strings.Split(key, ".")
+	if len(parts) == 1 {
+		return nil, false
+	}
+
+	var current any = metadata
+	for _, part := range parts {
+		node, ok := current.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		value, exists := node[part]
+		if !exists {
+			return nil, false
+		}
+		current = value
+	}
+	return current, true
+}
+
+func setMetadataPathValue(metadata map[string]any, key string, value any) error {
+	parts := strings.Split(key, ".")
+	current := metadata
+	for _, part := range parts[:len(parts)-1] {
+		next, exists := current[part]
+		if !exists {
+			node := map[string]any{}
+			current[part] = node
+			current = node
+			continue
+		}
+		node, ok := next.(map[string]any)
+		if !ok {
+			return fmt.Errorf("%w: dimension %q conflicts with existing metadata", domain.ErrInvalidInput, key)
+		}
+		current = node
+	}
+	current[parts[len(parts)-1]] = value
 	return nil
+}
+
+func cloneMetadata(metadata map[string]any) map[string]any {
+	cloned := make(map[string]any, len(metadata))
+	for key, value := range metadata {
+		if node, ok := value.(map[string]any); ok {
+			cloned[key] = cloneMetadata(node)
+			continue
+		}
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func metadataValueMatches(value any, expected MetadataType) bool {

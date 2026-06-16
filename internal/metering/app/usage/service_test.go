@@ -512,6 +512,46 @@ func TestServiceCreateAllowsMetadataOutsideMeterDimensions(t *testing.T) {
 	}
 }
 
+func TestServiceCreateNormalizesDottedDimensionMetadata(t *testing.T) {
+	ctx := context.Background()
+	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
+
+	meter, err := domainmeter.New(
+		"meter-1",
+		"api_calls",
+		"API calls",
+		"call",
+		domainmeter.AggregationSum,
+		map[string]domainmeter.MetadataType{"service.tier": domainmeter.MetadataString},
+		0,
+		time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatalf("new meter: %v", err)
+	}
+	if _, err := meterRepo.Save(ctx, meter); err != nil {
+		t.Fatalf("save meter: %v", err)
+	}
+
+	service := NewService(meterRepo, usageRepo, store)
+	created, err := service.Create(ctx, CreateCommand{
+		Subject:   "org_123",
+		MeterName: "api_calls",
+		Quantity:  1,
+		Metadata:  map[string]any{"service.tier": "gold"},
+	})
+	if err != nil {
+		t.Fatalf("create usage with dotted dimension: %v", err)
+	}
+	serviceMetadata, ok := created.Metadata["service"].(map[string]any)
+	if !ok || serviceMetadata["tier"] != "gold" {
+		t.Fatalf("created metadata service = %#v", created.Metadata["service"])
+	}
+	if _, exists := created.Metadata["service.tier"]; exists {
+		t.Fatalf("created metadata kept flat service.tier key: %#v", created.Metadata)
+	}
+}
+
 func TestServiceCreateValidatesMeterDimensions(t *testing.T) {
 	ctx := context.Background()
 	store, meterRepo, usageRepo := newTestRepositories(t, ctx)

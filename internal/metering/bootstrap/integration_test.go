@@ -312,6 +312,7 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 	}
 
 	runIntegrationHyphenatedDimensionFlow(t, router, authHeaders, suffix)
+	runIntegrationDottedDimensionParityFlow(t, router, authHeaders, suffix)
 	runIntegrationFirstAggregationFlow(t, router, authHeaders, suffix)
 	runIntegrationLastAggregationFlow(t, router, authHeaders, suffix)
 	runIntegrationRateAggregationFlow(t, router, authHeaders, suffix)
@@ -454,6 +455,262 @@ func runIntegrationHyphenatedDimensionFlow(t *testing.T, router http.Handler, au
 	decodeJSON(t, eventsRes, &events)
 	if len(events.Items) != 1 || events.Items[0].Metadata[dimensionField] != "us-east-1" {
 		t.Fatalf("hyphen dimension events = %#v, want matching event", events)
+	}
+}
+
+func runIntegrationDottedDimensionParityFlow(t *testing.T, router http.Handler, authHeaders map[string]string, suffix string) {
+	t.Helper()
+
+	const (
+		tierField   = "service.tier"
+		regionField = "region-name"
+		statusField = "status_code"
+	)
+	meterName := "dimension_parity_" + suffix
+	subjectOne := "org_dimension_one_" + suffix
+	subjectTwo := "org_dimension_two_" + suffix
+
+	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name":        meterName,
+		"description": "Dotted and hyphenated dimension parity",
+		"unit":        "event",
+		"aggregation": "sum",
+		"metadata_schema": map[string]string{
+			tierField:   "string",
+			regionField: "string",
+			statusField: "number",
+		},
+	}, authHeaders, nil)
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create dimension parity meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
+	}
+
+	for _, event := range []map[string]any{
+		{
+			"idempotency_key": "dimension-parity-" + suffix + "-flat",
+			"subject":         subjectOne,
+			"meter":           meterName,
+			"quantity":        2,
+			"timestamp":       "2026-06-08T10:00:00Z",
+			"metadata": map[string]any{
+				tierField:   "gold",
+				regionField: "us-east",
+				statusField: 200,
+			},
+		},
+		{
+			"idempotency_key": "dimension-parity-" + suffix + "-nested",
+			"subject":         subjectOne,
+			"meter":           meterName,
+			"quantity":        3,
+			"timestamp":       "2026-06-08T11:00:00Z",
+			"metadata": map[string]any{
+				"service":   map[string]any{"tier": "gold"},
+				regionField: "us-west",
+				statusField: 201,
+			},
+		},
+		{
+			"idempotency_key": "dimension-parity-" + suffix + "-silver",
+			"subject":         subjectTwo,
+			"meter":           meterName,
+			"quantity":        5,
+			"timestamp":       "2026-06-08T12:00:00Z",
+			"metadata": map[string]any{
+				"service":   map[string]any{"tier": "silver"},
+				regionField: "us-east",
+				statusField: 200,
+			},
+		},
+		{
+			"idempotency_key": "dimension-parity-" + suffix + "-late",
+			"subject":         subjectOne,
+			"meter":           meterName,
+			"quantity":        7,
+			"timestamp":       "2026-06-08T13:00:00Z",
+			"metadata": map[string]any{
+				tierField:   "gold",
+				regionField: "us-east",
+				statusField: 500,
+			},
+		},
+	} {
+		createUsage := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages", event, authHeaders, nil)
+		if createUsage.Code != http.StatusCreated {
+			t.Fatalf("create dimension parity usage status = %d, want %d: %s", createUsage.Code, http.StatusCreated, createUsage.Body.String())
+		}
+	}
+
+	listQuery := url.Values{}
+	listQuery.Set("subject", subjectOne)
+	listQuery.Set("meter", meterName)
+	listQuery.Set("from", "2026-06-08T00:00:00Z")
+	listQuery.Set("to", "2026-06-09T00:00:00Z")
+	listQuery.Set("bucket_size", "day")
+	listQuery.Set("metadata."+tierField, "gold")
+	listQuery.Set("metadata."+regionField, "us-east")
+	listQuery.Set("limit", "10")
+	listRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/usages?"+listQuery.Encode(), nil, authHeaders, nil)
+	if listRes.Code != http.StatusOK {
+		t.Fatalf("list dotted dimension usage status = %d, want %d: %s", listRes.Code, http.StatusOK, listRes.Body.String())
+	}
+	var listBuckets []usageBucketResponse
+	decodeJSON(t, listRes, &listBuckets)
+	if len(listBuckets) != 1 || listBuckets[0].Quantity != 9 {
+		t.Fatalf("dotted dimension list buckets = %#v, want one gold/us-east bucket with quantity 9", listBuckets)
+	}
+
+	groupRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages/search", map[string]any{
+		"subject":     subjectOne,
+		"meter":       meterName,
+		"from":        "2026-06-08T00:00:00Z",
+		"to":          "2026-06-09T00:00:00Z",
+		"bucket_size": "day",
+		"group_by":    []string{tierField, regionField},
+		"limit":       10,
+	}, authHeaders, nil)
+	if groupRes.Code != http.StatusOK {
+		t.Fatalf("search dotted dimension usage status = %d, want %d: %s", groupRes.Code, http.StatusOK, groupRes.Body.String())
+	}
+	var groupedBuckets []usageBucketResponse
+	decodeJSON(t, groupRes, &groupedBuckets)
+	gotGroups := map[string]float64{}
+	for _, bucket := range groupedBuckets {
+		gotGroups[bucket.Group[tierField]+"|"+bucket.Group[regionField]] = bucket.Quantity
+	}
+	if len(gotGroups) != 2 || gotGroups["gold|us-east"] != 9 || gotGroups["gold|us-west"] != 3 {
+		t.Fatalf("dotted dimension grouped buckets = %#v, want gold/us-east=9 and gold/us-west=3", groupedBuckets)
+	}
+
+	filteredGroupRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages/search", map[string]any{
+		"subject":     subjectOne,
+		"meter":       meterName,
+		"from":        "2026-06-08T00:00:00Z",
+		"to":          "2026-06-09T00:00:00Z",
+		"bucket_size": "day",
+		"group_by":    []string{regionField},
+		"limit":       10,
+		"filter": map[string]any{
+			"type": "group",
+			"op":   "and",
+			"rules": []map[string]any{
+				{"type": "condition", "field": "metadata." + tierField, "op": "eq", "value": "gold"},
+				{"type": "condition", "field": "metadata." + statusField, "op": "gte", "value": 500},
+			},
+		},
+	}, authHeaders, nil)
+	if filteredGroupRes.Code != http.StatusOK {
+		t.Fatalf("search filtered dotted dimension usage status = %d, want %d: %s", filteredGroupRes.Code, http.StatusOK, filteredGroupRes.Body.String())
+	}
+	var filteredBuckets []usageBucketResponse
+	decodeJSON(t, filteredGroupRes, &filteredBuckets)
+	if len(filteredBuckets) != 1 || filteredBuckets[0].Group[regionField] != "us-east" || filteredBuckets[0].Quantity != 7 {
+		t.Fatalf("filtered dotted dimension buckets = %#v, want one us-east bucket with quantity 7", filteredBuckets)
+	}
+
+	breakdownRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages/breakdowns/search", map[string]any{
+		"meter": meterName,
+		"field": "metadata." + tierField,
+		"from":  "2026-06-08T00:00:00Z",
+		"to":    "2026-06-09T00:00:00Z",
+		"limit": 10,
+		"filter": map[string]any{
+			"type":  "condition",
+			"field": "metadata." + regionField,
+			"op":    "eq",
+			"value": "us-east",
+		},
+	}, authHeaders, nil)
+	if breakdownRes.Code != http.StatusOK {
+		t.Fatalf("breakdown dotted dimension status = %d, want %d: %s", breakdownRes.Code, http.StatusOK, breakdownRes.Body.String())
+	}
+	var breakdown usageBreakdownListResponse
+	decodeJSON(t, breakdownRes, &breakdown)
+	if len(breakdown.Items) != 2 || breakdown.Items[0].Value != "gold" || breakdown.Items[0].Quantity != 9 || breakdown.Items[1].Value != "silver" {
+		t.Fatalf("dotted dimension breakdown = %#v, want gold then silver by usage", breakdown)
+	}
+
+	dimensionsQuery := url.Values{}
+	dimensionsQuery.Set("meter", meterName)
+	dimensionsQuery.Set("field", tierField)
+	dimensionsQuery.Set("limit", "10")
+	dimensionsRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/usages/dimensions?"+dimensionsQuery.Encode(), nil, authHeaders, nil)
+	if dimensionsRes.Code != http.StatusOK {
+		t.Fatalf("list dotted dimension values status = %d, want %d: %s", dimensionsRes.Code, http.StatusOK, dimensionsRes.Body.String())
+	}
+	var dimensions usageDimensionValueListResponse
+	decodeJSON(t, dimensionsRes, &dimensions)
+	if len(dimensions.Items) != 2 || dimensions.Items[0].Value != "gold" || dimensions.Items[0].UsageEvents != 3 {
+		t.Fatalf("dotted dimension values = %#v, want gold first with three events", dimensions)
+	}
+
+	firstPage := searchIntegrationEvents(t, router, authHeaders, map[string]any{
+		"subject": subjectOne,
+		"meter":   meterName,
+		"from":    "2026-06-08T00:00:00Z",
+		"to":      "2026-06-09T00:00:00Z",
+		"limit":   2,
+		"filter": map[string]any{
+			"type":  "condition",
+			"field": "metadata." + tierField,
+			"op":    "eq",
+			"value": "gold",
+		},
+	})
+	assertEventRegions(t, firstPage.Items, []string{"us-east", "us-west"}, "dotted dimension cursor first page")
+	assertEventServiceTiers(t, firstPage.Items, []string{"gold", "gold"}, "dotted dimension cursor first page")
+	if firstPage.NextCursor == "" {
+		t.Fatal("dotted dimension cursor first page next_cursor is empty")
+	}
+
+	secondPage := searchIntegrationEvents(t, router, authHeaders, map[string]any{
+		"subject": subjectOne,
+		"meter":   meterName,
+		"from":    "2026-06-08T00:00:00Z",
+		"to":      "2026-06-09T00:00:00Z",
+		"limit":   2,
+		"cursor":  firstPage.NextCursor,
+		"filter": map[string]any{
+			"type":  "condition",
+			"field": "metadata." + tierField,
+			"op":    "eq",
+			"value": "gold",
+		},
+	})
+	assertEventRegions(t, secondPage.Items, []string{"us-east"}, "dotted dimension cursor second page")
+	assertEventServiceTiers(t, secondPage.Items, []string{"gold"}, "dotted dimension cursor second page")
+	if secondPage.NextCursor != "" {
+		t.Fatalf("dotted dimension cursor second page next_cursor = %q, want empty", secondPage.NextCursor)
+	}
+
+	invalidGroupRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages/search", map[string]any{
+		"meter":       meterName,
+		"from":        "2026-06-08T00:00:00Z",
+		"to":          "2026-06-09T00:00:00Z",
+		"bucket_size": "day",
+		"group_by":    []string{"region name"},
+	}, authHeaders, nil)
+	if invalidGroupRes.Code != http.StatusBadRequest {
+		t.Fatalf("invalid group_by status = %d, want %d: %s", invalidGroupRes.Code, http.StatusBadRequest, invalidGroupRes.Body.String())
+	}
+
+	invalidBreakdownRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages/breakdowns/search", map[string]any{
+		"meter": meterName,
+		"field": "metadata.region name",
+		"from":  "2026-06-08T00:00:00Z",
+		"to":    "2026-06-09T00:00:00Z",
+		"limit": 10,
+	}, authHeaders, nil)
+	if invalidBreakdownRes.Code != http.StatusBadRequest {
+		t.Fatalf("invalid breakdown field status = %d, want %d: %s", invalidBreakdownRes.Code, http.StatusBadRequest, invalidBreakdownRes.Body.String())
+	}
+
+	invalidDimensionsQuery := url.Values{}
+	invalidDimensionsQuery.Set("meter", meterName)
+	invalidDimensionsQuery.Set("field", "region name")
+	invalidDimensionsRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/usages/dimensions?"+invalidDimensionsQuery.Encode(), nil, authHeaders, nil)
+	if invalidDimensionsRes.Code != http.StatusBadRequest {
+		t.Fatalf("invalid dimension values field status = %d, want %d: %s", invalidDimensionsRes.Code, http.StatusBadRequest, invalidDimensionsRes.Body.String())
 	}
 }
 
@@ -942,6 +1199,33 @@ func assertEventEndpoints(t *testing.T, events []usageEventResponse, want []stri
 	for index, endpoint := range want {
 		if events[index].Metadata["endpoint"] != endpoint {
 			t.Fatalf("%s[%d] endpoint = %#v, want %q: %#v", label, index, events[index].Metadata["endpoint"], endpoint, events)
+		}
+	}
+}
+
+func assertEventRegions(t *testing.T, events []usageEventResponse, want []string, label string) {
+	t.Helper()
+
+	if len(events) != len(want) {
+		t.Fatalf("%s count = %d, want %d: %#v", label, len(events), len(want), events)
+	}
+	for index, region := range want {
+		if events[index].Metadata["region-name"] != region {
+			t.Fatalf("%s[%d] region-name = %#v, want %q: %#v", label, index, events[index].Metadata["region-name"], region, events)
+		}
+	}
+}
+
+func assertEventServiceTiers(t *testing.T, events []usageEventResponse, want []string, label string) {
+	t.Helper()
+
+	if len(events) != len(want) {
+		t.Fatalf("%s count = %d, want %d: %#v", label, len(events), len(want), events)
+	}
+	for index, tier := range want {
+		service, ok := events[index].Metadata["service"].(map[string]any)
+		if !ok || service["tier"] != tier {
+			t.Fatalf("%s[%d] service.tier = %#v, want %q: %#v", label, index, events[index].Metadata["service"], tier, events)
 		}
 	}
 }
