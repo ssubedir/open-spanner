@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -156,6 +157,8 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 	if apiKeyCreateKey.Code != http.StatusUnauthorized {
 		t.Fatalf("api-key create api key status = %d, want %d: %s", apiKeyCreateKey.Code, http.StatusUnauthorized, apiKeyCreateKey.Body.String())
 	}
+
+	runIntegrationDimensionNameValidationFlow(t, router, authHeaders, suffix)
 
 	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
 		"name":            meterName,
@@ -314,6 +317,23 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 	runIntegrationRateAggregationFlow(t, router, authHeaders, suffix)
 	runIntegrationSummaryAggregationFlow(t, router, authHeaders, suffix)
 	runIntegrationFilterOperatorFlow(t, router, authHeaders, suffix)
+}
+
+func runIntegrationDimensionNameValidationFlow(t *testing.T, router http.Handler, authHeaders map[string]string, suffix string) {
+	t.Helper()
+
+	for _, dimensionName := range []string{"region name", "subject"} {
+		createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
+			"name":            "invalid_dimension_" + suffix + "_" + strings.ReplaceAll(dimensionName, " ", "_"),
+			"description":     "Invalid dimension",
+			"unit":            "event",
+			"aggregation":     "sum",
+			"metadata_schema": map[string]string{dimensionName: "string"},
+		}, authHeaders, nil)
+		if createMeter.Code != http.StatusBadRequest {
+			t.Fatalf("create invalid dimension %q meter status = %d, want %d: %s", dimensionName, createMeter.Code, http.StatusBadRequest, createMeter.Body.String())
+		}
+	}
 }
 
 func runIntegrationHyphenatedDimensionFlow(t *testing.T, router http.Handler, authHeaders map[string]string, suffix string) {

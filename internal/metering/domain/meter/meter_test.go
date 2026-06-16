@@ -50,3 +50,17 @@ func TestMeterDimensionsTreatDeprecatedAsOptional(t *testing.T) {
 		t.Fatalf("validate wrong deprecated metadata type error = %v, want ErrInvalidInput", err)
 	}
 }
+
+func TestMeterDimensionsValidateQueryableNames(t *testing.T) {
+	for _, name := range []string{"region-name", "service.tier", "status_code"} {
+		if _, err := NewDimension(name, MetadataString, "", "", false); err != nil {
+			t.Fatalf("new dimension %q: %v", name, err)
+		}
+	}
+
+	for _, name := range []string{"region name", "region/name", ".region", "region.", "region..name", "subject"} {
+		if _, err := NewDimension(name, MetadataString, "", "", false); !errors.Is(err, domain.ErrInvalidInput) {
+			t.Fatalf("new dimension %q error = %v, want ErrInvalidInput", name, err)
+		}
+	}
+}

@@ -2,11 +2,14 @@ package meter
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
 )
+
+var dimensionNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$`)
 
 type Dimension struct {
 	name         string
@@ -28,6 +31,12 @@ func NewDimension(name string, metadataType MetadataType, displayName string, de
 
 	if name == "" {
 		return Dimension{}, fmt.Errorf("%w: dimension name is required", domain.ErrInvalidInput)
+	}
+	if !dimensionNamePattern.MatchString(name) {
+		return Dimension{}, fmt.Errorf("%w: dimension name %q must use letters, numbers, underscores, hyphens, or dots", domain.ErrInvalidInput, name)
+	}
+	if IsReservedDimensionName(name) {
+		return Dimension{}, fmt.Errorf("%w: dimension name %q is reserved", domain.ErrInvalidInput, name)
 	}
 	if !isSupportedMetadataType(metadataType) {
 		return Dimension{}, fmt.Errorf("%w: unsupported dimension type %q", domain.ErrInvalidInput, metadataType)
@@ -100,6 +109,10 @@ func humanizeDimensionName(name string) string {
 		parts[i] = strings.ToUpper(part[:1]) + part[1:]
 	}
 	return strings.Join(parts, " ")
+}
+
+func IsReservedDimensionName(name string) bool {
+	return strings.TrimSpace(name) == "subject"
 }
 
 func (d Dimension) Name() string {
