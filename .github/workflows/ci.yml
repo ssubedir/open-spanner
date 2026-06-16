@@ -178,6 +178,9 @@ jobs:
       - name: Run browser E2E
         run: task test:e2e:web
 
+      - name: Run browser E2E with Postgres
+        run: task test:e2e:web:postgres
+
   docs:
     name: Docs build
     runs-on: ubuntu-latest
