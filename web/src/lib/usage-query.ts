@@ -1,7 +1,7 @@
 import type { Field, Operator, RuleGroupType, RuleType } from 'react-querybuilder'
 
 import type { Meter, UsageDimensionValue, UsageFilter, UsageFilterCondition } from '../api'
-import { defaultQueryDates, localDateTimeToISO } from './datetime'
+import { defaultQueryDates, localDateTimeToISO, normalizeInputDateTime } from './datetime'
 
 export type MetadataTypes = Record<string, string>
 export type MetadataLabels = Record<string, string>
@@ -272,7 +272,7 @@ export function queryFromSavedValue(value: unknown, fallback: RuleGroupType): Ru
 
   return {
     combinator: candidate.combinator === 'or' ? 'or' : 'and',
-    rules: candidate.rules,
+    rules: candidate.rules.map(normalizeSavedQueryRule),
   }
 }
 
@@ -445,6 +445,23 @@ function typedMetadataValue(value: unknown, metadataType?: string) {
     return undefined
   }
   return value
+}
+
+function normalizeSavedQueryRule(rule: RuleGroupType['rules'][number]): RuleGroupType['rules'][number] {
+  if (isQueryGroup(rule)) {
+    return {
+      ...rule,
+      combinator: rule.combinator === 'or' ? 'or' : 'and',
+      rules: rule.rules.map(normalizeSavedQueryRule),
+    }
+  }
+  if ((rule.field === 'timestamp' || rule.field === 'received_at') && typeof rule.value === 'string') {
+    return {
+      ...rule,
+      value: normalizeInputDateTime(rule.value),
+    }
+  }
+  return rule
 }
 
 function replaceRuleValue(query: RuleGroupType, field: string, nextValue: (value: string) => string): RuleGroupType {
