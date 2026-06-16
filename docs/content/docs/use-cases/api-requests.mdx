@@ -19,8 +19,9 @@ Useful dimensions:
 
 - `endpoint`
 - `method`
-- `status`
-- `region`
+- `status_code`
+- `region-name`
+- `service.tier`
 
 ## How To Use It
 
@@ -31,7 +32,25 @@ This lets you answer:
 - How many requests did a customer make this billing period?
 - Which endpoints are driving usage?
 - How much traffic is erroring by status code?
-- Which regions serve the most traffic?
+- Which regions or service tiers serve the most traffic?
+
+Use `service.tier` when request handling spans multiple internal service tiers. Send the event metadata as nested JSON:
+
+```json
+{
+  "metadata": {
+    "endpoint": "/v1/orders",
+    "method": "POST",
+    "status_code": 201,
+    "region-name": "us-east",
+    "service": {
+      "tier": "gold"
+    }
+  }
+}
+```
+
+Queries still refer to the path by its dimension name, such as `metadata.service.tier=gold` or `group_by=service.tier`.
 
 ## Example
 

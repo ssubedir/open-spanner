@@ -12,24 +12,25 @@ const meterName = `sdk_ts_api_requests_${runId}`;
 await createMeter({
   body: {
     name: meterName,
-    description: "Track request volume by endpoint, method, status, and region",
+    description: "Track request volume by endpoint, method, status, region, and service tier",
     unit: "request",
     aggregation: "sum",
     event_retention_days: 90,
     dimensions: [
       { name: "endpoint", display_name: "Endpoint", description: "Route or operation", type: "string", required: true },
       { name: "method", display_name: "Method", description: "HTTP method", type: "string", required: true },
-      { name: "status", display_name: "Status", description: "HTTP status code", type: "number", required: true },
-      { name: "region", display_name: "Region", description: "Serving region", type: "string", required: false },
+      { name: "status_code", display_name: "Status code", description: "HTTP status code", type: "number", required: true },
+      { name: "region-name", display_name: "Region", description: "Serving region", type: "string", required: false },
+      { name: "service.tier", display_name: "Service tier", description: "Backend service tier", type: "string", required: true },
     ],
   },
   throwOnError: true,
 });
 
 const events = [
-  { subject: "org_acme", quantity: 38, metadata: { endpoint: "/v1/orders", method: "POST", status: 201, region: "us-east" } },
-  { subject: "org_acme", quantity: 91, metadata: { endpoint: "/v1/orders", method: "GET", status: 200, region: "us-east" } },
-  { subject: "org_globex", quantity: 14, metadata: { endpoint: "/v1/invoices", method: "GET", status: 200, region: "eu-west" } },
+  { subject: "org_acme", quantity: 38, metadata: { endpoint: "/v1/orders", method: "POST", status_code: 201, "region-name": "us-east", service: { tier: "gold" } } },
+  { subject: "org_acme", quantity: 91, metadata: { endpoint: "/v1/orders", method: "GET", status_code: 200, "region-name": "us-east", service: { tier: "gold" } } },
+  { subject: "org_globex", quantity: 14, metadata: { endpoint: "/v1/invoices", method: "GET", status_code: 200, "region-name": "eu-west", service: { tier: "silver" } } },
 ];
 
 for (const [index, event] of events.entries()) {

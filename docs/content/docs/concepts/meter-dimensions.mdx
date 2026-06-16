@@ -22,8 +22,9 @@ Open Spanner validates event metadata against the meter's `metadata_schema`.
   "unit": "request",
   "aggregation": "sum",
   "metadata_schema": {
-    "region": "string",
-    "plan": "string",
+    "region-name": "string",
+    "service.tier": "string",
+    "status_code": "number",
     "cache_hit": "boolean"
   }
 }
@@ -46,21 +47,38 @@ Every usage event for a meter must match that meter's metadata schema.
   "quantity": 1,
   "idempotency_key": "usage_001",
   "metadata": {
-    "region": "us-east",
-    "plan": "pro",
+    "region-name": "us-east",
+    "service": {
+      "tier": "gold"
+    },
+    "status_code": 200,
     "cache_hit": true
   }
 }
 ```
 
-Unknown metadata keys are rejected. Missing schema keys are also rejected. This keeps usage data consistent for filtering, grouping, and export.
+Required schema-backed dimensions must be present and must match their configured type. Optional dimensions may be omitted. Extra metadata is accepted and stored, but dimensions defined on the meter are the stable fields to use for dashboard filtering, grouping, and export.
+
+Dotted dimension names represent nested metadata paths. A meter can define `service.tier`, while the usage event sends the value as nested JSON:
+
+```json
+{
+  "metadata": {
+    "service": {
+      "tier": "gold"
+    }
+  }
+}
+```
+
+Open Spanner also accepts a flat key such as `"service.tier": "gold"` for a defined dotted dimension and stores it as nested metadata. Prefer nested JSON in new code because it is easier to extend over time.
 
 ## Discover Dimension Values
 
 Open Spanner can list observed values for a dimension. Use this when you want to build filter pickers, audit which values are being sent, or help users choose valid grouping values.
 
 ```sh
-curl "http://localhost:18081/v1/usages/dimensions?meter=api_requests&field=region&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z" \
+curl "http://localhost:18081/v1/usages/dimensions?meter=api_requests&field=service.tier&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z" \
   -H "Authorization: Bearer osp_live_your_api_key"
 ```
 
@@ -71,8 +89,8 @@ The response is ordered by the number of matching usage events:
 ```json
 {
   "items": [
-    { "field": "region", "value": "us-east", "events": 128 },
-    { "field": "region", "value": "eu-west", "events": 42 }
+    { "field": "service.tier", "value": "gold", "events": 128 },
+    { "field": "service.tier", "value": "silver", "events": 42 }
   ]
 }
 ```
@@ -130,14 +148,14 @@ Use `field: "subject"` to rank subjects by usage without adding `subject` to the
 Use metadata filters for direct queries:
 
 ```sh
-curl "http://localhost:18081/v1/usages?meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z&bucket_size=day&metadata.region=us-east" \
+curl "http://localhost:18081/v1/usages?meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z&bucket_size=day&metadata.service.tier=gold" \
   -H "Authorization: Bearer $OPEN_SPANNER_API_KEY"
 ```
 
 Use `group_by` to split buckets by one or more dimensions. Repeat the query parameter or send a comma-separated list:
 
 ```sh
-curl "http://localhost:18081/v1/usages?meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z&bucket_size=day&group_by=region&group_by=plan" \
+curl "http://localhost:18081/v1/usages?meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z&bucket_size=day&group_by=service.tier&group_by=region-name" \
   -H "Authorization: Bearer $OPEN_SPANNER_API_KEY"
 ```
 
@@ -149,7 +167,7 @@ The search endpoint accepts the same grouping as an array:
   "from": "2026-06-01T00:00:00Z",
   "to": "2026-06-10T00:00:00Z",
   "bucket_size": "day",
-  "group_by": ["region", "plan"]
+  "group_by": ["service.tier", "region-name"]
 }
 ```
 
@@ -158,11 +176,11 @@ The dashboard usage page uses the same dimension fields for filtering and groupi
 `subject` is built in, not part of `metadata_schema`, but it can be used with `group_by`:
 
 ```sh
-curl "http://localhost:18081/v1/usages?meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z&bucket_size=day&group_by=subject&group_by=region" \
+curl "http://localhost:18081/v1/usages?meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z&bucket_size=day&group_by=subject&group_by=service.tier" \
   -H "Authorization: Bearer $OPEN_SPANNER_API_KEY"
 ```
 
-Use this when you want a report like daily requests by customer and region.
+Use this when you want a report like daily requests by customer and service tier.
 
 ## Good Dimension Names
 

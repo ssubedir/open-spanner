@@ -39,23 +39,23 @@ Use `POST /v1/usages/search` when you need nested filter groups or grouping:
   "from": "2026-06-01T00:00:00Z",
   "to": "2026-06-10T00:00:00Z",
   "bucket_size": "day",
-  "group_by": ["subject", "region"],
+  "group_by": ["subject", "service.tier"],
   "filter": {
     "type": "group",
     "op": "and",
     "rules": [
       {
         "type": "condition",
-        "field": "metadata.plan",
+        "field": "metadata.service.tier",
         "op": "eq",
-        "value": "pro"
+        "value": "gold"
       }
     ]
   }
 }
 ```
 
-Use `group_by: ["subject"]` to return one row per subject in each bucket. Combine `subject` with metadata dimensions when you need customer-by-region or customer-by-plan reports.
+Use `group_by: ["subject"]` to return one row per subject in each bucket. Combine `subject` with metadata dimensions when you need customer-by-region, customer-by-plan, or customer-by-service-tier reports. Dotted fields such as `service.tier` target nested metadata and are queried as `metadata.service.tier` in filters.
 
 ## Breakdowns
 
@@ -72,14 +72,14 @@ Breakdowns use the meter's aggregation mode. For a `sum` meter, the top value is
   "limit": 5,
   "filter": {
     "type": "condition",
-    "field": "metadata.plan",
+    "field": "metadata.service.tier",
     "op": "eq",
-    "value": "pro"
+    "value": "gold"
   }
 }
 ```
 
-Use `field: "subject"` for top subjects. Use a metadata key, such as `field: "region"` or `field: "endpoint"`, for top dimension values.
+Use `field: "subject"` for top subjects. Use a metadata key, such as `field: "region-name"`, `field: "service.tier"`, or `field: "endpoint"`, for top dimension values.
 
 ```json
 {
