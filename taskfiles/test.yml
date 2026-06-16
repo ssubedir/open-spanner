@@ -14,6 +14,21 @@ tasks:
     env:
       OPEN_SPANNER_TEST_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/open_spanner?sslmode=disable
 
+  test:e2e:
+    desc: Run browser E2E tests
+    cmds:
+      - task: test:e2e:web
+
+  test:e2e:web:
+    desc: Run Playwright browser E2E tests for the admin UI
+    cmds:
+      - cd web; npm run e2e
+
+  test:e2e:web:install:
+    desc: Install Playwright browser dependencies for admin UI E2E tests
+    cmds:
+      - cd web; npm run e2e:install
+
   test:examples:
     desc: Verify local SDK examples compile and build without calling the API
     cmds:

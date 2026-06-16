@@ -6,14 +6,17 @@ import { defaultQueryDates, localDateTimeToISO, normalizeInputDateTime } from '.
 export type MetadataTypes = Record<string, string>
 export type MetadataLabels = Record<string, string>
 
+let queryNodeID = 0
+
 export function defaultFilterQuery(): RuleGroupType {
   const dates = defaultQueryDates()
   return {
     combinator: 'and',
+    id: nextQueryNodeID('group'),
     rules: [
-      { field: 'meter', operator: '=', value: '' },
-      { field: 'timestamp', operator: '>=', value: dates.from },
-      { field: 'timestamp', operator: '<=', value: dates.to },
+      queryRule('meter', '=', ''),
+      queryRule('timestamp', '>=', dates.from),
+      queryRule('timestamp', '<=', dates.to),
     ],
   }
 }
@@ -271,6 +274,7 @@ export function queryFromSavedValue(value: unknown, fallback: RuleGroupType): Ru
   }
 
   return {
+    id: typeof candidate.id === 'string' && candidate.id ? candidate.id : nextQueryNodeID('group'),
     combinator: candidate.combinator === 'or' ? 'or' : 'and',
     rules: candidate.rules.map(normalizeSavedQueryRule),
   }
@@ -452,16 +456,19 @@ function normalizeSavedQueryRule(rule: RuleGroupType['rules'][number]): RuleGrou
     return {
       ...rule,
       combinator: rule.combinator === 'or' ? 'or' : 'and',
+      id: rule.id || nextQueryNodeID('group'),
       rules: rule.rules.map(normalizeSavedQueryRule),
     }
   }
+  const id = rule.id || nextQueryNodeID('rule')
   if ((rule.field === 'timestamp' || rule.field === 'received_at') && typeof rule.value === 'string') {
     return {
       ...rule,
+      id,
       value: normalizeInputDateTime(rule.value),
     }
   }
-  return rule
+  return { ...rule, id }
 }
 
 function replaceRuleValue(query: RuleGroupType, field: string, nextValue: (value: string) => string): RuleGroupType {
@@ -482,7 +489,7 @@ function replaceRuleValue(query: RuleGroupType, field: string, nextValue: (value
   }
   return {
     ...query,
-    rules: [...rules, { field, operator: '=', value: nextValue('') }],
+    rules: [...rules, queryRule(field, '=', nextValue(''))],
   }
 }
 
@@ -504,4 +511,18 @@ function firstComparableRuleValue(query: RuleGroupType, field: string, operators
 
 function isQueryGroup(rule: RuleGroupType['rules'][number]): rule is RuleGroupType {
   return Boolean(rule && typeof rule === 'object' && 'rules' in rule)
+}
+
+function queryRule(field: string, operator: string, value: unknown): RuleType {
+  return {
+    field,
+    id: nextQueryNodeID('rule'),
+    operator,
+    value,
+  }
+}
+
+function nextQueryNodeID(prefix: string) {
+  queryNodeID += 1
+  return `${prefix}-${queryNodeID}`
 }

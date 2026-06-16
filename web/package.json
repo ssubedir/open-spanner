@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "e2e": "node e2e/prepare.mjs && playwright test",
+    "e2e:install": "playwright install chromium",
     "routes:generate": "tsr generate",
     "build": "node scripts/clean-output.mjs && npm run routes:generate && tsc -b && vite build",
     "lint": "eslint .",
@@ -28,6 +30,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.61.0",
     "@tanstack/router-cli": "^1.167.17",
     "@tanstack/router-plugin": "^1.168.18",
     "@types/node": "^24.12.3",
