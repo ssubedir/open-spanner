@@ -1,0 +1,13 @@
+version: '3'
+
+tasks:
+  sqlc:
+    desc: Generate typed SQL accessors
+    cmds:
+      - go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0 generate
+
+  sqlc:check:
+    desc: Verify typed SQL accessors are up to date
+    cmds:
+      - task: sqlc
+      - git diff --exit-code sqlc.yaml internal/metering/adapters/postgres/queries internal/metering/adapters/postgres/postgresdb internal/metering/adapters/sqlite/queries internal/metering/adapters/sqlite/sqlitedb

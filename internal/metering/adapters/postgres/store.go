@@ -128,11 +128,22 @@ func (s *Store) ExecContext(ctx context.Context, query string, args ...any) (sql
 	return s.exec(ctx, query, args...)
 }
 
+func (s *Store) PrepareContext(ctx context.Context, query string) (*sql.Stmt, error) {
+	if tx, ok := txFromContext(ctx); ok {
+		return tx.PrepareContext(ctx, query)
+	}
+	return s.db.PrepareContext(ctx, query)
+}
+
 func (s *Store) query(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 	if tx, ok := txFromContext(ctx); ok {
 		return tx.QueryContext(ctx, query, args...)
 	}
 	return s.db.QueryContext(ctx, query, args...)
+}
+
+func (s *Store) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return s.query(ctx, query, args...)
 }
 
 func (s *Store) queryRow(ctx context.Context, query string, args ...any) *sql.Row {

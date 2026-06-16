@@ -45,6 +45,9 @@ jobs:
       - name: Run Go vet
         run: task vet
 
+      - name: Check generated SQL accessors
+        run: task sqlc:check
+
       - name: Check generated OpenAPI docs
         run: task openapi:check
 
