@@ -117,17 +117,44 @@ export const When = {
     await page.goto('/usage')
     await expect(page.getByRole('heading', { name: 'Usage buckets' })).toBeVisible()
 
-    const dateInputs = page.locator('input[type="datetime-local"]')
-    await expect(dateInputs).toHaveCount(2)
-    await dateInputs.nth(0).fill(scenario.from)
-    await dateInputs.nth(1).fill(scenario.to)
-    await page.getByRole('heading', { name: 'Usage buckets' }).click()
-    await expect(dateInputs.nth(0)).toHaveValue(scenario.from)
-    await expect(dateInputs.nth(1)).toHaveValue(scenario.to)
+    await selectMeterFilter(page, scenario.meterName)
+    await setUsageDateRange(page, scenario)
 
     await expect(page.getByRole('button', { name: 'Filter by Service Tier: gold' })).toBeVisible()
     await page.getByRole('button', { name: 'Filter by Service Tier: gold' }).click()
     await page.getByRole('checkbox', { name: 'Service Tier' }).check()
+    await page.getByRole('button', { name: 'Run Query' }).click()
+  },
+
+  async theUserRunsAnAdvancedUsageQuery(page: Page, scenario: UsageScenario) {
+    await page.goto('/usage')
+    await expect(page.getByRole('heading', { name: 'Usage buckets' })).toBeVisible()
+
+    await selectMeterFilter(page, scenario.meterName)
+    await setUsageDateRange(page, scenario)
+    await addQueryRule(page, {
+      field: 'metadata.service.tier',
+      operator: '=',
+      value: 'gold',
+    })
+    await addQueryRule(page, {
+      field: 'metadata.region-name',
+      operator: '=',
+      value: 'us-east-1',
+    })
+    await addQueryRule(page, {
+      field: 'quantity',
+      operator: '>',
+      value: '10',
+    })
+
+    await page.getByRole('checkbox', { name: 'Region' }).check()
+    await page.getByRole('checkbox', { name: 'Service Tier' }).check()
+    await page.getByLabel('Saved query name').fill(`Gold API traffic ${scenario.meterName}`)
+    await page.getByRole('button', { name: 'Save' }).click()
+    await expect(page.getByRole('button', { name: 'Update' })).toBeVisible()
+    await page.getByRole('button', { name: 'Pin' }).click()
+    await expect(page.getByRole('button', { name: 'Unpin' })).toBeVisible()
     await page.getByRole('button', { name: 'Run Query' }).click()
   },
 }
@@ -155,6 +182,18 @@ export const Then = {
     await expect(results).toContainText('gold')
     await expect(results).toContainText('12')
   },
+
+  async advancedQueryReturnsOnlyMatchingUsage(page: Page, meterName: string) {
+    const results = page.locator('.usage-results-card')
+    await expect(results).toContainText(meterName)
+    await expect(results).toContainText('region-name')
+    await expect(results).toContainText('us-east-1')
+    await expect(results).toContainText('service.tier')
+    await expect(results).toContainText('gold')
+    await expect(results).toContainText('12')
+    await expect(results).not.toContainText('silver')
+    await expect(results).not.toContainText('eu-west-1')
+  },
 }
 
 async function fillDimension(
@@ -167,6 +206,45 @@ async function fillDimension(
   await row.getByLabel('Dimension display name').fill(dimension.displayName)
   await row.getByLabel('Dimension description').fill(dimension.description)
   await row.getByLabel('Dimension type').selectOption('string')
+}
+
+async function selectMeterFilter(page: Page, meterName: string) {
+  const firstRule = page.locator('.filter-builder .rule').first()
+  await firstRule.locator('.rule-fields').selectOption('meter')
+  await firstRule.locator('.rule-operators').selectOption('=')
+  await firstRule.locator('.rule-value').selectOption(meterName)
+}
+
+async function setUsageDateRange(page: Page, scenario: UsageScenario) {
+  const dateInputs = page.locator('input[type="datetime-local"]')
+  await expect(dateInputs).toHaveCount(2)
+  await dateInputs.nth(0).fill(scenario.from)
+  await dateInputs.nth(1).fill(scenario.to)
+  await page.getByRole('heading', { name: 'Usage buckets' }).click()
+  await expect(dateInputs.nth(0)).toHaveValue(scenario.from)
+  await expect(dateInputs.nth(1)).toHaveValue(scenario.to)
+}
+
+async function addQueryRule(
+  page: Page,
+  rule: { field: string; operator: string; value: string },
+) {
+  const filterBuilder = page.locator('.filter-builder')
+  await filterBuilder.locator('.ruleGroup-addRule').first().click()
+
+  const row = filterBuilder.locator('.rule').last()
+  await row.locator('.rule-fields').selectOption(rule.field)
+  await row.locator('.rule-operators').selectOption(rule.operator)
+  await setRuleValue(row, rule.value)
+}
+
+async function setRuleValue(row: ReturnType<Page['locator']>, value: string) {
+  const valueControl = row.locator('.rule-value')
+  if (await valueControl.evaluate((element) => element.tagName.toLowerCase() === 'select')) {
+    await valueControl.selectOption(value)
+    return
+  }
+  await valueControl.fill(value)
 }
 
 function toLocalDateTime(date: Date) {

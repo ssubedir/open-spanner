@@ -19,4 +19,19 @@ test.describe('Feature: Dashboard usage exploration', () => {
     await Then.theUsagePageLoadsWithoutDimensionErrors(page)
     await Then.bucketedUsageIncludesGoldServiceTier(page, meterName)
   })
+
+  test('Scenario: a user saves and runs an advanced usage query', async ({ page }) => {
+    const account = await Given.aDashboardAccount(page)
+    const meterName = `api_requests_advanced_${Date.now()}`
+
+    await When.theUserSignsIn(page, account)
+    await Then.theDashboardIsAvailable(page, account)
+
+    await When.theUserCreatesAnAPIRequestMeter(page, meterName)
+    const scenario = await Given.apiRequestUsageExists(page, meterName)
+
+    await When.theUserRunsAnAdvancedUsageQuery(page, scenario)
+    await Then.theUsagePageLoadsWithoutDimensionErrors(page)
+    await Then.advancedQueryReturnsOnlyMatchingUsage(page, meterName)
+  })
 })
