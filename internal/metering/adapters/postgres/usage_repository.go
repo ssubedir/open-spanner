@@ -503,6 +503,10 @@ func bucketDurationSecondsSQL(size domainusage.BucketSize) string {
 }
 
 func (r *UsageRepository) FindEvents(ctx context.Context, query domainusage.EventQuery) (domainusage.EventPage, error) {
+	if query.Filter().IsZero() {
+		return r.findEvents(ctx, query)
+	}
+
 	sqlQuery := strings.Builder{}
 	sqlQuery.WriteString(`
 SELECT id, idempotency_key, subject, meter_name, quantity, event_time, received_at, metadata
@@ -556,6 +560,33 @@ WHERE 1 = 1
 
 	if err := rows.Err(); err != nil {
 		return domainusage.EventPage{}, err
+	}
+
+	return domainusage.NewEventPage(events, query.Limit()), nil
+}
+
+func (r *UsageRepository) findEvents(ctx context.Context, query domainusage.EventQuery) (domainusage.EventPage, error) {
+	cursorEventTime, cursorID := eventCursorValues(query.Cursor())
+	rows, err := r.queries.ListUsageEvents(ctx, postgresdb.ListUsageEventsParams{
+		Subject:         eventStringValue(query.Subject()),
+		MeterName:       eventStringValue(query.MeterName()),
+		FromTime:        eventTimeValue(query.From()),
+		ToTime:          eventTimeValue(query.To()),
+		CursorEventTime: cursorEventTime,
+		CursorID:        cursorID,
+		Limit:           int32(query.Limit() + 1),
+	})
+	if err != nil {
+		return domainusage.EventPage{}, err
+	}
+
+	events := make([]domainusage.Event, 0, len(rows))
+	for _, row := range rows {
+		event, err := eventFromFields(row.ID, row.IdempotencyKey, row.Subject, row.MeterName, row.Quantity, row.EventTime, row.ReceivedAt, row.Metadata, nil)
+		if err != nil {
+			return domainusage.EventPage{}, err
+		}
+		events = append(events, event)
 	}
 
 	return domainusage.NewEventPage(events, query.Limit()), nil
@@ -942,6 +973,27 @@ func subjectStatsCursorValues(query domainusage.SubjectStatsQuery) (sql.NullStri
 	return sql.NullString{String: formatTime(query.LastEventAt()), Valid: true}, sql.NullString{String: query.Subject(), Valid: true}
 }
 
+func eventStringValue(value string) sql.NullString {
+	if value == "" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: value, Valid: true}
+}
+
+func eventTimeValue(value time.Time) sql.NullString {
+	if value.IsZero() {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: formatTime(value), Valid: true}
+}
+
+func eventCursorValues(cursor domainusage.EventCursor) (sql.NullString, sql.NullString) {
+	if cursor.IsZero() {
+		return sql.NullString{}, sql.NullString{}
+	}
+	return sql.NullString{String: formatTime(cursor.EventTime()), Valid: true}, sql.NullString{String: cursor.ID(), Valid: true}
+}
+
 func meterStatsFromFields(meterName string, usageEvents int64, lastEventAtText string) (domainusage.MeterStats, error) {
 	lastEventAt, err := time.Parse(time.RFC3339Nano, lastEventAtText)
 	if err != nil {
@@ -1043,32 +1095,7 @@ func scanEvent(scanner interface {
 		return domainusage.Event{}, err
 	}
 
-	eventTime, err := time.Parse(time.RFC3339Nano, eventTimeText)
-	if err != nil {
-		return domainusage.Event{}, err
-	}
-	receivedAt, err := time.Parse(time.RFC3339Nano, receivedAtText)
-	if err != nil {
-		return domainusage.Event{}, err
-	}
-
-	metadata := map[string]any{}
-	if metadataText != "" {
-		if err := json.Unmarshal([]byte(metadataText), &metadata); err != nil {
-			return domainusage.Event{}, err
-		}
-	}
-
-	return domainusage.NewEvent(
-		id,
-		idempotencyKey.String,
-		subject,
-		meterName,
-		quantity,
-		eventTime,
-		receivedAt,
-		metadata,
-	)
+	return eventFromFields(id, idempotencyKey, subject, meterName, quantity, eventTimeText, receivedAtText, json.RawMessage(metadataText), nil)
 }
 
 func marshalPruneRunMeters(meters []domainusage.PruneRunMeter) (string, error) {
