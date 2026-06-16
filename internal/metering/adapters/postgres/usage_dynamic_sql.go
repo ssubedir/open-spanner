@@ -20,6 +20,8 @@ import (
 
 var postgresUsageDialect = goqu.Dialect("postgres")
 
+const bucketStartAlias = "bucket_start"
+
 type sqlOperand interface {
 	exp.Expression
 	exp.Comparable
@@ -36,7 +38,7 @@ func (r *UsageRepository) queryBucketsWithDynamicSQL(ctx context.Context, query 
 	}
 
 	filteredSelects := []interface{}{
-		bucketStartExpression(query.BucketSize()).As("bucket_start"),
+		bucketStartExpression(query.BucketSize()).As(bucketStartAlias),
 	}
 	filteredSelects = append(filteredSelects, groupSelects...)
 	filteredSelects = append(filteredSelects,
@@ -321,7 +323,7 @@ func groupSelectExpressions(groupBy []string) ([]interface{}, []string, error) {
 			}
 			value = goqu.L("COALESCE(?, '<nil>')", metadataValue)
 		}
-		alias := fmt.Sprintf("group_%d", index)
+		alias := groupAlias(index)
 		selects = append(selects, value.As(alias))
 		aliases = append(aliases, alias)
 	}
@@ -329,7 +331,7 @@ func groupSelectExpressions(groupBy []string) ([]interface{}, []string, error) {
 }
 
 func groupResultSelects(aliases []string) []interface{} {
-	selects := []interface{}{goqu.C("bucket_start")}
+	selects := []interface{}{goqu.C(bucketStartAlias)}
 	for _, alias := range aliases {
 		selects = append(selects, goqu.C(alias))
 	}
@@ -337,7 +339,7 @@ func groupResultSelects(aliases []string) []interface{} {
 }
 
 func groupExpressions(aliases []string) []interface{} {
-	expressions := []interface{}{goqu.C("bucket_start")}
+	expressions := []interface{}{goqu.C(bucketStartAlias)}
 	for _, alias := range aliases {
 		expressions = append(expressions, goqu.C(alias))
 	}
@@ -345,11 +347,15 @@ func groupExpressions(aliases []string) []interface{} {
 }
 
 func groupOrderExpressions(aliases []string) []exp.OrderedExpression {
-	expressions := []exp.OrderedExpression{goqu.C("bucket_start").Asc()}
+	expressions := []exp.OrderedExpression{goqu.C(bucketStartAlias).Asc()}
 	for _, alias := range aliases {
 		expressions = append(expressions, goqu.C(alias).Asc())
 	}
 	return expressions
+}
+
+func groupAlias(index int) string {
+	return fmt.Sprintf("group_%d", index)
 }
 
 func bucketAggregationExpression(aggregation domainmeter.Aggregation, bucketSize domainusage.BucketSize) exp.LiteralExpression {
@@ -367,7 +373,7 @@ func bucketAggregationExpression(aggregation domainmeter.Aggregation, bucketSize
 	case domainmeter.AggregationLast:
 		return goqu.L("(array_agg(quantity ORDER BY event_at DESC))[1]")
 	case domainmeter.AggregationRate:
-		return goqu.L("COUNT(*)::double precision / " + bucketDurationSecondsExpression(bucketSize))
+		return goqu.L("COUNT(*)::double precision / ?", bucketDurationSecondsExpression(bucketSize))
 	default:
 		return goqu.L("SUM(quantity)")
 	}
@@ -401,14 +407,14 @@ func breakdownAggregationExpression(aggregation domainmeter.Aggregation, duratio
 	}
 }
 
-func bucketDurationSecondsExpression(size domainusage.BucketSize) string {
+func bucketDurationSecondsExpression(size domainusage.BucketSize) exp.LiteralExpression {
 	switch size {
 	case domainusage.BucketHour:
-		return "3600::double precision"
+		return goqu.L("3600::double precision")
 	case domainusage.BucketMonth:
-		return "EXTRACT(EPOCH FROM (bucket_start + INTERVAL '1 month' - bucket_start))"
+		return goqu.L("EXTRACT(EPOCH FROM (? + INTERVAL '1 month' - ?))", goqu.C(bucketStartAlias), goqu.C(bucketStartAlias))
 	default:
-		return "86400::double precision"
+		return goqu.L("86400::double precision")
 	}
 }
 

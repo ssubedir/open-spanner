@@ -937,6 +937,32 @@ func runIntegrationRateAggregationFlow(t *testing.T, router http.Handler, authHe
 		t.Fatalf("rate-aggregation second bucket = %#v, want /users group", buckets[1])
 	}
 	assertFloatNear(t, buckets[1].Quantity, 1.0/86400.0, "rate-aggregation /users quantity")
+
+	monthSearchRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages/search", map[string]any{
+		"subject":     subject,
+		"meter":       meterName,
+		"from":        "2026-06-01T00:00:00Z",
+		"to":          "2026-07-01T00:00:00Z",
+		"bucket_size": "month",
+		"group_by":    []string{"endpoint"},
+		"limit":       10,
+	}, authHeaders, nil)
+	if monthSearchRes.Code != http.StatusOK {
+		t.Fatalf("search monthly rate-aggregation usage status = %d, want %d: %s", monthSearchRes.Code, http.StatusOK, monthSearchRes.Body.String())
+	}
+	var monthBuckets []usageBucketResponse
+	decodeJSON(t, monthSearchRes, &monthBuckets)
+	if len(monthBuckets) != 2 {
+		t.Fatalf("monthly rate-aggregation buckets = %#v, want two endpoint groups", monthBuckets)
+	}
+	if monthBuckets[0].Group["endpoint"] != "/orders" {
+		t.Fatalf("monthly rate-aggregation first bucket = %#v, want /orders group", monthBuckets[0])
+	}
+	assertFloatNear(t, monthBuckets[0].Quantity, 2.0/(30.0*86400.0), "monthly rate-aggregation /orders quantity")
+	if monthBuckets[1].Group["endpoint"] != "/users" {
+		t.Fatalf("monthly rate-aggregation second bucket = %#v, want /users group", monthBuckets[1])
+	}
+	assertFloatNear(t, monthBuckets[1].Quantity, 1.0/(30.0*86400.0), "monthly rate-aggregation /users quantity")
 }
 
 func runIntegrationSummaryAggregationFlow(t *testing.T, router http.Handler, authHeaders map[string]string, suffix string) {
