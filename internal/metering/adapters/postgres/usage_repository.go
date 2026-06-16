@@ -178,14 +178,18 @@ func (r *UsageRepository) saveWithDuplicate(ctx context.Context, event domainusa
 }
 
 func (r *UsageRepository) Query(ctx context.Context, query domainusage.Query) ([]domainusage.Bucket, error) {
-	if query.Filter().IsZero() && len(query.Metadata()) == 0 && len(query.GroupByFields()) == 0 {
-		return r.queryBuckets(ctx, query)
+	if !bucketQueryNeedsDynamicSQL(query) {
+		return r.queryBucketsWithGeneratedSQL(ctx, query)
 	}
 
-	return r.queryDynamicBuckets(ctx, query)
+	return r.queryBucketsWithDynamicSQL(ctx, query)
 }
 
-func (r *UsageRepository) queryBuckets(ctx context.Context, query domainusage.Query) ([]domainusage.Bucket, error) {
+func bucketQueryNeedsDynamicSQL(query domainusage.Query) bool {
+	return !query.Filter().IsZero() || len(query.Metadata()) > 0 || len(query.GroupByFields()) > 0
+}
+
+func (r *UsageRepository) queryBucketsWithGeneratedSQL(ctx context.Context, query domainusage.Query) ([]domainusage.Bucket, error) {
 	rows, err := queriesFor(ctx, r.queries).ListUsageBuckets(ctx, postgresdb.ListUsageBucketsParams{
 		Aggregation: string(query.Aggregation()),
 		BucketSize:  string(query.BucketSize()),
@@ -213,7 +217,9 @@ func (r *UsageRepository) queryBuckets(ctx context.Context, query domainusage.Qu
 	return buckets, nil
 }
 
-func (r *UsageRepository) queryDynamicBuckets(ctx context.Context, query domainusage.Query) ([]domainusage.Bucket, error) {
+// queryBucketsWithDynamicSQL handles query shapes that cannot be represented as
+// static SQLc queries: variable group columns, metadata filters, and filter trees.
+func (r *UsageRepository) queryBucketsWithDynamicSQL(ctx context.Context, query domainusage.Query) ([]domainusage.Bucket, error) {
 	groupBy := query.GroupByFields()
 	groupSelectSQL, groupAliases, err := groupValueSelectSQL(groupBy)
 	if err != nil {
@@ -263,7 +269,7 @@ ORDER BY ` + groupOrderColumns(groupAliases) + `
 LIMIT ` + bindArg(&args, query.Limit()) + `
 `)
 
-	rows, err := r.store.query(ctx, sqlQuery.String(), args...)
+	rows, err := r.store.QueryContext(ctx, sqlQuery.String(), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -333,13 +339,13 @@ func (r *UsageRepository) FindDimensionValues(ctx context.Context, query domainu
 
 func (r *UsageRepository) FindBreakdown(ctx context.Context, query domainusage.BreakdownQuery) ([]domainusage.BreakdownItem, error) {
 	if query.Filter().IsZero() {
-		return r.findBreakdown(ctx, query)
+		return r.findBreakdownWithGeneratedSQL(ctx, query)
 	}
 
-	return r.findFilteredBreakdown(ctx, query)
+	return r.findBreakdownWithDynamicSQL(ctx, query)
 }
 
-func (r *UsageRepository) findBreakdown(ctx context.Context, query domainusage.BreakdownQuery) ([]domainusage.BreakdownItem, error) {
+func (r *UsageRepository) findBreakdownWithGeneratedSQL(ctx context.Context, query domainusage.BreakdownQuery) ([]domainusage.BreakdownItem, error) {
 	if _, err := breakdownValueSQL(query.Field()); err != nil {
 		return nil, err
 	}
@@ -366,7 +372,9 @@ func (r *UsageRepository) findBreakdown(ctx context.Context, query domainusage.B
 	return items, nil
 }
 
-func (r *UsageRepository) findFilteredBreakdown(ctx context.Context, query domainusage.BreakdownQuery) ([]domainusage.BreakdownItem, error) {
+// findBreakdownWithDynamicSQL keeps advanced filter trees in the same SQL
+// compiler as filtered event search instead of multiplying generated queries.
+func (r *UsageRepository) findBreakdownWithDynamicSQL(ctx context.Context, query domainusage.BreakdownQuery) ([]domainusage.BreakdownItem, error) {
 	valueSQL, err := breakdownValueSQL(query.Field())
 	if err != nil {
 		return nil, err
@@ -410,7 +418,7 @@ ORDER BY quantity DESC, value ASC
 LIMIT ` + bindArg(&args, query.Limit()) + `
 `)
 
-	rows, err := r.store.query(ctx, sqlQuery.String(), args...)
+	rows, err := r.store.QueryContext(ctx, sqlQuery.String(), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -548,9 +556,15 @@ func bucketDurationSecondsSQL(size domainusage.BucketSize) string {
 
 func (r *UsageRepository) FindEvents(ctx context.Context, query domainusage.EventQuery) (domainusage.EventPage, error) {
 	if query.Filter().IsZero() {
-		return r.findEvents(ctx, query)
+		return r.findEventsWithGeneratedSQL(ctx, query)
 	}
 
+	return r.findEventsWithDynamicSQL(ctx, query)
+}
+
+// findEventsWithDynamicSQL exists for advanced filter trees; unfiltered event
+// listing stays on the generated SQLc query.
+func (r *UsageRepository) findEventsWithDynamicSQL(ctx context.Context, query domainusage.EventQuery) (domainusage.EventPage, error) {
 	sqlQuery := strings.Builder{}
 	sqlQuery.WriteString(`
 SELECT id, idempotency_key, subject, meter_name, quantity, event_time, received_at, metadata
@@ -587,7 +601,7 @@ WHERE 1 = 1
 	}
 	sqlQuery.WriteString("ORDER BY event_time DESC, id DESC\nLIMIT " + bindArg(&args, query.Limit()+1))
 
-	rows, err := r.store.query(ctx, sqlQuery.String(), args...)
+	rows, err := r.store.QueryContext(ctx, sqlQuery.String(), args...)
 	if err != nil {
 		return domainusage.EventPage{}, err
 	}
@@ -609,7 +623,7 @@ WHERE 1 = 1
 	return domainusage.NewEventPage(events, query.Limit()), nil
 }
 
-func (r *UsageRepository) findEvents(ctx context.Context, query domainusage.EventQuery) (domainusage.EventPage, error) {
+func (r *UsageRepository) findEventsWithGeneratedSQL(ctx context.Context, query domainusage.EventQuery) (domainusage.EventPage, error) {
 	cursorEventTime, cursorID := eventCursorValues(query.Cursor())
 	rows, err := queriesFor(ctx, r.queries).ListUsageEvents(ctx, postgresdb.ListUsageEventsParams{
 		Subject:         eventStringValue(query.Subject()),
