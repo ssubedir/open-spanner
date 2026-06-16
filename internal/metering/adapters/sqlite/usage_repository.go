@@ -771,89 +771,49 @@ func sqlFilterValue(value any, kind string) (any, error) {
 }
 
 func (r *UsageRepository) CountEvents(ctx context.Context) (int, error) {
-	var count int
-	if err := r.store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM usage_events`).Scan(&count); err != nil {
+	count, err := r.queries.CountUsageEvents(ctx)
+	if err != nil {
 		return 0, err
 	}
-	return count, nil
+	return int(count), nil
 }
 
 func (r *UsageRepository) FindMeterStats(ctx context.Context) ([]domainusage.MeterStats, error) {
-	rows, err := r.store.db.QueryContext(ctx, `
-SELECT meter_name, COUNT(*), MAX(event_time)
-FROM usage_events
-GROUP BY meter_name
-ORDER BY meter_name
-`)
+	rows, err := r.queries.ListUsageMeterStats(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	stats := []domainusage.MeterStats{}
-	for rows.Next() {
-		var meterName string
-		var usageEvents int
-		var lastEventAtText string
-		if err := rows.Scan(&meterName, &usageEvents, &lastEventAtText); err != nil {
-			return nil, err
-		}
-		lastEventAt, err := time.Parse(time.RFC3339Nano, lastEventAtText)
+	stats := make([]domainusage.MeterStats, 0, len(rows))
+	for _, row := range rows {
+		stat, err := meterStatsFromFields(row.MeterName, row.UsageEvents, row.LastEventAt)
 		if err != nil {
 			return nil, err
 		}
-		stats = append(stats, domainusage.NewMeterStats(meterName, usageEvents, lastEventAt))
+		stats = append(stats, stat)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
 	return stats, nil
 }
 
 func (r *UsageRepository) FindSubjectStats(ctx context.Context, query domainusage.SubjectStatsQuery) ([]domainusage.SubjectStats, error) {
-	sqlQuery := strings.Builder{}
-	sqlQuery.WriteString(`
-SELECT subject, COUNT(*), COUNT(DISTINCT meter_name), MAX(event_time)
-FROM usage_events
-GROUP BY subject
-`)
-	args := []any{}
-	if query.HasCursor() {
-		sqlQuery.WriteString("HAVING MAX(event_time) < ? OR (MAX(event_time) = ? AND subject > ?)\n")
-		cursorTime := formatTime(query.LastEventAt())
-		args = append(args, cursorTime, cursorTime, query.Subject())
-	}
-	sqlQuery.WriteString(`ORDER BY MAX(event_time) DESC, subject ASC
-LIMIT ?
-`)
-	args = append(args, query.Limit())
-
-	rows, err := r.store.db.QueryContext(ctx, sqlQuery.String(), args...)
+	cursorLastEventAt, cursorSubject := subjectStatsCursorValues(query)
+	rows, err := r.queries.ListUsageSubjectStats(ctx, sqlitedb.ListUsageSubjectStatsParams{
+		CursorLastEventAt: cursorLastEventAt,
+		CursorSubject:     cursorSubject,
+		Limit:             int64(query.Limit()),
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	stats := []domainusage.SubjectStats{}
-	for rows.Next() {
-		var subject string
-		var usageEvents int
-		var meters int
-		var lastEventAtText string
-		if err := rows.Scan(&subject, &usageEvents, &meters, &lastEventAtText); err != nil {
-			return nil, err
-		}
-		lastEventAt, err := time.Parse(time.RFC3339Nano, lastEventAtText)
+	stats := make([]domainusage.SubjectStats, 0, len(rows))
+	for _, row := range rows {
+		stat, err := subjectStatsFromFields(row.Subject, row.UsageEvents, row.Meters, row.LastEventAt)
 		if err != nil {
 			return nil, err
 		}
-		stats = append(stats, domainusage.NewSubjectStats(subject, usageEvents, meters, lastEventAt))
+		stats = append(stats, stat)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
 	return stats, nil
 }
 
@@ -984,6 +944,29 @@ func (r *UsageRepository) findBulk(ctx context.Context, idempotencyKey string) (
 	}
 
 	return unmarshalBulkResult(response)
+}
+
+func subjectStatsCursorValues(query domainusage.SubjectStatsQuery) (sql.NullString, sql.NullString) {
+	if !query.HasCursor() {
+		return sql.NullString{}, sql.NullString{}
+	}
+	return sql.NullString{String: formatTime(query.LastEventAt()), Valid: true}, sql.NullString{String: query.Subject(), Valid: true}
+}
+
+func meterStatsFromFields(meterName string, usageEvents int64, lastEventAtText string) (domainusage.MeterStats, error) {
+	lastEventAt, err := time.Parse(time.RFC3339Nano, lastEventAtText)
+	if err != nil {
+		return domainusage.MeterStats{}, err
+	}
+	return domainusage.NewMeterStats(meterName, int(usageEvents), lastEventAt), nil
+}
+
+func subjectStatsFromFields(subject string, usageEvents int64, meters int64, lastEventAtText string) (domainusage.SubjectStats, error) {
+	lastEventAt, err := time.Parse(time.RFC3339Nano, lastEventAtText)
+	if err != nil {
+		return domainusage.SubjectStats{}, err
+	}
+	return domainusage.NewSubjectStats(subject, int(usageEvents), int(meters), lastEventAt), nil
 }
 
 func runCursorValues(query domainusage.RunQuery) (sql.NullString, sql.NullString) {
