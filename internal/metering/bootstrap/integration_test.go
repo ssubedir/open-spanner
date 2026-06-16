@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -310,6 +311,7 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 	runIntegrationHyphenatedDimensionFlow(t, router, authHeaders, suffix)
 	runIntegrationFirstAggregationFlow(t, router, authHeaders, suffix)
 	runIntegrationLastAggregationFlow(t, router, authHeaders, suffix)
+	runIntegrationRateAggregationFlow(t, router, authHeaders, suffix)
 }
 
 func runIntegrationHyphenatedDimensionFlow(t *testing.T, router http.Handler, authHeaders map[string]string, suffix string) {
@@ -578,6 +580,90 @@ func runIntegrationLastAggregationFlow(t *testing.T, router http.Handler, authHe
 	}
 	if buckets[1].Group["endpoint"] != "/users" || buckets[1].Quantity != 4 {
 		t.Fatalf("last-aggregation /users bucket = %#v, want quantity 4", buckets[1])
+	}
+}
+
+func runIntegrationRateAggregationFlow(t *testing.T, router http.Handler, authHeaders map[string]string, suffix string) {
+	t.Helper()
+
+	meterName := "rate_aggregation_" + suffix
+	subject := "org_rate_" + suffix
+
+	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name":            meterName,
+		"description":     "Rate aggregation",
+		"unit":            "event",
+		"aggregation":     "rate",
+		"metadata_schema": map[string]string{"endpoint": "string"},
+	}, authHeaders, nil)
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create rate-aggregation meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
+	}
+
+	for _, event := range []map[string]any{
+		{
+			"idempotency_key": "rate-aggregation-" + suffix + "-orders-1",
+			"subject":         subject,
+			"meter":           meterName,
+			"quantity":        10,
+			"timestamp":       "2026-06-08T09:00:00Z",
+			"metadata":        map[string]any{"endpoint": "/orders"},
+		},
+		{
+			"idempotency_key": "rate-aggregation-" + suffix + "-users",
+			"subject":         subject,
+			"meter":           meterName,
+			"quantity":        20,
+			"timestamp":       "2026-06-08T10:00:00Z",
+			"metadata":        map[string]any{"endpoint": "/users"},
+		},
+		{
+			"idempotency_key": "rate-aggregation-" + suffix + "-orders-2",
+			"subject":         subject,
+			"meter":           meterName,
+			"quantity":        30,
+			"timestamp":       "2026-06-08T11:00:00Z",
+			"metadata":        map[string]any{"endpoint": "/orders"},
+		},
+	} {
+		createUsage := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages", event, authHeaders, nil)
+		if createUsage.Code != http.StatusCreated {
+			t.Fatalf("create rate-aggregation usage status = %d, want %d: %s", createUsage.Code, http.StatusCreated, createUsage.Body.String())
+		}
+	}
+
+	searchRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages/search", map[string]any{
+		"subject":     subject,
+		"meter":       meterName,
+		"from":        "2026-06-08T00:00:00Z",
+		"to":          "2026-06-09T00:00:00Z",
+		"bucket_size": "day",
+		"group_by":    []string{"endpoint"},
+		"limit":       10,
+	}, authHeaders, nil)
+	if searchRes.Code != http.StatusOK {
+		t.Fatalf("search rate-aggregation usage status = %d, want %d: %s", searchRes.Code, http.StatusOK, searchRes.Body.String())
+	}
+	var buckets []usageBucketResponse
+	decodeJSON(t, searchRes, &buckets)
+	if len(buckets) != 2 {
+		t.Fatalf("rate-aggregation buckets = %#v, want two endpoint groups", buckets)
+	}
+	if buckets[0].Group["endpoint"] != "/orders" {
+		t.Fatalf("rate-aggregation first bucket = %#v, want /orders group", buckets[0])
+	}
+	assertFloatNear(t, buckets[0].Quantity, 2.0/86400.0, "rate-aggregation /orders quantity")
+	if buckets[1].Group["endpoint"] != "/users" {
+		t.Fatalf("rate-aggregation second bucket = %#v, want /users group", buckets[1])
+	}
+	assertFloatNear(t, buckets[1].Quantity, 1.0/86400.0, "rate-aggregation /users quantity")
+}
+
+func assertFloatNear(t *testing.T, got float64, want float64, label string) {
+	t.Helper()
+
+	if math.Abs(got-want) > 1e-12 {
+		t.Fatalf("%s = %g, want %g", label, got, want)
 	}
 }
 
