@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ssubedir/open-spanner/internal/metering/adapters/postgres/postgresdb"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
 	domainmeter "github.com/ssubedir/open-spanner/internal/metering/domain/meter"
 	domainusage "github.com/ssubedir/open-spanner/internal/metering/domain/usage"
@@ -25,7 +26,8 @@ const (
 )
 
 type UsageRepository struct {
-	store *Store
+	store   *Store
+	queries *postgresdb.Queries
 }
 
 type eventStore interface {
@@ -56,11 +58,11 @@ type pruneRunMeterSnapshot struct {
 }
 
 func NewUsageRepository(store *Store) *UsageRepository {
-	return &UsageRepository{store: store}
+	return &UsageRepository{store: store, queries: postgresdb.New(store)}
 }
 
 func (r *UsageRepository) Save(ctx context.Context, event domainusage.Event) (domainusage.Event, error) {
-	return r.save(ctx, r.store, event)
+	return r.save(ctx, event)
 }
 
 func (r *UsageRepository) SaveBulk(ctx context.Context, idempotencyKey string, events []domainusage.Event) (domainusage.BulkSaveResult, error) {
@@ -79,7 +81,7 @@ func (r *UsageRepository) SaveBulk(ctx context.Context, idempotencyKey string, e
 		accepted := make([]domainusage.Event, 0, len(events))
 		duplicates := []domainusage.Event{}
 		for _, event := range events {
-			savedEvent, duplicate, err := r.saveWithDuplicate(txCtx, r.store, event)
+			savedEvent, duplicate, err := r.saveWithDuplicate(txCtx, event)
 			if err != nil {
 				return err
 			}
@@ -100,10 +102,11 @@ func (r *UsageRepository) SaveBulk(ctx context.Context, idempotencyKey string, e
 			return err
 		}
 
-		_, err = r.store.ExecContext(txCtx, `
-INSERT INTO bulk_usage_ingestions (idempotency_key, response, created_at)
-VALUES ($1, $2, $3)
-`, idempotencyKey, response, formatTime(time.Now().UTC()))
+		err = r.queries.SaveBulkUsageIngestion(txCtx, postgresdb.SaveBulkUsageIngestionParams{
+			IdempotencyKey: idempotencyKey,
+			Response:       response,
+			CreatedAt:      formatTime(time.Now().UTC()),
+		})
 		if err != nil {
 			if isUniqueConstraint(err) {
 				existing, findErr := r.findBulk(ctx, idempotencyKey)
@@ -128,20 +131,20 @@ VALUES ($1, $2, $3)
 	return result, nil
 }
 
-func (r *UsageRepository) save(ctx context.Context, store eventStore, event domainusage.Event) (domainusage.Event, error) {
-	saved, _, err := r.saveWithDuplicate(ctx, store, event)
+func (r *UsageRepository) save(ctx context.Context, event domainusage.Event) (domainusage.Event, error) {
+	saved, _, err := r.saveWithDuplicate(ctx, event)
 	return saved, err
 }
 
-func (r *UsageRepository) saveWithDuplicate(ctx context.Context, store eventStore, event domainusage.Event) (domainusage.Event, bool, error) {
-	if _, err := r.findByID(ctx, store, event.ID()); err == nil {
+func (r *UsageRepository) saveWithDuplicate(ctx context.Context, event domainusage.Event) (domainusage.Event, bool, error) {
+	if _, err := r.findByID(ctx, event.ID()); err == nil {
 		return domainusage.Event{}, false, domain.ErrConflict
 	} else if err != sql.ErrNoRows {
 		return domainusage.Event{}, false, err
 	}
 
 	if event.IdempotencyKey() != "" {
-		existing, err := r.findByIdempotencyKey(ctx, store, event.IdempotencyKey())
+		existing, err := r.findByIdempotencyKey(ctx, event.IdempotencyKey())
 		if err == nil {
 			return existing, true, nil
 		}
@@ -155,21 +158,19 @@ func (r *UsageRepository) saveWithDuplicate(ctx context.Context, store eventStor
 		return domainusage.Event{}, false, err
 	}
 
-	_, err = store.ExecContext(ctx, `
-INSERT INTO usage_events (
-	id,
-	idempotency_key,
-	subject,
-	meter_name,
-	quantity,
-	event_time,
-	received_at,
-	metadata
-) VALUES ($1, NULLIF($2, ''), $3, $4, $5, $6, $7, $8::jsonb)
-`, event.ID(), event.IdempotencyKey(), event.Subject(), event.MeterName(), event.Quantity(), formatTime(event.EventTime()), formatTime(event.ReceivedAt()), string(metadata))
+	err = r.queries.SaveUsageEvent(ctx, postgresdb.SaveUsageEventParams{
+		ID:             event.ID(),
+		IdempotencyKey: event.IdempotencyKey(),
+		Subject:        event.Subject(),
+		MeterName:      event.MeterName(),
+		Quantity:       event.Quantity(),
+		EventTime:      formatTime(event.EventTime()),
+		ReceivedAt:     formatTime(event.ReceivedAt()),
+		Metadata:       json.RawMessage(metadata),
+	})
 	if err != nil {
 		if isUniqueConstraint(err) && event.IdempotencyKey() != "" {
-			existing, findErr := r.findByIdempotencyKey(ctx, store, event.IdempotencyKey())
+			existing, findErr := r.findByIdempotencyKey(ctx, event.IdempotencyKey())
 			return existing, true, findErr
 		}
 		if isUniqueConstraint(err) {
@@ -1014,24 +1015,14 @@ LIMIT ` + bindArg(&args, query.Limit()) + `
 	return runs, nil
 }
 
-func (r *UsageRepository) findByIdempotencyKey(ctx context.Context, store eventStore, key string) (domainusage.Event, error) {
-	row := store.QueryRowContext(ctx, `
-SELECT id, idempotency_key, subject, meter_name, quantity, event_time, received_at, metadata
-FROM usage_events
-WHERE idempotency_key = $1
-`, key)
-
-	return scanEvent(row)
+func (r *UsageRepository) findByIdempotencyKey(ctx context.Context, key string) (domainusage.Event, error) {
+	event, err := r.queries.FindUsageEventByIdempotencyKey(ctx, sql.NullString{String: key, Valid: true})
+	return eventFromFields(event.ID, event.IdempotencyKey, event.Subject, event.MeterName, event.Quantity, event.EventTime, event.ReceivedAt, event.Metadata, err)
 }
 
-func (r *UsageRepository) findByID(ctx context.Context, store eventStore, id string) (domainusage.Event, error) {
-	row := store.QueryRowContext(ctx, `
-SELECT id, idempotency_key, subject, meter_name, quantity, event_time, received_at, metadata
-FROM usage_events
-WHERE id = $1
-`, id)
-
-	return scanEvent(row)
+func (r *UsageRepository) findByID(ctx context.Context, id string) (domainusage.Event, error) {
+	event, err := r.queries.FindUsageEventByID(ctx, id)
+	return eventFromFields(event.ID, event.IdempotencyKey, event.Subject, event.MeterName, event.Quantity, event.EventTime, event.ReceivedAt, event.Metadata, err)
 }
 
 func postgresJSONPath(key string) string {
@@ -1039,12 +1030,7 @@ func postgresJSONPath(key string) string {
 }
 
 func (r *UsageRepository) findBulk(ctx context.Context, idempotencyKey string) (domainusage.BulkSaveResult, error) {
-	var response string
-	err := r.store.queryRow(ctx, `
-SELECT response
-FROM bulk_usage_ingestions
-WHERE idempotency_key = $1
-`, idempotencyKey).Scan(&response)
+	response, err := r.queries.FindBulkUsageIngestion(ctx, idempotencyKey)
 	if err != nil {
 		return domainusage.BulkSaveResult{}, err
 	}
@@ -1072,6 +1058,39 @@ func scanIngestionRun(scanner interface {
 	}
 
 	return domainusage.NewIngestionRun(id, domainusage.IngestionKind(kind), accepted, duplicates, failed, createdAt)
+}
+
+func eventFromFields(id string, idempotencyKey sql.NullString, subject string, meterName string, quantity float64, eventTimeText string, receivedAtText string, metadataJSON json.RawMessage, err error) (domainusage.Event, error) {
+	if err != nil {
+		return domainusage.Event{}, err
+	}
+
+	eventTime, err := time.Parse(time.RFC3339Nano, eventTimeText)
+	if err != nil {
+		return domainusage.Event{}, err
+	}
+	receivedAt, err := time.Parse(time.RFC3339Nano, receivedAtText)
+	if err != nil {
+		return domainusage.Event{}, err
+	}
+
+	metadata := map[string]any{}
+	if len(metadataJSON) > 0 {
+		if err := json.Unmarshal(metadataJSON, &metadata); err != nil {
+			return domainusage.Event{}, err
+		}
+	}
+
+	return domainusage.NewEvent(
+		id,
+		idempotencyKey.String,
+		subject,
+		meterName,
+		quantity,
+		eventTime,
+		receivedAt,
+		metadata,
+	)
 }
 
 func boolInt(value bool) int {

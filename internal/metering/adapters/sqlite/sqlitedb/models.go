@@ -24,3 +24,14 @@ type AuthUser struct {
 	PasswordHash string
 	CreatedAt    string
 }
+
+type UsageEvent struct {
+	ID             string
+	IdempotencyKey sql.NullString
+	Subject        string
+	MeterName      string
+	Quantity       float64
+	EventTime      string
+	ReceivedAt     string
+	Metadata       string
+}

@@ -6,6 +6,7 @@ package postgresdb
 
 import (
 	"database/sql"
+	"encoding/json"
 )
 
 type AuthApiKey struct {
@@ -23,4 +24,15 @@ type AuthUser struct {
 	Email        string
 	PasswordHash string
 	CreatedAt    string
+}
+
+type UsageEvent struct {
+	ID             string
+	IdempotencyKey sql.NullString
+	Subject        string
+	MeterName      string
+	Quantity       float64
+	EventTime      string
+	ReceivedAt     string
+	Metadata       json.RawMessage
 }
