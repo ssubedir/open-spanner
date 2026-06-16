@@ -7,16 +7,17 @@ import (
 	"errors"
 	"time"
 
+	"github.com/ssubedir/open-spanner/internal/metering/adapters/postgres/postgresdb"
 	appsavedquery "github.com/ssubedir/open-spanner/internal/metering/app/savedquery"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
 )
 
 type SavedQueryRepository struct {
-	store *Store
+	queries *postgresdb.Queries
 }
 
 func NewSavedQueryRepository(store *Store) *SavedQueryRepository {
-	return &SavedQueryRepository{store: store}
+	return &SavedQueryRepository{queries: postgresdb.New(store)}
 }
 
 func (r *SavedQueryRepository) Save(ctx context.Context, query appsavedquery.SavedQuery) (appsavedquery.SavedQuery, error) {
@@ -25,19 +26,19 @@ func (r *SavedQueryRepository) Save(ctx context.Context, query appsavedquery.Sav
 		return appsavedquery.SavedQuery{}, err
 	}
 
-	_, err = r.store.exec(ctx, `
-INSERT INTO usage_saved_queries (id, user_id, name, query_json, group_by, bucket_size, result_limit, pinned, position, created_at, updated_at)
-VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8, $9, $10, $11)
-ON CONFLICT(id) DO UPDATE SET
-	name = excluded.name,
-	query_json = excluded.query_json,
-	group_by = excluded.group_by,
-	bucket_size = excluded.bucket_size,
-	result_limit = excluded.result_limit,
-	pinned = excluded.pinned,
-	position = excluded.position,
-	updated_at = excluded.updated_at
-`, query.ID, query.UserID, query.Name, string(query.Query), string(groupBy), query.BucketSize, query.Limit, query.Pinned, query.Position, formatTime(query.CreatedAt), formatTime(query.UpdatedAt))
+	err = r.queries.SaveSavedQuery(ctx, postgresdb.SaveSavedQueryParams{
+		ID:          query.ID,
+		UserID:      query.UserID,
+		Name:        query.Name,
+		QueryJson:   query.Query,
+		GroupBy:     json.RawMessage(groupBy),
+		BucketSize:  query.BucketSize,
+		ResultLimit: int32(query.Limit),
+		Pinned:      query.Pinned,
+		Position:    int32(query.Position),
+		CreatedAt:   formatTime(query.CreatedAt),
+		UpdatedAt:   formatTime(query.UpdatedAt),
+	})
 	if err != nil {
 		if isUniqueConstraint(err) {
 			return appsavedquery.SavedQuery{}, errors.Join(domain.ErrConflict, err)
@@ -50,11 +51,11 @@ ON CONFLICT(id) DO UPDATE SET
 
 func (r *SavedQueryRepository) Find(ctx context.Context, query appsavedquery.FindQuery) ([]appsavedquery.SavedQuery, error) {
 	if query.ID != "" {
-		saved, err := scanSavedQuery(r.store.queryRow(ctx, `
-SELECT id, user_id, name, query_json, group_by, bucket_size, result_limit, pinned, position, created_at, updated_at
-FROM usage_saved_queries
-WHERE user_id = $1 AND id = $2
-`, query.UserID, query.ID))
+		row, err := r.queries.FindSavedQueryByID(ctx, postgresdb.FindSavedQueryByIDParams{
+			UserID: query.UserID,
+			ID:     query.ID,
+		})
+		saved, err := savedQueryFromFields(row.ID, row.UserID, row.Name, row.QueryJson, row.GroupBy, row.BucketSize, row.ResultLimit, row.Pinned, row.Position, row.CreatedAt, row.UpdatedAt, err)
 		if err != nil {
 			if errors.Is(err, domain.ErrNotFound) {
 				return []appsavedquery.SavedQuery{}, nil
@@ -64,63 +65,53 @@ WHERE user_id = $1 AND id = $2
 		return []appsavedquery.SavedQuery{saved}, nil
 	}
 
-	rows, err := r.store.query(ctx, `
-SELECT id, user_id, name, query_json, group_by, bucket_size, result_limit, pinned, position, created_at, updated_at
-FROM usage_saved_queries
-WHERE user_id = $1
-ORDER BY pinned DESC, position ASC, updated_at DESC, id DESC
-`, query.UserID)
+	rows, err := r.queries.ListSavedQueries(ctx, query.UserID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	queries := []appsavedquery.SavedQuery{}
-	for rows.Next() {
-		saved, err := scanSavedQuery(rows)
+	queries := make([]appsavedquery.SavedQuery, 0, len(rows))
+	for _, row := range rows {
+		saved, err := savedQueryFromFields(row.ID, row.UserID, row.Name, row.QueryJson, row.GroupBy, row.BucketSize, row.ResultLimit, row.Pinned, row.Position, row.CreatedAt, row.UpdatedAt, nil)
 		if err != nil {
 			return nil, err
 		}
 		queries = append(queries, saved)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
 	return queries, nil
 }
 
 func (r *SavedQueryRepository) Delete(ctx context.Context, userID string, id string) error {
-	res, err := r.store.exec(ctx, `
-DELETE FROM usage_saved_queries
-WHERE user_id = $1 AND id = $2
-`, userID, id)
+	rows, err := r.queries.DeleteSavedQuery(ctx, postgresdb.DeleteSavedQueryParams{UserID: userID, ID: id})
 	if err != nil {
 		return err
 	}
-	if rows, err := res.RowsAffected(); err == nil && rows == 0 {
+	if rows == 0 {
 		return domain.ErrNotFound
 	}
 	return nil
 }
 
-func scanSavedQuery(scanner interface {
-	Scan(dest ...any) error
-}) (appsavedquery.SavedQuery, error) {
-	var query appsavedquery.SavedQuery
-	var queryJSON string
-	var groupByJSON string
-	var createdAt string
-	var updatedAt string
-	if err := scanner.Scan(&query.ID, &query.UserID, &query.Name, &queryJSON, &groupByJSON, &query.BucketSize, &query.Limit, &query.Pinned, &query.Position, &createdAt, &updatedAt); err != nil {
+func savedQueryFromFields(id string, userID string, name string, queryJSON json.RawMessage, groupByJSON json.RawMessage, bucketSize string, resultLimit int32, pinned bool, position int32, createdAt string, updatedAt string, err error) (appsavedquery.SavedQuery, error) {
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return appsavedquery.SavedQuery{}, domain.ErrNotFound
 		}
 		return appsavedquery.SavedQuery{}, err
 	}
 
-	query.Query = json.RawMessage(queryJSON)
-	if groupByJSON != "" {
-		if err := json.Unmarshal([]byte(groupByJSON), &query.GroupBy); err != nil {
+	query := appsavedquery.SavedQuery{
+		ID:         id,
+		UserID:     userID,
+		Name:       name,
+		Query:      queryJSON,
+		BucketSize: bucketSize,
+		Limit:      int(resultLimit),
+		Pinned:     pinned,
+		Position:   int(position),
+	}
+	if len(groupByJSON) > 0 {
+		if err := json.Unmarshal(groupByJSON, &query.GroupBy); err != nil {
 			return appsavedquery.SavedQuery{}, err
 		}
 	}
