@@ -36,3 +36,20 @@ type UsageEvent struct {
 	ReceivedAt     string
 	Metadata       json.RawMessage
 }
+
+type UsageIngestion struct {
+	ID         string
+	Kind       string
+	Accepted   int32
+	Duplicates int32
+	Failed     int32
+	CreatedAt  string
+}
+
+type UsagePruneRun struct {
+	ID        string
+	DryRun    int32
+	Deleted   int32
+	Meters    string
+	CreatedAt string
+}

@@ -25,11 +25,6 @@ type UsageRepository struct {
 	queries *sqlitedb.Queries
 }
 
-type eventStore interface {
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-}
-
 type eventSnapshot struct {
 	ID             string         `json:"id"`
 	IdempotencyKey string         `json:"idempotency_key"`
@@ -863,60 +858,40 @@ LIMIT ?
 }
 
 func (r *UsageRepository) PruneEvents(ctx context.Context, query domainusage.PruneQuery) (int, error) {
-	return r.pruneEvents(ctx, r.store, query)
-}
-
-func (r *UsageRepository) pruneEvents(ctx context.Context, store eventStore, query domainusage.PruneQuery) (int, error) {
-	result, err := store.ExecContext(ctx, `
-DELETE FROM usage_events
-WHERE meter_name = ?
-	AND event_time < ?
-`, query.MeterName(), formatTime(query.Before()))
+	deleted, err := r.queries.PruneUsageEvents(ctx, sqlitedb.PruneUsageEventsParams{
+		MeterName: query.MeterName(),
+		EventTime: formatTime(query.Before()),
+	})
 	if err != nil {
 		return 0, err
 	}
-
-	deleted, err := result.RowsAffected()
-	if err != nil {
-		return 0, err
-	}
-
 	return int(deleted), nil
 }
 
 func (r *UsageRepository) CountPrunableEvents(ctx context.Context, query domainusage.PruneQuery) (int, error) {
-	return r.countPrunableEvents(ctx, r.store, query)
-}
-
-func (r *UsageRepository) countPrunableEvents(ctx context.Context, store eventStore, query domainusage.PruneQuery) (int, error) {
-	var count int
-	err := store.QueryRowContext(ctx, `
-SELECT COUNT(*)
-FROM usage_events
-WHERE meter_name = ?
-	AND event_time < ?
-`, query.MeterName(), formatTime(query.Before())).Scan(&count)
+	count, err := r.queries.CountPrunableUsageEvents(ctx, sqlitedb.CountPrunableUsageEventsParams{
+		MeterName: query.MeterName(),
+		EventTime: formatTime(query.Before()),
+	})
 	if err != nil {
 		return 0, err
 	}
-
-	return count, nil
+	return int(count), nil
 }
 
 func (r *UsageRepository) SavePruneRun(ctx context.Context, run domainusage.PruneRun) (domainusage.PruneRun, error) {
-	return r.savePruneRun(ctx, r.store, run)
-}
-
-func (r *UsageRepository) savePruneRun(ctx context.Context, store eventStore, run domainusage.PruneRun) (domainusage.PruneRun, error) {
 	meters, err := marshalPruneRunMeters(run.Meters())
 	if err != nil {
 		return domainusage.PruneRun{}, err
 	}
 
-	_, err = store.ExecContext(ctx, `
-INSERT INTO usage_prune_runs (id, dry_run, deleted, meters, created_at)
-VALUES (?, ?, ?, ?, ?)
-`, run.ID(), boolInt(run.DryRun()), run.Deleted(), meters, formatTime(run.CreatedAt()))
+	err = r.queries.SaveUsagePruneRun(ctx, sqlitedb.SaveUsagePruneRunParams{
+		ID:        run.ID(),
+		DryRun:    int64(boolInt(run.DryRun())),
+		Deleted:   int64(run.Deleted()),
+		Meters:    meters,
+		CreatedAt: formatTime(run.CreatedAt()),
+	})
 	if err != nil {
 		return domainusage.PruneRun{}, err
 	}
@@ -925,57 +900,44 @@ VALUES (?, ?, ?, ?, ?)
 }
 
 func (r *UsageRepository) FindPruneRuns(ctx context.Context, query domainusage.RunQuery) ([]domainusage.PruneRun, error) {
-	sqlQuery := strings.Builder{}
-	sqlQuery.WriteString(`
-SELECT id, dry_run, deleted, meters, created_at
-FROM usage_prune_runs
-WHERE 1 = 1
-`)
-	args := []any{}
-	if query.HasCursor() {
-		sqlQuery.WriteString(" AND (created_at < ? OR (created_at = ? AND id < ?))\n")
-		cursorTime := formatTime(query.CreatedAt())
-		args = append(args, cursorTime, cursorTime, query.ID())
-	}
-	sqlQuery.WriteString(`ORDER BY created_at DESC, id DESC
-LIMIT ?
-`)
-	args = append(args, query.Limit())
-
-	rows, err := r.store.db.QueryContext(ctx, sqlQuery.String(), args...)
+	cursorCreatedAt, cursorID := runCursorValues(query)
+	rows, err := r.queries.ListUsagePruneRuns(ctx, sqlitedb.ListUsagePruneRunsParams{
+		CursorCreatedAt: cursorCreatedAt,
+		CursorID:        cursorID,
+		Limit:           int64(query.Limit()),
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	runs := []domainusage.PruneRun{}
-	for rows.Next() {
-		run, err := scanPruneRun(rows)
+	runs := make([]domainusage.PruneRun, 0, len(rows))
+	for _, row := range rows {
+		run, err := pruneRunFromFields(row.ID, row.DryRun, row.Deleted, row.Meters, row.CreatedAt)
 		if err != nil {
 			return nil, err
 		}
 		runs = append(runs, run)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
 	return runs, nil
 }
 
 func (r *UsageRepository) CountPruneRuns(ctx context.Context) (int, error) {
-	var count int
-	if err := r.store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM usage_prune_runs`).Scan(&count); err != nil {
+	count, err := r.queries.CountUsagePruneRuns(ctx)
+	if err != nil {
 		return 0, err
 	}
-	return count, nil
+	return int(count), nil
 }
 
 func (r *UsageRepository) SaveIngestionRun(ctx context.Context, run domainusage.IngestionRun) (domainusage.IngestionRun, error) {
-	_, err := r.store.db.ExecContext(ctx, `
-INSERT INTO usage_ingestions (id, kind, accepted, duplicates, failed, created_at)
-VALUES (?, ?, ?, ?, ?, ?)
-`, run.ID(), string(run.Kind()), run.Accepted(), run.Duplicates(), run.Failed(), formatTime(run.CreatedAt()))
+	err := r.queries.SaveUsageIngestionRun(ctx, sqlitedb.SaveUsageIngestionRunParams{
+		ID:         run.ID(),
+		Kind:       string(run.Kind()),
+		Accepted:   int64(run.Accepted()),
+		Duplicates: int64(run.Duplicates()),
+		Failed:     int64(run.Failed()),
+		CreatedAt:  formatTime(run.CreatedAt()),
+	})
 	if err != nil {
 		return domainusage.IngestionRun{}, err
 	}
@@ -984,41 +946,24 @@ VALUES (?, ?, ?, ?, ?, ?)
 }
 
 func (r *UsageRepository) FindIngestionRuns(ctx context.Context, query domainusage.RunQuery) ([]domainusage.IngestionRun, error) {
-	sqlQuery := strings.Builder{}
-	sqlQuery.WriteString(`
-SELECT id, kind, accepted, duplicates, failed, created_at
-FROM usage_ingestions
-WHERE 1 = 1
-`)
-	args := []any{}
-	if query.HasCursor() {
-		sqlQuery.WriteString(" AND (created_at < ? OR (created_at = ? AND id < ?))\n")
-		cursorTime := formatTime(query.CreatedAt())
-		args = append(args, cursorTime, cursorTime, query.ID())
-	}
-	sqlQuery.WriteString(`ORDER BY created_at DESC, id DESC
-LIMIT ?
-`)
-	args = append(args, query.Limit())
-
-	rows, err := r.store.db.QueryContext(ctx, sqlQuery.String(), args...)
+	cursorCreatedAt, cursorID := runCursorValues(query)
+	rows, err := r.queries.ListUsageIngestionRuns(ctx, sqlitedb.ListUsageIngestionRunsParams{
+		CursorCreatedAt: cursorCreatedAt,
+		CursorID:        cursorID,
+		Limit:           int64(query.Limit()),
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	runs := []domainusage.IngestionRun{}
-	for rows.Next() {
-		run, err := scanIngestionRun(rows)
+	runs := make([]domainusage.IngestionRun, 0, len(rows))
+	for _, row := range rows {
+		run, err := ingestionRunFromFields(row.ID, row.Kind, row.Accepted, row.Duplicates, row.Failed, row.CreatedAt)
 		if err != nil {
 			return nil, err
 		}
 		runs = append(runs, run)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
 	return runs, nil
 }
 
@@ -1041,26 +986,20 @@ func (r *UsageRepository) findBulk(ctx context.Context, idempotencyKey string) (
 	return unmarshalBulkResult(response)
 }
 
-func scanIngestionRun(scanner interface {
-	Scan(dest ...any) error
-}) (domainusage.IngestionRun, error) {
-	var id string
-	var kind string
-	var accepted int
-	var duplicates int
-	var failed int
-	var createdAtText string
-
-	if err := scanner.Scan(&id, &kind, &accepted, &duplicates, &failed, &createdAtText); err != nil {
-		return domainusage.IngestionRun{}, err
+func runCursorValues(query domainusage.RunQuery) (sql.NullString, sql.NullString) {
+	if !query.HasCursor() {
+		return sql.NullString{}, sql.NullString{}
 	}
+	return sql.NullString{String: formatTime(query.CreatedAt()), Valid: true}, sql.NullString{String: query.ID(), Valid: true}
+}
 
+func ingestionRunFromFields(id string, kind string, accepted int64, duplicates int64, failed int64, createdAtText string) (domainusage.IngestionRun, error) {
 	createdAt, err := time.Parse(time.RFC3339Nano, createdAtText)
 	if err != nil {
 		return domainusage.IngestionRun{}, err
 	}
 
-	return domainusage.NewIngestionRun(id, domainusage.IngestionKind(kind), accepted, duplicates, failed, createdAt)
+	return domainusage.NewIngestionRun(id, domainusage.IngestionKind(kind), int(accepted), int(duplicates), int(failed), createdAt)
 }
 
 func eventFromFields(id string, idempotencyKey sql.NullString, subject string, meterName string, quantity float64, eventTimeText string, receivedAtText string, metadataText string, err error) (domainusage.Event, error) {
@@ -1103,19 +1042,7 @@ func boolInt(value bool) int {
 	return 0
 }
 
-func scanPruneRun(scanner interface {
-	Scan(dest ...any) error
-}) (domainusage.PruneRun, error) {
-	var id string
-	var dryRun int
-	var deleted int
-	var metersText string
-	var createdAtText string
-
-	if err := scanner.Scan(&id, &dryRun, &deleted, &metersText, &createdAtText); err != nil {
-		return domainusage.PruneRun{}, err
-	}
-
+func pruneRunFromFields(id string, dryRun int64, deleted int64, metersText string, createdAtText string) (domainusage.PruneRun, error) {
 	meters, err := unmarshalPruneRunMeters(metersText)
 	if err != nil {
 		return domainusage.PruneRun{}, err
@@ -1125,7 +1052,7 @@ func scanPruneRun(scanner interface {
 		return domainusage.PruneRun{}, err
 	}
 
-	return domainusage.NewPruneRun(id, dryRun != 0, deleted, meters, createdAt)
+	return domainusage.NewPruneRun(id, dryRun != 0, int(deleted), meters, createdAt)
 }
 
 func scanEvent(scanner interface {

@@ -35,3 +35,20 @@ type UsageEvent struct {
 	ReceivedAt     string
 	Metadata       string
 }
+
+type UsageIngestion struct {
+	ID         string
+	Kind       string
+	Accepted   int64
+	Duplicates int64
+	Failed     int64
+	CreatedAt  string
+}
+
+type UsagePruneRun struct {
+	ID        string
+	DryRun    int64
+	Deleted   int64
+	Meters    string
+	CreatedAt string
+}
