@@ -3,6 +3,7 @@ package repositorytest
 import (
 	"context"
 	"errors"
+	"math"
 	"testing"
 	"time"
 
@@ -113,6 +114,131 @@ func Run(t *testing.T, setup SetupFunc) {
 		}
 		if len(buckets) != 1 || buckets[0].Quantity() != 5 {
 			t.Fatalf("usage buckets = %#v, want one bucket with quantity 5", buckets)
+		}
+	})
+
+	t.Run("usage buckets by hour day and month", func(t *testing.T) {
+		ctx := context.Background()
+		meterRepo, usageRepo, _ := setup(t, ctx)
+		saveMeter(t, ctx, meterRepo, "meter-1", "bucket_shapes")
+
+		events := []domainusage.Event{
+			newEvent(t, "event-1", "", "org_123", "bucket_shapes", 2, time.Date(2026, 6, 8, 10, 10, 0, 0, time.UTC), nil),
+			newEvent(t, "event-2", "", "org_123", "bucket_shapes", 3, time.Date(2026, 6, 8, 10, 40, 0, 0, time.UTC), nil),
+			newEvent(t, "event-3", "", "org_123", "bucket_shapes", 5, time.Date(2026, 6, 9, 9, 0, 0, 0, time.UTC), nil),
+			newEvent(t, "event-4", "", "org_123", "bucket_shapes", 7, time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC), nil),
+		}
+		for _, event := range events {
+			if _, err := usageRepo.Save(ctx, event); err != nil {
+				t.Fatalf("save usage %s: %v", event.ID(), err)
+			}
+		}
+
+		cases := []struct {
+			name       string
+			bucketSize domainusage.BucketSize
+			from       time.Time
+			to         time.Time
+			want       []bucketExpectation
+		}{
+			{
+				name:       "hour",
+				bucketSize: domainusage.BucketHour,
+				from:       time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC),
+				to:         time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC),
+				want: []bucketExpectation{
+					{start: time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC), quantity: 5},
+				},
+			},
+			{
+				name:       "day",
+				bucketSize: domainusage.BucketDay,
+				from:       time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC),
+				to:         time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC),
+				want: []bucketExpectation{
+					{start: time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC), quantity: 5},
+					{start: time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC), quantity: 5},
+				},
+			},
+			{
+				name:       "month",
+				bucketSize: domainusage.BucketMonth,
+				from:       time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+				to:         time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+				want: []bucketExpectation{
+					{start: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), quantity: 10},
+					{start: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), quantity: 7},
+				},
+			},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				query := newUsageQuery(t, "org_123", "bucket_shapes", tc.from, tc.to, tc.bucketSize, domainmeter.AggregationSum, nil, nil, domainusage.EmptyFilter(), 0)
+				buckets, err := usageRepo.Query(ctx, query)
+				if err != nil {
+					t.Fatalf("query %s buckets: %v", tc.name, err)
+				}
+				assertBuckets(t, buckets, tc.want)
+			})
+		}
+	})
+
+	t.Run("usage aggregation modes match generated and grouped paths", func(t *testing.T) {
+		ctx := context.Background()
+		meterRepo, usageRepo, _ := setup(t, ctx)
+		saveMeter(t, ctx, meterRepo, "meter-1", "readings")
+
+		start := time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC)
+		events := []domainusage.Event{
+			newEvent(t, "event-1", "", "org_123", "readings", 10, start.Add(5*time.Minute), map[string]any{"region": "us-east-1"}),
+			newEvent(t, "event-2", "", "org_123", "readings", 4, start.Add(20*time.Minute), map[string]any{"region": "us-east-1"}),
+			newEvent(t, "event-3", "", "org_123", "readings", 16, start.Add(45*time.Minute), map[string]any{"region": "us-east-1"}),
+			newEvent(t, "event-4", "", "org_456", "readings", 100, start.Add(50*time.Minute), map[string]any{"region": "us-west-2"}),
+		}
+		for _, event := range events {
+			if _, err := usageRepo.Save(ctx, event); err != nil {
+				t.Fatalf("save usage %s: %v", event.ID(), err)
+			}
+		}
+
+		cases := []struct {
+			name        string
+			aggregation domainmeter.Aggregation
+			want        float64
+		}{
+			{"sum", domainmeter.AggregationSum, 30},
+			{"count", domainmeter.AggregationCount, 3},
+			{"avg", domainmeter.AggregationAverage, 10},
+			{"min", domainmeter.AggregationMinimum, 4},
+			{"max", domainmeter.AggregationMaximum, 16},
+			{"first", domainmeter.AggregationFirst, 10},
+			{"last", domainmeter.AggregationLast, 16},
+			{"rate", domainmeter.AggregationRate, 3.0 / 3600.0},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				query := newUsageQuery(t, "org_123", "readings", start, start.Add(time.Hour), domainusage.BucketHour, tc.aggregation, nil, nil, domainusage.EmptyFilter(), 0)
+				buckets, err := usageRepo.Query(ctx, query)
+				if err != nil {
+					t.Fatalf("query generated buckets: %v", err)
+				}
+				if len(buckets) != 1 {
+					t.Fatalf("generated bucket count = %d, want 1: %#v", len(buckets), buckets)
+				}
+				assertFloat(t, buckets[0].Quantity(), tc.want, "generated bucket quantity")
+
+				groupedQuery := newUsageQuery(t, "org_123", "readings", start, start.Add(time.Hour), domainusage.BucketHour, tc.aggregation, nil, []string{"region"}, domainusage.EmptyFilter(), 0)
+				groupedBuckets, err := usageRepo.Query(ctx, groupedQuery)
+				if err != nil {
+					t.Fatalf("query grouped buckets: %v", err)
+				}
+				if len(groupedBuckets) != 1 || groupedBuckets[0].Group()["region"] != "us-east-1" {
+					t.Fatalf("grouped buckets = %#v, want one us-east-1 bucket", groupedBuckets)
+				}
+				assertFloat(t, groupedBuckets[0].Quantity(), tc.want, "grouped bucket quantity")
+			})
 		}
 	})
 
@@ -413,6 +539,59 @@ func Run(t *testing.T, setup SetupFunc) {
 		}
 	})
 
+	t.Run("usage breakdown aggregation modes", func(t *testing.T) {
+		ctx := context.Background()
+		meterRepo, usageRepo, _ := setup(t, ctx)
+		saveMeter(t, ctx, meterRepo, "meter-1", "breakdown_modes")
+
+		start := time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC)
+		events := []domainusage.Event{
+			newEvent(t, "event-1", "", "org_123", "breakdown_modes", 10, start.Add(5*time.Minute), map[string]any{"endpoint": "/orders"}),
+			newEvent(t, "event-2", "", "org_123", "breakdown_modes", 4, start.Add(20*time.Minute), map[string]any{"endpoint": "/orders"}),
+			newEvent(t, "event-3", "", "org_123", "breakdown_modes", 16, start.Add(45*time.Minute), map[string]any{"endpoint": "/orders"}),
+			newEvent(t, "event-4", "", "org_123", "breakdown_modes", 2, start.Add(50*time.Minute), map[string]any{"endpoint": "/users"}),
+		}
+		for _, event := range events {
+			if _, err := usageRepo.Save(ctx, event); err != nil {
+				t.Fatalf("save usage %s: %v", event.ID(), err)
+			}
+		}
+
+		cases := []struct {
+			name        string
+			aggregation domainmeter.Aggregation
+			want        float64
+		}{
+			{"sum", domainmeter.AggregationSum, 30},
+			{"count", domainmeter.AggregationCount, 3},
+			{"avg", domainmeter.AggregationAverage, 10},
+			{"min", domainmeter.AggregationMinimum, 4},
+			{"max", domainmeter.AggregationMaximum, 16},
+			{"first", domainmeter.AggregationFirst, 10},
+			{"last", domainmeter.AggregationLast, 16},
+			{"rate", domainmeter.AggregationRate, 3.0 / 3600.0},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				query := newBreakdownQueryRange(t, "org_123", "breakdown_modes", "endpoint", start, start.Add(time.Hour), tc.aggregation, domainusage.EmptyFilter())
+				items, err := usageRepo.FindBreakdown(ctx, query)
+				if err != nil {
+					t.Fatalf("find breakdown: %v", err)
+				}
+				if len(items) != 2 {
+					t.Fatalf("breakdown count = %d, want 2: %#v", len(items), items)
+				}
+
+				orders := findBreakdownItem(items, "/orders")
+				if orders.Value() == "" || orders.UsageEvents() != 3 {
+					t.Fatalf("orders breakdown = %#v, want three usage events", orders)
+				}
+				assertFloat(t, orders.Quantity(), tc.want, "orders breakdown quantity")
+			})
+		}
+	})
+
 	t.Run("prune transaction rollback", func(t *testing.T) {
 		ctx := context.Background()
 		meterRepo, usageRepo, transactor := setup(t, ctx)
@@ -534,12 +713,46 @@ func Run(t *testing.T, setup SetupFunc) {
 	})
 }
 
+type bucketExpectation struct {
+	start    time.Time
+	quantity float64
+}
+
 func totalQuantity(buckets []domainusage.Bucket) float64 {
 	total := 0.0
 	for _, bucket := range buckets {
 		total += bucket.Quantity()
 	}
 	return total
+}
+
+func assertBuckets(t *testing.T, buckets []domainusage.Bucket, want []bucketExpectation) {
+	t.Helper()
+	if len(buckets) != len(want) {
+		t.Fatalf("bucket count = %d, want %d: %#v", len(buckets), len(want), buckets)
+	}
+	for index, expectation := range want {
+		if !buckets[index].BucketStart().Equal(expectation.start) {
+			t.Fatalf("bucket %d start = %s, want %s", index, buckets[index].BucketStart(), expectation.start)
+		}
+		assertFloat(t, buckets[index].Quantity(), expectation.quantity, "bucket quantity")
+	}
+}
+
+func assertFloat(t *testing.T, got float64, want float64, label string) {
+	t.Helper()
+	if math.Abs(got-want) > 0.000001 {
+		t.Fatalf("%s = %v, want %v", label, got, want)
+	}
+}
+
+func findBreakdownItem(items []domainusage.BreakdownItem, value string) domainusage.BreakdownItem {
+	for _, item := range items {
+		if item.Value() == value {
+			return item
+		}
+	}
+	return domainusage.BreakdownItem{}
 }
 
 func saveMeter(t *testing.T, ctx context.Context, repo domainmeter.Repository, id string, name string) {
@@ -584,7 +797,8 @@ func newEvent(t *testing.T, id string, idempotencyKey string, subject string, me
 
 func newQuery(t *testing.T, subject string, meterName string, bucketSize domainusage.BucketSize, aggregation domainmeter.Aggregation, filter domainusage.Filter, groupBy string) domainusage.Query {
 	t.Helper()
-	query, err := domainusage.NewFilteredQuery(
+	query := newUsageQuery(
+		t,
 		subject,
 		meterName,
 		time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC),
@@ -592,19 +806,17 @@ func newQuery(t *testing.T, subject string, meterName string, bucketSize domainu
 		bucketSize,
 		aggregation,
 		nil,
-		groupBy,
-		0,
+		domainusage.SplitGroupBy(groupBy),
 		filter,
+		0,
 	)
-	if err != nil {
-		t.Fatalf("new query: %v", err)
-	}
 	return query
 }
 
 func newGroupedQuery(t *testing.T, subject string, meterName string, bucketSize domainusage.BucketSize, aggregation domainmeter.Aggregation, filter domainusage.Filter, groupBy []string) domainusage.Query {
 	t.Helper()
-	query, err := domainusage.NewGroupedFilteredQuery(
+	return newUsageQuery(
+		t,
 		subject,
 		meterName,
 		time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC),
@@ -613,23 +825,53 @@ func newGroupedQuery(t *testing.T, subject string, meterName string, bucketSize 
 		aggregation,
 		nil,
 		groupBy,
+		filter,
 		0,
+	)
+}
+
+func newUsageQuery(t *testing.T, subject string, meterName string, from time.Time, to time.Time, bucketSize domainusage.BucketSize, aggregation domainmeter.Aggregation, metadata map[string]string, groupBy []string, filter domainusage.Filter, limit int) domainusage.Query {
+	t.Helper()
+	query, err := domainusage.NewGroupedFilteredQuery(
+		subject,
+		meterName,
+		from,
+		to,
+		bucketSize,
+		aggregation,
+		metadata,
+		groupBy,
+		limit,
 		filter,
 	)
 	if err != nil {
-		t.Fatalf("new grouped query: %v", err)
+		t.Fatalf("new usage query: %v", err)
 	}
 	return query
 }
 
 func newBreakdownQuery(t *testing.T, subject string, meterName string, field string, aggregation domainmeter.Aggregation, filter domainusage.Filter) domainusage.BreakdownQuery {
 	t.Helper()
+	return newBreakdownQueryRange(
+		t,
+		subject,
+		meterName,
+		field,
+		time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC),
+		aggregation,
+		filter,
+	)
+}
+
+func newBreakdownQueryRange(t *testing.T, subject string, meterName string, field string, from time.Time, to time.Time, aggregation domainmeter.Aggregation, filter domainusage.Filter) domainusage.BreakdownQuery {
+	t.Helper()
 	query, err := domainusage.NewBreakdownQuery(
 		meterName,
 		field,
 		subject,
-		time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC),
-		time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC),
+		from,
+		to,
 		aggregation,
 		0,
 		filter,
