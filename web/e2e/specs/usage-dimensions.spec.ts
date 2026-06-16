@@ -34,4 +34,18 @@ test.describe('Feature: Dashboard usage exploration', () => {
     await Then.theUsagePageLoadsWithoutDimensionErrors(page)
     await Then.advancedQueryReturnsOnlyMatchingUsage(page, meterName)
   })
+
+  test('Scenario: a user opens usage from subject activity', async ({ page }) => {
+    const account = await Given.aDashboardAccount(page)
+    const meterName = `api_requests_subject_${Date.now()}`
+
+    await When.theUserSignsIn(page, account)
+    await Then.theDashboardIsAvailable(page, account)
+
+    await When.theUserCreatesAnAPIRequestMeter(page, meterName)
+    const scenario = await Given.apiRequestUsageExists(page, meterName)
+
+    await When.theUserOpensUsageFromSubjectActivity(page, scenario)
+    await Then.usageQueryIsScopedToSubjectAndMeter(page, scenario)
+  })
 })

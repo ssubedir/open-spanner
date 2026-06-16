@@ -8,6 +8,7 @@ export type DashboardAccount = {
 export type UsageScenario = {
   from: string
   meterName: string
+  primarySubject: string
   timestamp: string
   to: string
 }
@@ -27,10 +28,12 @@ export const Given = {
   },
 
   async apiRequestUsageExists(page: Page, meterName: string): Promise<UsageScenario> {
+    const subjectSuffix = uniqueID()
     const now = new Date()
     const timestamp = new Date(now.getTime() - 60_000)
     const from = toLocalDateTime(new Date(now.getTime() - 60 * 60_000))
     const to = toLocalDateTime(new Date(now.getTime() + 60 * 60_000))
+    const primarySubject = `org_e2e_alpha_${subjectSuffix}`
 
     for (const [index, event] of [
       {
@@ -40,7 +43,7 @@ export const Given = {
           status_code: '200',
         },
         quantity: 12,
-        subject: 'org_e2e_alpha',
+        subject: primarySubject,
       },
       {
         metadata: {
@@ -49,7 +52,7 @@ export const Given = {
           status_code: '201',
         },
         quantity: 4,
-        subject: 'org_e2e_beta',
+        subject: `org_e2e_beta_${subjectSuffix}`,
       },
     ].entries()) {
       const response = await page.request.post('/v1/usages', {
@@ -66,6 +69,7 @@ export const Given = {
     return {
       from,
       meterName,
+      primarySubject,
       timestamp: timestamp.toISOString(),
       to,
     }
@@ -157,6 +161,13 @@ export const When = {
     await expect(page.getByRole('button', { name: 'Unpin' })).toBeVisible()
     await page.getByRole('button', { name: 'Run Query' }).click()
   },
+
+  async theUserOpensUsageFromSubjectActivity(page: Page, scenario: UsageScenario) {
+    await page.goto(`/subjects/${scenario.primarySubject}`)
+    await expect(page.getByRole('heading', { name: scenario.primarySubject })).toBeVisible()
+    await expect(page.locator('.subject-meter-list')).toContainText(scenario.meterName)
+    await page.getByRole('button', { name: 'Open Usage' }).click()
+  },
 }
 
 export const Then = {
@@ -193,6 +204,14 @@ export const Then = {
     await expect(results).toContainText('12')
     await expect(results).not.toContainText('silver')
     await expect(results).not.toContainText('eu-west-1')
+  },
+
+  async usageQueryIsScopedToSubjectAndMeter(page: Page, scenario: UsageScenario) {
+    await expect(page).toHaveURL(/\/usage$/)
+    await expect.poll(() => queryRulePairs(page)).toEqual(expect.arrayContaining([
+      `meter:${scenario.meterName}`,
+      `subject:${scenario.primarySubject}`,
+    ]))
   },
 }
 
@@ -245,6 +264,14 @@ async function setRuleValue(row: ReturnType<Page['locator']>, value: string) {
     return
   }
   await valueControl.fill(value)
+}
+
+async function queryRulePairs(page: Page) {
+  return page.locator('.filter-builder .rule').evaluateAll((rows) => rows.map((row) => {
+    const field = (row.querySelector('.rule-fields') as HTMLSelectElement | null)?.value || ''
+    const value = (row.querySelector('.rule-value') as HTMLInputElement | HTMLSelectElement | null)?.value || ''
+    return `${field}:${value}`
+  }))
 }
 
 function toLocalDateTime(date: Date) {

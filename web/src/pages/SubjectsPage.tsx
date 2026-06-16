@@ -57,7 +57,7 @@ export function SubjectsPage({ routeSubject = '' }: SubjectsPageProps) {
     if (!selectedSubject) {
       return
     }
-    appStoreActions.prepareUsageForSubject(selectedSubject)
+    appStoreActions.prepareUsageForSubject(selectedSubject, meterSummaries[0]?.meter ?? '')
     void router.navigate({ to: '/usage' })
   }
 
@@ -133,7 +133,7 @@ export function SubjectsPage({ routeSubject = '' }: SubjectsPageProps) {
               <CardDescription>{detailDescription(selectedStats, detailStatus, selectedSubject)}</CardDescription>
             </div>
             <div className="subject-detail-actions">
-              <Button disabled={!selectedSubject} onClick={openUsageForSubject} type="button" variant="outline">
+              <Button disabled={!selectedSubject || detailStatus === 'loading'} onClick={openUsageForSubject} type="button" variant="outline">
                 <BarChart3 aria-hidden="true" />
                 Open Usage
               </Button>

@@ -290,6 +290,10 @@ export function queryWithSubject(query: RuleGroupType, subject: string): RuleGro
   return replaceRuleValue(query, 'subject', () => subject)
 }
 
+export function queryWithMeter(query: RuleGroupType, meter: string): RuleGroupType {
+  return replaceRuleValue(query, 'meter', () => meter)
+}
+
 function metadataFilterField(key: string, values: UsageDimensionValue[], metadataType?: string, label?: string): Field {
   const options = values.map((item) => ({
     name: item.value,

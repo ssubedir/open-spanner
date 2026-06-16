@@ -53,6 +53,7 @@ import {
   queryFromSavedValue,
   queryWithBreakdownFilter,
   queryWithAvailableMeter,
+  queryWithMeter,
   queryWithSubject,
   selectedMeterSchemaKeys,
   unsupportedBucketExportRuleCount,
@@ -572,17 +573,20 @@ export const appStoreActions = {
       selectedSavedQueryID: '',
     })
   },
-  prepareUsageForSubject(subject: string) {
+  prepareUsageForSubject(subject: string, meter = '') {
     const normalizedSubject = subject.trim()
     if (!normalizedSubject) {
       return
     }
+    const normalizedMeter = meter.trim()
 
     setUsageState((state) => ({
       buckets: [],
       error: '',
       exportError: '',
-      filterQuery: queryWithSubject(state.filterQuery, normalizedSubject),
+      filterQuery: normalizedMeter
+        ? queryWithMeter(queryWithSubject(state.filterQuery, normalizedSubject), normalizedMeter)
+        : queryWithSubject(state.filterQuery, normalizedSubject),
       savedQueryName: '',
       selectedSavedQueryID: '',
       status: 'idle',
