@@ -445,9 +445,10 @@ func filterPredicateExpression(filter domainusage.Filter) (exp.Expression, error
 }
 
 type sqlFilterField struct {
-	expression  sqlOperand
-	valueKind   string
-	metadataKey string
+	expression       sqlOperand
+	existsExpression exp.Expression
+	valueKind        string
+	metadataKey      string
 }
 
 func filterConditionPredicateExpression(filter domainusage.Filter) (exp.Expression, error) {
@@ -458,6 +459,9 @@ func filterConditionPredicateExpression(filter domainusage.Filter) (exp.Expressi
 
 	op := filter.ConditionOp()
 	if op == domainusage.FilterOpExists {
+		if field.existsExpression != nil {
+			return field.existsExpression, nil
+		}
 		return field.expression.IsNotNull(), nil
 	}
 
@@ -568,7 +572,12 @@ func filterFieldExpression(field string) (sqlFilterField, error) {
 		if err != nil {
 			return sqlFilterField{}, fmt.Errorf("%w: unsupported filter field %q", domain.ErrInvalidInput, field)
 		}
-		return sqlFilterField{expression: expression, valueKind: "text", metadataKey: key}, nil
+		return sqlFilterField{
+			expression:       expression,
+			existsExpression: goqu.L("metadata #> string_to_array(?, '.') IS NOT NULL", key),
+			valueKind:        "text",
+			metadataKey:      key,
+		}, nil
 	}
 }
 

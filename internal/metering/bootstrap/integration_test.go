@@ -318,6 +318,7 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 	runIntegrationRateAggregationFlow(t, router, authHeaders, suffix)
 	runIntegrationSummaryAggregationFlow(t, router, authHeaders, suffix)
 	runIntegrationFilterOperatorFlow(t, router, authHeaders, suffix)
+	runIntegrationDynamicSQLParityFlow(t, router, authHeaders, suffix)
 }
 
 func runIntegrationDimensionNameValidationFlow(t *testing.T, router http.Handler, authHeaders map[string]string, suffix string) {
@@ -1170,6 +1171,267 @@ func runIntegrationFilterOperatorFlow(t *testing.T, router http.Handler, authHea
 	}
 }
 
+func runIntegrationDynamicSQLParityFlow(t *testing.T, router http.Handler, authHeaders map[string]string, suffix string) {
+	t.Helper()
+
+	meterName := "dynamic_sql_" + suffix
+	subject := "org_dynamic_" + suffix
+	optionalRequired := false
+
+	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name":        meterName,
+		"description": "Dynamic SQL parity coverage",
+		"unit":        "event",
+		"aggregation": "sum",
+		"dimensions": []map[string]any{
+			{"name": "endpoint", "type": "string"},
+			{"name": "service.tier", "type": "string"},
+			{"name": "region-name", "type": "string"},
+			{"name": "status_code", "type": "number"},
+			{"name": "retry", "type": "boolean"},
+			{"name": "optional", "type": "string", "required": optionalRequired},
+		},
+	}, authHeaders, nil)
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create dynamic-sql meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
+	}
+
+	for _, event := range []map[string]any{
+		{
+			"idempotency_key": "dynamic-sql-" + suffix + "-orders-a",
+			"subject":         subject,
+			"meter":           meterName,
+			"quantity":        2,
+			"timestamp":       "2026-06-08T10:00:00Z",
+			"metadata": map[string]any{
+				"endpoint":    "/orders",
+				"service":     map[string]any{"tier": "gold"},
+				"region-name": "us-east",
+				"status_code": 200,
+				"retry":       false,
+				"optional":    "present",
+				"nullable":    nil,
+			},
+		},
+		{
+			"idempotency_key": "dynamic-sql-" + suffix + "-orders-b",
+			"subject":         subject,
+			"meter":           meterName,
+			"quantity":        7,
+			"timestamp":       "2026-06-08T10:00:00Z",
+			"metadata": map[string]any{
+				"endpoint":    "/orders",
+				"service":     map[string]any{"tier": "gold"},
+				"region-name": "us-west",
+				"status_code": 503,
+				"retry":       true,
+			},
+		},
+		{
+			"idempotency_key": "dynamic-sql-" + suffix + "-users",
+			"subject":         subject,
+			"meter":           meterName,
+			"quantity":        3,
+			"timestamp":       "2026-06-08T11:00:00Z",
+			"metadata": map[string]any{
+				"endpoint":    "/users",
+				"service":     map[string]any{"tier": "silver"},
+				"region-name": "us-east",
+				"status_code": 201,
+				"retry":       false,
+			},
+		},
+		{
+			"idempotency_key": "dynamic-sql-" + suffix + "-admin",
+			"subject":         subject,
+			"meter":           meterName,
+			"quantity":        5,
+			"timestamp":       "2026-06-08T12:00:00Z",
+			"metadata": map[string]any{
+				"endpoint":    "/admin",
+				"service":     map[string]any{"tier": "gold"},
+				"region-name": "eu-west",
+				"status_code": 429,
+				"retry":       true,
+			},
+		},
+	} {
+		createUsage := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages", event, authHeaders, nil)
+		if createUsage.Code != http.StatusCreated {
+			t.Fatalf("create dynamic-sql usage status = %d, want %d: %s", createUsage.Code, http.StatusCreated, createUsage.Body.String())
+		}
+	}
+
+	containsEvents := searchIntegrationEvents(t, router, authHeaders, map[string]any{
+		"subject": subject,
+		"meter":   meterName,
+		"from":    "2026-06-08T00:00:00Z",
+		"to":      "2026-06-09T00:00:00Z",
+		"limit":   10,
+		"filter": map[string]any{
+			"type":  "condition",
+			"field": "metadata.endpoint",
+			"op":    "contains",
+			"value": "ord",
+		},
+	})
+	assertEventEndpoints(t, containsEvents.Items, []string{"/orders", "/orders"}, "dynamic contains endpoint events")
+
+	numberEvents := searchIntegrationEvents(t, router, authHeaders, map[string]any{
+		"subject": subject,
+		"meter":   meterName,
+		"from":    "2026-06-08T00:00:00Z",
+		"to":      "2026-06-09T00:00:00Z",
+		"limit":   10,
+		"filter": map[string]any{
+			"type":  "condition",
+			"field": "metadata.status_code",
+			"op":    "gte",
+			"value": 400,
+		},
+	})
+	assertEventEndpoints(t, numberEvents.Items, []string{"/admin", "/orders"}, "dynamic number status events")
+
+	missingOptionalEvents := searchIntegrationEvents(t, router, authHeaders, map[string]any{
+		"subject": subject,
+		"meter":   meterName,
+		"from":    "2026-06-08T00:00:00Z",
+		"to":      "2026-06-09T00:00:00Z",
+		"limit":   10,
+		"filter": map[string]any{
+			"type":  "condition",
+			"field": "metadata.optional",
+			"op":    "exists",
+		},
+	})
+	assertEventEndpoints(t, missingOptionalEvents.Items, []string{"/orders"}, "dynamic optional exists events")
+
+	nullMetadataEvents := searchIntegrationEvents(t, router, authHeaders, map[string]any{
+		"subject": subject,
+		"meter":   meterName,
+		"from":    "2026-06-08T00:00:00Z",
+		"to":      "2026-06-09T00:00:00Z",
+		"limit":   10,
+		"filter": map[string]any{
+			"type":  "condition",
+			"field": "metadata.nullable",
+			"op":    "exists",
+		},
+	})
+	assertEventEndpoints(t, nullMetadataEvents.Items, []string{"/orders"}, "dynamic null metadata exists events")
+
+	orEvents := searchIntegrationEvents(t, router, authHeaders, map[string]any{
+		"subject": subject,
+		"meter":   meterName,
+		"from":    "2026-06-08T00:00:00Z",
+		"to":      "2026-06-09T00:00:00Z",
+		"limit":   10,
+		"filter": map[string]any{
+			"type": "group",
+			"op":   "or",
+			"rules": []map[string]any{
+				{"type": "condition", "field": "metadata.service.tier", "op": "eq", "value": "silver"},
+				{"type": "condition", "field": "metadata.region-name", "op": "eq", "value": "eu-west"},
+			},
+		},
+	})
+	assertEventEndpoints(t, orEvents.Items, []string{"/admin", "/users"}, "dynamic or filter events")
+
+	firstPage := searchIntegrationEvents(t, router, authHeaders, map[string]any{
+		"subject": subject,
+		"meter":   meterName,
+		"from":    "2026-06-08T00:00:00Z",
+		"to":      "2026-06-09T00:00:00Z",
+		"limit":   1,
+		"filter": map[string]any{
+			"type":  "condition",
+			"field": "metadata.endpoint",
+			"op":    "eq",
+			"value": "/orders",
+		},
+	})
+	assertEventEndpoints(t, firstPage.Items, []string{"/orders"}, "dynamic duplicate timestamp first page")
+	if firstPage.NextCursor == "" {
+		t.Fatal("dynamic duplicate timestamp first page next_cursor is empty")
+	}
+
+	secondPage := searchIntegrationEvents(t, router, authHeaders, map[string]any{
+		"subject": subject,
+		"meter":   meterName,
+		"from":    "2026-06-08T00:00:00Z",
+		"to":      "2026-06-09T00:00:00Z",
+		"limit":   1,
+		"cursor":  firstPage.NextCursor,
+		"filter": map[string]any{
+			"type":  "condition",
+			"field": "metadata.endpoint",
+			"op":    "eq",
+			"value": "/orders",
+		},
+	})
+	assertEventEndpoints(t, secondPage.Items, []string{"/orders"}, "dynamic duplicate timestamp second page")
+	if secondPage.NextCursor != "" {
+		t.Fatalf("dynamic duplicate timestamp second page next_cursor = %q, want empty", secondPage.NextCursor)
+	}
+	assertEventIdempotencyKeySet(t, append(firstPage.Items, secondPage.Items...), []string{
+		"dynamic-sql-" + suffix + "-orders-a",
+		"dynamic-sql-" + suffix + "-orders-b",
+	}, "dynamic duplicate timestamp pages")
+
+	groupRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages/search", map[string]any{
+		"subject":     subject,
+		"meter":       meterName,
+		"from":        "2026-06-08T00:00:00Z",
+		"to":          "2026-06-09T00:00:00Z",
+		"bucket_size": "day",
+		"group_by":    []string{"region-name"},
+		"limit":       10,
+		"filter": map[string]any{
+			"type": "group",
+			"op":   "and",
+			"rules": []map[string]any{
+				{"type": "condition", "field": "metadata.service.tier", "op": "eq", "value": "gold"},
+				{"type": "condition", "field": "metadata.retry", "op": "eq", "value": true},
+			},
+		},
+	}, authHeaders, nil)
+	if groupRes.Code != http.StatusOK {
+		t.Fatalf("dynamic filtered group status = %d, want %d: %s", groupRes.Code, http.StatusOK, groupRes.Body.String())
+	}
+	var groupedBuckets []usageBucketResponse
+	decodeJSON(t, groupRes, &groupedBuckets)
+	groupedQuantities := map[string]float64{}
+	for _, bucket := range groupedBuckets {
+		groupedQuantities[bucket.Group["region-name"]] = bucket.Quantity
+	}
+	if len(groupedQuantities) != 2 || groupedQuantities["us-west"] != 7 || groupedQuantities["eu-west"] != 5 {
+		t.Fatalf("dynamic filtered grouped buckets = %#v, want us-west=7 and eu-west=5", groupedBuckets)
+	}
+
+	breakdownRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages/breakdowns/search", map[string]any{
+		"subject": subject,
+		"meter":   meterName,
+		"field":   "metadata.region-name",
+		"from":    "2026-06-08T00:00:00Z",
+		"to":      "2026-06-09T00:00:00Z",
+		"limit":   10,
+		"filter": map[string]any{
+			"type":  "condition",
+			"field": "metadata.status_code",
+			"op":    "in",
+			"value": []int{200, 503},
+		},
+	}, authHeaders, nil)
+	if breakdownRes.Code != http.StatusOK {
+		t.Fatalf("dynamic filtered breakdown status = %d, want %d: %s", breakdownRes.Code, http.StatusOK, breakdownRes.Body.String())
+	}
+	var breakdown usageBreakdownListResponse
+	decodeJSON(t, breakdownRes, &breakdown)
+	if len(breakdown.Items) != 2 || breakdown.Items[0].Value != "us-west" || breakdown.Items[0].Quantity != 7 || breakdown.Items[1].Value != "us-east" || breakdown.Items[1].Quantity != 2 {
+		t.Fatalf("dynamic filtered breakdown = %#v, want us-west=7 then us-east=2", breakdown)
+	}
+}
+
 func assertFloatNear(t *testing.T, got float64, want float64, label string) {
 	t.Helper()
 
@@ -1212,6 +1474,23 @@ func assertEventRegions(t *testing.T, events []usageEventResponse, want []string
 	for index, region := range want {
 		if events[index].Metadata["region-name"] != region {
 			t.Fatalf("%s[%d] region-name = %#v, want %q: %#v", label, index, events[index].Metadata["region-name"], region, events)
+		}
+	}
+}
+
+func assertEventIdempotencyKeySet(t *testing.T, events []usageEventResponse, want []string, label string) {
+	t.Helper()
+
+	if len(events) != len(want) {
+		t.Fatalf("%s count = %d, want %d: %#v", label, len(events), len(want), events)
+	}
+	got := map[string]struct{}{}
+	for _, event := range events {
+		got[event.IdempotencyKey] = struct{}{}
+	}
+	for _, key := range want {
+		if _, exists := got[key]; !exists {
+			t.Fatalf("%s missing idempotency_key %q in %#v", label, key, events)
 		}
 	}
 }
