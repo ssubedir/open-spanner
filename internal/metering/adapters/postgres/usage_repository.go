@@ -296,6 +296,41 @@ func (r *UsageRepository) FindDimensionValues(ctx context.Context, query domainu
 }
 
 func (r *UsageRepository) FindBreakdown(ctx context.Context, query domainusage.BreakdownQuery) ([]domainusage.BreakdownItem, error) {
+	if query.Filter().IsZero() {
+		return r.findBreakdown(ctx, query)
+	}
+
+	return r.findFilteredBreakdown(ctx, query)
+}
+
+func (r *UsageRepository) findBreakdown(ctx context.Context, query domainusage.BreakdownQuery) ([]domainusage.BreakdownItem, error) {
+	if _, err := breakdownValueSQL(query.Field()); err != nil {
+		return nil, err
+	}
+
+	rows, err := r.queries.ListUsageBreakdown(ctx, postgresdb.ListUsageBreakdownParams{
+		Aggregation:     string(query.Aggregation()),
+		DurationSeconds: query.To().Sub(query.From()).Seconds(),
+		Limit:           int32(query.Limit()),
+		Field:           query.Field(),
+		MeterName:       query.MeterName(),
+		FromTime:        formatTime(query.From()),
+		ToTime:          formatTime(query.To()),
+		Subject:         eventStringValue(query.Subject()),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]domainusage.BreakdownItem, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, domainusage.NewBreakdownItem(query.Field(), row.Value, row.Quantity, int(row.UsageEvents)))
+	}
+
+	return items, nil
+}
+
+func (r *UsageRepository) findFilteredBreakdown(ctx context.Context, query domainusage.BreakdownQuery) ([]domainusage.BreakdownItem, error) {
 	valueSQL, err := breakdownValueSQL(query.Field())
 	if err != nil {
 		return nil, err
