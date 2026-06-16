@@ -306,6 +306,129 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 	if len(ingestions.Items) < 3 {
 		t.Fatalf("ingestions = %#v, want at least one run per single usage create", ingestions)
 	}
+
+	runIntegrationHyphenatedDimensionFlow(t, router, authHeaders, suffix)
+}
+
+func runIntegrationHyphenatedDimensionFlow(t *testing.T, router http.Handler, authHeaders map[string]string, suffix string) {
+	t.Helper()
+
+	const dimensionField = "region-name"
+	meterName := "hyphen_dimensions_" + suffix
+	subject := "org_hyphen_" + suffix
+
+	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name":            meterName,
+		"description":     "Hyphenated dimension keys",
+		"unit":            "event",
+		"aggregation":     "sum",
+		"metadata_schema": map[string]string{dimensionField: "string"},
+	}, authHeaders, nil)
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create hyphen-dimension meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
+	}
+
+	createUsage := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages", map[string]any{
+		"idempotency_key": "hyphen-dimension-" + suffix,
+		"subject":         subject,
+		"meter":           meterName,
+		"quantity":        1,
+		"timestamp":       "2026-06-08T10:00:00Z",
+		"metadata":        map[string]any{dimensionField: "us-east-1"},
+	}, authHeaders, nil)
+	if createUsage.Code != http.StatusCreated {
+		t.Fatalf("create hyphen-dimension usage status = %d, want %d: %s", createUsage.Code, http.StatusCreated, createUsage.Body.String())
+	}
+
+	listQuery := url.Values{}
+	listQuery.Set("subject", subject)
+	listQuery.Set("meter", meterName)
+	listQuery.Set("from", "2026-06-08T00:00:00Z")
+	listQuery.Set("to", "2026-06-09T00:00:00Z")
+	listQuery.Set("bucket_size", "day")
+	listQuery.Set("metadata."+dimensionField, "us-east-1")
+	listQuery.Set("limit", "10")
+	listRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/usages?"+listQuery.Encode(), nil, authHeaders, nil)
+	if listRes.Code != http.StatusOK {
+		t.Fatalf("list hyphen dimension usage status = %d, want %d: %s", listRes.Code, http.StatusOK, listRes.Body.String())
+	}
+	var listBuckets []usageBucketResponse
+	decodeJSON(t, listRes, &listBuckets)
+	if len(listBuckets) != 1 || listBuckets[0].Quantity != 1 {
+		t.Fatalf("hyphen dimension list buckets = %#v, want one bucket", listBuckets)
+	}
+
+	searchRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages/search", map[string]any{
+		"subject":     subject,
+		"meter":       meterName,
+		"from":        "2026-06-08T00:00:00Z",
+		"to":          "2026-06-09T00:00:00Z",
+		"bucket_size": "day",
+		"group_by":    []string{dimensionField},
+		"limit":       10,
+	}, authHeaders, nil)
+	if searchRes.Code != http.StatusOK {
+		t.Fatalf("search hyphen dimension usage status = %d, want %d: %s", searchRes.Code, http.StatusOK, searchRes.Body.String())
+	}
+	var groupedBuckets []usageBucketResponse
+	decodeJSON(t, searchRes, &groupedBuckets)
+	if len(groupedBuckets) != 1 || groupedBuckets[0].Group[dimensionField] != "us-east-1" {
+		t.Fatalf("hyphen dimension grouped buckets = %#v, want us-east-1 group", groupedBuckets)
+	}
+
+	breakdownRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages/breakdowns/search", map[string]any{
+		"subject": subject,
+		"meter":   meterName,
+		"field":   "metadata." + dimensionField,
+		"from":    "2026-06-08T00:00:00Z",
+		"to":      "2026-06-09T00:00:00Z",
+		"limit":   10,
+	}, authHeaders, nil)
+	if breakdownRes.Code != http.StatusOK {
+		t.Fatalf("breakdown hyphen dimension status = %d, want %d: %s", breakdownRes.Code, http.StatusOK, breakdownRes.Body.String())
+	}
+	var breakdown usageBreakdownListResponse
+	decodeJSON(t, breakdownRes, &breakdown)
+	if len(breakdown.Items) != 1 || breakdown.Items[0].Value != "us-east-1" || breakdown.Items[0].Quantity != 1 {
+		t.Fatalf("hyphen dimension breakdown = %#v, want us-east-1 item", breakdown)
+	}
+
+	dimensionsQuery := url.Values{}
+	dimensionsQuery.Set("subject", subject)
+	dimensionsQuery.Set("meter", meterName)
+	dimensionsQuery.Set("field", dimensionField)
+	dimensionsQuery.Set("limit", "10")
+	dimensionsRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/usages/dimensions?"+dimensionsQuery.Encode(), nil, authHeaders, nil)
+	if dimensionsRes.Code != http.StatusOK {
+		t.Fatalf("list hyphen dimension values status = %d, want %d: %s", dimensionsRes.Code, http.StatusOK, dimensionsRes.Body.String())
+	}
+	var dimensions usageDimensionValueListResponse
+	decodeJSON(t, dimensionsRes, &dimensions)
+	if len(dimensions.Items) != 1 || dimensions.Items[0].Value != "us-east-1" {
+		t.Fatalf("hyphen dimension values = %#v, want us-east-1", dimensions)
+	}
+
+	eventsRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usageevents/search", map[string]any{
+		"subject": subject,
+		"meter":   meterName,
+		"from":    "2026-06-08T00:00:00Z",
+		"to":      "2026-06-09T00:00:00Z",
+		"limit":   10,
+		"filter": map[string]any{
+			"type":  "condition",
+			"field": "metadata." + dimensionField,
+			"op":    "contains",
+			"value": "us",
+		},
+	}, authHeaders, nil)
+	if eventsRes.Code != http.StatusOK {
+		t.Fatalf("search hyphen dimension events status = %d, want %d: %s", eventsRes.Code, http.StatusOK, eventsRes.Body.String())
+	}
+	var events usageEventListResponse
+	decodeJSON(t, eventsRes, &events)
+	if len(events.Items) != 1 || events.Items[0].Metadata[dimensionField] != "us-east-1" {
+		t.Fatalf("hyphen dimension events = %#v, want matching event", events)
+	}
 }
 
 func requestJSON(t *testing.T, handler http.Handler, method string, path string, body any, cookies []*http.Cookie) *httptest.ResponseRecorder {
