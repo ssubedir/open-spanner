@@ -169,11 +169,18 @@ Use this when you want a report like daily requests by customer and region.
 Choose names that are stable, short, and meaningful across services:
 
 - `region`
+- `region-name`
 - `plan`
 - `service`
+- `service.tier`
 - `environment`
 - `model`
 - `route`
+- `status_code`
+
+Dimension names can use letters, numbers, underscores, hyphens, and dots. Dots are useful for nested metadata paths such as `service.tier` or `request.region`. Avoid spaces, slashes, leading dots, trailing dots, and empty dot segments.
+
+`subject` is reserved for the built-in subject field. You can group and filter by subject without adding it to `metadata_schema`.
 
 Avoid putting high-cardinality values in dimensions unless you really need to query by them. Request IDs, trace IDs, and raw payload values are usually better left out of dimensions.
 

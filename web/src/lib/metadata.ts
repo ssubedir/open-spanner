@@ -6,8 +6,23 @@ export function parseMetadataSchema(value: string) {
   return Object.fromEntries(Object.entries(parsed).map(([key, schemaValue]) => [key, String(schemaValue)]))
 }
 
-const metadataNamePattern = /^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*$/
+const metadataNamePattern = /^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$/
+const reservedMetadataNames = new Set(['subject'])
 const metadataTypes = new Set(['string', 'number', 'boolean'])
+
+export function metadataDimensionNameError(name: string) {
+  const trimmedName = name.trim()
+  if (!trimmedName) {
+    return ''
+  }
+  if (!metadataNamePattern.test(trimmedName)) {
+    return 'Use letters, numbers, underscores, hyphens, or dots.'
+  }
+  if (reservedMetadataNames.has(trimmedName)) {
+    return '"subject" is reserved for the built-in subject field.'
+  }
+  return ''
+}
 
 export function metadataSchemaFromRows(rows: Array<{ name: string; type: string }>) {
   return metadataSchemaFromDimensions(meterDimensionsFromRows(rows))
@@ -39,8 +54,9 @@ export function meterDimensionsFromRows(rows: Array<{
     if (!name) {
       continue
     }
-    if (!metadataNamePattern.test(name)) {
-      throw new Error('Dimension names can use letters, numbers, underscores, and dots')
+    const nameError = metadataDimensionNameError(name)
+    if (nameError) {
+      throw new Error(`Dimension "${name}" is invalid. ${nameError}`)
     }
     if (names.has(name)) {
       throw new Error(`Dimension "${name}" is already defined`)
