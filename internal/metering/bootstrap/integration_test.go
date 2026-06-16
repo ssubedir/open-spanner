@@ -313,6 +313,7 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 	runIntegrationLastAggregationFlow(t, router, authHeaders, suffix)
 	runIntegrationRateAggregationFlow(t, router, authHeaders, suffix)
 	runIntegrationSummaryAggregationFlow(t, router, authHeaders, suffix)
+	runIntegrationFilterOperatorFlow(t, router, authHeaders, suffix)
 }
 
 func runIntegrationHyphenatedDimensionFlow(t *testing.T, router http.Handler, authHeaders map[string]string, suffix string) {
@@ -748,11 +749,180 @@ func runIntegrationSummaryAggregationFlow(t *testing.T, router http.Handler, aut
 	}
 }
 
+func runIntegrationFilterOperatorFlow(t *testing.T, router http.Handler, authHeaders map[string]string, suffix string) {
+	t.Helper()
+
+	meterName := "filter_operators_" + suffix
+	subject := "org_filter_" + suffix
+
+	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name":            meterName,
+		"description":     "Filter operator coverage",
+		"unit":            "event",
+		"aggregation":     "sum",
+		"metadata_schema": map[string]string{"endpoint": "string", "retry": "boolean"},
+	}, authHeaders, nil)
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create filter-operator meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
+	}
+
+	for _, event := range []map[string]any{
+		{
+			"idempotency_key": "filter-operators-" + suffix + "-orders",
+			"subject":         subject,
+			"meter":           meterName,
+			"quantity":        2,
+			"timestamp":       "2026-06-08T09:00:00Z",
+			"metadata":        map[string]any{"endpoint": "/orders", "retry": true},
+		},
+		{
+			"idempotency_key": "filter-operators-" + suffix + "-users",
+			"subject":         subject,
+			"meter":           meterName,
+			"quantity":        3,
+			"timestamp":       "2026-06-08T10:00:00Z",
+			"metadata":        map[string]any{"endpoint": "/users", "retry": false},
+		},
+		{
+			"idempotency_key": "filter-operators-" + suffix + "-admin",
+			"subject":         subject,
+			"meter":           meterName,
+			"quantity":        5,
+			"timestamp":       "2026-06-08T11:00:00Z",
+			"metadata":        map[string]any{"endpoint": "/admin", "retry": true},
+		},
+	} {
+		createUsage := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages", event, authHeaders, nil)
+		if createUsage.Code != http.StatusCreated {
+			t.Fatalf("create filter-operator usage status = %d, want %d: %s", createUsage.Code, http.StatusCreated, createUsage.Body.String())
+		}
+	}
+
+	neqEvents := searchIntegrationEvents(t, router, authHeaders, map[string]any{
+		"subject": subject,
+		"meter":   meterName,
+		"from":    "2026-06-08T00:00:00Z",
+		"to":      "2026-06-09T00:00:00Z",
+		"limit":   10,
+		"filter": map[string]any{
+			"type":  "condition",
+			"field": "metadata.endpoint",
+			"op":    "neq",
+			"value": "/users",
+		},
+	})
+	assertEventEndpoints(t, neqEvents.Items, []string{"/admin", "/orders"}, "neq endpoint events")
+
+	inEvents := searchIntegrationEvents(t, router, authHeaders, map[string]any{
+		"subject": subject,
+		"meter":   meterName,
+		"from":    "2026-06-08T00:00:00Z",
+		"to":      "2026-06-09T00:00:00Z",
+		"limit":   10,
+		"filter": map[string]any{
+			"type":  "condition",
+			"field": "metadata.endpoint",
+			"op":    "in",
+			"value": []string{"/orders", "/users"},
+		},
+	})
+	assertEventEndpoints(t, inEvents.Items, []string{"/users", "/orders"}, "in endpoint events")
+
+	existsEvents := searchIntegrationEvents(t, router, authHeaders, map[string]any{
+		"subject": subject,
+		"meter":   meterName,
+		"from":    "2026-06-08T00:00:00Z",
+		"to":      "2026-06-09T00:00:00Z",
+		"limit":   10,
+		"filter": map[string]any{
+			"type":  "condition",
+			"field": "metadata.endpoint",
+			"op":    "exists",
+		},
+	})
+	assertEventEndpoints(t, existsEvents.Items, []string{"/admin", "/users", "/orders"}, "exists endpoint events")
+
+	booleanEvents := searchIntegrationEvents(t, router, authHeaders, map[string]any{
+		"subject": subject,
+		"meter":   meterName,
+		"from":    "2026-06-08T00:00:00Z",
+		"to":      "2026-06-09T00:00:00Z",
+		"limit":   10,
+		"filter": map[string]any{
+			"type":  "condition",
+			"field": "metadata.retry",
+			"op":    "eq",
+			"value": true,
+		},
+	})
+	assertEventEndpoints(t, booleanEvents.Items, []string{"/admin", "/orders"}, "boolean retry events")
+
+	firstPage := searchIntegrationEvents(t, router, authHeaders, map[string]any{
+		"subject": subject,
+		"meter":   meterName,
+		"from":    "2026-06-08T00:00:00Z",
+		"to":      "2026-06-09T00:00:00Z",
+		"limit":   2,
+		"filter": map[string]any{
+			"type":  "condition",
+			"field": "metadata.endpoint",
+			"op":    "exists",
+		},
+	})
+	assertEventEndpoints(t, firstPage.Items, []string{"/admin", "/users"}, "filtered cursor first page")
+	if firstPage.NextCursor == "" {
+		t.Fatal("filtered cursor first page next_cursor is empty")
+	}
+
+	secondPage := searchIntegrationEvents(t, router, authHeaders, map[string]any{
+		"subject": subject,
+		"meter":   meterName,
+		"from":    "2026-06-08T00:00:00Z",
+		"to":      "2026-06-09T00:00:00Z",
+		"limit":   2,
+		"cursor":  firstPage.NextCursor,
+		"filter": map[string]any{
+			"type":  "condition",
+			"field": "metadata.endpoint",
+			"op":    "exists",
+		},
+	})
+	assertEventEndpoints(t, secondPage.Items, []string{"/orders"}, "filtered cursor second page")
+	if secondPage.NextCursor != "" {
+		t.Fatalf("filtered cursor second page next_cursor = %q, want empty", secondPage.NextCursor)
+	}
+}
+
 func assertFloatNear(t *testing.T, got float64, want float64, label string) {
 	t.Helper()
 
 	if math.Abs(got-want) > 1e-12 {
 		t.Fatalf("%s = %g, want %g", label, got, want)
+	}
+}
+
+func searchIntegrationEvents(t *testing.T, router http.Handler, authHeaders map[string]string, body map[string]any) usageEventListResponse {
+	t.Helper()
+
+	res := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usageevents/search", body, authHeaders, nil)
+	if res.Code != http.StatusOK {
+		t.Fatalf("search integration events status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	var events usageEventListResponse
+	decodeJSON(t, res, &events)
+	return events
+}
+
+func assertEventEndpoints(t *testing.T, events []usageEventResponse, want []string, label string) {
+	t.Helper()
+
+	if len(events) != len(want) {
+		t.Fatalf("%s count = %d, want %d: %#v", label, len(events), len(want), events)
+	}
+	for index, endpoint := range want {
+		if events[index].Metadata["endpoint"] != endpoint {
+			t.Fatalf("%s[%d] endpoint = %#v, want %q: %#v", label, index, events[index].Metadata["endpoint"], endpoint, events)
+		}
 	}
 }
 
