@@ -62,6 +62,8 @@ import {
 import { downloadBlob, safeDownloadName } from './lib/download'
 import type { LoadState } from './types'
 
+type UsageExportKind = '' | 'buckets' | 'events'
+
 export type MeterDimensionDraft = {
   deprecated: boolean
   description: string
@@ -141,7 +143,7 @@ type AppState = {
     dimensionValues: Record<string, UsageDimensionValue[]>
     error: string
     exportError: string
-    exporting: boolean
+    exporting: UsageExportKind
     filterQuery: RuleGroupType
     groupBy: string[]
     limit: number
@@ -215,7 +217,7 @@ export const appStore = createStore<AppState>({
     dimensionValues: {},
     error: '',
     exportError: '',
-    exporting: false,
+    exporting: '',
     filterQuery: defaultFilterQuery(),
     groupBy: [],
     limit: 500,
@@ -714,7 +716,7 @@ export const appStoreActions = {
     }
   },
   async exportCurrentUsageBuckets(groupByValue: string[], limit = 500, bucketSize = 'day') {
-    setUsageState({ exportError: '', exporting: true })
+    setUsageState({ exportError: '', exporting: 'buckets' })
     try {
       const query = appStore.state.usage.filterQuery
       const scope = usageScopeFromQuery(query)
@@ -736,11 +738,11 @@ export const appStoreActions = {
     } catch (err) {
       setUsageState({ exportError: errorMessage(err, 'Unable to export usage buckets') })
     } finally {
-      setUsageState({ exporting: false })
+      setUsageState({ exporting: '' })
     }
   },
   async exportCurrentUsageEvents(limit = 500) {
-    setUsageState({ exportError: '', exporting: true })
+    setUsageState({ exportError: '', exporting: 'events' })
     try {
       const query = appStore.state.usage.filterQuery
       const scope = usageScopeFromQuery(query)
@@ -759,7 +761,7 @@ export const appStoreActions = {
     } catch (err) {
       setUsageState({ exportError: errorMessage(err, 'Unable to export usage events') })
     } finally {
-      setUsageState({ exporting: false })
+      setUsageState({ exporting: '' })
     }
   },
   async saveCurrentUsageQuery() {

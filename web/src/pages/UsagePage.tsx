@@ -89,6 +89,7 @@ export function UsagePage() {
     [breakdownFields, breakdowns],
   )
   const selectedSavedQuery = savedQueries.find((item) => item.id === selectedSavedQueryID)
+  const exportInProgress = exporting !== ''
 
   useEffect(() => {
     void appStoreActions.loadUsageDimensionValues()
@@ -239,12 +240,12 @@ export function UsagePage() {
                       <RefreshCw aria-hidden="true" />
                       Reset
                     </Button>
-                    <Button disabled={exporting} onClick={() => void exportBuckets()} type="button" variant="outline">
-                      {exporting ? <Loader2 className="spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
+                    <Button disabled={exportInProgress} onClick={() => void exportBuckets()} type="button" variant="outline">
+                      {exporting === 'buckets' ? <Loader2 className="spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
                       Export Buckets
                     </Button>
-                    <Button disabled={exporting} onClick={() => void exportEvents()} type="button" variant="outline">
-                      {exporting ? <Loader2 className="spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
+                    <Button disabled={exportInProgress} onClick={() => void exportEvents()} type="button" variant="outline">
+                      {exporting === 'events' ? <Loader2 className="spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
                       Export Events
                     </Button>
                     <Button disabled={status === 'loading'} type="submit">
