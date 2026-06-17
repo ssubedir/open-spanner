@@ -84,7 +84,7 @@ type ExportUsageBucketsParams struct {
 
 	/* Limit.
 
-	   Result limit
+	   Result limit. Defaults to 100 and cannot exceed 1000.
 	*/
 	Limit *int64
 

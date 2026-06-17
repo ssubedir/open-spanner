@@ -1010,7 +1010,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
-                        "description": "Result limit",
+                        "description": "Result limit. Defaults to 100 and cannot exceed 1000.",
                         "name": "limit",
                         "in": "query"
                     }
@@ -1662,7 +1662,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
-                        "description": "Result limit",
+                        "description": "Result limit. Defaults to 100 and cannot exceed 1000.",
                         "name": "limit",
                         "in": "query"
                     }
