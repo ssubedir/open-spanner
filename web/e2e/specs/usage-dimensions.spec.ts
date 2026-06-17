@@ -68,5 +68,15 @@ test.describe('Feature: Dashboard usage exploration', () => {
 
     const eventExport = await When.theUserExportsSubjectEvents(page, scenario)
     await Then.subjectEventCSVIncludesPrimaryUsage(eventExport, scenario)
+
+    const apiKey = await Given.anAPIKeyExists(page)
+    const apiBucketExport = await When.theServiceExportsFilteredUsageBucketsWithAPIKey(page, apiKey, scenario)
+    await Then.directUsageBucketCSVResponseIncludesCurrentQuery(apiBucketExport, scenario)
+
+    const apiEventExport = await When.theServiceExportsSubjectEventsWithAPIKey(page, apiKey, scenario)
+    await Then.directUsageEventCSVResponseIncludesPrimaryUsage(apiEventExport, scenario)
+
+    const exportJob = await When.theServiceQueuesUsageExportJob(page, apiKey, scenario)
+    await Then.queuedExportJobCanBeReadButNotDownloaded(page, apiKey, exportJob, scenario)
   })
 })
