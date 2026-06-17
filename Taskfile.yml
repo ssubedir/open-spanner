@@ -16,6 +16,9 @@ includes:
   sdk:
     taskfile: ./taskfiles/sdk.yml
     flatten: true
+  sql:
+    taskfile: ./taskfiles/sql.yml
+    flatten: true
   release:
     taskfile: ./taskfiles/release.yml
     flatten: true

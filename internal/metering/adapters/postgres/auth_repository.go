@@ -7,30 +7,33 @@ import (
 	"time"
 
 	appauth "github.com/ssubedir/open-spanner/internal/auth"
+	"github.com/ssubedir/open-spanner/internal/metering/adapters/postgres/postgresdb"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
 )
 
 type AuthRepository struct {
-	store *Store
+	queries *postgresdb.Queries
 }
 
 func NewAuthRepository(store *Store) *AuthRepository {
-	return &AuthRepository{store: store}
+	return &AuthRepository{queries: postgresdb.New(store)}
 }
 
 func (r *AuthRepository) CountUsers(ctx context.Context) (int, error) {
-	var count int
-	if err := r.store.queryRow(ctx, `SELECT COUNT(*) FROM auth_users`).Scan(&count); err != nil {
+	count, err := queriesFor(ctx, r.queries).CountUsers(ctx)
+	if err != nil {
 		return 0, err
 	}
-	return count, nil
+	return int(count), nil
 }
 
 func (r *AuthRepository) SaveUser(ctx context.Context, user appauth.User) (appauth.User, error) {
-	_, err := r.store.exec(ctx, `
-INSERT INTO auth_users (id, email, password_hash, created_at)
-VALUES ($1, $2, $3, $4)
-`, user.ID, user.Email, user.PasswordHash, formatTime(user.CreatedAt))
+	err := queriesFor(ctx, r.queries).SaveUser(ctx, postgresdb.SaveUserParams{
+		ID:           user.ID,
+		Email:        user.Email,
+		PasswordHash: user.PasswordHash,
+		CreatedAt:    formatTime(user.CreatedAt),
+	})
 	if err != nil {
 		if isUniqueConstraint(err) {
 			return appauth.User{}, errors.Join(domain.ErrConflict, err)
@@ -41,26 +44,24 @@ VALUES ($1, $2, $3, $4)
 }
 
 func (r *AuthRepository) FindUserByID(ctx context.Context, id string) (appauth.User, error) {
-	return scanUser(r.store.queryRow(ctx, `
-SELECT id, email, password_hash, created_at
-FROM auth_users
-WHERE id = $1
-`, id))
+	user, err := queriesFor(ctx, r.queries).FindUserByID(ctx, id)
+	return userFromFields(user.ID, user.Email, user.PasswordHash, user.CreatedAt, err)
 }
 
 func (r *AuthRepository) FindUserByEmail(ctx context.Context, email string) (appauth.User, error) {
-	return scanUser(r.store.queryRow(ctx, `
-SELECT id, email, password_hash, created_at
-FROM auth_users
-WHERE email = $1
-`, email))
+	user, err := queriesFor(ctx, r.queries).FindUserByEmail(ctx, email)
+	return userFromFields(user.ID, user.Email, user.PasswordHash, user.CreatedAt, err)
 }
 
 func (r *AuthRepository) SaveSession(ctx context.Context, session appauth.Session) (appauth.Session, error) {
-	_, err := r.store.exec(ctx, `
-INSERT INTO auth_sessions (id, user_id, token_hash, kind, expires_at, created_at)
-VALUES ($1, $2, $3, $4, $5, $6)
-`, session.ID, session.UserID, session.TokenHash, session.Kind, formatTime(session.ExpiresAt), formatTime(session.CreatedAt))
+	err := queriesFor(ctx, r.queries).SaveSession(ctx, postgresdb.SaveSessionParams{
+		ID:        session.ID,
+		UserID:    session.UserID,
+		TokenHash: session.TokenHash,
+		Kind:      session.Kind,
+		ExpiresAt: formatTime(session.ExpiresAt),
+		CreatedAt: formatTime(session.CreatedAt),
+	})
 	if err != nil {
 		if isUniqueConstraint(err) {
 			return appauth.Session{}, errors.Join(domain.ErrConflict, err)
@@ -71,26 +72,28 @@ VALUES ($1, $2, $3, $4, $5, $6)
 }
 
 func (r *AuthRepository) FindSessionByTokenHash(ctx context.Context, tokenHash string, kind string, now time.Time) (appauth.Session, error) {
-	return scanSession(r.store.queryRow(ctx, `
-SELECT id, user_id, token_hash, kind, expires_at, created_at
-FROM auth_sessions
-WHERE token_hash = $1 AND kind = $2 AND expires_at > $3
-`, tokenHash, kind, formatTime(now)))
+	session, err := queriesFor(ctx, r.queries).FindSessionByTokenHash(ctx, postgresdb.FindSessionByTokenHashParams{
+		TokenHash: tokenHash,
+		Kind:      kind,
+		ExpiresAt: formatTime(now),
+	})
+	return sessionFromFields(session.ID, session.UserID, session.TokenHash, session.Kind, session.ExpiresAt, session.CreatedAt, err)
 }
 
 func (r *AuthRepository) DeleteSessionByTokenHash(ctx context.Context, tokenHash string) error {
-	_, err := r.store.exec(ctx, `
-DELETE FROM auth_sessions
-WHERE token_hash = $1
-`, tokenHash)
-	return err
+	return queriesFor(ctx, r.queries).DeleteSessionByTokenHash(ctx, tokenHash)
 }
 
 func (r *AuthRepository) SaveAPIKey(ctx context.Context, key appauth.APIKey) (appauth.APIKey, error) {
-	_, err := r.store.exec(ctx, `
-INSERT INTO auth_api_keys (id, user_id, name, token_hash, prefix, created_at, last_used_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-`, key.ID, key.UserID, key.Name, key.TokenHash, key.Prefix, formatTime(key.CreatedAt), formatOptionalTime(key.LastUsedAt))
+	err := queriesFor(ctx, r.queries).SaveAPIKey(ctx, postgresdb.SaveAPIKeyParams{
+		ID:         key.ID,
+		UserID:     key.UserID,
+		Name:       key.Name,
+		TokenHash:  key.TokenHash,
+		Prefix:     key.Prefix,
+		CreatedAt:  formatTime(key.CreatedAt),
+		LastUsedAt: formatOptionalTime(key.LastUsedAt),
+	})
 	if err != nil {
 		if isUniqueConstraint(err) {
 			return appauth.APIKey{}, errors.Join(domain.ErrConflict, err)
@@ -101,68 +104,47 @@ VALUES ($1, $2, $3, $4, $5, $6, $7)
 }
 
 func (r *AuthRepository) ListAPIKeys(ctx context.Context, userID string) ([]appauth.APIKey, error) {
-	rows, err := r.store.query(ctx, `
-SELECT id, user_id, name, token_hash, prefix, created_at, last_used_at
-FROM auth_api_keys
-WHERE user_id = $1
-ORDER BY created_at DESC, id DESC
-`, userID)
+	rows, err := queriesFor(ctx, r.queries).ListAPIKeys(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	keys := []appauth.APIKey{}
-	for rows.Next() {
-		key, err := scanAPIKey(rows)
+	keys := make([]appauth.APIKey, 0, len(rows))
+	for _, row := range rows {
+		key, err := apiKeyFromFields(row.ID, row.UserID, row.Name, row.TokenHash, row.Prefix, row.CreatedAt, row.LastUsedAt, nil)
 		if err != nil {
 			return nil, err
 		}
 		keys = append(keys, key)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
 	return keys, nil
 }
 
 func (r *AuthRepository) FindAPIKeyByTokenHash(ctx context.Context, tokenHash string) (appauth.APIKey, error) {
-	return scanAPIKey(r.store.queryRow(ctx, `
-SELECT id, user_id, name, token_hash, prefix, created_at, last_used_at
-FROM auth_api_keys
-WHERE token_hash = $1
-`, tokenHash))
+	key, err := queriesFor(ctx, r.queries).FindAPIKeyByTokenHash(ctx, tokenHash)
+	return apiKeyFromFields(key.ID, key.UserID, key.Name, key.TokenHash, key.Prefix, key.CreatedAt, key.LastUsedAt, err)
 }
 
 func (r *AuthRepository) UpdateAPIKeyLastUsed(ctx context.Context, id string, lastUsedAt time.Time) error {
-	_, err := r.store.exec(ctx, `
-UPDATE auth_api_keys
-SET last_used_at = $1
-WHERE id = $2
-`, formatTime(lastUsedAt), id)
-	return err
+	return queriesFor(ctx, r.queries).UpdateAPIKeyLastUsed(ctx, postgresdb.UpdateAPIKeyLastUsedParams{
+		LastUsedAt: sql.NullString{String: formatTime(lastUsedAt), Valid: true},
+		ID:         id,
+	})
 }
 
 func (r *AuthRepository) DeleteAPIKey(ctx context.Context, userID string, id string) error {
-	res, err := r.store.exec(ctx, `
-DELETE FROM auth_api_keys
-WHERE id = $1 AND user_id = $2
-`, id, userID)
+	rows, err := queriesFor(ctx, r.queries).DeleteAPIKey(ctx, postgresdb.DeleteAPIKeyParams{ID: id, UserID: userID})
 	if err != nil {
 		return err
 	}
-	if rows, err := res.RowsAffected(); err == nil && rows == 0 {
+	if rows == 0 {
 		return domain.ErrNotFound
 	}
 	return nil
 }
 
-func scanUser(scanner interface {
-	Scan(dest ...any) error
-}) (appauth.User, error) {
-	var user appauth.User
-	var createdAt string
-	if err := scanner.Scan(&user.ID, &user.Email, &user.PasswordHash, &createdAt); err != nil {
+func userFromFields(id string, email string, passwordHash string, createdAt string, err error) (appauth.User, error) {
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return appauth.User{}, domain.ErrNotFound
 		}
@@ -173,23 +155,24 @@ func scanUser(scanner interface {
 	if err != nil {
 		return appauth.User{}, err
 	}
-	user.CreatedAt = parsedCreatedAt
-	return user, nil
+	return appauth.User{ID: id, Email: email, PasswordHash: passwordHash, CreatedAt: parsedCreatedAt}, nil
 }
 
-func scanAPIKey(scanner interface {
-	Scan(dest ...any) error
-}) (appauth.APIKey, error) {
-	var key appauth.APIKey
-	var createdAt string
-	var lastUsedAt sql.NullString
-	if err := scanner.Scan(&key.ID, &key.UserID, &key.Name, &key.TokenHash, &key.Prefix, &createdAt, &lastUsedAt); err != nil {
+func apiKeyFromFields(id string, userID string, name string, tokenHash string, prefix string, createdAt string, lastUsedAt sql.NullString, err error) (appauth.APIKey, error) {
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return appauth.APIKey{}, domain.ErrNotFound
 		}
 		return appauth.APIKey{}, err
 	}
 
+	key := appauth.APIKey{
+		ID:        id,
+		UserID:    userID,
+		Name:      name,
+		TokenHash: tokenHash,
+		Prefix:    prefix,
+	}
 	parsedCreatedAt, err := time.Parse(time.RFC3339Nano, createdAt)
 	if err != nil {
 		return appauth.APIKey{}, err
@@ -205,13 +188,8 @@ func scanAPIKey(scanner interface {
 	return key, nil
 }
 
-func scanSession(scanner interface {
-	Scan(dest ...any) error
-}) (appauth.Session, error) {
-	var session appauth.Session
-	var expiresAt string
-	var createdAt string
-	if err := scanner.Scan(&session.ID, &session.UserID, &session.TokenHash, &session.Kind, &expiresAt, &createdAt); err != nil {
+func sessionFromFields(id string, userID string, tokenHash string, kind string, expiresAt string, createdAt string, err error) (appauth.Session, error) {
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return appauth.Session{}, domain.ErrNotFound
 		}
@@ -226,14 +204,19 @@ func scanSession(scanner interface {
 	if err != nil {
 		return appauth.Session{}, err
 	}
-	session.ExpiresAt = parsedExpiresAt
-	session.CreatedAt = parsedCreatedAt
-	return session, nil
+	return appauth.Session{
+		ID:        id,
+		UserID:    userID,
+		TokenHash: tokenHash,
+		Kind:      kind,
+		ExpiresAt: parsedExpiresAt,
+		CreatedAt: parsedCreatedAt,
+	}, nil
 }
 
-func formatOptionalTime(value *time.Time) any {
+func formatOptionalTime(value *time.Time) sql.NullString {
 	if value == nil {
-		return nil
+		return sql.NullString{}
 	}
-	return formatTime(*value)
+	return sql.NullString{String: formatTime(*value), Valid: true}
 }

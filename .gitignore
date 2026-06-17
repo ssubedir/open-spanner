@@ -8,6 +8,7 @@ internal/ui/static/**
 !internal/ui/static/
 !internal/ui/static/keep.txt
 .tools/
+.tmp/
 sdk/csharp/bin/
 sdk/csharp/obj/
 examples/**/bin/

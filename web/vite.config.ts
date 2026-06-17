@@ -4,6 +4,8 @@ import tailwindcss from '@tailwindcss/vite'
 import path from 'node:path'
 import { defineConfig } from 'vite'
 
+const apiProxyTarget = process.env.OPEN_SPANNER_API_PROXY_URL || 'http://127.0.0.1:18083'
+
 // https://vite.dev/config/
 export default defineConfig({
   base: '/',
@@ -26,7 +28,7 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/v1': 'http://127.0.0.1:18083',
+      '/v1': apiProxyTarget,
     },
   },
 })

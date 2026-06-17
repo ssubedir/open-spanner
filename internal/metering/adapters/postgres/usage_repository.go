@@ -7,15 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"strings"
 	"time"
 
+	"github.com/ssubedir/open-spanner/internal/metering/adapters/postgres/postgresdb"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
-	domainmeter "github.com/ssubedir/open-spanner/internal/metering/domain/meter"
 	domainusage "github.com/ssubedir/open-spanner/internal/metering/domain/usage"
 )
 
-var metadataKeyPattern = regexp.MustCompile(`^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*$`)
+var metadataKeyPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$`)
 
 var errBulkReplay = errors.New("bulk ingestion already exists")
 
@@ -25,12 +24,8 @@ const (
 )
 
 type UsageRepository struct {
-	store *Store
-}
-
-type eventStore interface {
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	store   *Store
+	queries *postgresdb.Queries
 }
 
 type eventSnapshot struct {
@@ -56,11 +51,11 @@ type pruneRunMeterSnapshot struct {
 }
 
 func NewUsageRepository(store *Store) *UsageRepository {
-	return &UsageRepository{store: store}
+	return &UsageRepository{store: store, queries: postgresdb.New(store)}
 }
 
 func (r *UsageRepository) Save(ctx context.Context, event domainusage.Event) (domainusage.Event, error) {
-	return r.save(ctx, r.store, event)
+	return r.save(ctx, event)
 }
 
 func (r *UsageRepository) SaveBulk(ctx context.Context, idempotencyKey string, events []domainusage.Event) (domainusage.BulkSaveResult, error) {
@@ -79,7 +74,7 @@ func (r *UsageRepository) SaveBulk(ctx context.Context, idempotencyKey string, e
 		accepted := make([]domainusage.Event, 0, len(events))
 		duplicates := []domainusage.Event{}
 		for _, event := range events {
-			savedEvent, duplicate, err := r.saveWithDuplicate(txCtx, r.store, event)
+			savedEvent, duplicate, err := r.saveWithDuplicate(txCtx, event)
 			if err != nil {
 				return err
 			}
@@ -100,10 +95,11 @@ func (r *UsageRepository) SaveBulk(ctx context.Context, idempotencyKey string, e
 			return err
 		}
 
-		_, err = r.store.ExecContext(txCtx, `
-INSERT INTO bulk_usage_ingestions (idempotency_key, response, created_at)
-VALUES ($1, $2, $3)
-`, idempotencyKey, response, formatTime(time.Now().UTC()))
+		err = queriesFor(txCtx, r.queries).SaveBulkUsageIngestion(txCtx, postgresdb.SaveBulkUsageIngestionParams{
+			IdempotencyKey: idempotencyKey,
+			Response:       response,
+			CreatedAt:      formatTime(time.Now().UTC()),
+		})
 		if err != nil {
 			if isUniqueConstraint(err) {
 				existing, findErr := r.findBulk(ctx, idempotencyKey)
@@ -128,20 +124,20 @@ VALUES ($1, $2, $3)
 	return result, nil
 }
 
-func (r *UsageRepository) save(ctx context.Context, store eventStore, event domainusage.Event) (domainusage.Event, error) {
-	saved, _, err := r.saveWithDuplicate(ctx, store, event)
+func (r *UsageRepository) save(ctx context.Context, event domainusage.Event) (domainusage.Event, error) {
+	saved, _, err := r.saveWithDuplicate(ctx, event)
 	return saved, err
 }
 
-func (r *UsageRepository) saveWithDuplicate(ctx context.Context, store eventStore, event domainusage.Event) (domainusage.Event, bool, error) {
-	if _, err := r.findByID(ctx, store, event.ID()); err == nil {
+func (r *UsageRepository) saveWithDuplicate(ctx context.Context, event domainusage.Event) (domainusage.Event, bool, error) {
+	if _, err := r.findByID(ctx, event.ID()); err == nil {
 		return domainusage.Event{}, false, domain.ErrConflict
 	} else if err != sql.ErrNoRows {
 		return domainusage.Event{}, false, err
 	}
 
 	if event.IdempotencyKey() != "" {
-		existing, err := r.findByIdempotencyKey(ctx, store, event.IdempotencyKey())
+		existing, err := r.findByIdempotencyKey(ctx, event.IdempotencyKey())
 		if err == nil {
 			return existing, true, nil
 		}
@@ -155,21 +151,19 @@ func (r *UsageRepository) saveWithDuplicate(ctx context.Context, store eventStor
 		return domainusage.Event{}, false, err
 	}
 
-	_, err = store.ExecContext(ctx, `
-INSERT INTO usage_events (
-	id,
-	idempotency_key,
-	subject,
-	meter_name,
-	quantity,
-	event_time,
-	received_at,
-	metadata
-) VALUES ($1, NULLIF($2, ''), $3, $4, $5, $6, $7, $8::jsonb)
-`, event.ID(), event.IdempotencyKey(), event.Subject(), event.MeterName(), event.Quantity(), formatTime(event.EventTime()), formatTime(event.ReceivedAt()), string(metadata))
+	err = queriesFor(ctx, r.queries).SaveUsageEvent(ctx, postgresdb.SaveUsageEventParams{
+		ID:             event.ID(),
+		IdempotencyKey: event.IdempotencyKey(),
+		Subject:        event.Subject(),
+		MeterName:      event.MeterName(),
+		Quantity:       event.Quantity(),
+		EventTime:      formatTime(event.EventTime()),
+		ReceivedAt:     formatTime(event.ReceivedAt()),
+		Metadata:       json.RawMessage(metadata),
+	})
 	if err != nil {
 		if isUniqueConstraint(err) && event.IdempotencyKey() != "" {
-			existing, findErr := r.findByIdempotencyKey(ctx, store, event.IdempotencyKey())
+			existing, findErr := r.findByIdempotencyKey(ctx, event.IdempotencyKey())
 			return existing, true, findErr
 		}
 		if isUniqueConstraint(err) {
@@ -182,94 +176,40 @@ INSERT INTO usage_events (
 }
 
 func (r *UsageRepository) Query(ctx context.Context, query domainusage.Query) ([]domainusage.Bucket, error) {
-	groupBy := query.GroupByFields()
-	groupSelectSQL, groupAliases, err := groupValueSelectSQL(groupBy)
+	if !bucketQueryNeedsDynamicSQL(query) {
+		return r.queryBucketsWithGeneratedSQL(ctx, query)
+	}
+
+	return r.queryBucketsWithDynamicSQL(ctx, query)
+}
+
+func bucketQueryNeedsDynamicSQL(query domainusage.Query) bool {
+	return !query.Filter().IsZero() || len(query.Metadata()) > 0 || len(query.GroupByFields()) > 0
+}
+
+func (r *UsageRepository) queryBucketsWithGeneratedSQL(ctx context.Context, query domainusage.Query) ([]domainusage.Bucket, error) {
+	rows, err := queriesFor(ctx, r.queries).ListUsageBuckets(ctx, postgresdb.ListUsageBucketsParams{
+		Aggregation: string(query.Aggregation()),
+		BucketSize:  string(query.BucketSize()),
+		Limit:       int32(query.Limit()),
+		MeterName:   query.MeterName(),
+		FromTime:    formatTime(query.From()),
+		ToTime:      formatTime(query.To()),
+		Subject:     eventStringValue(query.Subject()),
+	})
 	if err != nil {
 		return nil, err
 	}
-	partitionColumns := groupPartitionColumns(groupAliases)
-	selectColumns := groupResultColumns(groupAliases)
 
-	sqlQuery := strings.Builder{}
-	sqlQuery.WriteString(`
-WITH filtered AS (
-	SELECT
-		` + bucketStartSQL(query.BucketSize()) + ` AS bucket_start,
-` + groupSelectSQL + `
-		quantity,
-		event_time::timestamptz AS event_at
-	FROM usage_events
-	WHERE meter_name = `)
-	args := []any{}
-	sqlQuery.WriteString(bindArg(&args, query.MeterName()))
-	sqlQuery.WriteString("\n")
-	sqlQuery.WriteString("\t\tAND event_time >= " + bindArg(&args, formatTime(query.From())) + "\n")
-	sqlQuery.WriteString("\t\tAND event_time < " + bindArg(&args, formatTime(query.To())) + "\n")
-	if query.Subject() != "" {
-		sqlQuery.WriteString("\t\tAND subject = " + bindArg(&args, query.Subject()) + "\n")
-	}
-	for key, value := range query.Metadata() {
-		if !metadataKeyPattern.MatchString(key) {
-			return nil, fmt.Errorf("unsupported metadata filter key %q", key)
-		}
-		sqlQuery.WriteString("\t\tAND metadata #>> " + postgresJSONPath(key) + " = " + bindArg(&args, value) + "\n")
-	}
-	filterSQL, err := filterWhereSQL(query.Filter(), &args)
-	if err != nil {
-		return nil, err
-	}
-	if filterSQL != "" {
-		sqlQuery.WriteString("\t\tAND ")
-		sqlQuery.WriteString(filterSQL)
-		sqlQuery.WriteString("\n")
-	}
-	sqlQuery.WriteString(`)
-SELECT ` + selectColumns + `, ` + aggregateSQL(query.Aggregation(), query.BucketSize()) + ` AS quantity
-FROM filtered
-GROUP BY ` + partitionColumns + `
-ORDER BY ` + groupOrderColumns(groupAliases) + `
-LIMIT ` + bindArg(&args, query.Limit()) + `
-`)
-
-	rows, err := r.store.query(ctx, sqlQuery.String(), args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	buckets := []domainusage.Bucket{}
-	for rows.Next() {
-		var bucketStart time.Time
-		groupValues := make([]string, len(groupBy))
-		var quantity float64
-		scanTargets := []any{&bucketStart}
-		for i := range groupValues {
-			scanTargets = append(scanTargets, &groupValues[i])
-		}
-		scanTargets = append(scanTargets, &quantity)
-		if err := rows.Scan(scanTargets...); err != nil {
-			return nil, err
-		}
-		group := map[string]string{}
-		bucketSubject := query.Subject()
-		for index, field := range groupBy {
-			group[field] = groupValues[index]
-			if domainusage.IsSubjectGroupBy(field) {
-				bucketSubject = groupValues[index]
-			}
-		}
-		buckets = append(buckets, domainusage.NewBucketWithGroup(
-			bucketSubject,
+	buckets := make([]domainusage.Bucket, 0, len(rows))
+	for _, row := range rows {
+		buckets = append(buckets, domainusage.NewBucket(
+			query.Subject(),
 			query.MeterName(),
 			query.BucketSize(),
-			bucketStart,
-			quantity,
-			group,
+			row.BucketStart,
+			row.Quantity,
 		))
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
 	}
 
 	return buckets, nil
@@ -277,598 +217,161 @@ LIMIT ` + bindArg(&args, query.Limit()) + `
 
 func (r *UsageRepository) FindDimensionValues(ctx context.Context, query domainusage.DimensionValueQuery) ([]domainusage.DimensionValue, error) {
 	if !metadataKeyPattern.MatchString(query.Field()) {
-		return nil, fmt.Errorf("unsupported metadata field %q", query.Field())
+		return nil, fmt.Errorf("%w: unsupported metadata field %q", domain.ErrInvalidInput, query.Field())
 	}
 
-	args := []any{}
-	valueSQL := "metadata #>> " + postgresJSONPath(query.Field())
-	sqlQuery := strings.Builder{}
-	sqlQuery.WriteString("SELECT value, COUNT(*) AS usage_events\n")
-	sqlQuery.WriteString("FROM (\n")
-	sqlQuery.WriteString("\tSELECT " + valueSQL + " AS value\n")
-	sqlQuery.WriteString("\tFROM usage_events\n")
-	sqlQuery.WriteString("\tWHERE meter_name = " + bindArg(&args, query.MeterName()) + "\n")
-	sqlQuery.WriteString("\t\tAND " + valueSQL + " IS NOT NULL\n")
-	if query.Subject() != "" {
-		sqlQuery.WriteString("\t\tAND subject = " + bindArg(&args, query.Subject()) + "\n")
-	}
-	if !query.From().IsZero() {
-		sqlQuery.WriteString("\t\tAND event_time >= " + bindArg(&args, formatTime(query.From())) + "\n")
-	}
-	if !query.To().IsZero() {
-		sqlQuery.WriteString("\t\tAND event_time < " + bindArg(&args, formatTime(query.To())) + "\n")
-	}
-	sqlQuery.WriteString(") discovered\n")
-	sqlQuery.WriteString("WHERE value IS NOT NULL AND value != ''\n")
-	sqlQuery.WriteString("GROUP BY value\n")
-	sqlQuery.WriteString("ORDER BY usage_events DESC, value ASC\n")
-	sqlQuery.WriteString("LIMIT " + bindArg(&args, query.Limit()))
-
-	rows, err := r.store.query(ctx, sqlQuery.String(), args...)
+	rows, err := queriesFor(ctx, r.queries).ListUsageDimensionValues(ctx, postgresdb.ListUsageDimensionValuesParams{
+		Field:     query.Field(),
+		MeterName: query.MeterName(),
+		Subject:   eventStringValue(query.Subject()),
+		FromTime:  eventTimeValue(query.From()),
+		ToTime:    eventTimeValue(query.To()),
+		Limit:     int32(query.Limit()),
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	values := []domainusage.DimensionValue{}
-	for rows.Next() {
-		var value string
-		var usageEvents int
-		if err := rows.Scan(&value, &usageEvents); err != nil {
-			return nil, err
-		}
-		values = append(values, domainusage.NewDimensionValue(query.Field(), value, usageEvents))
+	values := make([]domainusage.DimensionValue, 0, len(rows))
+	for _, row := range rows {
+		values = append(values, domainusage.NewDimensionValue(query.Field(), row.Value, int(row.UsageEvents)))
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
 	return values, nil
 }
 
 func (r *UsageRepository) FindBreakdown(ctx context.Context, query domainusage.BreakdownQuery) ([]domainusage.BreakdownItem, error) {
-	valueSQL, err := breakdownValueSQL(query.Field())
+	if query.Filter().IsZero() {
+		return r.findBreakdownWithGeneratedSQL(ctx, query)
+	}
+
+	return r.findBreakdownWithDynamicSQL(ctx, query)
+}
+
+func (r *UsageRepository) findBreakdownWithGeneratedSQL(ctx context.Context, query domainusage.BreakdownQuery) ([]domainusage.BreakdownItem, error) {
+	if _, err := breakdownFieldExpression(query.Field()); err != nil {
+		return nil, err
+	}
+
+	rows, err := queriesFor(ctx, r.queries).ListUsageBreakdown(ctx, postgresdb.ListUsageBreakdownParams{
+		Aggregation:     string(query.Aggregation()),
+		DurationSeconds: query.To().Sub(query.From()).Seconds(),
+		Limit:           int32(query.Limit()),
+		Field:           query.Field(),
+		MeterName:       query.MeterName(),
+		FromTime:        formatTime(query.From()),
+		ToTime:          formatTime(query.To()),
+		Subject:         eventStringValue(query.Subject()),
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	args := []any{}
-	sqlQuery := strings.Builder{}
-	sqlQuery.WriteString(`
-WITH filtered AS (
-	SELECT
-		` + valueSQL + ` AS value,
-		quantity,
-		event_time::timestamptz AS event_at
-	FROM usage_events
-	WHERE meter_name = `)
-	sqlQuery.WriteString(bindArg(&args, query.MeterName()))
-	sqlQuery.WriteString("\n")
-	sqlQuery.WriteString("\t\tAND event_time >= " + bindArg(&args, formatTime(query.From())) + "\n")
-	sqlQuery.WriteString("\t\tAND event_time < " + bindArg(&args, formatTime(query.To())) + "\n")
-	if query.Subject() != "" {
-		sqlQuery.WriteString("\t\tAND subject = " + bindArg(&args, query.Subject()) + "\n")
-	}
-	filterSQL, err := filterWhereSQL(query.Filter(), &args)
-	if err != nil {
-		return nil, err
-	}
-	if filterSQL != "" {
-		sqlQuery.WriteString("\t\tAND ")
-		sqlQuery.WriteString(filterSQL)
-		sqlQuery.WriteString("\n")
-	}
-	sqlQuery.WriteString(`)
-SELECT
-	value,
-	` + breakdownAggregateSQL(query.Aggregation(), &args, query.To().Sub(query.From()).Seconds()) + ` AS quantity,
-	COUNT(*) AS usage_events
-FROM filtered
-WHERE value IS NOT NULL AND value != ''
-GROUP BY value
-ORDER BY quantity DESC, value ASC
-LIMIT ` + bindArg(&args, query.Limit()) + `
-`)
-
-	rows, err := r.store.query(ctx, sqlQuery.String(), args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	items := []domainusage.BreakdownItem{}
-	for rows.Next() {
-		var value string
-		var quantity float64
-		var usageEvents int
-		if err := rows.Scan(&value, &quantity, &usageEvents); err != nil {
-			return nil, err
-		}
-		items = append(items, domainusage.NewBreakdownItem(query.Field(), value, quantity, usageEvents))
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
+	items := make([]domainusage.BreakdownItem, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, domainusage.NewBreakdownItem(query.Field(), row.Value, row.Quantity, int(row.UsageEvents)))
 	}
 
 	return items, nil
 }
 
-func bucketStartSQL(size domainusage.BucketSize) string {
-	switch size {
-	case domainusage.BucketHour:
-		return "date_trunc('hour', event_time::timestamptz)"
-	case domainusage.BucketMonth:
-		return "date_trunc('month', event_time::timestamptz)"
-	default:
-		return "date_trunc('day', event_time::timestamptz)"
-	}
-}
-
-func groupValueSelectSQL(groupBy []string) (string, []string, error) {
-	columns := strings.Builder{}
-	aliases := make([]string, 0, len(groupBy))
-	for index, field := range groupBy {
-		alias := fmt.Sprintf("group_%d", index)
-		if domainusage.IsSubjectGroupBy(field) {
-			columns.WriteString("\t\tsubject AS ")
-		} else {
-			if !metadataKeyPattern.MatchString(field) {
-				return "", nil, fmt.Errorf("unsupported group by field %q", field)
-			}
-			columns.WriteString("\t\tCOALESCE(metadata #>> ")
-			columns.WriteString(postgresJSONPath(field))
-			columns.WriteString(", '<nil>') AS ")
-		}
-		columns.WriteString(alias)
-		columns.WriteString(",\n")
-		aliases = append(aliases, alias)
-	}
-	return columns.String(), aliases, nil
-}
-
-func groupPartitionColumns(aliases []string) string {
-	columns := append([]string{"bucket_start"}, aliases...)
-	return strings.Join(columns, ", ")
-}
-
-func groupResultColumns(aliases []string) string {
-	return groupPartitionColumns(aliases)
-}
-
-func groupOrderColumns(aliases []string) string {
-	columns := []string{"bucket_start ASC"}
-	for _, alias := range aliases {
-		columns = append(columns, alias+" ASC")
-	}
-	return strings.Join(columns, ", ")
-}
-
-func aggregateSQL(aggregation domainmeter.Aggregation, bucketSize domainusage.BucketSize) string {
-	switch aggregation {
-	case domainmeter.AggregationCount:
-		return "COUNT(*)::double precision"
-	case domainmeter.AggregationAverage:
-		return "AVG(quantity)"
-	case domainmeter.AggregationMinimum:
-		return "MIN(quantity)"
-	case domainmeter.AggregationMaximum:
-		return "MAX(quantity)"
-	case domainmeter.AggregationFirst:
-		return "(array_agg(quantity ORDER BY event_at ASC))[1]"
-	case domainmeter.AggregationLast:
-		return "(array_agg(quantity ORDER BY event_at DESC))[1]"
-	case domainmeter.AggregationRate:
-		return "COUNT(*)::double precision / " + bucketDurationSecondsSQL(bucketSize)
-	default:
-		return "SUM(quantity)"
-	}
-}
-
-func breakdownValueSQL(field string) (string, error) {
-	if domainusage.IsSubjectGroupBy(field) {
-		return "subject", nil
-	}
-	if !metadataKeyPattern.MatchString(field) {
-		return "", fmt.Errorf("unsupported breakdown field %q", field)
-	}
-	return "metadata #>> " + postgresJSONPath(field), nil
-}
-
-func breakdownAggregateSQL(aggregation domainmeter.Aggregation, args *[]any, durationSeconds float64) string {
-	switch aggregation {
-	case domainmeter.AggregationCount:
-		return "COUNT(*)::double precision"
-	case domainmeter.AggregationAverage:
-		return "AVG(quantity)"
-	case domainmeter.AggregationMinimum:
-		return "MIN(quantity)"
-	case domainmeter.AggregationMaximum:
-		return "MAX(quantity)"
-	case domainmeter.AggregationFirst:
-		return "(array_agg(quantity ORDER BY event_at ASC))[1]"
-	case domainmeter.AggregationLast:
-		return "(array_agg(quantity ORDER BY event_at DESC))[1]"
-	case domainmeter.AggregationRate:
-		return "COUNT(*)::double precision / " + bindArg(args, durationSeconds)
-	default:
-		return "SUM(quantity)"
-	}
-}
-
-func bucketDurationSecondsSQL(size domainusage.BucketSize) string {
-	switch size {
-	case domainusage.BucketHour:
-		return "3600::double precision"
-	case domainusage.BucketMonth:
-		return "EXTRACT(EPOCH FROM (bucket_start + INTERVAL '1 month' - bucket_start))"
-	default:
-		return "86400::double precision"
-	}
-}
-
 func (r *UsageRepository) FindEvents(ctx context.Context, query domainusage.EventQuery) (domainusage.EventPage, error) {
-	sqlQuery := strings.Builder{}
-	sqlQuery.WriteString(`
-SELECT id, idempotency_key, subject, meter_name, quantity, event_time, received_at, metadata
-FROM usage_events
-WHERE 1 = 1
-`)
-	args := []any{}
-	if query.Subject() != "" {
-		sqlQuery.WriteString(" AND subject = " + bindArg(&args, query.Subject()) + "\n")
+	if query.Filter().IsZero() {
+		return r.findEventsWithGeneratedSQL(ctx, query)
 	}
-	if query.MeterName() != "" {
-		sqlQuery.WriteString(" AND meter_name = " + bindArg(&args, query.MeterName()) + "\n")
-	}
-	if !query.From().IsZero() {
-		sqlQuery.WriteString(" AND event_time >= " + bindArg(&args, formatTime(query.From())) + "\n")
-	}
-	if !query.To().IsZero() {
-		sqlQuery.WriteString(" AND event_time < " + bindArg(&args, formatTime(query.To())) + "\n")
-	}
-	filterSQL, err := filterWhereSQL(query.Filter(), &args)
+
+	return r.findEventsWithDynamicSQL(ctx, query)
+}
+
+func (r *UsageRepository) findEventsWithGeneratedSQL(ctx context.Context, query domainusage.EventQuery) (domainusage.EventPage, error) {
+	cursorEventTime, cursorID := eventCursorValues(query.Cursor())
+	rows, err := queriesFor(ctx, r.queries).ListUsageEvents(ctx, postgresdb.ListUsageEventsParams{
+		Subject:         eventStringValue(query.Subject()),
+		MeterName:       eventStringValue(query.MeterName()),
+		FromTime:        eventTimeValue(query.From()),
+		ToTime:          eventTimeValue(query.To()),
+		CursorEventTime: cursorEventTime,
+		CursorID:        cursorID,
+		Limit:           int32(query.Limit() + 1),
+	})
 	if err != nil {
 		return domainusage.EventPage{}, err
 	}
-	if filterSQL != "" {
-		sqlQuery.WriteString(" AND ")
-		sqlQuery.WriteString(filterSQL)
-		sqlQuery.WriteString("\n")
-	}
-	if !query.Cursor().IsZero() {
-		cursorTime := formatTime(query.Cursor().EventTime())
-		cursorTimeRef := bindArg(&args, cursorTime)
-		idRef := bindArg(&args, query.Cursor().ID())
-		sqlQuery.WriteString(" AND (event_time < " + cursorTimeRef + " OR (event_time = " + cursorTimeRef + " AND id < " + idRef + "))\n")
-	}
-	sqlQuery.WriteString("ORDER BY event_time DESC, id DESC\nLIMIT " + bindArg(&args, query.Limit()+1))
 
-	rows, err := r.store.query(ctx, sqlQuery.String(), args...)
-	if err != nil {
-		return domainusage.EventPage{}, err
-	}
-	defer rows.Close()
-
-	events := []domainusage.Event{}
-	for rows.Next() {
-		event, err := scanEvent(rows)
+	events := make([]domainusage.Event, 0, len(rows))
+	for _, row := range rows {
+		event, err := eventFromFields(row.ID, row.IdempotencyKey, row.Subject, row.MeterName, row.Quantity, row.EventTime, row.ReceivedAt, row.Metadata, nil)
 		if err != nil {
 			return domainusage.EventPage{}, err
 		}
 		events = append(events, event)
 	}
 
-	if err := rows.Err(); err != nil {
-		return domainusage.EventPage{}, err
-	}
-
 	return domainusage.NewEventPage(events, query.Limit()), nil
 }
 
-func filterWhereSQL(filter domainusage.Filter, args *[]any) (string, error) {
-	if filter.IsZero() {
-		return "", nil
-	}
-
-	switch filter.Type() {
-	case domainusage.FilterTypeGroup:
-		parts := []string{}
-		for _, rule := range filter.Rules() {
-			part, err := filterWhereSQL(rule, args)
-			if err != nil {
-				return "", err
-			}
-			if part == "" {
-				continue
-			}
-			parts = append(parts, "("+part+")")
-		}
-		if len(parts) == 0 {
-			return "", nil
-		}
-		joiner := " AND "
-		if filter.GroupOp() == domainusage.FilterGroupOr {
-			joiner = " OR "
-		}
-		return strings.Join(parts, joiner), nil
-	case domainusage.FilterTypeCondition:
-		return conditionWhereSQL(filter, args)
-	default:
-		return "", nil
-	}
-}
-
-type filterField struct {
-	expression  string
-	valueKind   string
-	metadataKey string
-}
-
-func conditionWhereSQL(filter domainusage.Filter, args *[]any) (string, error) {
-	field, err := filterFieldSQL(filter.Field())
-	if err != nil {
-		return "", err
-	}
-
-	op := filter.ConditionOp()
-	if op == domainusage.FilterOpExists {
-		return field.expression + " IS NOT NULL", nil
-	}
-
-	switch op {
-	case domainusage.FilterOpEqual:
-		if field.metadataKey != "" {
-			return metadataContainsSQL(field.metadataKey, filter.Value(), args)
-		}
-		value, err := sqlFilterValue(filter.Value(), field.valueKind)
-		if err != nil {
-			return "", err
-		}
-		return field.expression + " = " + bindArg(args, value), nil
-	case domainusage.FilterOpNotEqual, domainusage.FilterOpGreaterThan, domainusage.FilterOpGreaterThanOrEqual, domainusage.FilterOpLessThan, domainusage.FilterOpLessThanOrEqual:
-		value, err := sqlFilterValue(filter.Value(), field.valueKind)
-		if err != nil {
-			return "", err
-		}
-		return field.expression + " " + sqlOperator(op) + " " + bindArg(args, value), nil
-	case domainusage.FilterOpIn:
-		values, ok := filter.Value().([]any)
-		if !ok || len(values) == 0 {
-			return "", fmt.Errorf("invalid in filter value")
-		}
-		if field.metadataKey != "" {
-			parts := make([]string, 0, len(values))
-			for _, raw := range values {
-				part, err := metadataContainsSQL(field.metadataKey, raw, args)
-				if err != nil {
-					return "", err
-				}
-				parts = append(parts, part)
-			}
-			return "(" + strings.Join(parts, " OR ") + ")", nil
-		}
-		placeholders := make([]string, 0, len(values))
-		for _, raw := range values {
-			value, err := sqlFilterValue(raw, field.valueKind)
-			if err != nil {
-				return "", err
-			}
-			placeholders = append(placeholders, bindArg(args, value))
-		}
-		return field.expression + " IN (" + strings.Join(placeholders, ", ") + ")", nil
-	case domainusage.FilterOpContains:
-		value, err := sqlFilterValue(filter.Value(), "text")
-		if err != nil {
-			return "", err
-		}
-		return "CAST(" + field.expression + " AS TEXT) LIKE " + bindArg(args, "%"+fmt.Sprint(value)+"%"), nil
-	default:
-		return "", fmt.Errorf("unsupported filter operator %q", op)
-	}
-}
-
-func metadataContainsSQL(key string, value any, args *[]any) (string, error) {
-	payload, err := metadataContainsJSON(key, value)
-	if err != nil {
-		return "", err
-	}
-	return "metadata @> " + bindArg(args, payload) + "::jsonb", nil
-}
-
-func sqlOperator(op domainusage.FilterConditionOp) string {
-	switch op {
-	case domainusage.FilterOpNotEqual:
-		return "!="
-	case domainusage.FilterOpGreaterThan:
-		return ">"
-	case domainusage.FilterOpGreaterThanOrEqual:
-		return ">="
-	case domainusage.FilterOpLessThan:
-		return "<"
-	case domainusage.FilterOpLessThanOrEqual:
-		return "<="
-	default:
-		return "="
-	}
-}
-
-func filterFieldSQL(field string) (filterField, error) {
-	switch field {
-	case "subject":
-		return filterField{expression: "subject", valueKind: "text"}, nil
-	case "meter":
-		return filterField{expression: "meter_name", valueKind: "text"}, nil
-	case "quantity":
-		return filterField{expression: "quantity", valueKind: "number"}, nil
-	case "timestamp", "event_time":
-		return filterField{expression: "event_time", valueKind: "time"}, nil
-	case "received_at":
-		return filterField{expression: "received_at", valueKind: "time"}, nil
-	case "idempotency_key":
-		return filterField{expression: "idempotency_key", valueKind: "text"}, nil
-	default:
-		key := strings.TrimPrefix(field, "metadata.")
-		if key == field || !metadataKeyPattern.MatchString(key) {
-			return filterField{}, fmt.Errorf("unsupported filter field %q", field)
-		}
-		return filterField{expression: "metadata #>> " + postgresJSONPath(key), valueKind: "text", metadataKey: key}, nil
-	}
-}
-
-func metadataContainsJSON(key string, value any) (string, error) {
-	if !metadataKeyPattern.MatchString(key) {
-		return "", fmt.Errorf("unsupported metadata filter key %q", key)
-	}
-
-	parts := strings.Split(key, ".")
-	var node any = value
-	for i := len(parts) - 1; i >= 0; i-- {
-		node = map[string]any{parts[i]: node}
-	}
-
-	payload, err := json.Marshal(node)
-	if err != nil {
-		return "", err
-	}
-	return string(payload), nil
-}
-
-func sqlFilterValue(value any, kind string) (any, error) {
-	if kind == "text" {
-		return fmt.Sprint(value), nil
-	}
-	if kind == "time" {
-		parsed, err := time.Parse(time.RFC3339Nano, fmt.Sprint(value))
-		if err != nil {
-			return nil, err
-		}
-		return formatTime(parsed), nil
-	}
-	return value, nil
-}
-
 func (r *UsageRepository) CountEvents(ctx context.Context) (int, error) {
-	var count int
-	if err := r.store.queryRow(ctx, `SELECT COUNT(*) FROM usage_events`).Scan(&count); err != nil {
+	count, err := queriesFor(ctx, r.queries).CountUsageEvents(ctx)
+	if err != nil {
 		return 0, err
 	}
-	return count, nil
+	return int(count), nil
 }
 
 func (r *UsageRepository) FindMeterStats(ctx context.Context) ([]domainusage.MeterStats, error) {
-	rows, err := r.store.query(ctx, `
-SELECT meter_name, COUNT(*), MAX(event_time)
-FROM usage_events
-GROUP BY meter_name
-ORDER BY meter_name
-`)
+	rows, err := queriesFor(ctx, r.queries).ListUsageMeterStats(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	stats := []domainusage.MeterStats{}
-	for rows.Next() {
-		var meterName string
-		var usageEvents int
-		var lastEventAtText string
-		if err := rows.Scan(&meterName, &usageEvents, &lastEventAtText); err != nil {
-			return nil, err
-		}
-		lastEventAt, err := time.Parse(time.RFC3339Nano, lastEventAtText)
+	stats := make([]domainusage.MeterStats, 0, len(rows))
+	for _, row := range rows {
+		stat, err := meterStatsFromFields(row.MeterName, row.UsageEvents, row.LastEventAt)
 		if err != nil {
 			return nil, err
 		}
-		stats = append(stats, domainusage.NewMeterStats(meterName, usageEvents, lastEventAt))
+		stats = append(stats, stat)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
 	return stats, nil
 }
 
 func (r *UsageRepository) FindSubjectStats(ctx context.Context, query domainusage.SubjectStatsQuery) ([]domainusage.SubjectStats, error) {
-	sqlQuery := strings.Builder{}
-	sqlQuery.WriteString(`
-SELECT subject, COUNT(*), COUNT(DISTINCT meter_name), MAX(event_time)
-FROM usage_events
-GROUP BY subject
-`)
-	args := []any{}
-	if query.HasCursor() {
-		cursorTime := formatTime(query.LastEventAt())
-		cursorTimeRef := bindArg(&args, cursorTime)
-		subjectRef := bindArg(&args, query.Subject())
-		sqlQuery.WriteString("HAVING MAX(event_time) < " + cursorTimeRef + " OR (MAX(event_time) = " + cursorTimeRef + " AND subject > " + subjectRef + ")\n")
-	}
-	sqlQuery.WriteString(`ORDER BY MAX(event_time) DESC, subject ASC
-LIMIT ` + bindArg(&args, query.Limit()) + `
-`)
-
-	rows, err := r.store.query(ctx, sqlQuery.String(), args...)
+	cursorLastEventAt, cursorSubject := subjectStatsCursorValues(query)
+	rows, err := queriesFor(ctx, r.queries).ListUsageSubjectStats(ctx, postgresdb.ListUsageSubjectStatsParams{
+		CursorLastEventAt: cursorLastEventAt,
+		CursorSubject:     cursorSubject,
+		Limit:             int32(query.Limit()),
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	stats := []domainusage.SubjectStats{}
-	for rows.Next() {
-		var subject string
-		var usageEvents int
-		var meters int
-		var lastEventAtText string
-		if err := rows.Scan(&subject, &usageEvents, &meters, &lastEventAtText); err != nil {
-			return nil, err
-		}
-		lastEventAt, err := time.Parse(time.RFC3339Nano, lastEventAtText)
+	stats := make([]domainusage.SubjectStats, 0, len(rows))
+	for _, row := range rows {
+		stat, err := subjectStatsFromFields(row.Subject, row.UsageEvents, row.Meters, row.LastEventAt)
 		if err != nil {
 			return nil, err
 		}
-		stats = append(stats, domainusage.NewSubjectStats(subject, usageEvents, meters, lastEventAt))
+		stats = append(stats, stat)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
 	return stats, nil
 }
 
 func (r *UsageRepository) TryPruneLock(ctx context.Context) (bool, error) {
-	var locked bool
-	if err := r.store.queryRow(ctx, `SELECT pg_try_advisory_xact_lock($1)`, pruneAdvisoryLockKey).Scan(&locked); err != nil {
-		return false, err
-	}
-	return locked, nil
+	return queriesFor(ctx, r.queries).TryPruneLock(ctx, pruneAdvisoryLockKey)
 }
 
 func (r *UsageRepository) PruneEvents(ctx context.Context, query domainusage.PruneQuery) (int, error) {
-	return r.pruneEvents(ctx, r.store, query)
-}
-
-func (r *UsageRepository) pruneEvents(ctx context.Context, store eventStore, query domainusage.PruneQuery) (int, error) {
 	total := 0
 	for {
-		result, err := store.ExecContext(ctx, `
-WITH deleted AS (
-	SELECT id
-	FROM usage_events
-	WHERE meter_name = $1
-		AND event_time < $2
-	ORDER BY event_time ASC, id ASC
-	LIMIT $3
-)
-DELETE FROM usage_events
-WHERE id IN (SELECT id FROM deleted)
-`, query.MeterName(), formatTime(query.Before()), pruneDeleteBatchSize)
+		deleted, err := queriesFor(ctx, r.queries).PruneUsageEventsBatch(ctx, postgresdb.PruneUsageEventsBatchParams{
+			MeterName: query.MeterName(),
+			EventTime: formatTime(query.Before()),
+			Limit:     int32(pruneDeleteBatchSize),
+		})
 		if err != nil {
 			return 0, err
 		}
 
-		deleted, err := result.RowsAffected()
-		if err != nil {
-			return 0, err
-		}
 		total += int(deleted)
 		if deleted < pruneDeleteBatchSize {
 			return total, nil
@@ -877,38 +380,29 @@ WHERE id IN (SELECT id FROM deleted)
 }
 
 func (r *UsageRepository) CountPrunableEvents(ctx context.Context, query domainusage.PruneQuery) (int, error) {
-	return r.countPrunableEvents(ctx, r.store, query)
-}
-
-func (r *UsageRepository) countPrunableEvents(ctx context.Context, store eventStore, query domainusage.PruneQuery) (int, error) {
-	var count int
-	err := store.QueryRowContext(ctx, `
-SELECT COUNT(*)
-FROM usage_events
-WHERE meter_name = $1
-	AND event_time < $2
-`, query.MeterName(), formatTime(query.Before())).Scan(&count)
+	count, err := queriesFor(ctx, r.queries).CountPrunableUsageEvents(ctx, postgresdb.CountPrunableUsageEventsParams{
+		MeterName: query.MeterName(),
+		EventTime: formatTime(query.Before()),
+	})
 	if err != nil {
 		return 0, err
 	}
-
-	return count, nil
+	return int(count), nil
 }
 
 func (r *UsageRepository) SavePruneRun(ctx context.Context, run domainusage.PruneRun) (domainusage.PruneRun, error) {
-	return r.savePruneRun(ctx, r.store, run)
-}
-
-func (r *UsageRepository) savePruneRun(ctx context.Context, store eventStore, run domainusage.PruneRun) (domainusage.PruneRun, error) {
 	meters, err := marshalPruneRunMeters(run.Meters())
 	if err != nil {
 		return domainusage.PruneRun{}, err
 	}
 
-	_, err = store.ExecContext(ctx, `
-INSERT INTO usage_prune_runs (id, dry_run, deleted, meters, created_at)
-VALUES ($1, $2, $3, $4, $5)
-`, run.ID(), boolInt(run.DryRun()), run.Deleted(), meters, formatTime(run.CreatedAt()))
+	err = queriesFor(ctx, r.queries).SaveUsagePruneRun(ctx, postgresdb.SaveUsagePruneRunParams{
+		ID:        run.ID(),
+		DryRun:    int32(boolInt(run.DryRun())),
+		Deleted:   int32(run.Deleted()),
+		Meters:    meters,
+		CreatedAt: formatTime(run.CreatedAt()),
+	})
 	if err != nil {
 		return domainusage.PruneRun{}, err
 	}
@@ -917,57 +411,44 @@ VALUES ($1, $2, $3, $4, $5)
 }
 
 func (r *UsageRepository) FindPruneRuns(ctx context.Context, query domainusage.RunQuery) ([]domainusage.PruneRun, error) {
-	sqlQuery := strings.Builder{}
-	sqlQuery.WriteString(`
-SELECT id, dry_run, deleted, meters, created_at
-FROM usage_prune_runs
-WHERE 1 = 1
-`)
-	args := []any{}
-	if query.HasCursor() {
-		cursorTime := formatTime(query.CreatedAt())
-		cursorTimeRef := bindArg(&args, cursorTime)
-		idRef := bindArg(&args, query.ID())
-		sqlQuery.WriteString(" AND (created_at < " + cursorTimeRef + " OR (created_at = " + cursorTimeRef + " AND id < " + idRef + "))\n")
-	}
-	sqlQuery.WriteString(`ORDER BY created_at DESC, id DESC
-LIMIT ` + bindArg(&args, query.Limit()) + `
-`)
-
-	rows, err := r.store.query(ctx, sqlQuery.String(), args...)
+	cursorCreatedAt, cursorID := runCursorValues(query)
+	rows, err := queriesFor(ctx, r.queries).ListUsagePruneRuns(ctx, postgresdb.ListUsagePruneRunsParams{
+		CursorCreatedAt: cursorCreatedAt,
+		CursorID:        cursorID,
+		Limit:           int32(query.Limit()),
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	runs := []domainusage.PruneRun{}
-	for rows.Next() {
-		run, err := scanPruneRun(rows)
+	runs := make([]domainusage.PruneRun, 0, len(rows))
+	for _, row := range rows {
+		run, err := pruneRunFromFields(row.ID, row.DryRun, row.Deleted, row.Meters, row.CreatedAt)
 		if err != nil {
 			return nil, err
 		}
 		runs = append(runs, run)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
 	return runs, nil
 }
 
 func (r *UsageRepository) CountPruneRuns(ctx context.Context) (int, error) {
-	var count int
-	if err := r.store.queryRow(ctx, `SELECT COUNT(*) FROM usage_prune_runs`).Scan(&count); err != nil {
+	count, err := queriesFor(ctx, r.queries).CountUsagePruneRuns(ctx)
+	if err != nil {
 		return 0, err
 	}
-	return count, nil
+	return int(count), nil
 }
 
 func (r *UsageRepository) SaveIngestionRun(ctx context.Context, run domainusage.IngestionRun) (domainusage.IngestionRun, error) {
-	_, err := r.store.exec(ctx, `
-INSERT INTO usage_ingestions (id, kind, accepted, duplicates, failed, created_at)
-VALUES ($1, $2, $3, $4, $5, $6)
-`, run.ID(), string(run.Kind()), run.Accepted(), run.Duplicates(), run.Failed(), formatTime(run.CreatedAt()))
+	err := queriesFor(ctx, r.queries).SaveUsageIngestionRun(ctx, postgresdb.SaveUsageIngestionRunParams{
+		ID:         run.ID(),
+		Kind:       string(run.Kind()),
+		Accepted:   int32(run.Accepted()),
+		Duplicates: int32(run.Duplicates()),
+		Failed:     int32(run.Failed()),
+		CreatedAt:  formatTime(run.CreatedAt()),
+	})
 	if err != nil {
 		return domainusage.IngestionRun{}, err
 	}
@@ -976,75 +457,39 @@ VALUES ($1, $2, $3, $4, $5, $6)
 }
 
 func (r *UsageRepository) FindIngestionRuns(ctx context.Context, query domainusage.RunQuery) ([]domainusage.IngestionRun, error) {
-	sqlQuery := strings.Builder{}
-	sqlQuery.WriteString(`
-SELECT id, kind, accepted, duplicates, failed, created_at
-FROM usage_ingestions
-WHERE 1 = 1
-`)
-	args := []any{}
-	if query.HasCursor() {
-		cursorTime := formatTime(query.CreatedAt())
-		cursorTimeRef := bindArg(&args, cursorTime)
-		idRef := bindArg(&args, query.ID())
-		sqlQuery.WriteString(" AND (created_at < " + cursorTimeRef + " OR (created_at = " + cursorTimeRef + " AND id < " + idRef + "))\n")
-	}
-	sqlQuery.WriteString(`ORDER BY created_at DESC, id DESC
-LIMIT ` + bindArg(&args, query.Limit()) + `
-`)
-
-	rows, err := r.store.query(ctx, sqlQuery.String(), args...)
+	cursorCreatedAt, cursorID := runCursorValues(query)
+	rows, err := queriesFor(ctx, r.queries).ListUsageIngestionRuns(ctx, postgresdb.ListUsageIngestionRunsParams{
+		CursorCreatedAt: cursorCreatedAt,
+		CursorID:        cursorID,
+		Limit:           int32(query.Limit()),
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	runs := []domainusage.IngestionRun{}
-	for rows.Next() {
-		run, err := scanIngestionRun(rows)
+	runs := make([]domainusage.IngestionRun, 0, len(rows))
+	for _, row := range rows {
+		run, err := ingestionRunFromFields(row.ID, row.Kind, row.Accepted, row.Duplicates, row.Failed, row.CreatedAt)
 		if err != nil {
 			return nil, err
 		}
 		runs = append(runs, run)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
 	return runs, nil
 }
 
-func (r *UsageRepository) findByIdempotencyKey(ctx context.Context, store eventStore, key string) (domainusage.Event, error) {
-	row := store.QueryRowContext(ctx, `
-SELECT id, idempotency_key, subject, meter_name, quantity, event_time, received_at, metadata
-FROM usage_events
-WHERE idempotency_key = $1
-`, key)
-
-	return scanEvent(row)
+func (r *UsageRepository) findByIdempotencyKey(ctx context.Context, key string) (domainusage.Event, error) {
+	event, err := queriesFor(ctx, r.queries).FindUsageEventByIdempotencyKey(ctx, sql.NullString{String: key, Valid: true})
+	return eventFromFields(event.ID, event.IdempotencyKey, event.Subject, event.MeterName, event.Quantity, event.EventTime, event.ReceivedAt, event.Metadata, err)
 }
 
-func (r *UsageRepository) findByID(ctx context.Context, store eventStore, id string) (domainusage.Event, error) {
-	row := store.QueryRowContext(ctx, `
-SELECT id, idempotency_key, subject, meter_name, quantity, event_time, received_at, metadata
-FROM usage_events
-WHERE id = $1
-`, id)
-
-	return scanEvent(row)
-}
-
-func postgresJSONPath(key string) string {
-	return "'{" + strings.ReplaceAll(key, ".", ",") + "}'"
+func (r *UsageRepository) findByID(ctx context.Context, id string) (domainusage.Event, error) {
+	event, err := queriesFor(ctx, r.queries).FindUsageEventByID(ctx, id)
+	return eventFromFields(event.ID, event.IdempotencyKey, event.Subject, event.MeterName, event.Quantity, event.EventTime, event.ReceivedAt, event.Metadata, err)
 }
 
 func (r *UsageRepository) findBulk(ctx context.Context, idempotencyKey string) (domainusage.BulkSaveResult, error) {
-	var response string
-	err := r.store.queryRow(ctx, `
-SELECT response
-FROM bulk_usage_ingestions
-WHERE idempotency_key = $1
-`, idempotencyKey).Scan(&response)
+	response, err := queriesFor(ctx, r.queries).FindBulkUsageIngestion(ctx, idempotencyKey)
 	if err != nil {
 		return domainusage.BulkSaveResult{}, err
 	}
@@ -1052,26 +497,97 @@ WHERE idempotency_key = $1
 	return unmarshalBulkResult(response)
 }
 
-func scanIngestionRun(scanner interface {
-	Scan(dest ...any) error
-}) (domainusage.IngestionRun, error) {
-	var id string
-	var kind string
-	var accepted int
-	var duplicates int
-	var failed int
-	var createdAtText string
-
-	if err := scanner.Scan(&id, &kind, &accepted, &duplicates, &failed, &createdAtText); err != nil {
-		return domainusage.IngestionRun{}, err
+func subjectStatsCursorValues(query domainusage.SubjectStatsQuery) (sql.NullString, sql.NullString) {
+	if !query.HasCursor() {
+		return sql.NullString{}, sql.NullString{}
 	}
+	return sql.NullString{String: formatTime(query.LastEventAt()), Valid: true}, sql.NullString{String: query.Subject(), Valid: true}
+}
 
+func eventStringValue(value string) sql.NullString {
+	if value == "" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: value, Valid: true}
+}
+
+func eventTimeValue(value time.Time) sql.NullString {
+	if value.IsZero() {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: formatTime(value), Valid: true}
+}
+
+func eventCursorValues(cursor domainusage.EventCursor) (sql.NullString, sql.NullString) {
+	if cursor.IsZero() {
+		return sql.NullString{}, sql.NullString{}
+	}
+	return sql.NullString{String: formatTime(cursor.EventTime()), Valid: true}, sql.NullString{String: cursor.ID(), Valid: true}
+}
+
+func meterStatsFromFields(meterName string, usageEvents int64, lastEventAtText string) (domainusage.MeterStats, error) {
+	lastEventAt, err := time.Parse(time.RFC3339Nano, lastEventAtText)
+	if err != nil {
+		return domainusage.MeterStats{}, err
+	}
+	return domainusage.NewMeterStats(meterName, int(usageEvents), lastEventAt), nil
+}
+
+func subjectStatsFromFields(subject string, usageEvents int64, meters int64, lastEventAtText string) (domainusage.SubjectStats, error) {
+	lastEventAt, err := time.Parse(time.RFC3339Nano, lastEventAtText)
+	if err != nil {
+		return domainusage.SubjectStats{}, err
+	}
+	return domainusage.NewSubjectStats(subject, int(usageEvents), int(meters), lastEventAt), nil
+}
+
+func runCursorValues(query domainusage.RunQuery) (sql.NullString, sql.NullString) {
+	if !query.HasCursor() {
+		return sql.NullString{}, sql.NullString{}
+	}
+	return sql.NullString{String: formatTime(query.CreatedAt()), Valid: true}, sql.NullString{String: query.ID(), Valid: true}
+}
+
+func ingestionRunFromFields(id string, kind string, accepted int32, duplicates int32, failed int32, createdAtText string) (domainusage.IngestionRun, error) {
 	createdAt, err := time.Parse(time.RFC3339Nano, createdAtText)
 	if err != nil {
 		return domainusage.IngestionRun{}, err
 	}
 
-	return domainusage.NewIngestionRun(id, domainusage.IngestionKind(kind), accepted, duplicates, failed, createdAt)
+	return domainusage.NewIngestionRun(id, domainusage.IngestionKind(kind), int(accepted), int(duplicates), int(failed), createdAt)
+}
+
+func eventFromFields(id string, idempotencyKey sql.NullString, subject string, meterName string, quantity float64, eventTimeText string, receivedAtText string, metadataJSON json.RawMessage, err error) (domainusage.Event, error) {
+	if err != nil {
+		return domainusage.Event{}, err
+	}
+
+	eventTime, err := time.Parse(time.RFC3339Nano, eventTimeText)
+	if err != nil {
+		return domainusage.Event{}, err
+	}
+	receivedAt, err := time.Parse(time.RFC3339Nano, receivedAtText)
+	if err != nil {
+		return domainusage.Event{}, err
+	}
+
+	metadata := map[string]any{}
+	if len(metadataJSON) > 0 {
+		if err := json.Unmarshal(metadataJSON, &metadata); err != nil {
+			return domainusage.Event{}, err
+		}
+	}
+
+	return domainusage.NewEvent(
+		id,
+		idempotencyKey.String,
+		subject,
+		meterName,
+		quantity,
+		eventTime,
+		receivedAt,
+		metadata,
+	)
 }
 
 func boolInt(value bool) int {
@@ -1081,19 +597,7 @@ func boolInt(value bool) int {
 	return 0
 }
 
-func scanPruneRun(scanner interface {
-	Scan(dest ...any) error
-}) (domainusage.PruneRun, error) {
-	var id string
-	var dryRun int
-	var deleted int
-	var metersText string
-	var createdAtText string
-
-	if err := scanner.Scan(&id, &dryRun, &deleted, &metersText, &createdAtText); err != nil {
-		return domainusage.PruneRun{}, err
-	}
-
+func pruneRunFromFields(id string, dryRun int32, deleted int32, metersText string, createdAtText string) (domainusage.PruneRun, error) {
 	meters, err := unmarshalPruneRunMeters(metersText)
 	if err != nil {
 		return domainusage.PruneRun{}, err
@@ -1103,7 +607,7 @@ func scanPruneRun(scanner interface {
 		return domainusage.PruneRun{}, err
 	}
 
-	return domainusage.NewPruneRun(id, dryRun != 0, deleted, meters, createdAt)
+	return domainusage.NewPruneRun(id, dryRun != 0, int(deleted), meters, createdAt)
 }
 
 func scanEvent(scanner interface {
@@ -1122,32 +626,7 @@ func scanEvent(scanner interface {
 		return domainusage.Event{}, err
 	}
 
-	eventTime, err := time.Parse(time.RFC3339Nano, eventTimeText)
-	if err != nil {
-		return domainusage.Event{}, err
-	}
-	receivedAt, err := time.Parse(time.RFC3339Nano, receivedAtText)
-	if err != nil {
-		return domainusage.Event{}, err
-	}
-
-	metadata := map[string]any{}
-	if metadataText != "" {
-		if err := json.Unmarshal([]byte(metadataText), &metadata); err != nil {
-			return domainusage.Event{}, err
-		}
-	}
-
-	return domainusage.NewEvent(
-		id,
-		idempotencyKey.String,
-		subject,
-		meterName,
-		quantity,
-		eventTime,
-		receivedAt,
-		metadata,
-	)
+	return eventFromFields(id, idempotencyKey, subject, meterName, quantity, eventTimeText, receivedAtText, json.RawMessage(metadataText), nil)
 }
 
 func marshalPruneRunMeters(meters []domainusage.PruneRunMeter) (string, error) {

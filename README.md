@@ -28,7 +28,7 @@ Open Spanner is built for products that need a trusted usage record for billing,
 
 | Use case | What you can meter |
 | --- | --- |
-| [API request metering](docs/content/docs/use-cases/api-requests.mdx) | Request volume by endpoint, method, status, and region |
+| [API request metering](docs/content/docs/use-cases/api-requests.mdx) | Request volume by endpoint, method, status, region, and service tier |
 | [AI token usage](docs/content/docs/use-cases/ai-tokens.mdx) | Tokens by model, provider, operation, and cache path |
 | [Storage usage](docs/content/docs/use-cases/storage-usage.mdx) | Capacity by tier, region, and resource type |
 | [Active users](docs/content/docs/use-cases/active-users.mdx) | Seats, workspaces, roles, plans, and active accounts |
@@ -88,8 +88,9 @@ curl -X POST http://localhost:18081/v1/meters \
     "aggregation": "sum",
     "event_retention_days": 90,
     "metadata_schema": {
-      "region": "string",
-      "service": "string"
+      "region-name": "string",
+      "service.tier": "string",
+      "status_code": "number"
     }
   }'
 ```
@@ -107,8 +108,11 @@ curl -X POST http://localhost:18081/v1/usages \
     "quantity": 1,
     "timestamp": "2026-06-09T12:00:00Z",
     "metadata": {
-      "region": "us-east-1",
-      "service": "api"
+      "region-name": "us-east-1",
+      "service": {
+        "tier": "gold"
+      },
+      "status_code": 200
     }
   }'
 ```
@@ -116,7 +120,7 @@ curl -X POST http://localhost:18081/v1/usages \
 Query usage:
 
 ```sh
-curl "http://localhost:18081/v1/usages?subject=org_123&meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-07-01T00:00:00Z&bucket_size=day&limit=100" \
+curl "http://localhost:18081/v1/usages?subject=org_123&meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-07-01T00:00:00Z&bucket_size=day&metadata.service.tier=gold&limit=100" \
   -H "Authorization: Bearer $API_KEY"
 ```
 

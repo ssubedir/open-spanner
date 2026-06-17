@@ -1569,6 +1569,18 @@ svg {
   min-height: 36px;
 }
 
+.schema-row input[aria-invalid='true'] {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px rgb(180 35 24 / 10%);
+}
+
+.schema-row-error {
+  color: var(--danger);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
 .schema-required {
   align-self: end;
   grid-template-columns: auto 1fr;

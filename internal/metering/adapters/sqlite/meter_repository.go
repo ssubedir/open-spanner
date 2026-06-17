@@ -5,19 +5,20 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"strings"
 	"time"
 
+	"github.com/ssubedir/open-spanner/internal/metering/adapters/sqlite/sqlitedb"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
 	domainmeter "github.com/ssubedir/open-spanner/internal/metering/domain/meter"
 )
 
 type MeterRepository struct {
-	store *Store
+	store   *Store
+	queries *sqlitedb.Queries
 }
 
 func NewMeterRepository(store *Store) *MeterRepository {
-	return &MeterRepository{store: store}
+	return &MeterRepository{store: store, queries: sqlitedb.New(store)}
 }
 
 func (r *MeterRepository) Save(ctx context.Context, meter domainmeter.Meter) (domainmeter.Meter, error) {
@@ -30,17 +31,17 @@ func (r *MeterRepository) Save(ctx context.Context, meter domainmeter.Meter) (do
 		return domainmeter.Meter{}, err
 	}
 
-	_, err = r.store.db.ExecContext(ctx, `
-INSERT INTO meters (id, name, description, unit, aggregation, metadata_schema, dimensions, event_retention_days, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(id) DO UPDATE SET
-	description = excluded.description,
-	unit = excluded.unit,
-	aggregation = excluded.aggregation,
-	metadata_schema = excluded.metadata_schema,
-	dimensions = excluded.dimensions,
-	event_retention_days = excluded.event_retention_days
-`, meter.ID(), meter.Name(), meter.Description(), meter.Unit(), string(meter.Aggregation()), metadataSchema, dimensions, meter.EventRetentionDays(), formatTime(meter.CreatedAt()))
+	err = queriesFor(ctx, r.queries).SaveMeter(ctx, sqlitedb.SaveMeterParams{
+		ID:                 meter.ID(),
+		Name:               meter.Name(),
+		Description:        meter.Description(),
+		Unit:               meter.Unit(),
+		Aggregation:        string(meter.Aggregation()),
+		MetadataSchema:     metadataSchema,
+		Dimensions:         dimensions,
+		EventRetentionDays: int64(meter.EventRetentionDays()),
+		CreatedAt:          formatTime(meter.CreatedAt()),
+	})
 	if err != nil {
 		if isUniqueConstraint(err) {
 			return domainmeter.Meter{}, errors.Join(domain.ErrConflict, err)
@@ -52,57 +53,44 @@ ON CONFLICT(id) DO UPDATE SET
 }
 
 func (r *MeterRepository) Find(ctx context.Context, query domainmeter.Query) ([]domainmeter.Meter, error) {
-	where := []string{"1 = 1"}
-	args := []any{}
-
-	if query.ID != "" {
-		where = append(where, "id = ?")
-		args = append(args, query.ID)
-	}
-	if query.Name != "" {
-		where = append(where, "name = ?")
-		args = append(args, query.Name)
-	}
-	if query.Cursor != "" {
-		where = append(where, "name > ?")
-		args = append(args, query.Cursor)
-	}
-	args = append(args, domainmeter.NormalizeLimit(query.Limit))
-
-	rows, err := r.store.db.QueryContext(ctx, `
-SELECT id, name, description, unit, aggregation, metadata_schema, dimensions, event_retention_days, created_at
-FROM meters
-WHERE `+strings.Join(where, " AND ")+`
-ORDER BY name
-LIMIT ?
-`, args...)
+	rows, err := queriesFor(ctx, r.queries).ListMeters(ctx, sqlitedb.ListMetersParams{
+		ID:     optionalValue(query.ID),
+		Name:   optionalValue(query.Name),
+		Cursor: optionalValue(query.Cursor),
+		Limit:  int64(domainmeter.NormalizeLimit(query.Limit)),
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	meters := []domainmeter.Meter{}
-	for rows.Next() {
-		meter, err := scanMeter(rows)
+	meters := make([]domainmeter.Meter, 0, len(rows))
+	for _, row := range rows {
+		meter, err := meterFromFields(
+			row.ID,
+			row.Name,
+			row.Description,
+			row.Unit,
+			row.Aggregation,
+			row.MetadataSchema,
+			row.Dimensions,
+			int(row.EventRetentionDays),
+			row.CreatedAt,
+		)
 		if err != nil {
 			return nil, err
 		}
 		meters = append(meters, meter)
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
 	return meters, nil
 }
 
 func (r *MeterRepository) Count(ctx context.Context) (int, error) {
-	var count int
-	if err := r.store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM meters`).Scan(&count); err != nil {
+	count, err := queriesFor(ctx, r.queries).CountMeters(ctx)
+	if err != nil {
 		return 0, err
 	}
-	return count, nil
+	return int(count), nil
 }
 
 func (r *MeterRepository) Delete(ctx context.Context, query domainmeter.Query) error {
@@ -115,23 +103,15 @@ func (r *MeterRepository) Delete(ctx context.Context, query domainmeter.Query) e
 	}
 
 	meter := meters[0]
-	var usageCount int
-	if err := r.store.db.QueryRowContext(ctx, `
-SELECT COUNT(*)
-FROM usage_events
-WHERE meter_name = ?
-`, meter.Name()).Scan(&usageCount); err != nil {
+	usageCount, err := queriesFor(ctx, r.queries).CountUsageEventsForMeter(ctx, meter.Name())
+	if err != nil {
 		return err
 	}
 	if usageCount > 0 {
 		return errors.Join(domain.ErrConflict, errors.New("meter has usage"))
 	}
 
-	_, err = r.store.db.ExecContext(ctx, `
-DELETE FROM meters
-WHERE id = ?
-`, meter.ID())
-	return err
+	return queriesFor(ctx, r.queries).DeleteMeter(ctx, meter.ID())
 }
 
 func scanMeter(scanner interface {
@@ -154,6 +134,10 @@ func scanMeter(scanner interface {
 		return domainmeter.Meter{}, err
 	}
 
+	return meterFromFields(id, name, description, unit, aggregation, metadataSchemaText, dimensionsText, eventRetentionDays, createdAtText)
+}
+
+func meterFromFields(id string, name string, description string, unit string, aggregation string, metadataSchemaText string, dimensionsText string, eventRetentionDays int, createdAtText string) (domainmeter.Meter, error) {
 	createdAt, err := time.Parse(time.RFC3339Nano, createdAtText)
 	if err != nil {
 		return domainmeter.Meter{}, err
@@ -168,6 +152,13 @@ func scanMeter(scanner interface {
 	}
 
 	return domainmeter.NewWithDimensions(id, name, description, unit, domainmeter.Aggregation(aggregation), dimensions, eventRetentionDays, createdAt)
+}
+
+func optionalValue(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
 }
 
 func marshalMetadataSchema(schema map[string]domainmeter.MetadataType) (string, error) {

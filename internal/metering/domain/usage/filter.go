@@ -170,9 +170,33 @@ func filterValue(event Event, field string) (any, bool) {
 		return event.IdempotencyKey(), event.IdempotencyKey() != ""
 	default:
 		key := strings.TrimPrefix(field, "metadata.")
-		value, exists := event.Metadata()[key]
-		return value, exists
+		return metadataPathValue(event.Metadata(), key)
 	}
+}
+
+func metadataPathValue(metadata map[string]any, key string) (any, bool) {
+	if value, exists := metadata[key]; exists {
+		return value, true
+	}
+
+	parts := strings.Split(key, ".")
+	if len(parts) == 1 {
+		return nil, false
+	}
+
+	var current any = metadata
+	for _, part := range parts {
+		node, ok := current.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		value, exists := node[part]
+		if !exists {
+			return nil, false
+		}
+		current = value
+	}
+	return current, true
 }
 
 func compareFilterValue(actual any, exists bool, op FilterConditionOp, expected any) bool {

@@ -5,7 +5,7 @@ and run that SDK's example without seeding unrelated meters.
 
 | Scenario | What it shows |
 | --- | --- |
-| `api-requests` | Request volume by endpoint, method, status, and region |
+| `api-requests` | Request volume by endpoint, method, status, region, and service tier |
 | `active-users` | SaaS seat or active-user metering by plan and workspace |
 | `ai-tokens` | AI token consumption by model, provider, operation, and cache path |
 | `storage-usage` | Capacity usage by tier, region, and resource type |

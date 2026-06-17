@@ -10,7 +10,12 @@ on:
       - "docker-compose.yml"
       - "go.mod"
       - "go.sum"
+      - "internal/auth/**"
+      - "internal/config/**"
+      - "internal/metering/adapters/http/**"
       - "internal/metering/adapters/postgres/**"
+      - "internal/metering/app/**"
+      - "internal/metering/bootstrap/**"
       - "internal/metering/domain/**"
   pull_request:
     paths:
@@ -18,7 +23,12 @@ on:
       - "docker-compose.yml"
       - "go.mod"
       - "go.sum"
+      - "internal/auth/**"
+      - "internal/config/**"
+      - "internal/metering/adapters/http/**"
       - "internal/metering/adapters/postgres/**"
+      - "internal/metering/app/**"
+      - "internal/metering/bootstrap/**"
       - "internal/metering/domain/**"
 
 concurrency:
@@ -27,7 +37,7 @@ concurrency:
 
 jobs:
   test:
-    name: Postgres integration tests
+    name: Postgres API integration tests
     runs-on: ubuntu-latest
 
     services:
@@ -55,7 +65,7 @@ jobs:
           go-version: "1.25.5"
           cache: true
 
-      - name: Run Postgres integration tests
-        run: go test ./internal/metering/adapters/postgres -run Integration -count=1
+      - name: Run Postgres API integration tests
+        run: go test ./internal/metering/bootstrap -run TestIntegrationPostgres -count=1
         env:
           OPEN_SPANNER_TEST_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/open_spanner?sslmode=disable

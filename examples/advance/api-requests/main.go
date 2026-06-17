@@ -39,15 +39,16 @@ func main() {
 
 	_, err = api.Meters.CreateMeter(meters.NewCreateMeterParams().WithRequest(&models.MeterCreateRequest{
 		Name:               meterName,
-		Description:        "Track request volume by endpoint, method, status, and region",
+		Description:        "Track request volume by endpoint, method, status, region, and service tier",
 		Unit:               "request",
 		Aggregation:        "sum",
 		EventRetentionDays: 90,
 		Dimensions: []*models.MeterDimensionRequest{
 			{Name: "endpoint", DisplayName: "Endpoint", Description: "Route or operation", Type: "string", Required: true},
 			{Name: "method", DisplayName: "Method", Description: "HTTP method", Type: "string", Required: true},
-			{Name: "status", DisplayName: "Status", Description: "HTTP status code", Type: "number", Required: true},
-			{Name: "region", DisplayName: "Region", Description: "Serving region", Type: "string", Required: false},
+			{Name: "status_code", DisplayName: "Status code", Description: "HTTP status code", Type: "number", Required: true},
+			{Name: "region-name", DisplayName: "Region", Description: "Serving region", Type: "string", Required: false},
+			{Name: "service.tier", DisplayName: "Service tier", Description: "Backend service tier", Type: "string", Required: true},
 		},
 	}))
 	if err != nil {
@@ -55,9 +56,9 @@ func main() {
 	}
 
 	events := []usageEvent{
-		{"org_acme", 38, map[string]any{"endpoint": "/v1/orders", "method": "POST", "status": 201, "region": "us-east"}},
-		{"org_acme", 91, map[string]any{"endpoint": "/v1/orders", "method": "GET", "status": 200, "region": "us-east"}},
-		{"org_globex", 14, map[string]any{"endpoint": "/v1/invoices", "method": "GET", "status": 200, "region": "eu-west"}},
+		{"org_acme", 38, map[string]any{"endpoint": "/v1/orders", "method": "POST", "status_code": 201, "region-name": "us-east", "service": map[string]any{"tier": "gold"}}},
+		{"org_acme", 91, map[string]any{"endpoint": "/v1/orders", "method": "GET", "status_code": 200, "region-name": "us-east", "service": map[string]any{"tier": "gold"}}},
+		{"org_globex", 14, map[string]any{"endpoint": "/v1/invoices", "method": "GET", "status_code": 200, "region-name": "eu-west", "service": map[string]any{"tier": "silver"}}},
 	}
 
 	for index, event := range events {

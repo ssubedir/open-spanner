@@ -7,12 +7,38 @@ tasks:
       - go test -count=1 ./...
 
   test:postgres:
-    desc: Run Postgres integration tests
+    desc: Run Postgres API integration tests
     cmds:
       - task: postgres:up
-      - go test ./internal/metering/adapters/postgres -run Integration -count=1
+      - go test ./internal/metering/bootstrap -run TestIntegrationPostgres -count=1
     env:
       OPEN_SPANNER_TEST_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/open_spanner?sslmode=disable
+
+  test:e2e:
+    desc: Run browser E2E tests across supported storage backends
+    cmds:
+      - task: test:e2e:web
+      - task: test:e2e:web:postgres
+
+  test:e2e:web:
+    desc: Run Playwright browser E2E tests for the admin UI with SQLite
+    cmds:
+      - cd web; npm run e2e
+
+  test:e2e:web:postgres:
+    desc: Run Playwright browser E2E tests for the admin UI with Postgres
+    cmds:
+      - task: postgres:up
+      - task: _test:e2e:postgres:reset
+      - cd web; npm run e2e
+    env:
+      OPEN_SPANNER_E2E_DB_DRIVER: postgres
+      OPEN_SPANNER_E2E_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/open_spanner_e2e?sslmode=disable
+
+  test:e2e:web:install:
+    desc: Install Playwright browser dependencies for admin UI E2E tests
+    cmds:
+      - cd web; npm run e2e:install
 
   test:examples:
     desc: Verify local SDK examples compile and build without calling the API
@@ -212,3 +238,10 @@ tasks:
       - node -e "require('node:fs').existsSync('sdk/typescript/node_modules/typescript/bin/tsc') || process.exit(1)"
     cmds:
       - cd sdk/typescript; npm ci
+
+  _test:e2e:postgres:reset:
+    internal: true
+    cmds:
+      - docker compose exec -T postgres psql -U postgres -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'open_spanner_e2e';"
+      - docker compose exec -T postgres psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS open_spanner_e2e;"
+      - docker compose exec -T postgres psql -U postgres -d postgres -c "CREATE DATABASE open_spanner_e2e;"

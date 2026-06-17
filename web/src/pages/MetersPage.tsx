@@ -11,7 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
 import { formatDate, formatNumber } from '../lib/format'
 import { useInitialLoad } from '../lib/hooks'
-import { metadataSchemaFromDimensions, meterDimensionsFromRows } from '../lib/metadata'
+import { metadataDimensionNameError, metadataSchemaFromDimensions, meterDimensionsFromRows } from '../lib/metadata'
 
 const aggregations = ['sum', 'count', 'avg', 'min', 'max', 'first', 'last', 'rate']
 const metadataTypes = ['string', 'number', 'boolean']
@@ -382,18 +382,23 @@ function DimensionSchemaEditor({
           const requiredLocked = lockedByUsage && (!isExisting || row.originalRequired === false || row.originalDeprecated)
           const identityLockTitle = existingLocked ? 'Existing dimension identity is locked after usage exists' : undefined
           const requiredLockTitle = requiredLocked ? 'New dimensions and previously optional dimensions cannot become required after usage exists' : undefined
+          const nameError = metadataDimensionNameError(row.name)
+          const nameErrorId = `${row.id}-dimension-name-error`
           return (
             <div className="schema-row" key={row.id}>
               <label>
                 Name
                 <input
                   aria-label="Dimension name"
+                  aria-describedby={nameError ? nameErrorId : undefined}
+                  aria-invalid={nameError ? 'true' : undefined}
                   disabled={existingLocked}
                   onChange={(event) => onUpdate(row.id, { name: event.currentTarget.value })}
                   placeholder="region"
                   title={identityLockTitle}
                   value={row.name}
                 />
+                {nameError ? <small className="schema-row-error" id={nameErrorId}>{nameError}</small> : null}
               </label>
               <label>
                 Display

@@ -16,7 +16,7 @@ var meterName = $"sdk_csharp_api_requests_{runId}";
 await client.V1.Meters.PostAsync(new MeterCreateRequest
 {
     Name = meterName,
-    Description = "Track request volume by endpoint, method, status, and region",
+    Description = "Track request volume by endpoint, method, status, region, and service tier",
     Unit = "request",
     Aggregation = "sum",
     EventRetentionDays = 90,
@@ -24,16 +24,17 @@ await client.V1.Meters.PostAsync(new MeterCreateRequest
     [
         new() { Name = "endpoint", DisplayName = "Endpoint", Description = "Route or operation", Type = "string", Required = true },
         new() { Name = "method", DisplayName = "Method", Description = "HTTP method", Type = "string", Required = true },
-        new() { Name = "status", DisplayName = "Status", Description = "HTTP status code", Type = "number", Required = true },
-        new() { Name = "region", DisplayName = "Region", Description = "Serving region", Type = "string", Required = false },
+        new() { Name = "status_code", DisplayName = "Status code", Description = "HTTP status code", Type = "number", Required = true },
+        new() { Name = "region-name", DisplayName = "Region", Description = "Serving region", Type = "string", Required = false },
+        new() { Name = "service.tier", DisplayName = "Service tier", Description = "Backend service tier", Type = "string", Required = true },
     ],
 });
 
 var events = new[]
 {
-    Event("org_acme", 38, new() { ["endpoint"] = "/v1/orders", ["method"] = "POST", ["status"] = 201, ["region"] = "us-east" }),
-    Event("org_acme", 91, new() { ["endpoint"] = "/v1/orders", ["method"] = "GET", ["status"] = 200, ["region"] = "us-east" }),
-    Event("org_globex", 14, new() { ["endpoint"] = "/v1/invoices", ["method"] = "GET", ["status"] = 200, ["region"] = "eu-west" }),
+    Event("org_acme", 38, new() { ["endpoint"] = "/v1/orders", ["method"] = "POST", ["status_code"] = 201, ["region-name"] = "us-east", ["service"] = new Dictionary<string, object> { ["tier"] = "gold" } }),
+    Event("org_acme", 91, new() { ["endpoint"] = "/v1/orders", ["method"] = "GET", ["status_code"] = 200, ["region-name"] = "us-east", ["service"] = new Dictionary<string, object> { ["tier"] = "gold" } }),
+    Event("org_globex", 14, new() { ["endpoint"] = "/v1/invoices", ["method"] = "GET", ["status_code"] = 200, ["region-name"] = "eu-west", ["service"] = new Dictionary<string, object> { ["tier"] = "silver" } }),
 };
 
 for (var index = 0; index < events.Length; index++)

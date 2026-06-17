@@ -1,19 +1,22 @@
 import type { Field, Operator, RuleGroupType, RuleType } from 'react-querybuilder'
 
 import type { Meter, UsageDimensionValue, UsageFilter, UsageFilterCondition } from '../api'
-import { defaultQueryDates, localDateTimeToISO } from './datetime'
+import { defaultQueryDates, localDateTimeToISO, normalizeInputDateTime } from './datetime'
 
 export type MetadataTypes = Record<string, string>
 export type MetadataLabels = Record<string, string>
+
+let queryNodeID = 0
 
 export function defaultFilterQuery(): RuleGroupType {
   const dates = defaultQueryDates()
   return {
     combinator: 'and',
+    id: nextQueryNodeID('group'),
     rules: [
-      { field: 'meter', operator: '=', value: '' },
-      { field: 'timestamp', operator: '>=', value: dates.from },
-      { field: 'timestamp', operator: '<=', value: dates.to },
+      queryRule('meter', '=', ''),
+      queryRule('timestamp', '>=', dates.from),
+      queryRule('timestamp', '<=', dates.to),
     ],
   }
 }
@@ -271,8 +274,9 @@ export function queryFromSavedValue(value: unknown, fallback: RuleGroupType): Ru
   }
 
   return {
+    id: typeof candidate.id === 'string' && candidate.id ? candidate.id : nextQueryNodeID('group'),
     combinator: candidate.combinator === 'or' ? 'or' : 'and',
-    rules: candidate.rules,
+    rules: candidate.rules.map(normalizeSavedQueryRule),
   }
 }
 
@@ -284,6 +288,10 @@ export function queryWithBreakdownFilter(query: RuleGroupType, field: string, va
 
 export function queryWithSubject(query: RuleGroupType, subject: string): RuleGroupType {
   return replaceRuleValue(query, 'subject', () => subject)
+}
+
+export function queryWithMeter(query: RuleGroupType, meter: string): RuleGroupType {
+  return replaceRuleValue(query, 'meter', () => meter)
 }
 
 function metadataFilterField(key: string, values: UsageDimensionValue[], metadataType?: string, label?: string): Field {
@@ -447,6 +455,26 @@ function typedMetadataValue(value: unknown, metadataType?: string) {
   return value
 }
 
+function normalizeSavedQueryRule(rule: RuleGroupType['rules'][number]): RuleGroupType['rules'][number] {
+  if (isQueryGroup(rule)) {
+    return {
+      ...rule,
+      combinator: rule.combinator === 'or' ? 'or' : 'and',
+      id: rule.id || nextQueryNodeID('group'),
+      rules: rule.rules.map(normalizeSavedQueryRule),
+    }
+  }
+  const id = rule.id || nextQueryNodeID('rule')
+  if ((rule.field === 'timestamp' || rule.field === 'received_at') && typeof rule.value === 'string') {
+    return {
+      ...rule,
+      id,
+      value: normalizeInputDateTime(rule.value),
+    }
+  }
+  return { ...rule, id }
+}
+
 function replaceRuleValue(query: RuleGroupType, field: string, nextValue: (value: string) => string): RuleGroupType {
   let replaced = false
   const rules = query.rules.map((rule) => {
@@ -465,7 +493,7 @@ function replaceRuleValue(query: RuleGroupType, field: string, nextValue: (value
   }
   return {
     ...query,
-    rules: [...rules, { field, operator: '=', value: nextValue('') }],
+    rules: [...rules, queryRule(field, '=', nextValue(''))],
   }
 }
 
@@ -487,4 +515,18 @@ function firstComparableRuleValue(query: RuleGroupType, field: string, operators
 
 function isQueryGroup(rule: RuleGroupType['rules'][number]): rule is RuleGroupType {
   return Boolean(rule && typeof rule === 'object' && 'rules' in rule)
+}
+
+function queryRule(field: string, operator: string, value: unknown): RuleType {
+  return {
+    field,
+    id: nextQueryNodeID('rule'),
+    operator,
+    value,
+  }
+}
+
+function nextQueryNodeID(prefix: string) {
+  queryNodeID += 1
+  return `${prefix}-${queryNodeID}`
 }

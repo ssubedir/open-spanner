@@ -24,23 +24,24 @@ create_meter.sync(
     client=client,
     body=MeterCreateRequest(
         name=meter_name,
-        description="Track request volume by endpoint, method, status, and region",
+        description="Track request volume by endpoint, method, status, region, and service tier",
         unit="request",
         aggregation="sum",
         event_retention_days=90,
         dimensions=[
             MeterDimensionRequest(name="endpoint", display_name="Endpoint", description="Route or operation", type_="string", required=True),
             MeterDimensionRequest(name="method", display_name="Method", description="HTTP method", type_="string", required=True),
-            MeterDimensionRequest(name="status", display_name="Status", description="HTTP status code", type_="number", required=True),
-            MeterDimensionRequest(name="region", display_name="Region", description="Serving region", type_="string", required=False),
+            MeterDimensionRequest(name="status_code", display_name="Status code", description="HTTP status code", type_="number", required=True),
+            MeterDimensionRequest(name="region-name", display_name="Region", description="Serving region", type_="string", required=False),
+            MeterDimensionRequest(name="service.tier", display_name="Service tier", description="Backend service tier", type_="string", required=True),
         ],
     ),
 )
 
 events = [
-    ("org_acme", 38, {"endpoint": "/v1/orders", "method": "POST", "status": 201, "region": "us-east"}),
-    ("org_acme", 91, {"endpoint": "/v1/orders", "method": "GET", "status": 200, "region": "us-east"}),
-    ("org_globex", 14, {"endpoint": "/v1/invoices", "method": "GET", "status": 200, "region": "eu-west"}),
+    ("org_acme", 38, {"endpoint": "/v1/orders", "method": "POST", "status_code": 201, "region-name": "us-east", "service": {"tier": "gold"}}),
+    ("org_acme", 91, {"endpoint": "/v1/orders", "method": "GET", "status_code": 200, "region-name": "us-east", "service": {"tier": "gold"}}),
+    ("org_globex", 14, {"endpoint": "/v1/invoices", "method": "GET", "status_code": 200, "region-name": "eu-west", "service": {"tier": "silver"}}),
 ]
 
 for index, (subject, quantity, values) in enumerate(events):
