@@ -832,7 +832,7 @@ export const appStoreActions = {
       const blob = await downloadUsageExportJob(job)
       downloadBlob(blob, exportJobDownloadName(job))
     } catch (err) {
-      setUsageState({ exportJobError: errorMessage(err, 'Unable to download export') })
+      setUsageState({ exportJobError: exportDownloadErrorMessage(err) })
     } finally {
       setUsageState({ exportJobDownloading: '' })
     }
@@ -968,6 +968,14 @@ function registerErrorMessage(err: unknown, fallback: string) {
   }
 
   return errorMessage(err, fallback)
+}
+
+function exportDownloadErrorMessage(err: unknown) {
+  if (err instanceof APIError && err.status === 404 && err.message.toLowerCase().includes('artifact')) {
+    return 'This export file is no longer available. Queue a new export to generate it again.'
+  }
+
+  return errorMessage(err, 'Unable to download export')
 }
 
 function setAuthState(update: Partial<AppState['auth']>) {
