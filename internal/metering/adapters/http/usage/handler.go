@@ -281,21 +281,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res := make([]ListItemResponse, 0, len(buckets))
-	for _, bucket := range buckets {
-		res = append(res, ListItemResponse{
-			Subject:     bucket.Subject,
-			Meter:       bucket.MeterName,
-			BucketSize:  bucket.BucketSize,
-			BucketStart: bucket.BucketStart.Format(time.RFC3339),
-			Aggregation: bucket.Aggregation,
-			Unit:        bucket.Unit,
-			Quantity:    bucket.Quantity,
-			Group:       bucket.Group,
-		})
-	}
-
-	respond.JSON(w, http.StatusOK, res)
+	respond.JSON(w, http.StatusOK, listItemResponses(buckets))
 }
 
 // Search searches bucketed usage with an advanced filter.
@@ -318,52 +304,19 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	from, err := request.RequiredTime("from", req.From)
-	if err != nil {
-		respond.ValidationError(w, err)
-		return
-	}
-	to, err := request.RequiredTime("to", req.To)
-	if err != nil {
-		respond.ValidationError(w, err)
-		return
-	}
-	filter, err := filterFromRequest(req.Filter)
+	listQuery, err := searchListQuery(req)
 	if err != nil {
 		respond.ValidationError(w, err)
 		return
 	}
 
-	buckets, err := h.service.List(r.Context(), appusage.ListQuery{
-		Subject:    req.Subject,
-		MeterName:  req.Meter,
-		From:       from,
-		To:         to,
-		BucketSize: domainusage.BucketSize(req.BucketSize),
-		GroupBy:    req.GroupBy.Fields(),
-		Limit:      req.Limit,
-		Filter:     filter,
-	})
+	buckets, err := h.service.List(r.Context(), listQuery)
 	if err != nil {
 		respond.ServiceError(w, err)
 		return
 	}
 
-	res := make([]ListItemResponse, 0, len(buckets))
-	for _, bucket := range buckets {
-		res = append(res, ListItemResponse{
-			Subject:     bucket.Subject,
-			Meter:       bucket.MeterName,
-			BucketSize:  bucket.BucketSize,
-			BucketStart: bucket.BucketStart.Format(time.RFC3339),
-			Aggregation: bucket.Aggregation,
-			Unit:        bucket.Unit,
-			Quantity:    bucket.Quantity,
-			Group:       bucket.Group,
-		})
-	}
-
-	respond.JSON(w, http.StatusOK, res)
+	respond.JSON(w, http.StatusOK, listItemResponses(buckets))
 }
 
 // SearchBreakdown searches top aggregated usage breakdown values.
@@ -549,31 +502,13 @@ func (h *Handler) SearchEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	from, err := request.OptionalTime("from", req.From)
-	if err != nil {
-		respond.ValidationError(w, err)
-		return
-	}
-	to, err := request.OptionalTime("to", req.To)
-	if err != nil {
-		respond.ValidationError(w, err)
-		return
-	}
-	filter, err := filterFromRequest(req.Filter)
+	listQuery, err := searchEventListQuery(req)
 	if err != nil {
 		respond.ValidationError(w, err)
 		return
 	}
 
-	page, err := h.service.ListEvents(r.Context(), appusage.EventListQuery{
-		Subject:   req.Subject,
-		MeterName: req.Meter,
-		From:      from,
-		To:        to,
-		Limit:     req.Limit,
-		Cursor:    req.Cursor,
-		Filter:    filter,
-	})
+	page, err := h.service.ListEvents(r.Context(), listQuery)
 	if err != nil {
 		respond.ServiceError(w, err)
 		return
@@ -620,18 +555,57 @@ func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	writeBucketCSV(w, listQuery.GroupBy, buckets)
+}
+
+// ExportSearch exports bucketed usage matching an advanced filter as CSV.
+//
+// @Summary Export filtered usage buckets
+// @ID exportFilteredUsageBuckets
+// @Tags usages
+// @Accept json
+// @Produce text/csv
+// @Param request body SearchRequest true "Usage export search"
+// @Success 200 {string} string "CSV"
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 404 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/usages/export [post]
+func (h *Handler) ExportSearch(w http.ResponseWriter, r *http.Request) {
+	var req SearchRequest
+	if err := request.DecodeJSON(r.Body, &req); err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+
+	listQuery, err := searchListQuery(req)
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+
+	buckets, err := h.service.List(r.Context(), listQuery)
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+
+	writeBucketCSV(w, listQuery.GroupBy, buckets)
+}
+
+func writeBucketCSV(w http.ResponseWriter, groupBy []string, buckets []appusage.ListItemResult) {
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="usage-buckets.csv"`)
 	w.WriteHeader(http.StatusOK)
 
 	writer := csv.NewWriter(w)
 	header := []string{"bucket_start", "subject", "meter", "bucket_size", "aggregation", "unit", "quantity"}
-	if len(listQuery.GroupBy) > 0 {
-		for _, groupBy := range listQuery.GroupBy {
-			if domainusage.IsSubjectGroupBy(groupBy) {
+	if len(groupBy) > 0 {
+		for _, field := range groupBy {
+			if domainusage.IsSubjectGroupBy(field) {
 				continue
 			}
-			header = append(header, groupBy)
+			header = append(header, field)
 		}
 	}
 	_ = writer.Write(header)
@@ -645,11 +619,11 @@ func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 			bucket.Unit,
 			strconv.FormatFloat(bucket.Quantity, 'f', -1, 64),
 		}
-		for _, groupBy := range listQuery.GroupBy {
-			if domainusage.IsSubjectGroupBy(groupBy) {
+		for _, field := range groupBy {
+			if domainusage.IsSubjectGroupBy(field) {
 				continue
 			}
-			row = append(row, bucket.Group[groupBy])
+			row = append(row, bucket.Group[field])
 		}
 		_ = writer.Write(row)
 	}
@@ -684,13 +658,52 @@ func (h *Handler) ExportEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	writeEventCSV(w, page.Items)
+}
+
+// ExportEventsSearch exports raw usage events matching an advanced filter as CSV.
+//
+// @Summary Export filtered usage events
+// @ID exportFilteredUsageEvents
+// @Tags usage-events
+// @Accept json
+// @Produce text/csv
+// @Param request body EventSearchRequest true "Usage event export search"
+// @Success 200 {string} string "CSV"
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/usageevents/export [post]
+func (h *Handler) ExportEventsSearch(w http.ResponseWriter, r *http.Request) {
+	var req EventSearchRequest
+	if err := request.DecodeJSON(r.Body, &req); err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+
+	listQuery, err := searchEventListQuery(req)
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+	listQuery.Cursor = ""
+
+	page, err := h.service.ListEvents(r.Context(), listQuery)
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+
+	writeEventCSV(w, page.Items)
+}
+
+func writeEventCSV(w http.ResponseWriter, events []appusage.Result) {
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="usage-events.csv"`)
 	w.WriteHeader(http.StatusOK)
 
 	writer := csv.NewWriter(w)
 	_ = writer.Write([]string{"timestamp", "received_at", "subject", "meter", "quantity", "metadata", "id", "idempotency_key"})
-	for _, event := range page.Items {
+	for _, event := range events {
 		metadata, err := json.Marshal(event.Metadata)
 		if err != nil {
 			metadata = []byte("{}")
@@ -707,6 +720,57 @@ func (h *Handler) ExportEvents(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writer.Flush()
+}
+
+func searchListQuery(req SearchRequest) (appusage.ListQuery, error) {
+	from, err := request.RequiredTime("from", req.From)
+	if err != nil {
+		return appusage.ListQuery{}, err
+	}
+	to, err := request.RequiredTime("to", req.To)
+	if err != nil {
+		return appusage.ListQuery{}, err
+	}
+	filter, err := filterFromRequest(req.Filter)
+	if err != nil {
+		return appusage.ListQuery{}, err
+	}
+
+	return appusage.ListQuery{
+		Subject:    req.Subject,
+		MeterName:  req.Meter,
+		From:       from,
+		To:         to,
+		BucketSize: domainusage.BucketSize(req.BucketSize),
+		GroupBy:    req.GroupBy.Fields(),
+		Limit:      req.Limit,
+		Filter:     filter,
+	}, nil
+}
+
+func searchEventListQuery(req EventSearchRequest) (appusage.EventListQuery, error) {
+	from, err := request.OptionalTime("from", req.From)
+	if err != nil {
+		return appusage.EventListQuery{}, err
+	}
+	to, err := request.OptionalTime("to", req.To)
+	if err != nil {
+		return appusage.EventListQuery{}, err
+	}
+	filter, err := filterFromRequest(req.Filter)
+	if err != nil {
+		return appusage.EventListQuery{}, err
+	}
+
+	return appusage.EventListQuery{
+		Subject:   req.Subject,
+		MeterName: req.Meter,
+		From:      from,
+		To:        to,
+		Limit:     req.Limit,
+		Cursor:    req.Cursor,
+		Filter:    filter,
+	}, nil
 }
 
 func (h *Handler) eventListQuery(w http.ResponseWriter, r *http.Request) (appusage.EventListQuery, bool) {
@@ -780,6 +844,23 @@ func responseFromResult(event appusage.Result) Response {
 		ReceivedAt:     event.ReceivedAt.Format(time.RFC3339),
 		Metadata:       event.Metadata,
 	}
+}
+
+func listItemResponses(buckets []appusage.ListItemResult) []ListItemResponse {
+	res := make([]ListItemResponse, 0, len(buckets))
+	for _, bucket := range buckets {
+		res = append(res, ListItemResponse{
+			Subject:     bucket.Subject,
+			Meter:       bucket.MeterName,
+			BucketSize:  bucket.BucketSize,
+			BucketStart: bucket.BucketStart.Format(time.RFC3339),
+			Aggregation: bucket.Aggregation,
+			Unit:        bucket.Unit,
+			Quantity:    bucket.Quantity,
+			Group:       bucket.Group,
+		})
+	}
+	return res
 }
 
 func bulkResponseFromResult(result appusage.BulkResult) BulkResponse {

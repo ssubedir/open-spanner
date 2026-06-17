@@ -227,6 +227,19 @@ export const Then = {
     await expect(results).not.toContainText('eu-west-1')
   },
 
+  async advancedUsageBucketCSVIncludesMatchingUsage(download: CSVDownload, scenario: UsageScenario) {
+    expect(download.filename).toMatch(/^usage-buckets-.+\.csv$/)
+    expect(download.text).toContain('bucket_start,subject,meter,bucket_size,aggregation,unit,quantity')
+    expect(download.text).toContain('region-name')
+    expect(download.text).toContain('service.tier')
+    expect(download.text).toContain(scenario.meterName)
+    expect(download.text).toContain('us-east-1')
+    expect(download.text).toContain('gold')
+    expect(download.text).toContain(',12,')
+    expect(download.text).not.toContain('eu-west-1')
+    expect(download.text).not.toContain('silver')
+  },
+
   async usageQueryIsScopedToSubjectAndMeter(page: Page, scenario: UsageScenario) {
     await expect(page).toHaveURL(/\/usage$/)
     await expect.poll(() => queryRulePairs(page)).toEqual(expect.arrayContaining([

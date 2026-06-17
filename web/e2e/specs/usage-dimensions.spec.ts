@@ -33,6 +33,9 @@ test.describe('Feature: Dashboard usage exploration', () => {
     await When.theUserRunsAnAdvancedUsageQuery(page, scenario)
     await Then.theUsagePageLoadsWithoutDimensionErrors(page)
     await Then.advancedQueryReturnsOnlyMatchingUsage(page, meterName)
+
+    const bucketExport = await When.theUserExportsCurrentUsageBuckets(page)
+    await Then.advancedUsageBucketCSVIncludesMatchingUsage(bucketExport, scenario)
   })
 
   test('Scenario: a user opens usage from subject activity', async ({ page }) => {

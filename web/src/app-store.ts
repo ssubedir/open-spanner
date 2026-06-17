@@ -48,7 +48,6 @@ import {
 import {
   defaultFilterQuery,
   firstEqualRuleValue,
-  metadataEqualsFromQuery,
   metadataTypesByField,
   queryFromSavedValue,
   queryWithBreakdownFilter,
@@ -56,7 +55,6 @@ import {
   queryWithMeter,
   queryWithSubject,
   selectedMeterSchemaKeys,
-  unsupportedBucketExportRuleCount,
   usageFilterFromQuery,
   usageScopeFromQuery,
   usageTimeRangeFromQuery,
@@ -719,20 +717,16 @@ export const appStoreActions = {
     setUsageState({ exportError: '', exporting: true })
     try {
       const query = appStore.state.usage.filterQuery
-      const unsupportedRules = unsupportedBucketExportRuleCount(query)
-      if (unsupportedRules > 0) {
-        throw new Error('CSV export supports meter, subject, timestamp range, group-by, and equals metadata filters. Remove advanced filter rules before exporting.')
-      }
-
       const scope = usageScopeFromQuery(query)
       const timeRange = usageTimeRangeFromQuery(query)
+      const filter = usageFilterFromQuery(query, metadataTypesByField(appStore.state.usage.meters, scope.meter))
       const groupBy = groupByValue.filter(Boolean)
       const blob = await exportUsageBuckets({
         bucket_size: bucketSize,
+        filter,
         from: timeRange.from,
         group_by: groupBy.length > 0 ? groupBy : undefined,
         limit,
-        metadata: metadataEqualsFromQuery(query),
         meter: scope.meter,
         subject: scope.subject || undefined,
         to: timeRange.to,

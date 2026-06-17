@@ -585,6 +585,64 @@ func TestUsageAPIContract(t *testing.T) {
 	if len(searchedEvents.Items) != 1 || searchedEvents.Items[0].Quantity != 11 {
 		t.Fatalf("searched usage events = %#v, want one event with quantity 11", searchedEvents)
 	}
+
+	bucketExport := requestJSON(t, router, http.MethodPost, "/v1/usages/export", map[string]any{
+		"subject":     "org_123",
+		"meter":       "tokens",
+		"from":        "2026-06-08T00:00:00Z",
+		"to":          "2026-06-09T00:00:00Z",
+		"bucket_size": "day",
+		"group_by":    []string{"region"},
+		"filter": map[string]any{
+			"type": "group",
+			"op":   "and",
+			"rules": []map[string]any{
+				{
+					"type":  "condition",
+					"field": "metadata.region",
+					"op":    "eq",
+					"value": "us-east-1",
+				},
+				{
+					"type":  "condition",
+					"field": "quantity",
+					"op":    "gte",
+					"value": 10,
+				},
+			},
+		},
+	})
+	if bucketExport.Code != http.StatusOK {
+		t.Fatalf("filtered export status = %d, want %d: %s", bucketExport.Code, http.StatusOK, bucketExport.Body.String())
+	}
+	wantBucketExport := "bucket_start,subject,meter,bucket_size,aggregation,unit,quantity,region\n2026-06-08T00:00:00Z,org_123,tokens,day,sum,token,11,us-east-1\n"
+	if bucketExport.Body.String() != wantBucketExport {
+		t.Fatalf("filtered export csv = %q, want %q", bucketExport.Body.String(), wantBucketExport)
+	}
+
+	eventExport := requestJSON(t, router, http.MethodPost, "/v1/usageevents/export", map[string]any{
+		"subject": "org_123",
+		"meter":   "tokens",
+		"from":    "2026-06-08T00:00:00Z",
+		"to":      "2026-06-09T00:00:00Z",
+		"limit":   10,
+		"filter": map[string]any{
+			"type":  "condition",
+			"field": "quantity",
+			"op":    "gte",
+			"value": 10,
+		},
+	})
+	if eventExport.Code != http.StatusOK {
+		t.Fatalf("filtered event export status = %d, want %d: %s", eventExport.Code, http.StatusOK, eventExport.Body.String())
+	}
+	eventRecords, err := csv.NewReader(bytes.NewReader(eventExport.Body.Bytes())).ReadAll()
+	if err != nil {
+		t.Fatalf("read filtered event csv: %v", err)
+	}
+	if len(eventRecords) != 2 || eventRecords[1][2] != "org_123" || eventRecords[1][3] != "tokens" || eventRecords[1][4] != "11" || !strings.Contains(eventRecords[1][5], "us-east-1") {
+		t.Fatalf("filtered event csv records = %#v", eventRecords)
+	}
 }
 
 func TestUsageDimensionValuesAPIContract(t *testing.T) {

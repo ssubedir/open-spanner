@@ -64,7 +64,7 @@ const sdkOperations = new Map([
   ["/v1/usages/breakdowns/search", new Set(["post"])],
   ["/v1/usages/bulk", new Set(["post"])],
   ["/v1/usages/dimensions", new Set(["get"])],
-  ["/v1/usages/export", new Set(["get"])],
+  ["/v1/usages/export", new Set(["get", "post"])],
   ["/v1/usages/search", new Set(["post"])],
 ]);
 

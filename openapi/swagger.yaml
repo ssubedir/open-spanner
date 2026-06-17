@@ -1133,6 +1133,35 @@ paths:
       summary: Export usage events
       tags:
       - usage-events
+    post:
+      consumes:
+      - application/json
+      operationId: exportFilteredUsageEvents
+      parameters:
+      - description: Usage event export search
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_usage.EventSearchRequest'
+      produces:
+      - text/csv
+      responses:
+        "200":
+          description: CSV
+          schema:
+            type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Export filtered usage events
+      tags:
+      - usage-events
   /v1/usageevents/prune:
     post:
       operationId: pruneUsageEvents
@@ -1544,6 +1573,39 @@ paths:
           schema:
             $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
       summary: Export usage buckets
+      tags:
+      - usages
+    post:
+      consumes:
+      - application/json
+      operationId: exportFilteredUsageBuckets
+      parameters:
+      - description: Usage export search
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_usage.SearchRequest'
+      produces:
+      - text/csv
+      responses:
+        "200":
+          description: CSV
+          schema:
+            type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Export filtered usage buckets
       tags:
       - usages
   /v1/usages/search:
