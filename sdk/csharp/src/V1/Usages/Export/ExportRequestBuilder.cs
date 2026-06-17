@@ -157,7 +157,7 @@ namespace OpenSpanner.V1.Usages.Export
             [QueryParameter("group_by")]
             public string[] GroupBy { get; set; }
 #endif
-            /// <summary>Result limit</summary>
+            /// <summary>Result limit. Defaults to 100 and cannot exceed 1000.</summary>
             [QueryParameter("limit")]
             public int? Limit { get; set; }
             /// <summary>Meter name</summary>

@@ -1238,7 +1238,7 @@ paths:
         in: query
         name: to
         type: string
-      - description: Result limit
+      - description: Result limit. Defaults to 100 and cannot exceed 1000.
         in: query
         name: limit
         type: integer
@@ -1676,7 +1676,7 @@ paths:
           type: string
         name: group_by
         type: array
-      - description: Result limit
+      - description: Result limit. Defaults to 100 and cannot exceed 1000.
         in: query
         name: limit
         type: integer

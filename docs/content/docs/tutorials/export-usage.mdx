@@ -5,7 +5,7 @@ description: Produce CSV usage data for billing, analytics, or audits.
 
 Open Spanner can export usage query results as CSV. Use exports when another system wants files for billing imports, finance reports, support audits, or product analytics.
 
-CSV exports run from the API request today. Keep export windows focused and use filters when possible, especially when a meter has a high event volume. Background export processing is planned, but the current file-producing endpoints return the CSV directly.
+CSV exports run from the API request today. Keep export windows focused and use filters when possible, especially when a meter has a high event volume. Direct exports default to 100 rows and cannot request more than 1000 rows. Background export processing is planned, but the current file-producing endpoints return the CSV directly.
 
 ## Export A Window
 
@@ -55,7 +55,7 @@ curl "http://localhost:18081/v1/usageevents/export?meter=api_requests&from=2026-
   -o usage-events.csv
 ```
 
-Raw event exports use the same result limit rules as event search. For large audits, export narrow time ranges and combine the files outside Open Spanner.
+Raw event exports use the same direct export limit. For large audits, export narrow time ranges and combine the files outside Open Spanner.
 
 ## Queued Export Jobs
 

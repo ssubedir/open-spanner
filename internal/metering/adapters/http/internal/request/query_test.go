@@ -16,6 +16,25 @@ func TestParseLimitRejectsInvalidValues(t *testing.T) {
 	}
 }
 
+func TestValidateOptionalLimitRejectsNegativeAndOverMax(t *testing.T) {
+	if err := ValidateOptionalLimit(0, 100); err != nil {
+		t.Fatalf("zero optional limit error = %v", err)
+	}
+	if err := ValidateOptionalLimit(100, 100); err != nil {
+		t.Fatalf("max optional limit error = %v", err)
+	}
+
+	err := ValidateOptionalLimit(-1, 100)
+	if Code(err) != "invalid_limit" || Message(err) != "limit must be a positive integer" {
+		t.Fatalf("negative optional limit error code/message = %q/%q", Code(err), Message(err))
+	}
+
+	err = ValidateOptionalLimit(101, 100)
+	if Code(err) != "invalid_limit" || Message(err) != "limit must be less than or equal to 100" {
+		t.Fatalf("over max optional limit error code/message = %q/%q", Code(err), Message(err))
+	}
+}
+
 func TestParseOptionalBoolUsesParameterName(t *testing.T) {
 	_, err := ParseOptionalBool("dry_run", "maybe")
 	if Code(err) != "invalid_dry_run" || Message(err) != "dry_run must be true or false" {

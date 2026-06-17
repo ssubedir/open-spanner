@@ -63,6 +63,19 @@ func ParseLimit(value string) (int, error) {
 	return limit, nil
 }
 
+func ValidateOptionalLimit(value int, max int) error {
+	if value == 0 {
+		return nil
+	}
+	if value < 0 {
+		return ErrInvalidLimit
+	}
+	if max > 0 && value > max {
+		return NewValidationError("invalid_limit", fmt.Sprintf("limit must be less than or equal to %d", max))
+	}
+	return nil
+}
+
 func ParseOptionalBool(name string, value string) (bool, error) {
 	if value == "" {
 		return false, nil

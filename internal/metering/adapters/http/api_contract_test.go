@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +26,7 @@ import (
 	appsubject "github.com/ssubedir/open-spanner/internal/metering/app/subject"
 	appsystem "github.com/ssubedir/open-spanner/internal/metering/app/system"
 	appusage "github.com/ssubedir/open-spanner/internal/metering/app/usage"
+	domainusage "github.com/ssubedir/open-spanner/internal/metering/domain/usage"
 )
 
 func TestAuthAPIContract(t *testing.T) {
@@ -1285,6 +1287,63 @@ func TestUsageEventExportAPIContract(t *testing.T) {
 	}
 	if records[1][1] == "" || records[1][6] == "" {
 		t.Fatalf("csv generated fields missing: %#v", records[1])
+	}
+}
+
+func TestUsageExportsRejectOverLimit(t *testing.T) {
+	router := newTestRouter()
+	overLimit := domainusage.MaxLimit + 1
+	overLimitValue := strconv.Itoa(overLimit)
+	wantMessage := "limit must be less than or equal to " + strconv.Itoa(domainusage.MaxLimit)
+	cases := []struct {
+		name   string
+		method string
+		path   string
+		body   any
+	}{
+		{
+			name:   "bucket query export",
+			method: http.MethodGet,
+			path:   "/v1/usages/export?meter=api_calls&from=2026-06-08T00:00:00Z&to=2026-06-09T00:00:00Z&bucket_size=day&limit=" + overLimitValue,
+		},
+		{
+			name:   "bucket filtered export",
+			method: http.MethodPost,
+			path:   "/v1/usages/export",
+			body: map[string]any{
+				"meter":       "api_calls",
+				"from":        "2026-06-08T00:00:00Z",
+				"to":          "2026-06-09T00:00:00Z",
+				"bucket_size": "day",
+				"limit":       overLimit,
+			},
+		},
+		{
+			name:   "event query export",
+			method: http.MethodGet,
+			path:   "/v1/usageevents/export?limit=" + overLimitValue,
+		},
+		{
+			name:   "event filtered export",
+			method: http.MethodPost,
+			path:   "/v1/usageevents/export",
+			body:   map[string]any{"limit": overLimit},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res := requestJSON(t, router, tc.method, tc.path, tc.body)
+			if res.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusBadRequest, res.Body.String())
+			}
+
+			var errRes errorResponse
+			decodeJSON(t, res, &errRes)
+			if errRes.Error.Code != "invalid_limit" || errRes.Error.Message != wantMessage {
+				t.Fatalf("error = %#v, want invalid_limit max message", errRes.Error)
+			}
+		})
 	}
 }
 

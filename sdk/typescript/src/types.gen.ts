@@ -673,7 +673,7 @@ export type ExportUsageBucketsData = {
          */
         group_by?: Array<string>;
         /**
-         * Result limit
+         * Result limit. Defaults to 100 and cannot exceed 1000.
          */
         limit?: number;
     };

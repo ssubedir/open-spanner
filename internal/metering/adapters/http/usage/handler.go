@@ -634,7 +634,7 @@ func (h *Handler) SearchEvents(w http.ResponseWriter, r *http.Request) {
 // @Param to query string true "RFC3339 end time"
 // @Param bucket_size query string false "Bucket size: hour, day, month"
 // @Param group_by query []string false "Subject or metadata keys to group by. Repeat the parameter or use comma-separated values." collectionFormat(multi)
-// @Param limit query int false "Result limit"
+// @Param limit query int false "Result limit. Defaults to 100 and cannot exceed 1000."
 // @Success 200 {string} string "CSV"
 // @Failure 400 {object} respond.ErrorResponse
 // @Failure 404 {object} respond.ErrorResponse
@@ -643,6 +643,10 @@ func (h *Handler) SearchEvents(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 	listQuery, ok := h.listQuery(w, r)
 	if !ok {
+		return
+	}
+	if err := validateDirectExportLimit(listQuery.Limit); err != nil {
+		respond.ValidationError(w, err)
 		return
 	}
 
@@ -677,6 +681,10 @@ func (h *Handler) ExportSearch(w http.ResponseWriter, r *http.Request) {
 
 	listQuery, err := searchListQuery(req)
 	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+	if err := validateDirectExportLimit(listQuery.Limit); err != nil {
 		respond.ValidationError(w, err)
 		return
 	}
@@ -737,7 +745,7 @@ func writeBucketCSV(w http.ResponseWriter, groupBy []string, buckets []appusage.
 // @Param meter query string false "Meter name"
 // @Param from query string false "RFC3339 start time"
 // @Param to query string false "RFC3339 end time"
-// @Param limit query int false "Result limit"
+// @Param limit query int false "Result limit. Defaults to 100 and cannot exceed 1000."
 // @Success 200 {string} string "CSV"
 // @Failure 400 {object} respond.ErrorResponse
 // @Failure 500 {object} respond.ErrorResponse
@@ -748,6 +756,10 @@ func (h *Handler) ExportEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	listQuery.Cursor = ""
+	if err := validateDirectExportLimit(listQuery.Limit); err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
 
 	page, err := h.service.ListEvents(r.Context(), listQuery)
 	if err != nil {
@@ -783,6 +795,10 @@ func (h *Handler) ExportEventsSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	listQuery.Cursor = ""
+	if err := validateDirectExportLimit(listQuery.Limit); err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
 
 	page, err := h.service.ListEvents(r.Context(), listQuery)
 	if err != nil {
@@ -817,6 +833,10 @@ func writeEventCSV(w http.ResponseWriter, events []appusage.Result) {
 		})
 	}
 	writer.Flush()
+}
+
+func validateDirectExportLimit(limit int) error {
+	return request.ValidateOptionalLimit(limit, domainusage.MaxLimit)
 }
 
 func searchListQuery(req SearchRequest) (appusage.ListQuery, error) {
