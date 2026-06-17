@@ -48,3 +48,21 @@ WHERE (sqlc.narg('cursor_created_at')::text IS NULL
 		OR (created_at = sqlc.narg('cursor_created_at')::text AND id < sqlc.narg('cursor_id')::text)))
 ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg('limit')::int;
+
+-- name: SaveUsageExportJob :exec
+INSERT INTO usage_export_jobs (id, kind, status, format, query_json, error, created_at, updated_at, completed_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
+
+-- name: FindUsageExportJob :one
+SELECT id, kind, status, format, query_json, error, created_at, updated_at, completed_at
+FROM usage_export_jobs
+WHERE id = $1;
+
+-- name: ListUsageExportJobs :many
+SELECT id, kind, status, format, query_json, error, created_at, updated_at, completed_at
+FROM usage_export_jobs
+WHERE (sqlc.narg('cursor_created_at')::text IS NULL
+	OR (created_at < sqlc.narg('cursor_created_at')::text
+		OR (created_at = sqlc.narg('cursor_created_at')::text AND id < sqlc.narg('cursor_id')::text)))
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg('limit')::int;

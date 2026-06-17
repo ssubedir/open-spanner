@@ -38,3 +38,21 @@ WHERE (CAST(sqlc.narg('cursor_created_at') AS TEXT) IS NULL
 		OR (created_at = CAST(sqlc.narg('cursor_created_at') AS TEXT) AND id < CAST(sqlc.narg('cursor_id') AS TEXT))))
 ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg('limit');
+
+-- name: SaveUsageExportJob :exec
+INSERT INTO usage_export_jobs (id, kind, status, format, query_json, error, created_at, updated_at, completed_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: FindUsageExportJob :one
+SELECT id, kind, status, format, query_json, error, created_at, updated_at, completed_at
+FROM usage_export_jobs
+WHERE id = ?;
+
+-- name: ListUsageExportJobs :many
+SELECT id, kind, status, format, query_json, error, created_at, updated_at, completed_at
+FROM usage_export_jobs
+WHERE (CAST(sqlc.narg('cursor_created_at') AS TEXT) IS NULL
+	OR (created_at < CAST(sqlc.narg('cursor_created_at') AS TEXT)
+		OR (created_at = CAST(sqlc.narg('cursor_created_at') AS TEXT) AND id < CAST(sqlc.narg('cursor_id') AS TEXT))))
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg('limit');

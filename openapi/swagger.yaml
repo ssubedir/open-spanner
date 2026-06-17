@@ -408,6 +408,45 @@ definitions:
       to:
         type: string
     type: object
+  internal_metering_adapters_http_usage.ExportJobCreateRequest:
+    properties:
+      format:
+        type: string
+      kind:
+        type: string
+      query:
+        $ref: '#/definitions/internal_metering_adapters_http_usage.SearchRequest'
+    type: object
+  internal_metering_adapters_http_usage.ExportJobListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_usage.ExportJobResponse'
+        type: array
+      next_cursor:
+        type: string
+    type: object
+  internal_metering_adapters_http_usage.ExportJobResponse:
+    properties:
+      completed_at:
+        type: string
+      created_at:
+        type: string
+      error:
+        type: string
+      format:
+        type: string
+      id:
+        type: string
+      kind:
+        type: string
+      query:
+        $ref: '#/definitions/internal_metering_adapters_http_usage.SearchRequest'
+      status:
+        type: string
+      updated_at:
+        type: string
+    type: object
   internal_metering_adapters_http_usage.FilterRequest:
     properties:
       field:
@@ -775,6 +814,94 @@ paths:
       summary: Create auth user
       tags:
       - auth
+  /v1/exports:
+    get:
+      operationId: listUsageExportJobs
+      parameters:
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      - description: Pagination cursor
+        in: query
+        name: cursor
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_usage.ExportJobListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List usage export jobs
+      tags:
+      - exports
+    post:
+      consumes:
+      - application/json
+      description: Queues a usage bucket export job. Jobs are created as queued and
+        can be listed or inspected by ID.
+      operationId: createUsageExportJob
+      parameters:
+      - description: Usage export job
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_usage.ExportJobCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_usage.ExportJobResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Queue usage export
+      tags:
+      - exports
+  /v1/exports/{id}:
+    get:
+      operationId: getUsageExportJob
+      parameters:
+      - description: Export job ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_usage.ExportJobResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Get usage export job
+      tags:
+      - exports
   /v1/meters:
     get:
       operationId: listMeters

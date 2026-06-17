@@ -1851,6 +1851,89 @@ func TestUsageIngestionHistoryAPIContract(t *testing.T) {
 	}
 }
 
+func TestUsageExportJobAPIContract(t *testing.T) {
+	router := newTestRouter()
+
+	createMeter := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name":        "exported_events",
+		"description": "Exported events",
+		"unit":        "event",
+		"aggregation": "sum",
+		"dimensions": []map[string]any{
+			{"name": "region", "type": "string"},
+		},
+	})
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create meter status = %d: %s", createMeter.Code, createMeter.Body.String())
+	}
+
+	create := requestJSON(t, router, http.MethodPost, "/v1/exports", map[string]any{
+		"kind":   "usage_buckets",
+		"format": "csv",
+		"query": map[string]any{
+			"meter":       "exported_events",
+			"from":        "2026-06-01T00:00:00Z",
+			"to":          "2026-06-02T00:00:00Z",
+			"bucket_size": "day",
+			"group_by":    []string{"region"},
+			"limit":       500,
+			"filter": map[string]any{
+				"type":  "condition",
+				"field": "quantity",
+				"op":    "gte",
+				"value": 1,
+			},
+		},
+	})
+	if create.Code != http.StatusAccepted {
+		t.Fatalf("create export job status = %d, want %d: %s", create.Code, http.StatusAccepted, create.Body.String())
+	}
+
+	var created exportJobResponse
+	decodeJSON(t, create, &created)
+	if created.ID == "" || created.Kind != "usage_buckets" || created.Status != "queued" || created.Format != "csv" || created.CreatedAt == "" || created.UpdatedAt == "" || created.CompletedAt != "" {
+		t.Fatalf("created export job = %#v", created)
+	}
+	if created.Query["meter"] != "exported_events" || created.Query["bucket_size"] != "day" {
+		t.Fatalf("created export job query = %#v", created.Query)
+	}
+
+	get := requestJSON(t, router, http.MethodGet, "/v1/exports/"+created.ID, nil)
+	if get.Code != http.StatusOK {
+		t.Fatalf("get export job status = %d, want %d: %s", get.Code, http.StatusOK, get.Body.String())
+	}
+	var found exportJobResponse
+	decodeJSON(t, get, &found)
+	if found.ID != created.ID || found.Status != "queued" {
+		t.Fatalf("found export job = %#v", found)
+	}
+
+	list := requestJSON(t, router, http.MethodGet, "/v1/exports?limit=10", nil)
+	if list.Code != http.StatusOK {
+		t.Fatalf("list export jobs status = %d, want %d: %s", list.Code, http.StatusOK, list.Body.String())
+	}
+	var jobs exportJobListResponse
+	decodeJSON(t, list, &jobs)
+	if len(jobs.Items) != 1 || jobs.Items[0].ID != created.ID {
+		t.Fatalf("export jobs = %#v", jobs)
+	}
+
+	invalid := requestJSON(t, router, http.MethodPost, "/v1/exports", map[string]any{
+		"query": map[string]any{
+			"meter": "exported_events",
+			"from":  "2026-06-01T00:00:00Z",
+		},
+	})
+	if invalid.Code != http.StatusBadRequest {
+		t.Fatalf("invalid export job status = %d, want %d: %s", invalid.Code, http.StatusBadRequest, invalid.Body.String())
+	}
+
+	missing := requestJSON(t, router, http.MethodGet, "/v1/exports/missing", nil)
+	if missing.Code != http.StatusNotFound {
+		t.Fatalf("missing export job status = %d, want %d: %s", missing.Code, http.StatusNotFound, missing.Body.String())
+	}
+}
+
 func newTestRouter() http.Handler {
 	store, err := sqlite.NewStore(context.Background(), ":memory:", config.DBPoolConfig{MaxOpenConns: 1})
 	if err != nil {
@@ -2079,6 +2162,23 @@ type ingestionResponse struct {
 	Duplicates int    `json:"duplicates"`
 	Failed     int    `json:"failed"`
 	CreatedAt  string `json:"created_at"`
+}
+
+type exportJobListResponse struct {
+	Items      []exportJobResponse `json:"items"`
+	NextCursor string              `json:"next_cursor"`
+}
+
+type exportJobResponse struct {
+	ID          string         `json:"id"`
+	Kind        string         `json:"kind"`
+	Status      string         `json:"status"`
+	Format      string         `json:"format"`
+	Query       map[string]any `json:"query"`
+	Error       string         `json:"error"`
+	CreatedAt   string         `json:"created_at"`
+	UpdatedAt   string         `json:"updated_at"`
+	CompletedAt string         `json:"completed_at"`
 }
 
 type usageListItemResponse struct {

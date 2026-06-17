@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/http/internal/request"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/http/internal/respond"
 	appusage "github.com/ssubedir/open-spanner/internal/metering/app/usage"
@@ -249,6 +250,102 @@ func (h *Handler) ListIngestions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respond.JSON(w, http.StatusOK, IngestionListResponse{Items: res, NextCursor: runs.NextCursor})
+}
+
+// CreateExportJob queues an async usage export.
+//
+// @Summary Queue usage export
+// @Description Queues a usage bucket export job. Jobs are created as queued and can be listed or inspected by ID.
+// @ID createUsageExportJob
+// @Tags exports
+// @Accept json
+// @Produce json
+// @Param request body ExportJobCreateRequest true "Usage export job"
+// @Success 202 {object} ExportJobResponse
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/exports [post]
+func (h *Handler) CreateExportJob(w http.ResponseWriter, r *http.Request) {
+	var req ExportJobCreateRequest
+	if err := request.DecodeJSON(r.Body, &req); err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+
+	queryJSON, err := exportJobQueryJSON(req.Query)
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+
+	job, err := h.service.CreateExportJob(r.Context(), appusage.ExportJobCreateCommand{
+		Kind:      req.Kind,
+		Format:    req.Format,
+		QueryJSON: queryJSON,
+	})
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+
+	respond.JSON(w, http.StatusAccepted, exportJobResponseFromResult(job))
+}
+
+// ListExportJobs lists async usage export jobs.
+//
+// @Summary List usage export jobs
+// @ID listUsageExportJobs
+// @Tags exports
+// @Produce json
+// @Param limit query int false "Page size"
+// @Param cursor query string false "Pagination cursor"
+// @Success 200 {object} ExportJobListResponse
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/exports [get]
+func (h *Handler) ListExportJobs(w http.ResponseWriter, r *http.Request) {
+	limit, err := request.ParseLimit(r.URL.Query().Get("limit"))
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+
+	jobs, err := h.service.ListExportJobs(r.Context(), appusage.ExportJobListQuery{
+		Limit:  limit,
+		Cursor: r.URL.Query().Get("cursor"),
+	})
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+
+	res := make([]ExportJobResponse, 0, len(jobs.Items))
+	for _, job := range jobs.Items {
+		res = append(res, exportJobResponseFromResult(job))
+	}
+
+	respond.JSON(w, http.StatusOK, ExportJobListResponse{Items: res, NextCursor: jobs.NextCursor})
+}
+
+// GetExportJob gets an async usage export job.
+//
+// @Summary Get usage export job
+// @ID getUsageExportJob
+// @Tags exports
+// @Produce json
+// @Param id path string true "Export job ID"
+// @Success 200 {object} ExportJobResponse
+// @Failure 404 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/exports/{id} [get]
+func (h *Handler) GetExportJob(w http.ResponseWriter, r *http.Request) {
+	job, err := h.service.GetExportJob(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+
+	respond.JSON(w, http.StatusOK, exportJobResponseFromResult(job))
 }
 
 // List lists bucketed usage.
@@ -748,6 +845,18 @@ func searchListQuery(req SearchRequest) (appusage.ListQuery, error) {
 	}, nil
 }
 
+func exportJobQueryJSON(query *SearchRequest) (string, error) {
+	if query == nil {
+		return "", request.NewValidationError("invalid_query", "query is required")
+	}
+	if _, err := searchListQuery(*query); err != nil {
+		return "", err
+	}
+
+	payload, err := json.Marshal(query)
+	return string(payload), err
+}
+
 func searchEventListQuery(req EventSearchRequest) (appusage.EventListQuery, error) {
 	from, err := request.OptionalTime("from", req.From)
 	if err != nil {
@@ -928,6 +1037,26 @@ func ingestionResponseFromResult(result appusage.IngestionResult) IngestionRespo
 		Failed:     result.Failed,
 		CreatedAt:  result.CreatedAt.Format(time.RFC3339),
 	}
+}
+
+func exportJobResponseFromResult(result appusage.ExportJobResult) ExportJobResponse {
+	var query SearchRequest
+	_ = json.Unmarshal([]byte(result.QueryJSON), &query)
+
+	res := ExportJobResponse{
+		ID:        result.ID,
+		Kind:      result.Kind,
+		Status:    result.Status,
+		Format:    result.Format,
+		Query:     query,
+		Error:     result.ErrorMessage,
+		CreatedAt: result.CreatedAt.Format(time.RFC3339),
+		UpdatedAt: result.UpdatedAt.Format(time.RFC3339),
+	}
+	if !result.CompletedAt.IsZero() {
+		res.CompletedAt = result.CompletedAt.Format(time.RFC3339)
+	}
+	return res
 }
 
 func metadataFilters(query map[string][]string) map[string]string {

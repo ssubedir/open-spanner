@@ -468,6 +468,59 @@ func (r *UsageRepository) FindIngestionRuns(ctx context.Context, query domainusa
 	return runs, nil
 }
 
+func (r *UsageRepository) SaveExportJob(ctx context.Context, job domainusage.ExportJob) (domainusage.ExportJob, error) {
+	err := queriesFor(ctx, r.queries).SaveUsageExportJob(ctx, sqlitedb.SaveUsageExportJobParams{
+		ID:          job.ID(),
+		Kind:        string(job.Kind()),
+		Status:      string(job.Status()),
+		Format:      string(job.Format()),
+		QueryJson:   job.QueryJSON(),
+		Error:       job.ErrorMessage(),
+		CreatedAt:   formatTime(job.CreatedAt()),
+		UpdatedAt:   formatTime(job.UpdatedAt()),
+		CompletedAt: exportJobTimeValue(job.CompletedAt()),
+	})
+	if err != nil {
+		return domainusage.ExportJob{}, err
+	}
+
+	return job, nil
+}
+
+func (r *UsageRepository) FindExportJob(ctx context.Context, id string) (domainusage.ExportJob, error) {
+	row, err := queriesFor(ctx, r.queries).FindUsageExportJob(ctx, id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return domainusage.ExportJob{}, domain.ErrNotFound
+		}
+		return domainusage.ExportJob{}, err
+	}
+
+	return exportJobFromFields(row.ID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
+}
+
+func (r *UsageRepository) FindExportJobs(ctx context.Context, query domainusage.RunQuery) ([]domainusage.ExportJob, error) {
+	cursorCreatedAt, cursorID := runCursorValues(query)
+	rows, err := queriesFor(ctx, r.queries).ListUsageExportJobs(ctx, sqlitedb.ListUsageExportJobsParams{
+		CursorCreatedAt: cursorCreatedAt,
+		CursorID:        cursorID,
+		Limit:           int64(query.Limit()),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	jobs := make([]domainusage.ExportJob, 0, len(rows))
+	for _, row := range rows {
+		job, err := exportJobFromFields(row.ID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
+		if err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, job)
+	}
+	return jobs, nil
+}
+
 func (r *UsageRepository) findByIdempotencyKey(ctx context.Context, key string) (domainusage.Event, error) {
 	event, err := queriesFor(ctx, r.queries).FindUsageEventByIdempotencyKey(ctx, sql.NullString{String: key, Valid: true})
 	return eventFromFields(event.ID, event.IdempotencyKey, event.Subject, event.MeterName, event.Quantity, event.EventTime, event.ReceivedAt, event.Metadata, err)
@@ -538,6 +591,13 @@ func runCursorValues(query domainusage.RunQuery) (sql.NullString, sql.NullString
 	return sql.NullString{String: formatTime(query.CreatedAt()), Valid: true}, sql.NullString{String: query.ID(), Valid: true}
 }
 
+func exportJobTimeValue(value time.Time) sql.NullString {
+	if value.IsZero() {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: formatTime(value), Valid: true}
+}
+
 func ingestionRunFromFields(id string, kind string, accepted int64, duplicates int64, failed int64, createdAtText string) (domainusage.IngestionRun, error) {
 	createdAt, err := time.Parse(time.RFC3339Nano, createdAtText)
 	if err != nil {
@@ -545,6 +605,36 @@ func ingestionRunFromFields(id string, kind string, accepted int64, duplicates i
 	}
 
 	return domainusage.NewIngestionRun(id, domainusage.IngestionKind(kind), int(accepted), int(duplicates), int(failed), createdAt)
+}
+
+func exportJobFromFields(id string, kind string, status string, format string, queryJSON string, errorMessage string, createdAtText string, updatedAtText string, completedAtText sql.NullString) (domainusage.ExportJob, error) {
+	createdAt, err := time.Parse(time.RFC3339Nano, createdAtText)
+	if err != nil {
+		return domainusage.ExportJob{}, err
+	}
+	updatedAt, err := time.Parse(time.RFC3339Nano, updatedAtText)
+	if err != nil {
+		return domainusage.ExportJob{}, err
+	}
+	completedAt := time.Time{}
+	if completedAtText.Valid {
+		completedAt, err = time.Parse(time.RFC3339Nano, completedAtText.String)
+		if err != nil {
+			return domainusage.ExportJob{}, err
+		}
+	}
+
+	return domainusage.NewExportJob(
+		id,
+		domainusage.ExportJobKind(kind),
+		domainusage.ExportJobStatus(status),
+		domainusage.ExportJobFormat(format),
+		queryJSON,
+		errorMessage,
+		createdAt,
+		updatedAt,
+		completedAt,
+	)
 }
 
 func eventFromFields(id string, idempotencyKey sql.NullString, subject string, meterName string, quantity float64, eventTimeText string, receivedAtText string, metadataText string, err error) (domainusage.Event, error) {
