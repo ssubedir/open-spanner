@@ -41,6 +41,78 @@ func (q *Queries) CountUsagePruneRuns(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const findUsageExportJob = `-- name: FindUsageExportJob :one
+SELECT id, kind, status, format, query_json, error, created_at, updated_at, completed_at
+FROM usage_export_jobs
+WHERE id = ?
+`
+
+func (q *Queries) FindUsageExportJob(ctx context.Context, id string) (UsageExportJob, error) {
+	row := q.db.QueryRowContext(ctx, findUsageExportJob, id)
+	var i UsageExportJob
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.Status,
+		&i.Format,
+		&i.QueryJson,
+		&i.Error,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CompletedAt,
+	)
+	return i, err
+}
+
+const listUsageExportJobs = `-- name: ListUsageExportJobs :many
+SELECT id, kind, status, format, query_json, error, created_at, updated_at, completed_at
+FROM usage_export_jobs
+WHERE (CAST(?1 AS TEXT) IS NULL
+	OR (created_at < CAST(?1 AS TEXT)
+		OR (created_at = CAST(?1 AS TEXT) AND id < CAST(?2 AS TEXT))))
+ORDER BY created_at DESC, id DESC
+LIMIT ?3
+`
+
+type ListUsageExportJobsParams struct {
+	CursorCreatedAt sql.NullString
+	CursorID        sql.NullString
+	Limit           int64
+}
+
+func (q *Queries) ListUsageExportJobs(ctx context.Context, arg ListUsageExportJobsParams) ([]UsageExportJob, error) {
+	rows, err := q.db.QueryContext(ctx, listUsageExportJobs, arg.CursorCreatedAt, arg.CursorID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []UsageExportJob{}
+	for rows.Next() {
+		var i UsageExportJob
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.Status,
+			&i.Format,
+			&i.QueryJson,
+			&i.Error,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CompletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUsageIngestionRuns = `-- name: ListUsageIngestionRuns :many
 SELECT id, kind, accepted, duplicates, failed, created_at
 FROM usage_ingestions
@@ -149,6 +221,38 @@ func (q *Queries) PruneUsageEvents(ctx context.Context, arg PruneUsageEventsPara
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const saveUsageExportJob = `-- name: SaveUsageExportJob :exec
+INSERT INTO usage_export_jobs (id, kind, status, format, query_json, error, created_at, updated_at, completed_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type SaveUsageExportJobParams struct {
+	ID          string
+	Kind        string
+	Status      string
+	Format      string
+	QueryJson   string
+	Error       string
+	CreatedAt   string
+	UpdatedAt   string
+	CompletedAt sql.NullString
+}
+
+func (q *Queries) SaveUsageExportJob(ctx context.Context, arg SaveUsageExportJobParams) error {
+	_, err := q.db.ExecContext(ctx, saveUsageExportJob,
+		arg.ID,
+		arg.Kind,
+		arg.Status,
+		arg.Format,
+		arg.QueryJson,
+		arg.Error,
+		arg.CreatedAt,
+		arg.UpdatedAt,
+		arg.CompletedAt,
+	)
+	return err
 }
 
 const saveUsageIngestionRun = `-- name: SaveUsageIngestionRun :exec

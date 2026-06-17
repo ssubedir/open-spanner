@@ -311,6 +311,37 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 		t.Fatalf("ingestions = %#v, want at least one run per single usage create", ingestions)
 	}
 
+	exportJobRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/exports", map[string]any{
+		"kind":   "usage_buckets",
+		"format": "csv",
+		"query": map[string]any{
+			"meter":       meterName,
+			"from":        "2026-06-08T00:00:00Z",
+			"to":          "2026-06-09T00:00:00Z",
+			"bucket_size": "day",
+			"group_by":    []string{"endpoint"},
+			"limit":       10,
+		},
+	}, authHeaders, nil)
+	if exportJobRes.Code != http.StatusAccepted {
+		t.Fatalf("create export job status = %d, want %d: %s", exportJobRes.Code, http.StatusAccepted, exportJobRes.Body.String())
+	}
+	var exportJob usageExportJobResponse
+	decodeJSON(t, exportJobRes, &exportJob)
+	if exportJob.ID == "" || exportJob.Status != "queued" || exportJob.Kind != "usage_buckets" || exportJob.Format != "csv" || exportJob.Query["meter"] != meterName {
+		t.Fatalf("export job = %#v", exportJob)
+	}
+
+	getExportJobRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/exports/"+exportJob.ID, nil, authHeaders, nil)
+	if getExportJobRes.Code != http.StatusOK {
+		t.Fatalf("get export job status = %d, want %d: %s", getExportJobRes.Code, http.StatusOK, getExportJobRes.Body.String())
+	}
+	var foundExportJob usageExportJobResponse
+	decodeJSON(t, getExportJobRes, &foundExportJob)
+	if foundExportJob.ID != exportJob.ID || foundExportJob.Status != "queued" {
+		t.Fatalf("found export job = %#v", foundExportJob)
+	}
+
 	runIntegrationHyphenatedDimensionFlow(t, router, authHeaders, suffix)
 	runIntegrationDottedDimensionParityFlow(t, router, authHeaders, suffix)
 	runIntegrationFirstAggregationFlow(t, router, authHeaders, suffix)
@@ -1668,4 +1699,15 @@ type usageIngestionResponse struct {
 type usageIngestionListResponse struct {
 	Items      []usageIngestionResponse `json:"items"`
 	NextCursor string                   `json:"next_cursor"`
+}
+
+type usageExportJobResponse struct {
+	ID          string         `json:"id"`
+	Kind        string         `json:"kind"`
+	Status      string         `json:"status"`
+	Format      string         `json:"format"`
+	Query       map[string]any `json:"query"`
+	CreatedAt   string         `json:"created_at"`
+	UpdatedAt   string         `json:"updated_at"`
+	CompletedAt string         `json:"completed_at"`
 }

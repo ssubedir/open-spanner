@@ -706,6 +706,42 @@ export type ExportUsageBucketsResponses = {
 
 export type ExportUsageBucketsResponse = ExportUsageBucketsResponses[keyof ExportUsageBucketsResponses];
 
+export type ExportFilteredUsageBucketsData = {
+    /**
+     * Usage export search
+     */
+    body: InternalMeteringAdaptersHttpUsageSearchRequest;
+    path?: never;
+    query?: never;
+    url: '/v1/usages/export';
+};
+
+export type ExportFilteredUsageBucketsErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorResponse;
+};
+
+export type ExportFilteredUsageBucketsError = ExportFilteredUsageBucketsErrors[keyof ExportFilteredUsageBucketsErrors];
+
+export type ExportFilteredUsageBucketsResponses = {
+    /**
+     * CSV
+     */
+    200: string;
+};
+
+export type ExportFilteredUsageBucketsResponse = ExportFilteredUsageBucketsResponses[keyof ExportFilteredUsageBucketsResponses];
+
 export type SearchUsageBucketsData = {
     /**
      * Usage search

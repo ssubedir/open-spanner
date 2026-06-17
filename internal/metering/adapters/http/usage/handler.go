@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/http/internal/request"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/http/internal/respond"
 	appusage "github.com/ssubedir/open-spanner/internal/metering/app/usage"
@@ -251,6 +252,102 @@ func (h *Handler) ListIngestions(w http.ResponseWriter, r *http.Request) {
 	respond.JSON(w, http.StatusOK, IngestionListResponse{Items: res, NextCursor: runs.NextCursor})
 }
 
+// CreateExportJob queues an async usage export.
+//
+// @Summary Queue usage export
+// @Description Queues a usage bucket export job. Jobs are created as queued and can be listed or inspected by ID.
+// @ID createUsageExportJob
+// @Tags exports
+// @Accept json
+// @Produce json
+// @Param request body ExportJobCreateRequest true "Usage export job"
+// @Success 202 {object} ExportJobResponse
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/exports [post]
+func (h *Handler) CreateExportJob(w http.ResponseWriter, r *http.Request) {
+	var req ExportJobCreateRequest
+	if err := request.DecodeJSON(r.Body, &req); err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+
+	queryJSON, err := exportJobQueryJSON(req.Query)
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+
+	job, err := h.service.CreateExportJob(r.Context(), appusage.ExportJobCreateCommand{
+		Kind:      req.Kind,
+		Format:    req.Format,
+		QueryJSON: queryJSON,
+	})
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+
+	respond.JSON(w, http.StatusAccepted, exportJobResponseFromResult(job))
+}
+
+// ListExportJobs lists async usage export jobs.
+//
+// @Summary List usage export jobs
+// @ID listUsageExportJobs
+// @Tags exports
+// @Produce json
+// @Param limit query int false "Page size"
+// @Param cursor query string false "Pagination cursor"
+// @Success 200 {object} ExportJobListResponse
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/exports [get]
+func (h *Handler) ListExportJobs(w http.ResponseWriter, r *http.Request) {
+	limit, err := request.ParseLimit(r.URL.Query().Get("limit"))
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+
+	jobs, err := h.service.ListExportJobs(r.Context(), appusage.ExportJobListQuery{
+		Limit:  limit,
+		Cursor: r.URL.Query().Get("cursor"),
+	})
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+
+	res := make([]ExportJobResponse, 0, len(jobs.Items))
+	for _, job := range jobs.Items {
+		res = append(res, exportJobResponseFromResult(job))
+	}
+
+	respond.JSON(w, http.StatusOK, ExportJobListResponse{Items: res, NextCursor: jobs.NextCursor})
+}
+
+// GetExportJob gets an async usage export job.
+//
+// @Summary Get usage export job
+// @ID getUsageExportJob
+// @Tags exports
+// @Produce json
+// @Param id path string true "Export job ID"
+// @Success 200 {object} ExportJobResponse
+// @Failure 404 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/exports/{id} [get]
+func (h *Handler) GetExportJob(w http.ResponseWriter, r *http.Request) {
+	job, err := h.service.GetExportJob(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+
+	respond.JSON(w, http.StatusOK, exportJobResponseFromResult(job))
+}
+
 // List lists bucketed usage.
 //
 // @Summary List usage buckets
@@ -281,21 +378,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res := make([]ListItemResponse, 0, len(buckets))
-	for _, bucket := range buckets {
-		res = append(res, ListItemResponse{
-			Subject:     bucket.Subject,
-			Meter:       bucket.MeterName,
-			BucketSize:  bucket.BucketSize,
-			BucketStart: bucket.BucketStart.Format(time.RFC3339),
-			Aggregation: bucket.Aggregation,
-			Unit:        bucket.Unit,
-			Quantity:    bucket.Quantity,
-			Group:       bucket.Group,
-		})
-	}
-
-	respond.JSON(w, http.StatusOK, res)
+	respond.JSON(w, http.StatusOK, listItemResponses(buckets))
 }
 
 // Search searches bucketed usage with an advanced filter.
@@ -318,52 +401,19 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	from, err := request.RequiredTime("from", req.From)
-	if err != nil {
-		respond.ValidationError(w, err)
-		return
-	}
-	to, err := request.RequiredTime("to", req.To)
-	if err != nil {
-		respond.ValidationError(w, err)
-		return
-	}
-	filter, err := filterFromRequest(req.Filter)
+	listQuery, err := searchListQuery(req)
 	if err != nil {
 		respond.ValidationError(w, err)
 		return
 	}
 
-	buckets, err := h.service.List(r.Context(), appusage.ListQuery{
-		Subject:    req.Subject,
-		MeterName:  req.Meter,
-		From:       from,
-		To:         to,
-		BucketSize: domainusage.BucketSize(req.BucketSize),
-		GroupBy:    req.GroupBy.Fields(),
-		Limit:      req.Limit,
-		Filter:     filter,
-	})
+	buckets, err := h.service.List(r.Context(), listQuery)
 	if err != nil {
 		respond.ServiceError(w, err)
 		return
 	}
 
-	res := make([]ListItemResponse, 0, len(buckets))
-	for _, bucket := range buckets {
-		res = append(res, ListItemResponse{
-			Subject:     bucket.Subject,
-			Meter:       bucket.MeterName,
-			BucketSize:  bucket.BucketSize,
-			BucketStart: bucket.BucketStart.Format(time.RFC3339),
-			Aggregation: bucket.Aggregation,
-			Unit:        bucket.Unit,
-			Quantity:    bucket.Quantity,
-			Group:       bucket.Group,
-		})
-	}
-
-	respond.JSON(w, http.StatusOK, res)
+	respond.JSON(w, http.StatusOK, listItemResponses(buckets))
 }
 
 // SearchBreakdown searches top aggregated usage breakdown values.
@@ -549,31 +599,13 @@ func (h *Handler) SearchEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	from, err := request.OptionalTime("from", req.From)
-	if err != nil {
-		respond.ValidationError(w, err)
-		return
-	}
-	to, err := request.OptionalTime("to", req.To)
-	if err != nil {
-		respond.ValidationError(w, err)
-		return
-	}
-	filter, err := filterFromRequest(req.Filter)
+	listQuery, err := searchEventListQuery(req)
 	if err != nil {
 		respond.ValidationError(w, err)
 		return
 	}
 
-	page, err := h.service.ListEvents(r.Context(), appusage.EventListQuery{
-		Subject:   req.Subject,
-		MeterName: req.Meter,
-		From:      from,
-		To:        to,
-		Limit:     req.Limit,
-		Cursor:    req.Cursor,
-		Filter:    filter,
-	})
+	page, err := h.service.ListEvents(r.Context(), listQuery)
 	if err != nil {
 		respond.ServiceError(w, err)
 		return
@@ -620,18 +652,57 @@ func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	writeBucketCSV(w, listQuery.GroupBy, buckets)
+}
+
+// ExportSearch exports bucketed usage matching an advanced filter as CSV.
+//
+// @Summary Export filtered usage buckets
+// @ID exportFilteredUsageBuckets
+// @Tags usages
+// @Accept json
+// @Produce text/csv
+// @Param request body SearchRequest true "Usage export search"
+// @Success 200 {string} string "CSV"
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 404 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/usages/export [post]
+func (h *Handler) ExportSearch(w http.ResponseWriter, r *http.Request) {
+	var req SearchRequest
+	if err := request.DecodeJSON(r.Body, &req); err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+
+	listQuery, err := searchListQuery(req)
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+
+	buckets, err := h.service.List(r.Context(), listQuery)
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+
+	writeBucketCSV(w, listQuery.GroupBy, buckets)
+}
+
+func writeBucketCSV(w http.ResponseWriter, groupBy []string, buckets []appusage.ListItemResult) {
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="usage-buckets.csv"`)
 	w.WriteHeader(http.StatusOK)
 
 	writer := csv.NewWriter(w)
 	header := []string{"bucket_start", "subject", "meter", "bucket_size", "aggregation", "unit", "quantity"}
-	if len(listQuery.GroupBy) > 0 {
-		for _, groupBy := range listQuery.GroupBy {
-			if domainusage.IsSubjectGroupBy(groupBy) {
+	if len(groupBy) > 0 {
+		for _, field := range groupBy {
+			if domainusage.IsSubjectGroupBy(field) {
 				continue
 			}
-			header = append(header, groupBy)
+			header = append(header, field)
 		}
 	}
 	_ = writer.Write(header)
@@ -645,11 +716,11 @@ func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 			bucket.Unit,
 			strconv.FormatFloat(bucket.Quantity, 'f', -1, 64),
 		}
-		for _, groupBy := range listQuery.GroupBy {
-			if domainusage.IsSubjectGroupBy(groupBy) {
+		for _, field := range groupBy {
+			if domainusage.IsSubjectGroupBy(field) {
 				continue
 			}
-			row = append(row, bucket.Group[groupBy])
+			row = append(row, bucket.Group[field])
 		}
 		_ = writer.Write(row)
 	}
@@ -684,13 +755,52 @@ func (h *Handler) ExportEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	writeEventCSV(w, page.Items)
+}
+
+// ExportEventsSearch exports raw usage events matching an advanced filter as CSV.
+//
+// @Summary Export filtered usage events
+// @ID exportFilteredUsageEvents
+// @Tags usage-events
+// @Accept json
+// @Produce text/csv
+// @Param request body EventSearchRequest true "Usage event export search"
+// @Success 200 {string} string "CSV"
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/usageevents/export [post]
+func (h *Handler) ExportEventsSearch(w http.ResponseWriter, r *http.Request) {
+	var req EventSearchRequest
+	if err := request.DecodeJSON(r.Body, &req); err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+
+	listQuery, err := searchEventListQuery(req)
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+	listQuery.Cursor = ""
+
+	page, err := h.service.ListEvents(r.Context(), listQuery)
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+
+	writeEventCSV(w, page.Items)
+}
+
+func writeEventCSV(w http.ResponseWriter, events []appusage.Result) {
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="usage-events.csv"`)
 	w.WriteHeader(http.StatusOK)
 
 	writer := csv.NewWriter(w)
 	_ = writer.Write([]string{"timestamp", "received_at", "subject", "meter", "quantity", "metadata", "id", "idempotency_key"})
-	for _, event := range page.Items {
+	for _, event := range events {
 		metadata, err := json.Marshal(event.Metadata)
 		if err != nil {
 			metadata = []byte("{}")
@@ -707,6 +817,69 @@ func (h *Handler) ExportEvents(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writer.Flush()
+}
+
+func searchListQuery(req SearchRequest) (appusage.ListQuery, error) {
+	from, err := request.RequiredTime("from", req.From)
+	if err != nil {
+		return appusage.ListQuery{}, err
+	}
+	to, err := request.RequiredTime("to", req.To)
+	if err != nil {
+		return appusage.ListQuery{}, err
+	}
+	filter, err := filterFromRequest(req.Filter)
+	if err != nil {
+		return appusage.ListQuery{}, err
+	}
+
+	return appusage.ListQuery{
+		Subject:    req.Subject,
+		MeterName:  req.Meter,
+		From:       from,
+		To:         to,
+		BucketSize: domainusage.BucketSize(req.BucketSize),
+		GroupBy:    req.GroupBy.Fields(),
+		Limit:      req.Limit,
+		Filter:     filter,
+	}, nil
+}
+
+func exportJobQueryJSON(query *SearchRequest) (string, error) {
+	if query == nil {
+		return "", request.NewValidationError("invalid_query", "query is required")
+	}
+	if _, err := searchListQuery(*query); err != nil {
+		return "", err
+	}
+
+	payload, err := json.Marshal(query)
+	return string(payload), err
+}
+
+func searchEventListQuery(req EventSearchRequest) (appusage.EventListQuery, error) {
+	from, err := request.OptionalTime("from", req.From)
+	if err != nil {
+		return appusage.EventListQuery{}, err
+	}
+	to, err := request.OptionalTime("to", req.To)
+	if err != nil {
+		return appusage.EventListQuery{}, err
+	}
+	filter, err := filterFromRequest(req.Filter)
+	if err != nil {
+		return appusage.EventListQuery{}, err
+	}
+
+	return appusage.EventListQuery{
+		Subject:   req.Subject,
+		MeterName: req.Meter,
+		From:      from,
+		To:        to,
+		Limit:     req.Limit,
+		Cursor:    req.Cursor,
+		Filter:    filter,
+	}, nil
 }
 
 func (h *Handler) eventListQuery(w http.ResponseWriter, r *http.Request) (appusage.EventListQuery, bool) {
@@ -782,6 +955,23 @@ func responseFromResult(event appusage.Result) Response {
 	}
 }
 
+func listItemResponses(buckets []appusage.ListItemResult) []ListItemResponse {
+	res := make([]ListItemResponse, 0, len(buckets))
+	for _, bucket := range buckets {
+		res = append(res, ListItemResponse{
+			Subject:     bucket.Subject,
+			Meter:       bucket.MeterName,
+			BucketSize:  bucket.BucketSize,
+			BucketStart: bucket.BucketStart.Format(time.RFC3339),
+			Aggregation: bucket.Aggregation,
+			Unit:        bucket.Unit,
+			Quantity:    bucket.Quantity,
+			Group:       bucket.Group,
+		})
+	}
+	return res
+}
+
 func bulkResponseFromResult(result appusage.BulkResult) BulkResponse {
 	accepted := make([]Response, 0, len(result.Accepted))
 	for _, event := range result.Accepted {
@@ -847,6 +1037,26 @@ func ingestionResponseFromResult(result appusage.IngestionResult) IngestionRespo
 		Failed:     result.Failed,
 		CreatedAt:  result.CreatedAt.Format(time.RFC3339),
 	}
+}
+
+func exportJobResponseFromResult(result appusage.ExportJobResult) ExportJobResponse {
+	var query SearchRequest
+	_ = json.Unmarshal([]byte(result.QueryJSON), &query)
+
+	res := ExportJobResponse{
+		ID:        result.ID,
+		Kind:      result.Kind,
+		Status:    result.Status,
+		Format:    result.Format,
+		Query:     query,
+		Error:     result.ErrorMessage,
+		CreatedAt: result.CreatedAt.Format(time.RFC3339),
+		UpdatedAt: result.UpdatedAt.Format(time.RFC3339),
+	}
+	if !result.CompletedAt.IsZero() {
+		res.CompletedAt = result.CompletedAt.Format(time.RFC3339)
+	}
+	return res
 }
 
 func metadataFilters(query map[string][]string) map[string]string {

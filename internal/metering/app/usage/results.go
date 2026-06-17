@@ -66,6 +66,11 @@ type IngestionListResult struct {
 	NextCursor string
 }
 
+type ExportJobListResult struct {
+	Items      []ExportJobResult
+	NextCursor string
+}
+
 type BulkResult struct {
 	Accepted   []Result
 	Duplicates []Result
@@ -106,6 +111,18 @@ type PruneMeterResult struct {
 	MeterName string
 	Before    time.Time
 	Deleted   int
+}
+
+type ExportJobResult struct {
+	ID           string
+	Kind         string
+	Status       string
+	Format       string
+	QueryJSON    string
+	ErrorMessage string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	CompletedAt  time.Time
 }
 
 func eventResultFromDomain(event domainusage.Event) Result {
@@ -175,6 +192,20 @@ func ingestionResultFromDomain(run domainusage.IngestionRun) IngestionResult {
 		Duplicates: run.Duplicates(),
 		Failed:     run.Failed(),
 		CreatedAt:  run.CreatedAt(),
+	}
+}
+
+func exportJobResultFromDomain(job domainusage.ExportJob) ExportJobResult {
+	return ExportJobResult{
+		ID:           job.ID(),
+		Kind:         string(job.Kind()),
+		Status:       string(job.Status()),
+		Format:       string(job.Format()),
+		QueryJSON:    job.QueryJSON(),
+		ErrorMessage: job.ErrorMessage(),
+		CreatedAt:    job.CreatedAt(),
+		UpdatedAt:    job.UpdatedAt(),
+		CompletedAt:  job.CompletedAt(),
 	}
 }
 

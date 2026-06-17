@@ -19,4 +19,7 @@ type Repository interface {
 	CountPruneRuns(ctx context.Context) (int, error)
 	SaveIngestionRun(ctx context.Context, run IngestionRun) (IngestionRun, error)
 	FindIngestionRuns(ctx context.Context, query RunQuery) ([]IngestionRun, error)
+	SaveExportJob(ctx context.Context, job ExportJob) (ExportJob, error)
+	FindExportJob(ctx context.Context, id string) (ExportJob, error)
+	FindExportJobs(ctx context.Context, query RunQuery) ([]ExportJob, error)
 }

@@ -63,6 +63,10 @@ export function UsagePage() {
     await appStoreActions.exportCurrentUsageBuckets(activeGroupBy, limit, bucketSize)
   }
 
+  async function exportEvents() {
+    await appStoreActions.exportCurrentUsageEvents(limit)
+  }
+
   async function confirmDeleteSavedQuery() {
     await appStoreActions.deleteSelectedSavedUsageQuery()
   }
@@ -85,6 +89,7 @@ export function UsagePage() {
     [breakdownFields, breakdowns],
   )
   const selectedSavedQuery = savedQueries.find((item) => item.id === selectedSavedQueryID)
+  const exportInProgress = exporting !== ''
 
   useEffect(() => {
     void appStoreActions.loadUsageDimensionValues()
@@ -235,9 +240,13 @@ export function UsagePage() {
                       <RefreshCw aria-hidden="true" />
                       Reset
                     </Button>
-                    <Button disabled={exporting} onClick={() => void exportBuckets()} type="button" variant="outline">
-                      {exporting ? <Loader2 className="spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
-                      Export CSV
+                    <Button disabled={exportInProgress} onClick={() => void exportBuckets()} type="button" variant="outline">
+                      {exporting === 'buckets' ? <Loader2 className="spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
+                      Export Buckets
+                    </Button>
+                    <Button disabled={exportInProgress} onClick={() => void exportEvents()} type="button" variant="outline">
+                      {exporting === 'events' ? <Loader2 className="spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
+                      Export Events
                     </Button>
                     <Button disabled={status === 'loading'} type="submit">
                       {status === 'loading' ? <Loader2 className="spin" aria-hidden="true" /> : <Search aria-hidden="true" />}

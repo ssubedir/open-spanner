@@ -3,9 +3,13 @@ title: Export Usage
 description: Produce CSV usage data for billing, analytics, or audits.
 ---
 
-Open Spanner can export usage query results as CSV. Use exports when another system wants files instead of API responses.
+Open Spanner can export usage query results as CSV. Use exports when another system wants files for billing imports, finance reports, support audits, or product analytics.
+
+CSV exports run from the API request today. Keep export windows focused and use filters when possible, especially when a meter has a high event volume. Background export processing is planned, but the current file-producing endpoints return the CSV directly.
 
 ## Export A Window
+
+Use the simple export form when meter, subject, time window, grouping, and basic metadata filters are enough.
 
 ```sh
 curl "http://localhost:18081/v1/usages/export?subject=org_123&meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z&bucket_size=day" \
@@ -15,11 +19,50 @@ curl "http://localhost:18081/v1/usages/export?subject=org_123&meter=api_requests
 
 ## Export By Metadata
 
-Use advanced search when you need nested filters or grouping before export. Keep metadata names stable so downstream systems can rely on the output.
+Use filtered export when the CSV should match a richer usage query. This is the same query shape used by usage search, so nested filters, numeric comparisons, metadata filters, and grouping all stay together.
 
-Common export consumers include:
+```sh
+curl "http://localhost:18081/v1/usages/export" \
+  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "meter": "api_requests",
+    "from": "2026-06-01T00:00:00Z",
+    "to": "2026-06-10T00:00:00Z",
+    "bucket_size": "day",
+    "group_by": ["endpoint", "status_code"],
+    "filter": {
+      "type": "group",
+      "op": "and",
+      "rules": [
+        { "type": "condition", "field": "metadata.endpoint", "op": "contains", "value": "/api/" },
+        { "type": "condition", "field": "quantity", "op": "gte", "value": 1 }
+      ]
+    }
+  }' \
+  -o usage.csv
+```
 
-- Billing imports
-- Finance reporting
-- Customer support audits
-- Product analytics
+Keep dimension names stable when another system depends on the CSV columns.
+
+## Export Raw Events
+
+Bucketed exports are usually better for billing and reporting because they match the same aggregation model as usage search. Raw event exports are useful when another system needs the underlying events for audit or reconciliation.
+
+```sh
+curl "http://localhost:18081/v1/usageevents/export?meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-06-02T00:00:00Z&limit=1000" \
+  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY" \
+  -o usage-events.csv
+```
+
+Raw event exports use the same result limit rules as event search. For large audits, export narrow time ranges and combine the files outside Open Spanner.
+
+## Queued Export Jobs
+
+The REST API includes export job endpoints for tracking long-running export requests:
+
+- `POST /v1/exports`
+- `GET /v1/exports`
+- `GET /v1/exports/{id}`
+
+These endpoints create and return queued export job records. They do not produce downloadable files yet. Use the direct CSV endpoints above when you need an export file today.

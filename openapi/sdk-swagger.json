@@ -628,6 +628,56 @@
             }
           }
         }
+      },
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "text/csv"
+        ],
+        "tags": [
+          "usages"
+        ],
+        "summary": "Export filtered usage buckets",
+        "operationId": "exportFilteredUsageBuckets",
+        "parameters": [
+          {
+            "description": "Usage export search",
+            "name": "request",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/internal_metering_adapters_http_usage.SearchRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CSV",
+            "schema": {
+              "type": "string"
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
       }
     },
     "/v1/usages/search": {

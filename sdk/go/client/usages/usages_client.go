@@ -94,6 +94,12 @@ type ClientService interface {
 	// CreateUsageBulkContext create usage in bulk.
 	CreateUsageBulkContext(ctx context.Context, params *CreateUsageBulkParams, opts ...ClientOption) (*CreateUsageBulkCreated, error)
 
+	// ExportFilteredUsageBuckets export filtered usage buckets.
+	ExportFilteredUsageBuckets(params *ExportFilteredUsageBucketsParams, opts ...ClientOption) (*ExportFilteredUsageBucketsOK, error)
+
+	// ExportFilteredUsageBucketsContext export filtered usage buckets.
+	ExportFilteredUsageBucketsContext(ctx context.Context, params *ExportFilteredUsageBucketsParams, opts ...ClientOption) (*ExportFilteredUsageBucketsOK, error)
+
 	// ExportUsageBuckets export usage buckets.
 	ExportUsageBuckets(params *ExportUsageBucketsParams, opts ...ClientOption) (*ExportUsageBucketsOK, error)
 
@@ -258,6 +264,72 @@ func (a *Client) CreateUsageBulkContext(ctx context.Context, params *CreateUsage
 	//
 	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for createUsageBulk: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+ExportFilteredUsageBucketsexports filtered usage buckets.
+
+This method does not support injected context.
+However, timeout and opentracing contexts are honored whenever enabled.
+
+If you need to pass a specific context, use [Client.ExportFilteredUsageBucketsContext] instead.
+*/
+func (a *Client) ExportFilteredUsageBuckets(params *ExportFilteredUsageBucketsParams, opts ...ClientOption) (*ExportFilteredUsageBucketsOK, error) {
+	var ctx context.Context
+	if params.inner.ctx != nil {
+		ctx = params.inner.ctx
+	} else {
+		ctx = context.Background()
+	}
+
+	return a.ExportFilteredUsageBucketsContext(ctx, params, opts...)
+}
+
+/*
+ExportFilteredUsageBucketsContextexports filtered usage buckets.
+
+Do not use the deprecated [ExportFilteredUsageBucketsParams.Context] with this method: it would be ignored.
+*/
+func (a *Client) ExportFilteredUsageBucketsContext(ctx context.Context, params *ExportFilteredUsageBucketsParams, opts ...ClientOption) (*ExportFilteredUsageBucketsOK, error) {
+	// NOTE: parameters are not validated before sending
+	if params == nil {
+		params = NewExportFilteredUsageBucketsParams()
+	}
+
+	op := &runtime.ClientOperation{
+		ID:                 "exportFilteredUsageBuckets",
+		Method:             "POST",
+		PathPattern:        "/v1/usages/export",
+		ProducesMediaTypes: []string{"text/csv"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http"},
+		Params:             params,
+		Reader:             &ExportFilteredUsageBucketsReader{formats: a.formats},
+		Client:             params.HTTPClient,
+	}
+
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.SubmitContext(ctx, op)
+	if err != nil {
+		return nil, err
+	}
+
+	// only one success response has to be checked
+	success, ok := result.(*ExportFilteredUsageBucketsOK)
+	if ok {
+		return success, nil
+	}
+
+	// unexpected success response.
+
+	// no default response is defined.
+	//
+	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for exportFilteredUsageBuckets: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

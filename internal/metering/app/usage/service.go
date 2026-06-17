@@ -22,6 +22,9 @@ type Service interface {
 	ListPruneRuns(ctx context.Context, query PruneRunListQuery) (PruneRunListResult, error)
 	RecordIngestion(ctx context.Context, cmd IngestionCommand) (IngestionResult, error)
 	ListIngestions(ctx context.Context, query IngestionListQuery) (IngestionListResult, error)
+	CreateExportJob(ctx context.Context, cmd ExportJobCreateCommand) (ExportJobResult, error)
+	GetExportJob(ctx context.Context, id string) (ExportJobResult, error)
+	ListExportJobs(ctx context.Context, query ExportJobListQuery) (ExportJobListResult, error)
 }
 
 type service struct {
