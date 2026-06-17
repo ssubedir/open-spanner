@@ -206,15 +206,17 @@ type IngestionResponse struct {
 
 // ExportJobResponse is an async export job summary.
 type ExportJobResponse struct {
-	ID          string        `json:"id"`
-	Kind        string        `json:"kind"`
-	Status      string        `json:"status"`
-	Format      string        `json:"format"`
-	Query       SearchRequest `json:"query"`
-	Error       string        `json:"error,omitempty"`
-	CreatedAt   string        `json:"created_at"`
-	UpdatedAt   string        `json:"updated_at"`
-	CompletedAt string        `json:"completed_at,omitempty"`
+	ID           string        `json:"id"`
+	Kind         string        `json:"kind"`
+	Status       string        `json:"status"`
+	Format       string        `json:"format"`
+	Query        SearchRequest `json:"query"`
+	Error        string        `json:"error,omitempty"`
+	ArtifactSize int64         `json:"artifact_size,omitempty"`
+	DownloadURL  string        `json:"download_url,omitempty"`
+	CreatedAt    string        `json:"created_at"`
+	UpdatedAt    string        `json:"updated_at"`
+	CompletedAt  string        `json:"completed_at,omitempty"`
 }
 
 // ListItemResponse is a usage bucket.

@@ -428,9 +428,13 @@ definitions:
     type: object
   internal_metering_adapters_http_usage.ExportJobResponse:
     properties:
+      artifact_size:
+        type: integer
       completed_at:
         type: string
       created_at:
+        type: string
+      download_url:
         type: string
       error:
         type: string
@@ -900,6 +904,37 @@ paths:
           schema:
             $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
       summary: Get usage export job
+      tags:
+      - exports
+  /v1/exports/{id}/download:
+    get:
+      operationId: downloadUsageExportJob
+      parameters:
+      - description: Export job ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - text/csv
+      responses:
+        "200":
+          description: CSV
+          schema:
+            type: string
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Download usage export job
       tags:
       - exports
   /v1/meters:

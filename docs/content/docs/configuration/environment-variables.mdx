@@ -13,6 +13,11 @@ description: Runtime configuration for the Open Spanner service.
 | `OPEN_SPANNER_DB_MAX_IDLE_CONNS` | `0` | Maximum idle SQL connections; `0` keeps Go's default. |
 | `OPEN_SPANNER_DB_CONN_MAX_LIFETIME` | `0` | Maximum SQL connection lifetime; `0` disables recycling. |
 | `OPEN_SPANNER_DB_CONN_MAX_IDLE_TIME` | `0` | Maximum SQL connection idle time; `0` disables idle-time recycling. |
+| `OPEN_SPANNER_EXPORT_STORAGE_PATH` | `open-spanner-exports` | Directory used by the API and export worker for generated export files. |
+| `OPEN_SPANNER_EXPORT_WORKER_INTERVAL` | `5s` | How often the export worker checks for queued jobs. |
+| `OPEN_SPANNER_EXPORT_WORKER_LOCK_TTL` | `5m` | Lease duration for a claimed export job. |
+| `OPEN_SPANNER_EXPORT_WORKER_TIMEOUT` | `10m` | Maximum processing time for one export job. |
+| `OPEN_SPANNER_EXPORT_WORKER_MAX_ATTEMPTS` | `3` | Maximum claim attempts before expired running jobs stop being retried. |
 | `OPEN_SPANNER_RETENTION_PRUNE_ENABLED` | `false` | Enable automatic retention pruning. |
 | `OPEN_SPANNER_RETENTION_PRUNE_INTERVAL` | `1h` | Background prune interval. |
 | `OPEN_SPANNER_RETENTION_PRUNE_TIMEOUT` | `30m` | Maximum duration for one background prune run. |
@@ -25,6 +30,10 @@ These variables are read by `docker-compose.app.yml` before the Open Spanner con
 | --- | --- | --- |
 | `OPEN_SPANNER_HTTP_PORT` | `18081` | Host port published for the app container. |
 | `OPEN_SPANNER_POSTGRES_PASSWORD` | `open_spanner` | Password for the bundled Postgres service and the app connection string. |
+| `OPEN_SPANNER_EXPORT_WORKER_INTERVAL` | `5s` | Passed through to the export worker container. |
+| `OPEN_SPANNER_EXPORT_WORKER_LOCK_TTL` | `5m` | Passed through to the export worker container. |
+| `OPEN_SPANNER_EXPORT_WORKER_TIMEOUT` | `10m` | Passed through to the export worker container. |
+| `OPEN_SPANNER_EXPORT_WORKER_MAX_ATTEMPTS` | `3` | Passed through to the export worker container. |
 | `OPEN_SPANNER_RETENTION_PRUNE_ENABLED` | `false` | Passed through to the app container. |
 
 ## Postgres Example

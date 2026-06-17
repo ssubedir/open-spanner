@@ -21,20 +21,23 @@ COPY --from=web-build /src/internal/ui/static ./internal/ui/static
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/open-spanner ./cmd/api
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/open-spanner-export-worker ./cmd/export-worker
 
 FROM alpine:3.22
 
 RUN apk add --no-cache ca-certificates \
     && addgroup -S open-spanner \
     && adduser -S -G open-spanner open-spanner \
-    && mkdir -p /data \
-    && chown open-spanner:open-spanner /data
+    && mkdir -p /data/exports \
+    && chown -R open-spanner:open-spanner /data
 
 COPY --from=api-build /out/open-spanner /usr/local/bin/open-spanner
+COPY --from=api-build /out/open-spanner-export-worker /usr/local/bin/open-spanner-export-worker
 
 ENV OPEN_SPANNER_HTTP_ADDR=:18081
 ENV OPEN_SPANNER_DB_DRIVER=sqlite
 ENV OPEN_SPANNER_SQLITE_PATH=/data/open-spanner.db
+ENV OPEN_SPANNER_EXPORT_STORAGE_PATH=/data/exports
 
 USER open-spanner
 VOLUME ["/data"]

@@ -37,15 +37,20 @@ type ExportJob struct {
 	format       ExportJobFormat
 	queryJSON    string
 	errorMessage string
+	attempts     int
+	lockedUntil  time.Time
+	artifactPath string
+	artifactSize int64
 	createdAt    time.Time
 	updatedAt    time.Time
 	completedAt  time.Time
 }
 
-func NewExportJob(id string, kind ExportJobKind, status ExportJobStatus, format ExportJobFormat, queryJSON string, errorMessage string, createdAt time.Time, updatedAt time.Time, completedAt time.Time) (ExportJob, error) {
+func NewExportJob(id string, kind ExportJobKind, status ExportJobStatus, format ExportJobFormat, queryJSON string, errorMessage string, attempts int, lockedUntil time.Time, artifactPath string, artifactSize int64, createdAt time.Time, updatedAt time.Time, completedAt time.Time) (ExportJob, error) {
 	id = strings.TrimSpace(id)
 	queryJSON = strings.TrimSpace(queryJSON)
 	errorMessage = strings.TrimSpace(errorMessage)
+	artifactPath = strings.TrimSpace(artifactPath)
 
 	if id == "" {
 		return ExportJob{}, fmt.Errorf("%w: export job id is required", domain.ErrInvalidInput)
@@ -73,6 +78,18 @@ func NewExportJob(id string, kind ExportJobKind, status ExportJobStatus, format 
 	if completedAt.IsZero() && (status == ExportJobCompleted || status == ExportJobFailed) {
 		return ExportJob{}, fmt.Errorf("%w: export job completed at is required", domain.ErrInvalidInput)
 	}
+	if status == ExportJobRunning && lockedUntil.IsZero() {
+		return ExportJob{}, fmt.Errorf("%w: export job lock is required", domain.ErrInvalidInput)
+	}
+	if status == ExportJobCompleted && artifactPath == "" {
+		return ExportJob{}, fmt.Errorf("%w: export job artifact path is required", domain.ErrInvalidInput)
+	}
+	if attempts < 0 {
+		return ExportJob{}, fmt.Errorf("%w: export job attempts cannot be negative", domain.ErrInvalidInput)
+	}
+	if artifactSize < 0 {
+		return ExportJob{}, fmt.Errorf("%w: export job artifact size cannot be negative", domain.ErrInvalidInput)
+	}
 
 	return ExportJob{
 		id:           id,
@@ -81,6 +98,10 @@ func NewExportJob(id string, kind ExportJobKind, status ExportJobStatus, format 
 		format:       format,
 		queryJSON:    queryJSON,
 		errorMessage: errorMessage,
+		attempts:     attempts,
+		lockedUntil:  lockedUntil.UTC(),
+		artifactPath: artifactPath,
+		artifactSize: artifactSize,
 		createdAt:    createdAt.UTC(),
 		updatedAt:    updatedAt.UTC(),
 		completedAt:  completedAt.UTC(),
@@ -109,6 +130,22 @@ func (j ExportJob) QueryJSON() string {
 
 func (j ExportJob) ErrorMessage() string {
 	return j.errorMessage
+}
+
+func (j ExportJob) Attempts() int {
+	return j.attempts
+}
+
+func (j ExportJob) LockedUntil() time.Time {
+	return j.lockedUntil
+}
+
+func (j ExportJob) ArtifactPath() string {
+	return j.artifactPath
+}
+
+func (j ExportJob) ArtifactSize() int64 {
+	return j.artifactSize
 }
 
 func (j ExportJob) CreatedAt() time.Time {

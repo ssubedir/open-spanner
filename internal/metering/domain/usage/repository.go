@@ -1,6 +1,7 @@
 package usage
 
 import "context"
+import "time"
 
 type Repository interface {
 	Save(ctx context.Context, event Event) (Event, error)
@@ -22,4 +23,7 @@ type Repository interface {
 	SaveExportJob(ctx context.Context, job ExportJob) (ExportJob, error)
 	FindExportJob(ctx context.Context, id string) (ExportJob, error)
 	FindExportJobs(ctx context.Context, query RunQuery) ([]ExportJob, error)
+	ClaimExportJob(ctx context.Context, now time.Time, lockedUntil time.Time, maxAttempts int) (ExportJob, error)
+	CompleteExportJob(ctx context.Context, id string, artifactPath string, artifactSize int64, completedAt time.Time) (ExportJob, error)
+	FailExportJob(ctx context.Context, id string, errorMessage string, failedAt time.Time) (ExportJob, error)
 }

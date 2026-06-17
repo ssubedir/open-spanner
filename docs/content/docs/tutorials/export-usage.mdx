@@ -5,7 +5,7 @@ description: Produce CSV usage data for billing, analytics, or audits.
 
 Open Spanner can export usage query results as CSV. Use exports when another system wants files for billing imports, finance reports, support audits, or product analytics.
 
-CSV exports run from the API request today. Keep export windows focused and use filters when possible, especially when a meter has a high event volume. Direct exports default to 100 rows and cannot request more than 1000 rows. Background export processing is planned, but the current file-producing endpoints return the CSV directly.
+Open Spanner supports direct CSV exports for small requests and queued export jobs for longer-running files. Direct exports return CSV from the API request and are limited to focused result sets. Queued export jobs are processed by the export worker and can be downloaded after completion.
 
 ## Export A Window
 
@@ -59,10 +59,39 @@ Raw event exports use the same direct export limit. For large audits, export nar
 
 ## Queued Export Jobs
 
-The REST API includes export job endpoints for tracking long-running export requests:
+Use queued exports when a report may take longer than a normal request or when a user wants to come back to a generated file later. The API creates the job, and the export worker claims queued jobs from storage, writes CSV files, and marks jobs completed.
 
-- `POST /v1/exports`
-- `GET /v1/exports`
-- `GET /v1/exports/{id}`
+```sh
+curl "http://localhost:18081/v1/exports" \
+  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "kind": "usage_buckets",
+    "format": "csv",
+    "query": {
+      "meter": "api_requests",
+      "from": "2026-06-01T00:00:00Z",
+      "to": "2026-06-10T00:00:00Z",
+      "bucket_size": "day",
+      "group_by": ["endpoint"],
+      "limit": 1000
+    }
+  }'
+```
 
-These endpoints create and return queued export job records. They do not produce downloadable files yet. Use the direct CSV endpoints above when you need an export file today.
+Check the job until it is completed:
+
+```sh
+curl "http://localhost:18081/v1/exports/{job_id}" \
+  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY"
+```
+
+Completed jobs include a `download_url`. Download the file from that URL:
+
+```sh
+curl "http://localhost:18081/v1/exports/{job_id}/download" \
+  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY" \
+  -o usage-export.csv
+```
+
+Run the export worker beside the API process when queued exports are enabled. Docker Compose starts both services. For a task-based local run, use `task run:export-worker` or `task run:export-worker:postgres` with the same database and export storage path as the API.

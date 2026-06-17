@@ -19,7 +19,7 @@ SDKs expose the application-facing subset of the REST API:
 - `POST /v1/usages/export`
 - `POST /v1/usages/search`
 
-The SDK export methods use the direct CSV export endpoints. Queued export jobs are REST-only today and will be added to SDKs after background processing and downloads are available.
+The SDK export methods use the direct CSV export endpoints. Queued export jobs are REST-only so backend SDKs stay focused on meter definitions, ingestion, usage queries, and direct exports.
 
 These endpoints are intentionally excluded from SDKs:
 

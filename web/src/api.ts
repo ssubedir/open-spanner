@@ -164,6 +164,31 @@ export type UsageEventExportQuery = {
   filter?: UsageFilter
 }
 
+export type UsageExportJob = {
+  id: string
+  kind: string
+  status: string
+  format: string
+  query: UsageBucketExportQuery
+  error?: string
+  artifact_size?: number
+  download_url?: string
+  created_at: string
+  updated_at: string
+  completed_at?: string
+}
+
+export type UsageExportJobList = {
+  items: UsageExportJob[]
+  next_cursor?: string
+}
+
+export type UsageExportJobCreateRequest = {
+  kind: string
+  format: string
+  query: UsageBucketExportQuery
+}
+
 export type UsageDimensionValue = {
   field: string
   value: string
@@ -497,6 +522,21 @@ export async function exportUsageEvents(query: UsageEventExportQuery) {
     }),
     method: 'POST',
   })
+}
+
+export async function createUsageExportJob(input: UsageExportJobCreateRequest) {
+  return request<UsageExportJob>('/v1/exports', {
+    body: JSON.stringify(input),
+    method: 'POST',
+  })
+}
+
+export async function listUsageExportJobs(limit = 8) {
+  return request<UsageExportJobList>(`/v1/exports?limit=${limit}`)
+}
+
+export async function downloadUsageExportJob(job: Pick<UsageExportJob, 'download_url' | 'id'>) {
+  return requestBlob(job.download_url || `/v1/exports/${encodeURIComponent(job.id)}/download`)
 }
 
 export async function listUsageDimensionValues(query: UsageDimensionValueQuery) {

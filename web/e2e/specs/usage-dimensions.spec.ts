@@ -69,6 +69,10 @@ test.describe('Feature: Dashboard usage exploration', () => {
     const currentEventExport = await When.theUserExportsCurrentUsageEvents(page)
     await Then.currentUsageEventCSVIncludesCurrentQuery(currentEventExport, scenario)
 
+    await When.theUserQueuesCurrentUsageExport(page)
+    const queuedExport = await Then.queuedUsageExportCompletesInDashboard(page, scenario)
+    await Then.queuedUsageBucketCSVIncludesCurrentQuery(queuedExport, scenario)
+
     const eventExport = await When.theUserExportsSubjectEvents(page, scenario)
     await Then.subjectEventCSVIncludesPrimaryUsage(eventExport, scenario)
 
@@ -80,6 +84,6 @@ test.describe('Feature: Dashboard usage exploration', () => {
     await Then.directUsageEventCSVResponseIncludesPrimaryUsage(apiEventExport, scenario)
 
     const exportJob = await When.theServiceQueuesUsageExportJob(page, apiKey, scenario)
-    await Then.queuedExportJobCanBeReadButNotDownloaded(page, apiKey, exportJob, scenario)
+    await Then.queuedExportJobCompletesAndDownloads(page, apiKey, exportJob, scenario)
   })
 })

@@ -37,18 +37,6 @@ type UsageEvent struct {
 	Metadata       json.RawMessage
 }
 
-type UsageExportJob struct {
-	ID          string
-	Kind        string
-	Status      string
-	Format      string
-	QueryJson   string
-	Error       string
-	CreatedAt   string
-	UpdatedAt   string
-	CompletedAt sql.NullString
-}
-
 type UsageIngestion struct {
 	ID         string
 	Kind       string

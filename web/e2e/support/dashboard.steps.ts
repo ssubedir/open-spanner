@@ -32,8 +32,10 @@ export type CSVResponse = {
 }
 
 export type ExportJobResponse = {
+  artifact_size?: number
   completed_at?: string
   created_at: string
+  download_url?: string
   error?: string
   format: string
   id: string
@@ -231,6 +233,11 @@ export const When = {
     return csvDownload(await downloadPromise)
   },
 
+  async theUserQueuesCurrentUsageExport(page: Page) {
+    await page.getByRole('button', { name: 'Queue Export' }).click()
+    await expect(page.locator('.usage-export-card')).toContainText('Usage buckets')
+  },
+
   async theUserExportsSubjectEvents(page: Page, scenario: UsageScenario): Promise<CSVDownload> {
     await page.goto(`/subjects/${scenario.primarySubject}`)
     await expect(page.getByRole('heading', { name: scenario.primarySubject })).toBeVisible()
@@ -401,6 +408,24 @@ export const Then = {
     expect(download.text).not.toContain('eu-west-1')
   },
 
+  async queuedUsageExportCompletesInDashboard(page: Page, scenario: UsageScenario): Promise<CSVDownload> {
+    const row = page.locator('.usage-export-card .export-job-row', { hasText: scenario.meterName }).first()
+    await expect(row).toContainText('Completed', { timeout: 20_000 })
+
+    const downloadPromise = page.waitForEvent('download')
+    await row.getByRole('button', { name: 'Download' }).click()
+    return csvDownload(await downloadPromise)
+  },
+
+  async queuedUsageBucketCSVIncludesCurrentQuery(download: CSVDownload, scenario: UsageScenario) {
+    expect(download.filename).toMatch(/^usage-export-.+\.csv$/)
+    expect(download.text).toContain('bucket_start,subject,meter,bucket_size,aggregation,unit,quantity,service.tier')
+    expect(download.text).toContain(scenario.meterName)
+    expect(download.text).toContain('gold')
+    expect(download.text).toContain(',12,')
+    expect(download.text).not.toContain('silver')
+  },
+
   async directUsageBucketCSVResponseIncludesCurrentQuery(response: CSVResponse, scenario: UsageScenario) {
     expect(response.status).toBe(200)
     expect(response.headers['content-type']).toContain('text/csv')
@@ -427,7 +452,7 @@ export const Then = {
     expect(response.text).not.toContain('eu-west-1')
   },
 
-  async queuedExportJobCanBeReadButNotDownloaded(page: Page, apiKey: string, job: ExportJobResponse, scenario: UsageScenario) {
+  async queuedExportJobCompletesAndDownloads(page: Page, apiKey: string, job: ExportJobResponse, scenario: UsageScenario) {
     expect(job.id).toBeTruthy()
     expect(job.kind).toBe('usage_buckets')
     expect(job.status).toBe('queued')
@@ -439,11 +464,11 @@ export const Then = {
     expect(job.query.bucket_size).toBe('day')
 
     await withAPIKeyContext(page, apiKey, async (api) => {
-      const getResponse = await api.get(`/v1/exports/${job.id}`)
-      expect(getResponse.status()).toBe(200)
-      const found = await getResponse.json() as ExportJobResponse
-      expect(found.id).toBe(job.id)
-      expect(found.status).toBe('queued')
+      const completed = await waitForCompletedExportJob(api, job.id)
+      expect(completed.id).toBe(job.id)
+      expect(completed.completed_at).toBeTruthy()
+      expect(completed.download_url).toBe(`/v1/exports/${job.id}/download`)
+      expect(completed.artifact_size || 0).toBeGreaterThan(0)
 
       const listResponse = await api.get('/v1/exports?limit=10')
       expect(listResponse.status()).toBe(200)
@@ -451,8 +476,21 @@ export const Then = {
       expect(list.items.some((item) => item.id === job.id)).toBe(true)
 
       const downloadResponse = await api.get(`/v1/exports/${job.id}/download`)
-      expect(downloadResponse.status()).toBe(404)
+      const csv = await csvResponse(downloadResponse)
+      await Then.queuedUsageBucketCSVResponseIncludesCurrentQuery(csv, scenario, job.id)
     })
+  },
+
+  async queuedUsageBucketCSVResponseIncludesCurrentQuery(response: CSVResponse, scenario: UsageScenario, jobID: string) {
+    expect(response.status).toBe(200)
+    expect(response.headers['content-type']).toContain('text/csv')
+    expect(response.headers['content-disposition']).toContain('attachment')
+    expect(response.headers['content-disposition']).toContain(`open-spanner-export-${jobID}.csv`)
+    expect(response.text).toContain('bucket_start,subject,meter,bucket_size,aggregation,unit,quantity,service.tier')
+    expect(response.text).toContain(scenario.meterName)
+    expect(response.text).toContain('gold')
+    expect(response.text).toContain(',12,')
+    expect(response.text).not.toContain('silver')
   },
 }
 
@@ -533,6 +571,22 @@ async function csvResponse(response: APIResponse): Promise<CSVResponse> {
     status: response.status(),
     text: await response.text(),
   }
+}
+
+async function waitForCompletedExportJob(api: APIRequestContext, id: string): Promise<ExportJobResponse> {
+  let latest: ExportJobResponse | null = null
+
+  await expect.poll(async () => {
+    const response = await api.get(`/v1/exports/${id}`)
+    expect(response.status()).toBe(200)
+    latest = await response.json() as ExportJobResponse
+    return latest.status
+  }, {
+    intervals: [250, 500, 1000],
+    timeout: 20_000,
+  }).toBe('completed')
+
+  return latest as ExportJobResponse
 }
 
 async function withAPIKeyContext<T>(

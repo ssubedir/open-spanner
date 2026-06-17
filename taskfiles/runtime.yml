@@ -22,6 +22,19 @@ tasks:
     cmds:
       - go run ./cmd/api
 
+  run:export-worker:
+    desc: Run the export worker
+    cmds:
+      - go run ./cmd/export-worker
+
+  run:export-worker:postgres:
+    desc: Run the export worker with Postgres storage
+    env:
+      OPEN_SPANNER_DB_DRIVER: postgres
+      OPEN_SPANNER_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/open_spanner?sslmode=disable
+    cmds:
+      - go run ./cmd/export-worker
+
   postgres:up:
     desc: Start local Postgres for development and integration tests
     cmds:

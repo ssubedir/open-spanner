@@ -2,9 +2,11 @@ package usage
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/ssubedir/open-spanner/internal/metering/app/page"
+	"github.com/ssubedir/open-spanner/internal/metering/domain"
 	domainusage "github.com/ssubedir/open-spanner/internal/metering/domain/usage"
 )
 
@@ -17,6 +19,22 @@ type ExportJobCreateCommand struct {
 type ExportJobListQuery struct {
 	Limit  int
 	Cursor string
+}
+
+type ExportJobClaimCommand struct {
+	LockTTL     time.Duration
+	MaxAttempts int
+}
+
+type ExportJobCompleteCommand struct {
+	ID           string
+	ArtifactPath string
+	ArtifactSize int64
+}
+
+type ExportJobFailCommand struct {
+	ID           string
+	ErrorMessage string
 }
 
 func (s *service) CreateExportJob(ctx context.Context, cmd ExportJobCreateCommand) (ExportJobResult, error) {
@@ -37,6 +55,10 @@ func (s *service) CreateExportJob(ctx context.Context, cmd ExportJobCreateComman
 		format,
 		cmd.QueryJSON,
 		"",
+		0,
+		timeZero(),
+		"",
+		0,
 		now,
 		now,
 		timeZero(),
@@ -89,6 +111,42 @@ func (s *service) ListExportJobs(ctx context.Context, input ExportJobListQuery) 
 	}
 
 	return ExportJobListResult{Items: results, NextCursor: nextCursor}, nil
+}
+
+func (s *service) ClaimExportJob(ctx context.Context, cmd ExportJobClaimCommand) (ExportJobResult, bool, error) {
+	if cmd.LockTTL <= 0 {
+		return ExportJobResult{}, false, domain.ErrInvalidInput
+	}
+	if cmd.MaxAttempts <= 0 {
+		return ExportJobResult{}, false, domain.ErrInvalidInput
+	}
+
+	now := s.now()
+	job, err := s.usageRepo.ClaimExportJob(ctx, now, now.Add(cmd.LockTTL), cmd.MaxAttempts)
+	if errors.Is(err, domain.ErrNotFound) {
+		return ExportJobResult{}, false, nil
+	}
+	if err != nil {
+		return ExportJobResult{}, false, err
+	}
+
+	return exportJobResultFromDomain(job), true, nil
+}
+
+func (s *service) CompleteExportJob(ctx context.Context, cmd ExportJobCompleteCommand) (ExportJobResult, error) {
+	job, err := s.usageRepo.CompleteExportJob(ctx, cmd.ID, cmd.ArtifactPath, cmd.ArtifactSize, s.now())
+	if err != nil {
+		return ExportJobResult{}, err
+	}
+	return exportJobResultFromDomain(job), nil
+}
+
+func (s *service) FailExportJob(ctx context.Context, cmd ExportJobFailCommand) (ExportJobResult, error) {
+	job, err := s.usageRepo.FailExportJob(ctx, cmd.ID, cmd.ErrorMessage, s.now())
+	if err != nil {
+		return ExportJobResult{}, err
+	}
+	return exportJobResultFromDomain(job), nil
 }
 
 func timeZero() time.Time {

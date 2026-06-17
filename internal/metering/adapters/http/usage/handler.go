@@ -1,27 +1,35 @@
 package usage
 
 import (
-	"encoding/csv"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
+	"os"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/ssubedir/open-spanner/internal/metering/adapters/fileexport"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/http/internal/request"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/http/internal/respond"
 	appusage "github.com/ssubedir/open-spanner/internal/metering/app/usage"
+	"github.com/ssubedir/open-spanner/internal/metering/domain"
 	domainusage "github.com/ssubedir/open-spanner/internal/metering/domain/usage"
 )
 
 type Handler struct {
-	service appusage.Service
+	service     appusage.Service
+	exportStore fileexport.Store
 }
 
-func NewHandler(service appusage.Service) *Handler {
-	return &Handler{service: service}
+func NewHandler(service appusage.Service, exportStoragePaths ...string) *Handler {
+	exportStoragePath := "open-spanner-exports"
+	if len(exportStoragePaths) > 0 && strings.TrimSpace(exportStoragePaths[0]) != "" {
+		exportStoragePath = exportStoragePaths[0]
+	}
+	return &Handler{service: service, exportStore: fileexport.NewStore(exportStoragePath)}
 }
 
 // Create creates a usage event.
@@ -346,6 +354,46 @@ func (h *Handler) GetExportJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respond.JSON(w, http.StatusOK, exportJobResponseFromResult(job))
+}
+
+// DownloadExportJob downloads a completed async usage export.
+//
+// @Summary Download usage export job
+// @ID downloadUsageExportJob
+// @Tags exports
+// @Produce text/csv
+// @Param id path string true "Export job ID"
+// @Success 200 {string} string "CSV"
+// @Failure 404 {object} respond.ErrorResponse
+// @Failure 409 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/exports/{id}/download [get]
+func (h *Handler) DownloadExportJob(w http.ResponseWriter, r *http.Request) {
+	job, err := h.service.GetExportJob(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	if job.Status != string(domainusage.ExportJobCompleted) || job.ArtifactPath == "" {
+		respond.ServiceError(w, errors.Join(domain.ErrConflict, fmt.Errorf("export job is not ready for download")))
+		return
+	}
+
+	file, info, err := h.exportStore.Open(job.ArtifactPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			respond.ServiceError(w, errors.Join(domain.ErrNotFound, fmt.Errorf("export artifact was not found")))
+			return
+		}
+		respond.ServiceError(w, err)
+		return
+	}
+	defer file.Close()
+
+	filename := fmt.Sprintf("open-spanner-export-%s.csv", job.ID)
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	http.ServeContent(w, r, filename, info.ModTime(), file)
 }
 
 // List lists bucketed usage.
@@ -703,36 +751,7 @@ func writeBucketCSV(w http.ResponseWriter, groupBy []string, buckets []appusage.
 	w.Header().Set("Content-Disposition", `attachment; filename="usage-buckets.csv"`)
 	w.WriteHeader(http.StatusOK)
 
-	writer := csv.NewWriter(w)
-	header := []string{"bucket_start", "subject", "meter", "bucket_size", "aggregation", "unit", "quantity"}
-	if len(groupBy) > 0 {
-		for _, field := range groupBy {
-			if domainusage.IsSubjectGroupBy(field) {
-				continue
-			}
-			header = append(header, field)
-		}
-	}
-	_ = writer.Write(header)
-	for _, bucket := range buckets {
-		row := []string{
-			bucket.BucketStart.Format(time.RFC3339),
-			bucket.Subject,
-			bucket.MeterName,
-			bucket.BucketSize,
-			bucket.Aggregation,
-			bucket.Unit,
-			strconv.FormatFloat(bucket.Quantity, 'f', -1, 64),
-		}
-		for _, field := range groupBy {
-			if domainusage.IsSubjectGroupBy(field) {
-				continue
-			}
-			row = append(row, bucket.Group[field])
-		}
-		_ = writer.Write(row)
-	}
-	writer.Flush()
+	_ = appusage.WriteBucketCSV(w, groupBy, buckets)
 }
 
 // ExportEvents exports raw usage events as CSV.
@@ -814,25 +833,7 @@ func writeEventCSV(w http.ResponseWriter, events []appusage.Result) {
 	w.Header().Set("Content-Disposition", `attachment; filename="usage-events.csv"`)
 	w.WriteHeader(http.StatusOK)
 
-	writer := csv.NewWriter(w)
-	_ = writer.Write([]string{"timestamp", "received_at", "subject", "meter", "quantity", "metadata", "id", "idempotency_key"})
-	for _, event := range events {
-		metadata, err := json.Marshal(event.Metadata)
-		if err != nil {
-			metadata = []byte("{}")
-		}
-		_ = writer.Write([]string{
-			event.EventTime.Format(time.RFC3339),
-			event.ReceivedAt.Format(time.RFC3339),
-			event.Subject,
-			event.MeterName,
-			strconv.FormatFloat(event.Quantity, 'f', -1, 64),
-			string(metadata),
-			event.ID,
-			event.IdempotencyKey,
-		})
-	}
-	writer.Flush()
+	_ = appusage.WriteEventCSV(w, events)
 }
 
 func validateDirectExportLimit(limit int) error {
@@ -1064,14 +1065,18 @@ func exportJobResponseFromResult(result appusage.ExportJobResult) ExportJobRespo
 	_ = json.Unmarshal([]byte(result.QueryJSON), &query)
 
 	res := ExportJobResponse{
-		ID:        result.ID,
-		Kind:      result.Kind,
-		Status:    result.Status,
-		Format:    result.Format,
-		Query:     query,
-		Error:     result.ErrorMessage,
-		CreatedAt: result.CreatedAt.Format(time.RFC3339),
-		UpdatedAt: result.UpdatedAt.Format(time.RFC3339),
+		ID:           result.ID,
+		Kind:         result.Kind,
+		Status:       result.Status,
+		Format:       result.Format,
+		Query:        query,
+		Error:        result.ErrorMessage,
+		ArtifactSize: result.ArtifactSize,
+		CreatedAt:    result.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:    result.UpdatedAt.Format(time.RFC3339),
+	}
+	if result.Status == string(domainusage.ExportJobCompleted) && result.ArtifactPath != "" {
+		res.DownloadURL = "/v1/exports/" + result.ID + "/download"
 	}
 	if !result.CompletedAt.IsZero() {
 		res.CompletedAt = result.CompletedAt.Format(time.RFC3339)

@@ -1,7 +1,9 @@
 import { defineConfig, devices } from '@playwright/test'
+import { resolve } from 'node:path'
 
 const apiPort = Number(process.env.OPEN_SPANNER_E2E_API_PORT || 19183)
 const dbDriver = (process.env.OPEN_SPANNER_E2E_DB_DRIVER || 'sqlite').toLowerCase()
+const exportStoragePath = process.env.OPEN_SPANNER_E2E_EXPORT_STORAGE_PATH || resolve(import.meta.dirname, '../.tmp/e2e-exports')
 const postgresDSN = process.env.OPEN_SPANNER_E2E_POSTGRES_DSN || 'postgres://postgres:postgres@localhost:5432/open_spanner_e2e?sslmode=disable'
 const sqlitePath = process.env.OPEN_SPANNER_E2E_SQLITE_PATH || '.tmp/e2e-open-spanner.db'
 const webPort = Number(process.env.OPEN_SPANNER_E2E_WEB_PORT || 19173)
@@ -17,6 +19,11 @@ const apiEnv = dbDriver === 'postgres'
       OPEN_SPANNER_HTTP_ADDR: `127.0.0.1:${apiPort}`,
       OPEN_SPANNER_SQLITE_PATH: sqlitePath,
     }
+const serviceEnv = {
+  ...apiEnv,
+  OPEN_SPANNER_EXPORT_STORAGE_PATH: exportStoragePath,
+  OPEN_SPANNER_EXPORT_WORKER_INTERVAL: '250ms',
+}
 
 export default defineConfig({
   expect: {
@@ -43,10 +50,20 @@ export default defineConfig({
     {
       command: 'go run ./cmd/api',
       cwd: '..',
-      env: apiEnv,
+      env: serviceEnv,
       reuseExistingServer: false,
       timeout: 120_000,
       url: `http://127.0.0.1:${apiPort}/ready`,
+    },
+    {
+      command: 'go run ./cmd/export-worker',
+      cwd: '..',
+      env: serviceEnv,
+      reuseExistingServer: false,
+      timeout: 120_000,
+      wait: {
+        stderr: /export storage path:/,
+      },
     },
     {
       command: `npm run dev -- --host 127.0.0.1 --port ${webPort} --strictPort`,
