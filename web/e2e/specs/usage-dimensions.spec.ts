@@ -66,6 +66,9 @@ test.describe('Feature: Dashboard usage exploration', () => {
     const bucketExport = await When.theUserExportsCurrentUsageBuckets(page)
     await Then.usageBucketCSVIncludesCurrentQuery(bucketExport, scenario)
 
+    const currentEventExport = await When.theUserExportsCurrentUsageEvents(page)
+    await Then.currentUsageEventCSVIncludesCurrentQuery(currentEventExport, scenario)
+
     const eventExport = await When.theUserExportsSubjectEvents(page, scenario)
     await Then.subjectEventCSVIncludesPrimaryUsage(eventExport, scenario)
 

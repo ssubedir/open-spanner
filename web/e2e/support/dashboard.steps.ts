@@ -221,7 +221,13 @@ export const When = {
 
   async theUserExportsCurrentUsageBuckets(page: Page): Promise<CSVDownload> {
     const downloadPromise = page.waitForEvent('download')
-    await page.getByRole('button', { name: 'Export CSV' }).click()
+    await page.getByRole('button', { name: 'Export Buckets' }).click()
+    return csvDownload(await downloadPromise)
+  },
+
+  async theUserExportsCurrentUsageEvents(page: Page): Promise<CSVDownload> {
+    const downloadPromise = page.waitForEvent('download')
+    await page.getByRole('button', { name: 'Export Events' }).click()
     return csvDownload(await downloadPromise)
   },
 
@@ -380,6 +386,19 @@ export const Then = {
     expect(download.text).toContain('region-name')
     expect(download.text).toContain('us-east-1')
     expect(download.text).toContain(',12,')
+  },
+
+  async currentUsageEventCSVIncludesCurrentQuery(download: CSVDownload, scenario: UsageScenario) {
+    expect(download.filename).toMatch(new RegExp(`^usage-events-${scenario.meterName}\\.csv$`))
+    expect(download.text).toContain('timestamp,received_at,subject,meter,quantity,metadata,id,idempotency_key')
+    expect(download.text).toContain(scenario.primarySubject)
+    expect(download.text).toContain(scenario.meterName)
+    expect(download.text).toContain('region-name')
+    expect(download.text).toContain('us-east-1')
+    expect(download.text).toContain('gold')
+    expect(download.text).toContain(',12,')
+    expect(download.text).not.toContain('silver')
+    expect(download.text).not.toContain('eu-west-1')
   },
 
   async directUsageBucketCSVResponseIncludesCurrentQuery(response: CSVResponse, scenario: UsageScenario) {

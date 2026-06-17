@@ -739,6 +739,29 @@ export const appStoreActions = {
       setUsageState({ exporting: false })
     }
   },
+  async exportCurrentUsageEvents(limit = 500) {
+    setUsageState({ exportError: '', exporting: true })
+    try {
+      const query = appStore.state.usage.filterQuery
+      const scope = usageScopeFromQuery(query)
+      const timeRange = usageTimeRangeFromQuery(query)
+      const filter = usageFilterFromQuery(query, metadataTypesByField(appStore.state.usage.meters, scope.meter))
+      const blob = await exportUsageEvents({
+        filter,
+        from: timeRange.from,
+        limit,
+        meter: scope.meter,
+        subject: scope.subject || undefined,
+        to: timeRange.to,
+      })
+      const fileParts = ['usage-events', scope.meter, scope.subject].filter((part): part is string => Boolean(part))
+      downloadBlob(blob, `${fileParts.map(safeDownloadName).join('-')}.csv`)
+    } catch (err) {
+      setUsageState({ exportError: errorMessage(err, 'Unable to export usage events') })
+    } finally {
+      setUsageState({ exporting: false })
+    }
+  },
   async saveCurrentUsageQuery() {
     const state = appStore.state.usage
     const selectedID = state.selectedSavedQueryID
