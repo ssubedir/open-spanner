@@ -48,4 +48,22 @@ test.describe('Feature: Dashboard usage exploration', () => {
     await When.theUserOpensUsageFromSubjectActivity(page, scenario)
     await Then.usageQueryIsScopedToSubjectAndMeter(page, scenario)
   })
+
+  test('Scenario: a user exports usage CSV files', async ({ page }) => {
+    const account = await Given.aDashboardAccount(page)
+    const meterName = `api_requests_export_${Date.now()}`
+
+    await When.theUserSignsIn(page, account)
+    await Then.theDashboardIsAvailable(page, account)
+
+    await When.theUserCreatesAnAPIRequestMeter(page, meterName)
+    const scenario = await Given.apiRequestUsageExists(page, meterName)
+
+    await When.theUserQueriesUsageByServiceTier(page, scenario)
+    const bucketExport = await When.theUserExportsCurrentUsageBuckets(page)
+    await Then.usageBucketCSVIncludesCurrentQuery(bucketExport, scenario)
+
+    const eventExport = await When.theUserExportsSubjectEvents(page, scenario)
+    await Then.subjectEventCSVIncludesPrimaryUsage(eventExport, scenario)
+  })
 })

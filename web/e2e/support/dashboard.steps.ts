@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test'
+import { expect, type Download, type Page } from '@playwright/test'
 
 export type DashboardAccount = {
   email: string
@@ -11,6 +11,11 @@ export type UsageScenario = {
   primarySubject: string
   timestamp: string
   to: string
+}
+
+export type CSVDownload = {
+  filename: string
+  text: string
 }
 
 export const Given = {
@@ -168,6 +173,22 @@ export const When = {
     await expect(page.locator('.subject-meter-list')).toContainText(scenario.meterName)
     await page.getByRole('button', { name: 'Open Usage' }).click()
   },
+
+  async theUserExportsCurrentUsageBuckets(page: Page): Promise<CSVDownload> {
+    const downloadPromise = page.waitForEvent('download')
+    await page.getByRole('button', { name: 'Export CSV' }).click()
+    return csvDownload(await downloadPromise)
+  },
+
+  async theUserExportsSubjectEvents(page: Page, scenario: UsageScenario): Promise<CSVDownload> {
+    await page.goto(`/subjects/${scenario.primarySubject}`)
+    await expect(page.getByRole('heading', { name: scenario.primarySubject })).toBeVisible()
+    await expect(page.locator('.subject-meter-list')).toContainText(scenario.meterName)
+
+    const downloadPromise = page.waitForEvent('download')
+    await page.getByRole('button', { name: 'Export Events' }).click()
+    return csvDownload(await downloadPromise)
+  },
 }
 
 export const Then = {
@@ -212,6 +233,25 @@ export const Then = {
       `meter:${scenario.meterName}`,
       `subject:${scenario.primarySubject}`,
     ]))
+  },
+
+  async usageBucketCSVIncludesCurrentQuery(download: CSVDownload, scenario: UsageScenario) {
+    expect(download.filename).toMatch(/^usage-buckets-.+\.csv$/)
+    expect(download.text).toContain('bucket_start,subject,meter,bucket_size,aggregation,unit,quantity,service.tier')
+    expect(download.text).toContain(scenario.meterName)
+    expect(download.text).toContain('gold')
+    expect(download.text).toContain(',12,')
+    expect(download.text).not.toContain('silver')
+  },
+
+  async subjectEventCSVIncludesPrimaryUsage(download: CSVDownload, scenario: UsageScenario) {
+    expect(download.filename).toMatch(/^org_e2e_alpha_.+-usage-events\.csv$/)
+    expect(download.text).toContain('timestamp,received_at,subject,meter,quantity,metadata,id,idempotency_key')
+    expect(download.text).toContain(scenario.primarySubject)
+    expect(download.text).toContain(scenario.meterName)
+    expect(download.text).toContain('region-name')
+    expect(download.text).toContain('us-east-1')
+    expect(download.text).toContain(',12,')
   },
 }
 
@@ -272,6 +312,18 @@ async function queryRulePairs(page: Page) {
     const value = (row.querySelector('.rule-value') as HTMLInputElement | HTMLSelectElement | null)?.value || ''
     return `${field}:${value}`
   }))
+}
+
+async function csvDownload(download: Download): Promise<CSVDownload> {
+  const stream = await download.createReadStream()
+  const chunks: Buffer[] = []
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+  }
+  return {
+    filename: download.suggestedFilename(),
+    text: Buffer.concat(chunks).toString('utf8'),
+  }
 }
 
 function toLocalDateTime(date: Date) {
