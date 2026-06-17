@@ -8,10 +8,12 @@ import {
   createAuthUser,
   createMeter as createMeterRequest,
   createSavedUsageQuery,
+  createUsageExportJob,
   deleteAPIKey as deleteAPIKeyRequest,
   deleteAuthSession,
   deleteMeter as deleteMeterRequest,
   deleteSavedUsageQuery,
+  downloadUsageExportJob,
   exportUsageBuckets,
   exportUsageEvents,
   getSystemStats,
@@ -25,6 +27,7 @@ import {
   listUsageBreakdowns,
   listUsageBuckets,
   listUsageDimensionValues,
+  listUsageExportJobs,
   refreshAuthSession,
   updateMeter as updateMeterRequest,
   updateSavedUsageQuery,
@@ -38,9 +41,11 @@ import {
   type MeterUpdateRequest,
   type SavedUsageQuery,
   type UsageBucket,
+  type UsageBucketExportQuery,
   type UsageBreakdown,
   type UsageDimensionValue,
   type UsageEvent,
+  type UsageExportJob,
   type IngestionRun,
   type SubjectStats,
   type SystemStats,
@@ -62,7 +67,7 @@ import {
 import { downloadBlob, safeDownloadName } from './lib/download'
 import type { LoadState } from './types'
 
-type UsageExportKind = '' | 'buckets' | 'events'
+type UsageExportKind = '' | 'buckets' | 'events' | 'job'
 
 export type MeterDimensionDraft = {
   deprecated: boolean
@@ -143,6 +148,10 @@ type AppState = {
     dimensionValues: Record<string, UsageDimensionValue[]>
     error: string
     exportError: string
+    exportJobDownloading: string
+    exportJobError: string
+    exportJobStatus: LoadState
+    exportJobs: UsageExportJob[]
     exporting: UsageExportKind
     filterQuery: RuleGroupType
     groupBy: string[]
@@ -217,6 +226,10 @@ export const appStore = createStore<AppState>({
     dimensionValues: {},
     error: '',
     exportError: '',
+    exportJobDownloading: '',
+    exportJobError: '',
+    exportJobStatus: 'idle',
+    exportJobs: [],
     exporting: '',
     filterQuery: defaultFilterQuery(),
     groupBy: [],
@@ -416,13 +429,24 @@ export const appStoreActions = {
     }
   },
   async loadUsageControls() {
-    setUsageState({ error: '', exportError: '', savedQueryError: '', savedQueryStatus: 'loading', status: 'loading' })
+    setUsageState({
+      error: '',
+      exportError: '',
+      exportJobError: '',
+      exportJobStatus: 'loading',
+      savedQueryError: '',
+      savedQueryStatus: 'loading',
+      status: 'loading',
+    })
     try {
-      const [nextMeters, savedQueries] = await Promise.all([
+      const [nextMeters, savedQueries, exportJobs] = await Promise.all([
         listMeters(),
         listSavedUsageQueries(),
+        listUsageExportJobs(),
       ])
       setUsageState((state) => ({
+        exportJobs: exportJobs.items,
+        exportJobStatus: 'ready',
         meters: nextMeters.items,
         savedQueries: savedQueries.items,
         savedQueryStatus: 'ready',
@@ -432,9 +456,23 @@ export const appStoreActions = {
     } catch (err) {
       setUsageState({
         error: errorMessage(err, 'Unable to load usage controls'),
+        exportJobError: errorMessage(err, 'Unable to load export jobs'),
+        exportJobStatus: 'error',
         savedQueryError: errorMessage(err, 'Unable to load saved queries'),
         savedQueryStatus: 'error',
         status: 'error',
+      })
+    }
+  },
+  async loadUsageExportJobs() {
+    setUsageState({ exportJobError: '', exportJobStatus: 'loading' })
+    try {
+      const exportJobs = await listUsageExportJobs()
+      setUsageState({ exportJobs: exportJobs.items, exportJobStatus: 'ready' })
+    } catch (err) {
+      setUsageState({
+        exportJobError: errorMessage(err, 'Unable to load export jobs'),
+        exportJobStatus: 'error',
       })
     }
   },
@@ -764,6 +802,41 @@ export const appStoreActions = {
       setUsageState({ exporting: '' })
     }
   },
+  async queueCurrentUsageExport(groupByValue: string[], limit = 500, bucketSize = 'day') {
+    setUsageState({ exportError: '', exportJobError: '', exporting: 'job' })
+    try {
+      const query = currentUsageBucketExportQuery(groupByValue, limit, bucketSize)
+      const job = await createUsageExportJob({
+        format: 'csv',
+        kind: 'usage_buckets',
+        query,
+      })
+      setUsageState((state) => ({
+        exportJobStatus: 'ready',
+        exportJobs: [job, ...state.exportJobs.filter((item) => item.id !== job.id)].slice(0, 8),
+      }))
+      await appStoreActions.loadUsageExportJobs()
+    } catch (err) {
+      setUsageState({ exportJobError: errorMessage(err, 'Unable to queue usage export') })
+    } finally {
+      setUsageState({ exporting: '' })
+    }
+  },
+  async downloadUsageExport(job: UsageExportJob) {
+    if (job.status !== 'completed') {
+      return
+    }
+
+    setUsageState({ exportJobDownloading: job.id, exportJobError: '' })
+    try {
+      const blob = await downloadUsageExportJob(job)
+      downloadBlob(blob, exportJobDownloadName(job))
+    } catch (err) {
+      setUsageState({ exportJobError: errorMessage(err, 'Unable to download export') })
+    } finally {
+      setUsageState({ exportJobDownloading: '' })
+    }
+  },
   async saveCurrentUsageQuery() {
     const state = appStore.state.usage
     const selectedID = state.selectedSavedQueryID
@@ -1001,6 +1074,29 @@ async function summarizePinnedUsageQuery(query: SavedUsageQuery, meters: Meter[]
       unit: '',
     }
   }
+}
+
+function currentUsageBucketExportQuery(groupByValue: string[], limit = 500, bucketSize = 'day'): UsageBucketExportQuery {
+  const query = appStore.state.usage.filterQuery
+  const scope = usageScopeFromQuery(query)
+  const timeRange = usageTimeRangeFromQuery(query)
+  const filter = usageFilterFromQuery(query, metadataTypesByField(appStore.state.usage.meters, scope.meter))
+  const groupBy = groupByValue.filter(Boolean)
+  return {
+    bucket_size: bucketSize,
+    filter,
+    from: timeRange.from,
+    group_by: groupBy.length > 0 ? groupBy : undefined,
+    limit,
+    meter: scope.meter,
+    subject: scope.subject || undefined,
+    to: timeRange.to,
+  }
+}
+
+function exportJobDownloadName(job: UsageExportJob) {
+  const fileParts = ['usage-export', job.query.meter, job.id].filter((part): part is string => Boolean(part))
+  return `${fileParts.map(safeDownloadName).join('-')}.csv`
 }
 
 function usageStateFromSavedQuery(query: SavedUsageQuery, state: AppState['usage']): Partial<AppState['usage']> {

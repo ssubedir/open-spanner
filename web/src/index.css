@@ -1002,6 +1002,81 @@ svg {
   min-height: 420px;
 }
 
+.card-content.export-jobs-content {
+  padding: 10px 12px;
+}
+
+.export-job-list {
+  display: grid;
+  gap: 8px;
+}
+
+.export-job-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  border: 1px solid #e7ebf1;
+  border-radius: 6px;
+  padding: 9px;
+  background: #fbfcfd;
+}
+
+.export-job-main {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.export-job-title {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
+}
+
+.export-job-title strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.export-job-meta {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.export-job-meta span {
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+  border-right: 1px solid #d9dee7;
+  padding-right: 6px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.export-job-meta span:last-child {
+  border-right: 0;
+  padding-right: 0;
+}
+
+.export-job-error {
+  margin: 0;
+  color: var(--warning);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .card-content.breakdown-content {
   padding: 12px;
 }
@@ -2460,6 +2535,14 @@ select:disabled,
 
   .query-actions .button:last-child {
     grid-column: auto;
+  }
+
+  .export-job-row {
+    grid-template-columns: 1fr;
+  }
+
+  .export-job-row .button {
+    width: 100%;
   }
 
   .saved-query-actions {
