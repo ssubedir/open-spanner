@@ -25,6 +25,9 @@ type Service interface {
 	CreateExportJob(ctx context.Context, cmd ExportJobCreateCommand) (ExportJobResult, error)
 	GetExportJob(ctx context.Context, id string) (ExportJobResult, error)
 	ListExportJobs(ctx context.Context, query ExportJobListQuery) (ExportJobListResult, error)
+	ClaimExportJob(ctx context.Context, cmd ExportJobClaimCommand) (ExportJobResult, bool, error)
+	CompleteExportJob(ctx context.Context, cmd ExportJobCompleteCommand) (ExportJobResult, error)
+	FailExportJob(ctx context.Context, cmd ExportJobFailCommand) (ExportJobResult, error)
 }
 
 type service struct {

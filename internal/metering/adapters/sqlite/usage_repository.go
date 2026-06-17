@@ -470,15 +470,19 @@ func (r *UsageRepository) FindIngestionRuns(ctx context.Context, query domainusa
 
 func (r *UsageRepository) SaveExportJob(ctx context.Context, job domainusage.ExportJob) (domainusage.ExportJob, error) {
 	err := queriesFor(ctx, r.queries).SaveUsageExportJob(ctx, sqlitedb.SaveUsageExportJobParams{
-		ID:          job.ID(),
-		Kind:        string(job.Kind()),
-		Status:      string(job.Status()),
-		Format:      string(job.Format()),
-		QueryJson:   job.QueryJSON(),
-		Error:       job.ErrorMessage(),
-		CreatedAt:   formatTime(job.CreatedAt()),
-		UpdatedAt:   formatTime(job.UpdatedAt()),
-		CompletedAt: exportJobTimeValue(job.CompletedAt()),
+		ID:           job.ID(),
+		Kind:         string(job.Kind()),
+		Status:       string(job.Status()),
+		Format:       string(job.Format()),
+		QueryJson:    job.QueryJSON(),
+		Error:        job.ErrorMessage(),
+		Attempts:     int64(job.Attempts()),
+		LockedUntil:  exportJobTimeValue(job.LockedUntil()),
+		ArtifactPath: job.ArtifactPath(),
+		ArtifactSize: job.ArtifactSize(),
+		CreatedAt:    formatTime(job.CreatedAt()),
+		UpdatedAt:    formatTime(job.UpdatedAt()),
+		CompletedAt:  exportJobTimeValue(job.CompletedAt()),
 	})
 	if err != nil {
 		return domainusage.ExportJob{}, err
@@ -496,7 +500,7 @@ func (r *UsageRepository) FindExportJob(ctx context.Context, id string) (domainu
 		return domainusage.ExportJob{}, err
 	}
 
-	return exportJobFromFields(row.ID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
+	return exportJobFromFields(row.ID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
 }
 
 func (r *UsageRepository) FindExportJobs(ctx context.Context, query domainusage.RunQuery) ([]domainusage.ExportJob, error) {
@@ -512,13 +516,62 @@ func (r *UsageRepository) FindExportJobs(ctx context.Context, query domainusage.
 
 	jobs := make([]domainusage.ExportJob, 0, len(rows))
 	for _, row := range rows {
-		job, err := exportJobFromFields(row.ID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
+		job, err := exportJobFromFields(row.ID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
 		if err != nil {
 			return nil, err
 		}
 		jobs = append(jobs, job)
 	}
 	return jobs, nil
+}
+
+func (r *UsageRepository) ClaimExportJob(ctx context.Context, now time.Time, lockedUntil time.Time, maxAttempts int) (domainusage.ExportJob, error) {
+	row, err := queriesFor(ctx, r.queries).ClaimUsageExportJob(ctx, sqlitedb.ClaimUsageExportJobParams{
+		Now:         formatTime(now),
+		LockedUntil: exportJobTimeValue(lockedUntil),
+		MaxAttempts: int64(maxAttempts),
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return domainusage.ExportJob{}, domain.ErrNotFound
+		}
+		return domainusage.ExportJob{}, err
+	}
+
+	return exportJobFromFields(row.ID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
+}
+
+func (r *UsageRepository) CompleteExportJob(ctx context.Context, id string, artifactPath string, artifactSize int64, completedAt time.Time) (domainusage.ExportJob, error) {
+	row, err := queriesFor(ctx, r.queries).CompleteUsageExportJob(ctx, sqlitedb.CompleteUsageExportJobParams{
+		ID:           id,
+		ArtifactPath: artifactPath,
+		ArtifactSize: artifactSize,
+		CompletedAt:  formatTime(completedAt),
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return domainusage.ExportJob{}, domain.ErrNotFound
+		}
+		return domainusage.ExportJob{}, err
+	}
+
+	return exportJobFromFields(row.ID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
+}
+
+func (r *UsageRepository) FailExportJob(ctx context.Context, id string, errorMessage string, failedAt time.Time) (domainusage.ExportJob, error) {
+	row, err := queriesFor(ctx, r.queries).FailUsageExportJob(ctx, sqlitedb.FailUsageExportJobParams{
+		ID:       id,
+		Error:    errorMessage,
+		FailedAt: formatTime(failedAt),
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return domainusage.ExportJob{}, domain.ErrNotFound
+		}
+		return domainusage.ExportJob{}, err
+	}
+
+	return exportJobFromFields(row.ID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
 }
 
 func (r *UsageRepository) findByIdempotencyKey(ctx context.Context, key string) (domainusage.Event, error) {
@@ -607,7 +660,7 @@ func ingestionRunFromFields(id string, kind string, accepted int64, duplicates i
 	return domainusage.NewIngestionRun(id, domainusage.IngestionKind(kind), int(accepted), int(duplicates), int(failed), createdAt)
 }
 
-func exportJobFromFields(id string, kind string, status string, format string, queryJSON string, errorMessage string, createdAtText string, updatedAtText string, completedAtText sql.NullString) (domainusage.ExportJob, error) {
+func exportJobFromFields(id string, kind string, status string, format string, queryJSON string, errorMessage string, attempts int, lockedUntilText sql.NullString, artifactPath string, artifactSize int64, createdAtText string, updatedAtText string, completedAtText sql.NullString) (domainusage.ExportJob, error) {
 	createdAt, err := time.Parse(time.RFC3339Nano, createdAtText)
 	if err != nil {
 		return domainusage.ExportJob{}, err
@@ -623,6 +676,13 @@ func exportJobFromFields(id string, kind string, status string, format string, q
 			return domainusage.ExportJob{}, err
 		}
 	}
+	lockedUntil := time.Time{}
+	if lockedUntilText.Valid {
+		lockedUntil, err = time.Parse(time.RFC3339Nano, lockedUntilText.String)
+		if err != nil {
+			return domainusage.ExportJob{}, err
+		}
+	}
 
 	return domainusage.NewExportJob(
 		id,
@@ -631,6 +691,10 @@ func exportJobFromFields(id string, kind string, status string, format string, q
 		domainusage.ExportJobFormat(format),
 		queryJSON,
 		errorMessage,
+		attempts,
+		lockedUntil,
+		artifactPath,
+		artifactSize,
 		createdAt,
 		updatedAt,
 		completedAt,

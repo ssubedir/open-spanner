@@ -15,6 +15,7 @@ func (h *Handler) RegisterRoutes(router chi.Router) {
 	router.Get("/usages/dimensions", h.ListDimensionValues)
 	router.Get("/exports", h.ListExportJobs)
 	router.Get("/exports/{id}", h.GetExportJob)
+	router.Get("/exports/{id}/download", h.DownloadExportJob)
 	router.Get("/usages", h.List)
 	router.Get("/usages/export", h.Export)
 	router.Get("/usageingestions", h.ListIngestions)

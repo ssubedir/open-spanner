@@ -36,18 +36,6 @@ type UsageEvent struct {
 	Metadata       string
 }
 
-type UsageExportJob struct {
-	ID          string
-	Kind        string
-	Status      string
-	Format      string
-	QueryJson   string
-	Error       string
-	CreatedAt   string
-	UpdatedAt   string
-	CompletedAt sql.NullString
-}
-
 type UsageIngestion struct {
 	ID         string
 	Kind       string

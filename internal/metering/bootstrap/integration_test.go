@@ -17,6 +17,8 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/ssubedir/open-spanner/internal/config"
+	"github.com/ssubedir/open-spanner/internal/metering/adapters/fileexport"
+	exportworker "github.com/ssubedir/open-spanner/internal/metering/workers/export"
 )
 
 func TestIntegrationAuthGuardsSDKAndDashboardRoutes(t *testing.T) {
@@ -128,6 +130,10 @@ func TestIntegrationPostgresSDKUsageFlow(t *testing.T) {
 
 func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace string) {
 	t.Helper()
+
+	if cfg.ExportStoragePath == "" {
+		cfg.ExportStoragePath = t.TempDir()
+	}
 
 	ctx := context.Background()
 	router := chi.NewRouter()
@@ -340,6 +346,42 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 	decodeJSON(t, getExportJobRes, &foundExportJob)
 	if foundExportJob.ID != exportJob.ID || foundExportJob.Status != "queued" {
 		t.Fatalf("found export job = %#v", foundExportJob)
+	}
+
+	worker := exportworker.NewWorker(app.UsageService, fileexport.NewStore(cfg.ExportStoragePath), time.Millisecond, time.Minute, time.Minute, 3, t.Logf)
+	var completedExportJob usageExportJobResponse
+	for attempt := 0; attempt < 25; attempt++ {
+		processed, err := worker.ProcessOnce(ctx)
+		if err != nil {
+			t.Fatalf("process export job: %v", err)
+		}
+		if !processed {
+			t.Fatal("process export job processed no work")
+		}
+
+		getCompletedExportJobRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/exports/"+exportJob.ID, nil, authHeaders, nil)
+		if getCompletedExportJobRes.Code != http.StatusOK {
+			t.Fatalf("get completed export job status = %d, want %d: %s", getCompletedExportJobRes.Code, http.StatusOK, getCompletedExportJobRes.Body.String())
+		}
+		decodeJSON(t, getCompletedExportJobRes, &completedExportJob)
+		if completedExportJob.Status == "completed" {
+			break
+		}
+	}
+	if completedExportJob.Status != "completed" || completedExportJob.DownloadURL == "" || completedExportJob.ArtifactSize == 0 {
+		t.Fatalf("completed export job = %#v", completedExportJob)
+	}
+
+	downloadReq := httptest.NewRequest(http.MethodGet, completedExportJob.DownloadURL, nil)
+	downloadReq.Header.Set("Authorization", "Bearer "+apiKey)
+	downloadRes := httptest.NewRecorder()
+	router.ServeHTTP(downloadRes, downloadReq)
+	if downloadRes.Code != http.StatusOK {
+		t.Fatalf("download export job status = %d, want %d: %s", downloadRes.Code, http.StatusOK, downloadRes.Body.String())
+	}
+	csvBody := downloadRes.Body.String()
+	if !strings.Contains(csvBody, "bucket_start,subject,meter,bucket_size,aggregation,unit,quantity,endpoint") || !strings.Contains(csvBody, "/orders") || !strings.Contains(csvBody, "/users") {
+		t.Fatalf("downloaded export csv = %q", csvBody)
 	}
 
 	runIntegrationHyphenatedDimensionFlow(t, router, authHeaders, suffix)
@@ -1702,12 +1744,14 @@ type usageIngestionListResponse struct {
 }
 
 type usageExportJobResponse struct {
-	ID          string         `json:"id"`
-	Kind        string         `json:"kind"`
-	Status      string         `json:"status"`
-	Format      string         `json:"format"`
-	Query       map[string]any `json:"query"`
-	CreatedAt   string         `json:"created_at"`
-	UpdatedAt   string         `json:"updated_at"`
-	CompletedAt string         `json:"completed_at"`
+	ID           string         `json:"id"`
+	Kind         string         `json:"kind"`
+	Status       string         `json:"status"`
+	Format       string         `json:"format"`
+	Query        map[string]any `json:"query"`
+	ArtifactSize int64          `json:"artifact_size"`
+	DownloadURL  string         `json:"download_url"`
+	CreatedAt    string         `json:"created_at"`
+	UpdatedAt    string         `json:"updated_at"`
+	CompletedAt  string         `json:"completed_at"`
 }

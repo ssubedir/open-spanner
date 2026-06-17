@@ -120,6 +120,10 @@ type ExportJobResult struct {
 	Format       string
 	QueryJSON    string
 	ErrorMessage string
+	Attempts     int
+	LockedUntil  time.Time
+	ArtifactPath string
+	ArtifactSize int64
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	CompletedAt  time.Time
@@ -203,6 +207,10 @@ func exportJobResultFromDomain(job domainusage.ExportJob) ExportJobResult {
 		Format:       string(job.Format()),
 		QueryJSON:    job.QueryJSON(),
 		ErrorMessage: job.ErrorMessage(),
+		Attempts:     job.Attempts(),
+		LockedUntil:  job.LockedUntil(),
+		ArtifactPath: job.ArtifactPath(),
+		ArtifactSize: job.ArtifactSize(),
 		CreatedAt:    job.CreatedAt(),
 		UpdatedAt:    job.UpdatedAt(),
 		CompletedAt:  job.CompletedAt(),

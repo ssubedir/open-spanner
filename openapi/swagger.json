@@ -489,6 +489,53 @@
                 }
             }
         },
+        "/v1/exports/{id}/download": {
+            "get": {
+                "produces": [
+                    "text/csv"
+                ],
+                "tags": [
+                    "exports"
+                ],
+                "summary": "Download usage export job",
+                "operationId": "downloadUsageExportJob",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Export job ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "CSV",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/meters": {
             "get": {
                 "produces": [
@@ -2457,10 +2504,16 @@
         "internal_metering_adapters_http_usage.ExportJobResponse": {
             "type": "object",
             "properties": {
+                "artifact_size": {
+                    "type": "integer"
+                },
                 "completed_at": {
                     "type": "string"
                 },
                 "created_at": {
+                    "type": "string"
+                },
+                "download_url": {
                     "type": "string"
                 },
                 "error": {

@@ -182,6 +182,11 @@ task sdk:csharp
 | `OPEN_SPANNER_DB_MAX_IDLE_CONNS` | `0` | Maximum idle SQL connections; `0` keeps Go's default |
 | `OPEN_SPANNER_DB_CONN_MAX_LIFETIME` | `0` | Maximum SQL connection lifetime; `0` disables recycling |
 | `OPEN_SPANNER_DB_CONN_MAX_IDLE_TIME` | `0` | Maximum SQL connection idle time; `0` disables idle-time recycling |
+| `OPEN_SPANNER_EXPORT_STORAGE_PATH` | `open-spanner-exports` | Directory used by the API and export worker for generated export files |
+| `OPEN_SPANNER_EXPORT_WORKER_INTERVAL` | `5s` | How often the export worker checks for queued jobs |
+| `OPEN_SPANNER_EXPORT_WORKER_LOCK_TTL` | `5m` | Lease duration for a claimed export job |
+| `OPEN_SPANNER_EXPORT_WORKER_TIMEOUT` | `10m` | Maximum processing time for one export job |
+| `OPEN_SPANNER_EXPORT_WORKER_MAX_ATTEMPTS` | `3` | Maximum claim attempts before expired running jobs stop being retried |
 | `OPEN_SPANNER_RETENTION_PRUNE_ENABLED` | `false` | Enable automatic retention pruning |
 | `OPEN_SPANNER_RETENTION_PRUNE_INTERVAL` | `1h` | Background prune interval |
 | `OPEN_SPANNER_RETENTION_PRUNE_TIMEOUT` | `30m` | Maximum duration for one background prune run |

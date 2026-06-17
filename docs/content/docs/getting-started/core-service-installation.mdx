@@ -3,7 +3,7 @@ title: Core Service Installation
 description: Run Open Spanner and send the first usage event.
 ---
 
-Open Spanner can run as a single container with SQLite or as an app plus Postgres stack with Docker Compose.
+Open Spanner can run as a single container with SQLite or as an app, export worker, and Postgres stack with Docker Compose.
 
 Use Docker Run when you want the smallest local instance. Use Docker Compose when you want the service running against Postgres.
 
@@ -35,7 +35,7 @@ The data stays in the `open-spanner-data` volume until you remove that volume.
 
 ## Option 2: Docker Compose
 
-This starts Open Spanner and Postgres together. Postgres is private to the Compose network and is not published on host port `5432`.
+This starts the Open Spanner API, export worker, and Postgres together. Postgres is private to the Compose network and is not published on host port `5432`.
 
 ```sh
 git clone https://github.com/ssubedir/open-spanner.git
@@ -104,6 +104,12 @@ Run with SQLite:
 git clone https://github.com/ssubedir/open-spanner.git
 cd open-spanner
 task run:sqlite
+```
+
+Run the export worker in another terminal when you want queued export jobs to produce downloadable files:
+
+```sh
+task run:export-worker
 ```
 
 ## Create An API Key
