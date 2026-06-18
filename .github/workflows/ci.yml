@@ -14,9 +14,89 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Detect changed areas
+    runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.filter.outputs.api }}
+      sdks: ${{ steps.filter.outputs.sdks }}
+      admin: ${{ steps.filter.outputs.admin }}
+      browser: ${{ steps.filter.outputs.browser }}
+      docs: ${{ steps.filter.outputs.docs }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Filter changed files
+        id: filter
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            {
+              echo "api=true"
+              echo "sdks=true"
+              echo "admin=true"
+              echo "browser=true"
+              echo "docs=true"
+            } >> "$GITHUB_OUTPUT"
+
+            {
+              echo "### Changed areas"
+              echo
+              echo "Manual dispatch runs all checks."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          BEFORE="${{ github.event.before }}"
+          AFTER="${{ github.sha }}"
+
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            BEFORE="$(git rev-list --max-parents=0 "$AFTER")"
+          fi
+
+          CHANGED_FILES="$(git diff --name-only "$BEFORE" "$AFTER")"
+
+          set_area() {
+            local name="$1"
+            local pattern="$2"
+
+            if printf '%s\n' "$CHANGED_FILES" | grep -Eq "$pattern"; then
+              echo "$name=true" >> "$GITHUB_OUTPUT"
+              echo "- $name: yes" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "$name=false" >> "$GITHUB_OUTPUT"
+              echo "- $name: no" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          }
+
+          {
+            echo "### Changed areas"
+            echo
+            echo "Compared \`$BEFORE\` to \`$AFTER\`."
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          SHARED='^\.github/workflows/ci\.yml$|^Taskfile\.yml$|^taskfiles/|^scripts/'
+          BACKEND='^cmd/|^internal/|^go\.mod$|^go\.sum$|^sqlc\.yaml$|^openapi/|^docker-compose.*\.yml$|^Dockerfile$'
+          SDKS='^sdk/|^examples/|^openapi/|^dotnet-tools\.json$'
+          ADMIN='^web/|^internal/ui/'
+          DOCS='^docs/'
+
+          set_area api "$SHARED|$BACKEND"
+          set_area sdks "$SHARED|$SDKS"
+          set_area admin "$SHARED|$ADMIN"
+          set_area browser "$SHARED|$BACKEND|$ADMIN"
+          set_area docs "^\\.github/workflows/ci\\.yml$|$DOCS"
+
   api:
     name: API checks
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
 
     steps:
       - name: Checkout
@@ -54,6 +134,8 @@ jobs:
   sdks:
     name: SDK and example checks
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.sdks == 'true'
 
     steps:
       - name: Checkout
@@ -117,6 +199,8 @@ jobs:
   admin:
     name: Admin UI build
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.admin == 'true'
 
     steps:
       - name: Checkout
@@ -143,6 +227,8 @@ jobs:
   browser:
     name: Browser E2E
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.browser == 'true'
 
     steps:
       - name: Checkout
@@ -184,6 +270,8 @@ jobs:
   docs:
     name: Docs build
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
 
     steps:
       - name: Checkout
