@@ -1,4 +1,5 @@
 open-spanner.db*
+open-spanner-exports/
 .env
 .env.*
 !.env.example

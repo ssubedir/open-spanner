@@ -17,6 +17,7 @@ import { Route as DashboardUsageRouteRouteImport } from './routes/_dashboard/usa
 import { Route as DashboardSubjectsRouteRouteImport } from './routes/_dashboard/subjects/route'
 import { Route as DashboardOverviewRouteRouteImport } from './routes/_dashboard/overview/route'
 import { Route as DashboardMetersRouteRouteImport } from './routes/_dashboard/meters/route'
+import { Route as DashboardExportsRouteRouteImport } from './routes/_dashboard/exports/route'
 import { Route as DashboardApiKeysRouteRouteImport } from './routes/_dashboard/api-keys/route'
 import { Route as DashboardSubjectsSubjectRouteImport } from './routes/_dashboard/subjects_.$subject'
 
@@ -59,6 +60,11 @@ const DashboardMetersRouteRoute = DashboardMetersRouteRouteImport.update({
   path: '/meters',
   getParentRoute: () => DashboardRouteRoute,
 } as any)
+const DashboardExportsRouteRoute = DashboardExportsRouteRouteImport.update({
+  id: '/exports',
+  path: '/exports',
+  getParentRoute: () => DashboardRouteRoute,
+} as any)
 const DashboardApiKeysRouteRoute = DashboardApiKeysRouteRouteImport.update({
   id: '/api-keys',
   path: '/api-keys',
@@ -76,6 +82,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRouteRoute
   '/register': typeof RegisterRouteRoute
   '/api-keys': typeof DashboardApiKeysRouteRoute
+  '/exports': typeof DashboardExportsRouteRoute
   '/meters': typeof DashboardMetersRouteRoute
   '/overview': typeof DashboardOverviewRouteRoute
   '/subjects': typeof DashboardSubjectsRouteRoute
@@ -87,6 +94,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRouteRoute
   '/register': typeof RegisterRouteRoute
   '/api-keys': typeof DashboardApiKeysRouteRoute
+  '/exports': typeof DashboardExportsRouteRoute
   '/meters': typeof DashboardMetersRouteRoute
   '/overview': typeof DashboardOverviewRouteRoute
   '/subjects': typeof DashboardSubjectsRouteRoute
@@ -100,6 +108,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRouteRoute
   '/register': typeof RegisterRouteRoute
   '/_dashboard/api-keys': typeof DashboardApiKeysRouteRoute
+  '/_dashboard/exports': typeof DashboardExportsRouteRoute
   '/_dashboard/meters': typeof DashboardMetersRouteRoute
   '/_dashboard/overview': typeof DashboardOverviewRouteRoute
   '/_dashboard/subjects': typeof DashboardSubjectsRouteRoute
@@ -113,6 +122,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/register'
     | '/api-keys'
+    | '/exports'
     | '/meters'
     | '/overview'
     | '/subjects'
@@ -124,6 +134,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/register'
     | '/api-keys'
+    | '/exports'
     | '/meters'
     | '/overview'
     | '/subjects'
@@ -136,6 +147,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/register'
     | '/_dashboard/api-keys'
+    | '/_dashboard/exports'
     | '/_dashboard/meters'
     | '/_dashboard/overview'
     | '/_dashboard/subjects'
@@ -208,6 +220,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardMetersRouteRouteImport
       parentRoute: typeof DashboardRouteRoute
     }
+    '/_dashboard/exports': {
+      id: '/_dashboard/exports'
+      path: '/exports'
+      fullPath: '/exports'
+      preLoaderRoute: typeof DashboardExportsRouteRouteImport
+      parentRoute: typeof DashboardRouteRoute
+    }
     '/_dashboard/api-keys': {
       id: '/_dashboard/api-keys'
       path: '/api-keys'
@@ -227,6 +246,7 @@ declare module '@tanstack/react-router' {
 
 interface DashboardRouteRouteChildren {
   DashboardApiKeysRouteRoute: typeof DashboardApiKeysRouteRoute
+  DashboardExportsRouteRoute: typeof DashboardExportsRouteRoute
   DashboardMetersRouteRoute: typeof DashboardMetersRouteRoute
   DashboardOverviewRouteRoute: typeof DashboardOverviewRouteRoute
   DashboardSubjectsRouteRoute: typeof DashboardSubjectsRouteRoute
@@ -236,6 +256,7 @@ interface DashboardRouteRouteChildren {
 
 const DashboardRouteRouteChildren: DashboardRouteRouteChildren = {
   DashboardApiKeysRouteRoute: DashboardApiKeysRouteRoute,
+  DashboardExportsRouteRoute: DashboardExportsRouteRoute,
   DashboardMetersRouteRoute: DashboardMetersRouteRoute,
   DashboardOverviewRouteRoute: DashboardOverviewRouteRoute,
   DashboardSubjectsRouteRoute: DashboardSubjectsRouteRoute,

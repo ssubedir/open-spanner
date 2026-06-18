@@ -1,10 +1,11 @@
 import { useSelector } from '@tanstack/react-store'
-import { BarChart3, Download, FileClock, Loader2, Pin, PinOff, RefreshCw, Save, Search, Trash2 } from 'lucide-react'
+import { BarChart3, Copy, Download, FileClock, List, Loader2, Pin, PinOff, RefreshCw, Save, Search, Trash2, X } from 'lucide-react'
 import { type FormEvent, useCallback, useEffect, useMemo } from 'react'
 
 import { appStore, appStoreActions } from '../app-store'
-import type { UsageExportJob } from '../api'
+import type { UsageEvent } from '../api'
 import { DataTable, Modal, PageHeader } from '../components/dashboard'
+import { ExportJobsCard, isActiveExportJob } from '../components/export-jobs-card'
 import { FilterBuilder } from '../components/filter-builder'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
@@ -32,9 +33,13 @@ export function UsagePage() {
     buckets,
     dimensionValues,
     error,
+    events,
+    eventsError,
+    eventsStatus,
     exportError,
     exportJobDownloading,
     exportJobError,
+    exportJobMutating,
     exportJobStatus,
     exportJobs,
     exporting,
@@ -49,6 +54,7 @@ export function UsagePage() {
     savedQueryStatus,
     savedQueries,
     selectedSavedQueryID,
+    selectedUsageEvent,
     status,
   } = useSelector(appStore, (state) => state.usage)
   const load = useCallback(() => appStoreActions.loadUsageControls(), [])
@@ -70,6 +76,10 @@ export function UsagePage() {
 
   async function exportEvents() {
     await appStoreActions.exportCurrentUsageEvents(limit)
+  }
+
+  async function viewEvents() {
+    await appStoreActions.loadCurrentUsageEvents(limit)
   }
 
   async function queueExport() {
@@ -273,6 +283,10 @@ export function UsagePage() {
                       {exporting === 'job' ? <Loader2 className="spin" aria-hidden="true" /> : <FileClock aria-hidden="true" />}
                       Queue Export
                     </Button>
+                    <Button disabled={eventsStatus === 'loading'} onClick={() => void viewEvents()} type="button" variant="outline">
+                      {eventsStatus === 'loading' ? <Loader2 className="spin" aria-hidden="true" /> : <List aria-hidden="true" />}
+                      View Events
+                    </Button>
                     <Button disabled={status === 'loading'} type="submit">
                       {status === 'loading' ? <Loader2 className="spin" aria-hidden="true" /> : <Search aria-hidden="true" />}
                       Run Query
@@ -289,6 +303,7 @@ export function UsagePage() {
           downloadingID={exportJobDownloading}
           error={exportJobError}
           jobs={exportJobs}
+          mutatingID={exportJobMutating}
           status={exportJobStatus}
         />
 
@@ -346,6 +361,13 @@ export function UsagePage() {
             />
           </CardContent>
         </Card>
+
+        <UsageEventsCard
+          error={eventsError}
+          events={events}
+          onSelectEvent={appStoreActions.setSelectedUsageEvent}
+          status={eventsStatus}
+        />
       </section>
 
       {savedQueryDeleting ? (
@@ -357,70 +379,168 @@ export function UsagePage() {
           </div>
         </Modal>
       ) : null}
+
+      {selectedUsageEvent ? (
+        <UsageEventDrawer
+          event={selectedUsageEvent}
+          onClose={() => appStoreActions.setSelectedUsageEvent(null)}
+        />
+      ) : null}
     </>
   )
 }
 
-function ExportJobsCard({
-  downloadingID,
+function UsageEventsCard({
   error,
-  jobs,
+  events,
+  onSelectEvent,
   status,
 }: {
-  downloadingID: string
   error: string
-  jobs: UsageExportJob[]
+  events: UsageEvent[]
+  onSelectEvent: (event: UsageEvent) => void
   status: string
 }) {
-  const label = status === 'loading' && jobs.length === 0 ? 'Loading' : `${jobs.length} jobs`
-
   return (
-    <Card className="usage-export-card">
-      <CardHeader className="usage-card-header">
+    <Card className="usage-events-card">
+      <CardHeader>
         <div>
-          <CardTitle>Export Jobs</CardTitle>
-          <CardDescription>Queued CSV exports handled by the worker.</CardDescription>
+          <CardTitle>Events</CardTitle>
+          <CardDescription>Raw usage events matching the current filter.</CardDescription>
         </div>
-        <Badge variant={jobs.length > 0 ? 'success' : 'muted'}>{label}</Badge>
+        <Badge variant={status === 'loading' ? 'muted' : events.length > 0 ? 'success' : 'muted'}>
+          {status === 'loading' ? 'Loading' : `${events.length} rows`}
+        </Badge>
       </CardHeader>
-      <CardContent className="export-jobs-content">
+      <CardContent>
         {error ? <div className="inline-error">{error}</div> : null}
-        {jobs.length > 0 ? (
-          <div className="export-job-list">
-            {jobs.map((job) => (
-              <article className="export-job-row" key={job.id}>
-                <div className="export-job-main">
-                  <div className="export-job-title">
-                    <strong>{exportJobKindLabel(job.kind)}</strong>
-                    <Badge variant={exportJobStatusVariant(job.status)}>{exportJobStatusLabel(job.status)}</Badge>
-                  </div>
-                  <div className="export-job-meta">
-                    <span>{job.query.meter}</span>
-                    <span>{job.query.bucket_size}</span>
-                    <span>{job.query.group_by?.length ? `${job.query.group_by.length} groups` : 'no groups'}</span>
-                    <span>{formatDate(job.created_at)}</span>
-                    {job.artifact_size ? <span>{formatBytes(job.artifact_size)}</span> : null}
-                  </div>
-                  {job.error ? <p className="export-job-error">{job.error}</p> : null}
-                </div>
-                <Button
-                  disabled={job.status !== 'completed' || downloadingID === job.id}
-                  onClick={() => void appStoreActions.downloadUsageExport(job)}
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                >
-                  {downloadingID === job.id ? <Loader2 className="spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
-                  Download
-                </Button>
-              </article>
-            ))}
-          </div>
-        ) : (
-          <div className="breakdown-empty">Queued exports will appear here.</div>
-        )}
+        <DataTable
+          emptyLabel={status === 'loading' ? 'Loading events' : 'View events to inspect raw usage'}
+          headers={['Timestamp', 'Subject', 'Meter', 'Quantity', 'Metadata', 'Idempotency Key', 'Event ID', 'Details']}
+          rows={events.map((event) => [
+            formatDate(event.timestamp),
+            <SubjectValue subject={event.subject} />,
+            <Badge variant="muted">{event.meter}</Badge>,
+            formatNumber(event.quantity),
+            <MetadataValues metadata={event.metadata} />,
+            event.idempotency_key ? <span className="mono truncate">{event.idempotency_key}</span> : <span className="muted">none</span>,
+            <span className="mono truncate">{event.id}</span>,
+            <Button
+              aria-label={`View details for event ${event.id}`}
+              onClick={() => onSelectEvent(event)}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Details
+            </Button>,
+          ])}
+        />
       </CardContent>
     </Card>
+  )
+}
+
+function UsageEventDrawer({
+  event,
+  onClose,
+}: {
+  event: UsageEvent
+  onClose: () => void
+}) {
+  const metadataJSON = JSON.stringify(event.metadata || {}, null, 2)
+
+  return (
+    <div
+      className="usage-event-drawer-backdrop"
+      onMouseDown={(mouseEvent) => {
+        if (mouseEvent.target === mouseEvent.currentTarget) {
+          onClose()
+        }
+      }}
+      role="presentation"
+    >
+      <aside
+        aria-labelledby="usage-event-detail-title"
+        aria-modal="true"
+        className="usage-event-drawer"
+        role="dialog"
+      >
+        <header className="usage-event-drawer-header">
+          <div>
+            <span>Usage Event</span>
+            <h2 id="usage-event-detail-title">{event.subject}</h2>
+          </div>
+          <Button aria-label="Close event details" onClick={onClose} size="icon" type="button" variant="ghost">
+            <X aria-hidden="true" />
+          </Button>
+        </header>
+
+        <div className="usage-event-detail-grid">
+          <EventDetailItem copyLabel="Copy event ID" label="Event ID" value={event.id} />
+          <EventDetailItem copyLabel="Copy idempotency key" label="Idempotency Key" value={event.idempotency_key || 'none'} />
+          <EventDetailItem copyLabel="Copy subject" label="Subject" value={event.subject} />
+          <EventDetailItem copyLabel="Copy meter" label="Meter" value={event.meter} />
+          <EventDetailItem label="Quantity" value={formatNumber(event.quantity)} />
+          <EventDetailItem copyLabel="Copy timestamp" label="Timestamp" value={event.timestamp} />
+          <EventDetailItem copyLabel="Copy received time" label="Received At" value={event.received_at} />
+        </div>
+
+        <section className="usage-event-metadata-panel">
+          <div className="usage-event-section-header">
+            <h3>Metadata</h3>
+            <Button aria-label="Copy metadata" onClick={() => void copyText(metadataJSON)} size="sm" type="button" variant="outline">
+              <Copy aria-hidden="true" />
+              Copy
+            </Button>
+          </div>
+          <pre>{metadataJSON}</pre>
+        </section>
+      </aside>
+    </div>
+  )
+}
+
+function EventDetailItem({
+  copyLabel,
+  label,
+  value,
+}: {
+  copyLabel?: string
+  label: string
+  value: string
+}) {
+  return (
+    <div className="usage-event-detail-item">
+      <span>{label}</span>
+      <div>
+        <strong className="mono">{value}</strong>
+        {copyLabel ? (
+          <Button aria-label={copyLabel} onClick={() => void copyText(value)} size="icon" type="button" variant="ghost">
+            <Copy aria-hidden="true" />
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function MetadataValues({ metadata }: { metadata: Record<string, unknown> }) {
+  const entries = Object.entries(metadata || {})
+  if (entries.length === 0) {
+    return <span className="muted">none</span>
+  }
+
+  return (
+    <div className="dimension-values">
+      {entries.slice(0, 4).map(([key, value]) => (
+        <span className="dimension-value" key={key}>
+          <span>{key}</span>
+          <strong>{formatMetadataValue(value)}</strong>
+        </span>
+      ))}
+      {entries.length > 4 ? <span className="muted">+{entries.length - 4}</span> : null}
+    </div>
   )
 }
 
@@ -521,42 +641,29 @@ function breakdownWidth(quantity: number, maxQuantity: number) {
   return Math.max(4, (quantity / maxQuantity) * 100)
 }
 
-function isActiveExportJob(job: UsageExportJob) {
-  return job.status === 'queued' || job.status === 'running'
+async function copyText(value: string) {
+  if (!navigator.clipboard) {
+    return
+  }
+
+  try {
+    await navigator.clipboard.writeText(value)
+  } catch {
+    // Copying is a convenience action; failing silently keeps the drawer usable.
+  }
 }
 
-function exportJobKindLabel(kind: string) {
-  if (kind === 'usage_buckets') {
-    return 'Usage buckets'
+function formatMetadataValue(value: unknown) {
+  if (typeof value === 'string') {
+    return value
   }
-  return humanizeField(kind)
-}
-
-function exportJobStatusLabel(status: string) {
-  return humanizeField(status)
-}
-
-function exportJobStatusVariant(status: string): 'default' | 'muted' | 'success' | 'warning' {
-  if (status === 'completed') {
-    return 'success'
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value)
   }
-  if (status === 'failed') {
-    return 'warning'
+  if (value == null) {
+    return 'null'
   }
-  if (status === 'running') {
-    return 'default'
-  }
-  return 'muted'
-}
-
-function formatBytes(value: number) {
-  if (value < 1024) {
-    return `${formatNumber(value)} B`
-  }
-  if (value < 1024 * 1024) {
-    return `${formatNumber(Math.round(value / 102.4) / 10)} KB`
-  }
-  return `${formatNumber(Math.round(value / 104857.6) / 10)} MB`
+  return JSON.stringify(value)
 }
 
 function humanizeField(key: string) {

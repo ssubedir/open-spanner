@@ -34,6 +34,12 @@ test.describe('Feature: Dashboard usage exploration', () => {
     await Then.theUsagePageLoadsWithoutDimensionErrors(page)
     await Then.advancedQueryReturnsOnlyMatchingUsage(page, meterName)
 
+    await When.theUserViewsCurrentUsageEvents(page)
+    await Then.rawUsageEventsIncludeOnlyMatchingUsage(page, scenario)
+    await When.theUserOpensFirstUsageEvent(page)
+    await Then.usageEventDetailsIncludeMatchingUsage(page, scenario)
+    await When.theUserClosesUsageEventDetails(page)
+
     const bucketExport = await When.theUserExportsCurrentUsageBuckets(page)
     await Then.advancedUsageBucketCSVIncludesMatchingUsage(bucketExport, scenario)
   })
@@ -72,6 +78,7 @@ test.describe('Feature: Dashboard usage exploration', () => {
     await When.theUserQueuesCurrentUsageExport(page)
     const queuedExport = await Then.queuedUsageExportCompletesInDashboard(page, scenario)
     await Then.queuedUsageBucketCSVIncludesCurrentQuery(queuedExport, scenario)
+    await Then.theExportsPageShowsCompletedJob(page, scenario)
 
     const eventExport = await When.theUserExportsSubjectEvents(page, scenario)
     await Then.subjectEventCSVIncludesPrimaryUsage(eventExport, scenario)

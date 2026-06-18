@@ -584,6 +584,36 @@ func (r *UsageRepository) FailExportJob(ctx context.Context, id string, errorMes
 	return exportJobFromFields(row.ID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
 }
 
+func (r *UsageRepository) CancelExportJob(ctx context.Context, id string, canceledAt time.Time) (domainusage.ExportJob, error) {
+	row, err := queriesFor(ctx, r.queries).CancelUsageExportJob(ctx, postgresdb.CancelUsageExportJobParams{
+		ID:         id,
+		CanceledAt: formatTime(canceledAt),
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return domainusage.ExportJob{}, domain.ErrNotFound
+		}
+		return domainusage.ExportJob{}, err
+	}
+
+	return exportJobFromFields(row.ID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
+}
+
+func (r *UsageRepository) RetryExportJob(ctx context.Context, id string, retriedAt time.Time) (domainusage.ExportJob, error) {
+	row, err := queriesFor(ctx, r.queries).RetryUsageExportJob(ctx, postgresdb.RetryUsageExportJobParams{
+		ID:        id,
+		RetriedAt: formatTime(retriedAt),
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return domainusage.ExportJob{}, domain.ErrNotFound
+		}
+		return domainusage.ExportJob{}, err
+	}
+
+	return exportJobFromFields(row.ID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
+}
+
 func (r *UsageRepository) findByIdempotencyKey(ctx context.Context, key string) (domainusage.Event, error) {
 	event, err := queriesFor(ctx, r.queries).FindUsageEventByIdempotencyKey(ctx, sql.NullString{String: key, Valid: true})
 	return eventFromFields(event.ID, event.IdempotencyKey, event.Subject, event.MeterName, event.Quantity, event.EventTime, event.ReceivedAt, event.Metadata, err)

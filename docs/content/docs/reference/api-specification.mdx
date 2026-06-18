@@ -23,6 +23,8 @@ Queued export jobs are available for longer-running bucketed exports:
 - `POST /v1/exports`
 - `GET /v1/exports`
 - `GET /v1/exports/{id}`
+- `POST /v1/exports/{id}/cancel`
+- `POST /v1/exports/{id}/retry`
 - `GET /v1/exports/{id}/download`
 
 Open Spanner does not expose a gRPC API today.

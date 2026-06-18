@@ -26,4 +26,6 @@ type Repository interface {
 	ClaimExportJob(ctx context.Context, now time.Time, lockedUntil time.Time, maxAttempts int) (ExportJob, error)
 	CompleteExportJob(ctx context.Context, id string, artifactPath string, artifactSize int64, completedAt time.Time) (ExportJob, error)
 	FailExportJob(ctx context.Context, id string, errorMessage string, failedAt time.Time) (ExportJob, error)
+	CancelExportJob(ctx context.Context, id string, canceledAt time.Time) (ExportJob, error)
+	RetryExportJob(ctx context.Context, id string, retriedAt time.Time) (ExportJob, error)
 }

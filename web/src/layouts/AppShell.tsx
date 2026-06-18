@@ -1,6 +1,6 @@
 import { Link, Outlet, useRouter } from '@tanstack/react-router'
 import { useSelector } from '@tanstack/react-store'
-import { BarChart3, Boxes, Gauge, KeyRound, LayoutDashboard, LogOut, Users } from 'lucide-react'
+import { BarChart3, Boxes, FileArchive, Gauge, KeyRound, LayoutDashboard, LogOut, Users } from 'lucide-react'
 
 import { appStore, appStoreActions } from '../app-store'
 import { Button } from '../components/ui/button'
@@ -18,6 +18,7 @@ const navGroups = [
       { description: 'Definitions', icon: Boxes, label: 'Meters', to: '/meters' },
       { description: 'Accounts and customers', icon: Users, label: 'Subjects', to: '/subjects' },
       { description: 'Query and breakdowns', icon: BarChart3, label: 'Usage', to: '/usage' },
+      { description: 'CSV job history', icon: FileArchive, label: 'Exports', to: '/exports' },
     ],
   },
   {

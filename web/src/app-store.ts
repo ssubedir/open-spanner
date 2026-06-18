@@ -3,6 +3,7 @@ import type { RuleGroupType } from 'react-querybuilder'
 
 import {
   APIError,
+  cancelUsageExportJob,
   createAPIKey as createAPIKeyRequest,
   createAuthSession,
   createAuthUser,
@@ -27,8 +28,10 @@ import {
   listUsageBreakdowns,
   listUsageBuckets,
   listUsageDimensionValues,
+  listUsageEvents,
   listUsageExportJobs,
   refreshAuthSession,
+  retryUsageExportJob,
   updateMeter as updateMeterRequest,
   updateSavedUsageQuery,
   type APIKey,
@@ -45,6 +48,7 @@ import {
   type UsageBreakdown,
   type UsageDimensionValue,
   type UsageEvent,
+  type UsageEventQuery,
   type UsageExportJob,
   type IngestionRun,
   type SubjectStats,
@@ -147,9 +151,14 @@ type AppState = {
     buckets: UsageBucket[]
     dimensionValues: Record<string, UsageDimensionValue[]>
     error: string
+    events: UsageEvent[]
+    eventsError: string
+    eventsStatus: LoadState
     exportError: string
     exportJobDownloading: string
     exportJobError: string
+    exportJobLimit: number
+    exportJobMutating: string
     exportJobStatus: LoadState
     exportJobs: UsageExportJob[]
     exporting: UsageExportKind
@@ -164,6 +173,7 @@ type AppState = {
     savedQueryStatus: LoadState
     savedQueries: SavedUsageQuery[]
     selectedSavedQueryID: string
+    selectedUsageEvent: UsageEvent | null
     status: LoadState
   }
 }
@@ -225,9 +235,14 @@ export const appStore = createStore<AppState>({
     buckets: [],
     dimensionValues: {},
     error: '',
+    events: [],
+    eventsError: '',
+    eventsStatus: 'idle',
     exportError: '',
     exportJobDownloading: '',
     exportJobError: '',
+    exportJobLimit: 8,
+    exportJobMutating: '',
     exportJobStatus: 'idle',
     exportJobs: [],
     exporting: '',
@@ -242,6 +257,7 @@ export const appStore = createStore<AppState>({
     savedQueryStatus: 'idle',
     savedQueries: [],
     selectedSavedQueryID: '',
+    selectedUsageEvent: null,
     status: 'idle',
   },
 })
@@ -445,6 +461,7 @@ export const appStoreActions = {
         listUsageExportJobs(),
       ])
       setUsageState((state) => ({
+        exportJobLimit: 8,
         exportJobs: exportJobs.items,
         exportJobStatus: 'ready',
         meters: nextMeters.items,
@@ -464,11 +481,11 @@ export const appStoreActions = {
       })
     }
   },
-  async loadUsageExportJobs() {
+  async loadUsageExportJobs(limit = appStore.state.usage.exportJobLimit || 8) {
     setUsageState({ exportJobError: '', exportJobStatus: 'loading' })
     try {
-      const exportJobs = await listUsageExportJobs()
-      setUsageState({ exportJobs: exportJobs.items, exportJobStatus: 'ready' })
+      const exportJobs = await listUsageExportJobs(limit)
+      setUsageState({ exportJobLimit: limit, exportJobs: exportJobs.items, exportJobStatus: 'ready' })
     } catch (err) {
       setUsageState({
         exportJobError: errorMessage(err, 'Unable to load export jobs'),
@@ -603,12 +620,16 @@ export const appStoreActions = {
     const meters = appStore.state.usage.meters
     setUsageState({
       bucketSize: 'day',
+      events: [],
+      eventsError: '',
+      eventsStatus: 'idle',
       exportError: '',
       filterQuery: queryWithAvailableMeter(defaultFilterQuery(), meters),
       groupBy: [],
       limit: 500,
       savedQueryName: '',
       selectedSavedQueryID: '',
+      selectedUsageEvent: null,
     })
   },
   prepareUsageForSubject(subject: string, meter = '') {
@@ -621,12 +642,16 @@ export const appStoreActions = {
     setUsageState((state) => ({
       buckets: [],
       error: '',
+      events: [],
+      eventsError: '',
+      eventsStatus: 'idle',
       exportError: '',
       filterQuery: normalizedMeter
         ? queryWithMeter(queryWithSubject(state.filterQuery, normalizedSubject), normalizedMeter)
         : queryWithSubject(state.filterQuery, normalizedSubject),
       savedQueryName: '',
       selectedSavedQueryID: '',
+      selectedUsageEvent: null,
       status: 'idle',
     }))
   },
@@ -685,7 +710,7 @@ export const appStoreActions = {
     }))
   },
   setUsageFilterQuery(filterQuery: RuleGroupType) {
-    setUsageState({ filterQuery })
+    setUsageState({ filterQuery, selectedUsageEvent: null })
   },
   setUsageBucketSize(bucketSize: string) {
     setUsageState({ bucketSize })
@@ -703,6 +728,9 @@ export const appStoreActions = {
   },
   setSavedUsageQueryName(name: string) {
     setUsageState({ savedQueryName: name })
+  },
+  setSelectedUsageEvent(event: UsageEvent | null) {
+    setUsageState({ selectedUsageEvent: event })
   },
   selectSavedUsageQuery(id: string) {
     if (!id) {
@@ -731,7 +759,7 @@ export const appStoreActions = {
     })
   },
   async submitUsageQuery(groupByValue: string[], limit = 500, bucketSize = 'day') {
-    setUsageState({ error: '', exportError: '', status: 'loading' })
+    setUsageState({ error: '', events: [], eventsError: '', eventsStatus: 'idle', exportError: '', selectedUsageEvent: null, status: 'loading' })
     try {
       const query = appStore.state.usage.filterQuery
       const scope = usageScopeFromQuery(query)
@@ -751,6 +779,15 @@ export const appStoreActions = {
       setUsageState({ buckets, status: 'ready' })
     } catch (err) {
       setUsageState({ error: errorMessage(err, 'Unable to query usage'), status: 'error' })
+    }
+  },
+  async loadCurrentUsageEvents(limit = 500) {
+    setUsageState({ eventsError: '', eventsStatus: 'loading', selectedUsageEvent: null })
+    try {
+      const events = await listUsageEvents(currentUsageEventQuery(limit))
+      setUsageState({ events: events.items, eventsStatus: 'ready' })
+    } catch (err) {
+      setUsageState({ eventsError: errorMessage(err, 'Unable to load usage events'), eventsStatus: 'error' })
     }
   },
   async exportCurrentUsageBuckets(groupByValue: string[], limit = 500, bucketSize = 'day') {
@@ -782,19 +819,9 @@ export const appStoreActions = {
   async exportCurrentUsageEvents(limit = 500) {
     setUsageState({ exportError: '', exporting: 'events' })
     try {
-      const query = appStore.state.usage.filterQuery
-      const scope = usageScopeFromQuery(query)
-      const timeRange = usageTimeRangeFromQuery(query)
-      const filter = usageFilterFromQuery(query, metadataTypesByField(appStore.state.usage.meters, scope.meter))
-      const blob = await exportUsageEvents({
-        filter,
-        from: timeRange.from,
-        limit,
-        meter: scope.meter,
-        subject: scope.subject || undefined,
-        to: timeRange.to,
-      })
-      const fileParts = ['usage-events', scope.meter, scope.subject].filter((part): part is string => Boolean(part))
+      const eventQuery = currentUsageEventQuery(limit)
+      const blob = await exportUsageEvents(eventQuery)
+      const fileParts = ['usage-events', eventQuery.meter, eventQuery.subject].filter((part): part is string => Boolean(part))
       downloadBlob(blob, `${fileParts.map(safeDownloadName).join('-')}.csv`)
     } catch (err) {
       setUsageState({ exportError: errorMessage(err, 'Unable to export usage events') })
@@ -835,6 +862,37 @@ export const appStoreActions = {
       setUsageState({ exportJobError: exportDownloadErrorMessage(err) })
     } finally {
       setUsageState({ exportJobDownloading: '' })
+    }
+  },
+  async cancelUsageExport(job: UsageExportJob) {
+    if (job.status !== 'queued' && job.status !== 'running') {
+      return
+    }
+
+    setUsageState({ exportJobError: '', exportJobMutating: job.id })
+    try {
+      const updated = await cancelUsageExportJob(job.id)
+      setUsageState((state) => ({ exportJobs: upsertUsageExportJob(state.exportJobs, updated) }))
+    } catch (err) {
+      setUsageState({ exportJobError: errorMessage(err, 'Unable to cancel export job') })
+    } finally {
+      setUsageState({ exportJobMutating: '' })
+    }
+  },
+  async retryUsageExport(job: UsageExportJob) {
+    if (job.status !== 'failed' && job.status !== 'canceled') {
+      return
+    }
+
+    setUsageState({ exportJobError: '', exportJobMutating: job.id })
+    try {
+      const updated = await retryUsageExportJob(job.id)
+      setUsageState((state) => ({ exportJobs: upsertUsageExportJob(state.exportJobs, updated) }))
+      await appStoreActions.loadUsageExportJobs(appStore.state.usage.exportJobLimit)
+    } catch (err) {
+      setUsageState({ exportJobError: errorMessage(err, 'Unable to retry export job') })
+    } finally {
+      setUsageState({ exportJobMutating: '' })
     }
   },
   async saveCurrentUsageQuery() {
@@ -1102,9 +1160,28 @@ function currentUsageBucketExportQuery(groupByValue: string[], limit = 500, buck
   }
 }
 
+function currentUsageEventQuery(limit = 500): UsageEventQuery {
+  const query = appStore.state.usage.filterQuery
+  const scope = usageScopeFromQuery(query)
+  const timeRange = usageTimeRangeFromQuery(query)
+  const filter = usageFilterFromQuery(query, metadataTypesByField(appStore.state.usage.meters, scope.meter))
+  return {
+    filter,
+    from: timeRange.from,
+    limit,
+    meter: scope.meter,
+    subject: scope.subject || undefined,
+    to: timeRange.to,
+  }
+}
+
 function exportJobDownloadName(job: UsageExportJob) {
   const fileParts = ['usage-export', job.query.meter, job.id].filter((part): part is string => Boolean(part))
   return `${fileParts.map(safeDownloadName).join('-')}.csv`
+}
+
+function upsertUsageExportJob(items: UsageExportJob[], job: UsageExportJob) {
+  return items.map((item) => item.id === job.id ? job : item)
 }
 
 function usageStateFromSavedQuery(query: SavedUsageQuery, state: AppState['usage']): Partial<AppState['usage']> {
@@ -1115,6 +1192,7 @@ function usageStateFromSavedQuery(query: SavedUsageQuery, state: AppState['usage
     limit: query.limit || 500,
     savedQueryName: query.name,
     selectedSavedQueryID: query.id,
+    selectedUsageEvent: null,
   }
 }
 

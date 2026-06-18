@@ -356,6 +356,54 @@ func (h *Handler) GetExportJob(w http.ResponseWriter, r *http.Request) {
 	respond.JSON(w, http.StatusOK, exportJobResponseFromResult(job))
 }
 
+// CancelExportJob cancels a queued or running async usage export job.
+//
+// @Summary Cancel usage export job
+// @ID cancelUsageExportJob
+// @Tags exports
+// @Produce json
+// @Param id path string true "Export job ID"
+// @Success 200 {object} ExportJobResponse
+// @Failure 404 {object} respond.ErrorResponse
+// @Failure 409 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/exports/{id}/cancel [post]
+func (h *Handler) CancelExportJob(w http.ResponseWriter, r *http.Request) {
+	job, err := h.service.CancelExportJob(r.Context(), appusage.ExportJobCancelCommand{
+		ID: chi.URLParam(r, "id"),
+	})
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+
+	respond.JSON(w, http.StatusOK, exportJobResponseFromResult(job))
+}
+
+// RetryExportJob retries a failed or canceled async usage export job.
+//
+// @Summary Retry usage export job
+// @ID retryUsageExportJob
+// @Tags exports
+// @Produce json
+// @Param id path string true "Export job ID"
+// @Success 200 {object} ExportJobResponse
+// @Failure 404 {object} respond.ErrorResponse
+// @Failure 409 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/exports/{id}/retry [post]
+func (h *Handler) RetryExportJob(w http.ResponseWriter, r *http.Request) {
+	job, err := h.service.RetryExportJob(r.Context(), appusage.ExportJobRetryCommand{
+		ID: chi.URLParam(r, "id"),
+	})
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+
+	respond.JSON(w, http.StatusOK, exportJobResponseFromResult(job))
+}
+
 // DownloadExportJob downloads a completed async usage export.
 //
 // @Summary Download usage export job

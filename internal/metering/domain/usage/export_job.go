@@ -22,6 +22,7 @@ const (
 	ExportJobRunning   ExportJobStatus = "running"
 	ExportJobCompleted ExportJobStatus = "completed"
 	ExportJobFailed    ExportJobStatus = "failed"
+	ExportJobCanceled  ExportJobStatus = "canceled"
 )
 
 type ExportJobFormat string
@@ -59,7 +60,7 @@ func NewExportJob(id string, kind ExportJobKind, status ExportJobStatus, format 
 		return ExportJob{}, fmt.Errorf("%w: export job kind is invalid", domain.ErrInvalidInput)
 	}
 	switch status {
-	case ExportJobQueued, ExportJobRunning, ExportJobCompleted, ExportJobFailed:
+	case ExportJobQueued, ExportJobRunning, ExportJobCompleted, ExportJobFailed, ExportJobCanceled:
 	default:
 		return ExportJob{}, fmt.Errorf("%w: export job status is invalid", domain.ErrInvalidInput)
 	}
@@ -75,7 +76,7 @@ func NewExportJob(id string, kind ExportJobKind, status ExportJobStatus, format 
 	if updatedAt.IsZero() {
 		return ExportJob{}, fmt.Errorf("%w: export job updated at is required", domain.ErrInvalidInput)
 	}
-	if completedAt.IsZero() && (status == ExportJobCompleted || status == ExportJobFailed) {
+	if completedAt.IsZero() && (status == ExportJobCompleted || status == ExportJobFailed || status == ExportJobCanceled) {
 		return ExportJob{}, fmt.Errorf("%w: export job completed at is required", domain.ErrInvalidInput)
 	}
 	if status == ExportJobRunning && lockedUntil.IsZero() {

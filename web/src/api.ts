@@ -164,6 +164,15 @@ export type UsageEventExportQuery = {
   filter?: UsageFilter
 }
 
+export type UsageEventQuery = UsageEventExportQuery & {
+  cursor?: string
+}
+
+export type UsageEventList = {
+  items: UsageEvent[]
+  next_cursor?: string
+}
+
 export type UsageExportJob = {
   id: string
   kind: string
@@ -524,9 +533,36 @@ export async function exportUsageEvents(query: UsageEventExportQuery) {
   })
 }
 
+export async function listUsageEvents(query: UsageEventQuery) {
+  return request<UsageEventList>('/v1/usageevents/search', {
+    body: JSON.stringify({
+      cursor: query.cursor,
+      filter: query.filter,
+      from: query.from,
+      limit: query.limit,
+      meter: query.meter,
+      subject: query.subject,
+      to: query.to,
+    }),
+    method: 'POST',
+  })
+}
+
 export async function createUsageExportJob(input: UsageExportJobCreateRequest) {
   return request<UsageExportJob>('/v1/exports', {
     body: JSON.stringify(input),
+    method: 'POST',
+  })
+}
+
+export async function cancelUsageExportJob(id: string) {
+  return request<UsageExportJob>(`/v1/exports/${encodeURIComponent(id)}/cancel`, {
+    method: 'POST',
+  })
+}
+
+export async function retryUsageExportJob(id: string) {
+  return request<UsageExportJob>(`/v1/exports/${encodeURIComponent(id)}/retry`, {
     method: 'POST',
   })
 }

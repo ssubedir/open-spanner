@@ -28,6 +28,8 @@ type Service interface {
 	ClaimExportJob(ctx context.Context, cmd ExportJobClaimCommand) (ExportJobResult, bool, error)
 	CompleteExportJob(ctx context.Context, cmd ExportJobCompleteCommand) (ExportJobResult, error)
 	FailExportJob(ctx context.Context, cmd ExportJobFailCommand) (ExportJobResult, error)
+	CancelExportJob(ctx context.Context, cmd ExportJobCancelCommand) (ExportJobResult, error)
+	RetryExportJob(ctx context.Context, cmd ExportJobRetryCommand) (ExportJobResult, error)
 }
 
 type service struct {

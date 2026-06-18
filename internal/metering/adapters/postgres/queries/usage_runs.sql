@@ -111,6 +111,7 @@ SET status = 'completed',
 	updated_at = sqlc.arg('completed_at')::text,
 	completed_at = sqlc.arg('completed_at')::text
 WHERE id = sqlc.arg('id')::text
+	AND status = 'running'
 RETURNING id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at;
 
 -- name: FailUsageExportJob :one
@@ -121,4 +122,30 @@ SET status = 'failed',
 	updated_at = sqlc.arg('failed_at')::text,
 	completed_at = sqlc.arg('failed_at')::text
 WHERE id = sqlc.arg('id')::text
+	AND status = 'running'
+RETURNING id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at;
+
+-- name: CancelUsageExportJob :one
+UPDATE usage_export_jobs
+SET status = 'canceled',
+	error = 'canceled by user',
+	locked_until = NULL,
+	updated_at = sqlc.arg('canceled_at')::text,
+	completed_at = sqlc.arg('canceled_at')::text
+WHERE id = sqlc.arg('id')::text
+	AND status IN ('queued', 'running')
+RETURNING id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at;
+
+-- name: RetryUsageExportJob :one
+UPDATE usage_export_jobs
+SET status = 'queued',
+	error = '',
+	attempts = 0,
+	locked_until = NULL,
+	artifact_path = '',
+	artifact_size = 0,
+	updated_at = sqlc.arg('retried_at')::text,
+	completed_at = NULL
+WHERE id = sqlc.arg('id')::text
+	AND status IN ('failed', 'canceled')
 RETURNING id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at;
