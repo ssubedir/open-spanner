@@ -169,6 +169,7 @@ type AppState = {
     savedQueryStatus: LoadState
     savedQueries: SavedUsageQuery[]
     selectedSavedQueryID: string
+    selectedUsageEvent: UsageEvent | null
     status: LoadState
   }
 }
@@ -250,6 +251,7 @@ export const appStore = createStore<AppState>({
     savedQueryStatus: 'idle',
     savedQueries: [],
     selectedSavedQueryID: '',
+    selectedUsageEvent: null,
     status: 'idle',
   },
 })
@@ -620,6 +622,7 @@ export const appStoreActions = {
       limit: 500,
       savedQueryName: '',
       selectedSavedQueryID: '',
+      selectedUsageEvent: null,
     })
   },
   prepareUsageForSubject(subject: string, meter = '') {
@@ -641,6 +644,7 @@ export const appStoreActions = {
         : queryWithSubject(state.filterQuery, normalizedSubject),
       savedQueryName: '',
       selectedSavedQueryID: '',
+      selectedUsageEvent: null,
       status: 'idle',
     }))
   },
@@ -699,7 +703,7 @@ export const appStoreActions = {
     }))
   },
   setUsageFilterQuery(filterQuery: RuleGroupType) {
-    setUsageState({ filterQuery })
+    setUsageState({ filterQuery, selectedUsageEvent: null })
   },
   setUsageBucketSize(bucketSize: string) {
     setUsageState({ bucketSize })
@@ -717,6 +721,9 @@ export const appStoreActions = {
   },
   setSavedUsageQueryName(name: string) {
     setUsageState({ savedQueryName: name })
+  },
+  setSelectedUsageEvent(event: UsageEvent | null) {
+    setUsageState({ selectedUsageEvent: event })
   },
   selectSavedUsageQuery(id: string) {
     if (!id) {
@@ -745,7 +752,7 @@ export const appStoreActions = {
     })
   },
   async submitUsageQuery(groupByValue: string[], limit = 500, bucketSize = 'day') {
-    setUsageState({ error: '', events: [], eventsError: '', eventsStatus: 'idle', exportError: '', status: 'loading' })
+    setUsageState({ error: '', events: [], eventsError: '', eventsStatus: 'idle', exportError: '', selectedUsageEvent: null, status: 'loading' })
     try {
       const query = appStore.state.usage.filterQuery
       const scope = usageScopeFromQuery(query)
@@ -768,7 +775,7 @@ export const appStoreActions = {
     }
   },
   async loadCurrentUsageEvents(limit = 500) {
-    setUsageState({ eventsError: '', eventsStatus: 'loading' })
+    setUsageState({ eventsError: '', eventsStatus: 'loading', selectedUsageEvent: null })
     try {
       const events = await listUsageEvents(currentUsageEventQuery(limit))
       setUsageState({ events: events.items, eventsStatus: 'ready' })
@@ -1143,6 +1150,7 @@ function usageStateFromSavedQuery(query: SavedUsageQuery, state: AppState['usage
     limit: query.limit || 500,
     savedQueryName: query.name,
     selectedSavedQueryID: query.id,
+    selectedUsageEvent: null,
   }
 }
 

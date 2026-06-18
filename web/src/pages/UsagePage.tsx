@@ -1,5 +1,5 @@
 import { useSelector } from '@tanstack/react-store'
-import { BarChart3, Download, FileClock, List, Loader2, Pin, PinOff, RefreshCw, Save, Search, Trash2 } from 'lucide-react'
+import { BarChart3, Copy, Download, FileClock, List, Loader2, Pin, PinOff, RefreshCw, Save, Search, Trash2, X } from 'lucide-react'
 import { type FormEvent, useCallback, useEffect, useMemo } from 'react'
 
 import { appStore, appStoreActions } from '../app-store'
@@ -52,6 +52,7 @@ export function UsagePage() {
     savedQueryStatus,
     savedQueries,
     selectedSavedQueryID,
+    selectedUsageEvent,
     status,
   } = useSelector(appStore, (state) => state.usage)
   const load = useCallback(() => appStoreActions.loadUsageControls(), [])
@@ -358,7 +359,12 @@ export function UsagePage() {
           </CardContent>
         </Card>
 
-        <UsageEventsCard error={eventsError} events={events} status={eventsStatus} />
+        <UsageEventsCard
+          error={eventsError}
+          events={events}
+          onSelectEvent={appStoreActions.setSelectedUsageEvent}
+          status={eventsStatus}
+        />
       </section>
 
       {savedQueryDeleting ? (
@@ -370,6 +376,13 @@ export function UsagePage() {
           </div>
         </Modal>
       ) : null}
+
+      {selectedUsageEvent ? (
+        <UsageEventDrawer
+          event={selectedUsageEvent}
+          onClose={() => appStoreActions.setSelectedUsageEvent(null)}
+        />
+      ) : null}
     </>
   )
 }
@@ -377,10 +390,12 @@ export function UsagePage() {
 function UsageEventsCard({
   error,
   events,
+  onSelectEvent,
   status,
 }: {
   error: string
   events: UsageEvent[]
+  onSelectEvent: (event: UsageEvent) => void
   status: string
 }) {
   return (
@@ -398,7 +413,7 @@ function UsageEventsCard({
         {error ? <div className="inline-error">{error}</div> : null}
         <DataTable
           emptyLabel={status === 'loading' ? 'Loading events' : 'View events to inspect raw usage'}
-          headers={['Timestamp', 'Subject', 'Meter', 'Quantity', 'Metadata', 'Idempotency Key', 'Event ID']}
+          headers={['Timestamp', 'Subject', 'Meter', 'Quantity', 'Metadata', 'Idempotency Key', 'Event ID', 'Details']}
           rows={events.map((event) => [
             formatDate(event.timestamp),
             <SubjectValue subject={event.subject} />,
@@ -407,10 +422,103 @@ function UsageEventsCard({
             <MetadataValues metadata={event.metadata} />,
             event.idempotency_key ? <span className="mono truncate">{event.idempotency_key}</span> : <span className="muted">none</span>,
             <span className="mono truncate">{event.id}</span>,
+            <Button
+              aria-label={`View details for event ${event.id}`}
+              onClick={() => onSelectEvent(event)}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Details
+            </Button>,
           ])}
         />
       </CardContent>
     </Card>
+  )
+}
+
+function UsageEventDrawer({
+  event,
+  onClose,
+}: {
+  event: UsageEvent
+  onClose: () => void
+}) {
+  const metadataJSON = JSON.stringify(event.metadata || {}, null, 2)
+
+  return (
+    <div
+      className="usage-event-drawer-backdrop"
+      onMouseDown={(mouseEvent) => {
+        if (mouseEvent.target === mouseEvent.currentTarget) {
+          onClose()
+        }
+      }}
+      role="presentation"
+    >
+      <aside
+        aria-labelledby="usage-event-detail-title"
+        aria-modal="true"
+        className="usage-event-drawer"
+        role="dialog"
+      >
+        <header className="usage-event-drawer-header">
+          <div>
+            <span>Usage Event</span>
+            <h2 id="usage-event-detail-title">{event.subject}</h2>
+          </div>
+          <Button aria-label="Close event details" onClick={onClose} size="icon" type="button" variant="ghost">
+            <X aria-hidden="true" />
+          </Button>
+        </header>
+
+        <div className="usage-event-detail-grid">
+          <EventDetailItem copyLabel="Copy event ID" label="Event ID" value={event.id} />
+          <EventDetailItem copyLabel="Copy idempotency key" label="Idempotency Key" value={event.idempotency_key || 'none'} />
+          <EventDetailItem copyLabel="Copy subject" label="Subject" value={event.subject} />
+          <EventDetailItem copyLabel="Copy meter" label="Meter" value={event.meter} />
+          <EventDetailItem label="Quantity" value={formatNumber(event.quantity)} />
+          <EventDetailItem copyLabel="Copy timestamp" label="Timestamp" value={event.timestamp} />
+          <EventDetailItem copyLabel="Copy received time" label="Received At" value={event.received_at} />
+        </div>
+
+        <section className="usage-event-metadata-panel">
+          <div className="usage-event-section-header">
+            <h3>Metadata</h3>
+            <Button aria-label="Copy metadata" onClick={() => void copyText(metadataJSON)} size="sm" type="button" variant="outline">
+              <Copy aria-hidden="true" />
+              Copy
+            </Button>
+          </div>
+          <pre>{metadataJSON}</pre>
+        </section>
+      </aside>
+    </div>
+  )
+}
+
+function EventDetailItem({
+  copyLabel,
+  label,
+  value,
+}: {
+  copyLabel?: string
+  label: string
+  value: string
+}) {
+  return (
+    <div className="usage-event-detail-item">
+      <span>{label}</span>
+      <div>
+        <strong className="mono">{value}</strong>
+        {copyLabel ? (
+          <Button aria-label={copyLabel} onClick={() => void copyText(value)} size="icon" type="button" variant="ghost">
+            <Copy aria-hidden="true" />
+          </Button>
+        ) : null}
+      </div>
+    </div>
   )
 }
 
@@ -629,6 +737,18 @@ function formatBytes(value: number) {
     return `${formatNumber(Math.round(value / 102.4) / 10)} KB`
   }
   return `${formatNumber(Math.round(value / 104857.6) / 10)} MB`
+}
+
+async function copyText(value: string) {
+  if (!navigator.clipboard) {
+    return
+  }
+
+  try {
+    await navigator.clipboard.writeText(value)
+  } catch {
+    // Copying is a convenience action; failing silently keeps the drawer usable.
+  }
 }
 
 function formatMetadataValue(value: unknown) {

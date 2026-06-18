@@ -237,6 +237,15 @@ export const When = {
     await page.getByRole('button', { name: 'View Events' }).click()
   },
 
+  async theUserOpensFirstUsageEvent(page: Page) {
+    await page.locator('.usage-events-card').getByRole('button', { name: 'Details' }).first().click()
+  },
+
+  async theUserClosesUsageEventDetails(page: Page) {
+    await page.getByRole('button', { name: 'Close event details' }).click()
+    await expect(page.locator('.usage-event-drawer')).toHaveCount(0)
+  },
+
   async theUserQueuesCurrentUsageExport(page: Page) {
     await page.getByRole('button', { name: 'Queue Export' }).click()
     await expect(page.locator('.usage-export-card')).toContainText('Usage buckets')
@@ -383,6 +392,20 @@ export const Then = {
     await expect(events).toContainText('12')
     await expect(events).not.toContainText('silver')
     await expect(events).not.toContainText('eu-west-1')
+  },
+
+  async usageEventDetailsIncludeMatchingUsage(page: Page, scenario: UsageScenario) {
+    const drawer = page.locator('.usage-event-drawer')
+    await expect(drawer).toBeVisible()
+    await expect(drawer).toContainText(scenario.primarySubject)
+    await expect(drawer).toContainText(scenario.meterName)
+    await expect(drawer).toContainText('region-name')
+    await expect(drawer).toContainText('us-east-1')
+    await expect(drawer).toContainText('service')
+    await expect(drawer).toContainText('gold')
+    await expect(drawer).toContainText('12')
+    await expect(drawer.getByRole('button', { name: 'Copy event ID' })).toBeVisible()
+    await expect(drawer.getByRole('button', { name: 'Copy metadata' })).toBeVisible()
   },
 
   async usageQueryIsScopedToSubjectAndMeter(page: Page, scenario: UsageScenario) {

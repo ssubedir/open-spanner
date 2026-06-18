@@ -36,6 +36,9 @@ test.describe('Feature: Dashboard usage exploration', () => {
 
     await When.theUserViewsCurrentUsageEvents(page)
     await Then.rawUsageEventsIncludeOnlyMatchingUsage(page, scenario)
+    await When.theUserOpensFirstUsageEvent(page)
+    await Then.usageEventDetailsIncludeMatchingUsage(page, scenario)
+    await When.theUserClosesUsageEventDetails(page)
 
     const bucketExport = await When.theUserExportsCurrentUsageBuckets(page)
     await Then.advancedUsageBucketCSVIncludesMatchingUsage(bucketExport, scenario)
