@@ -14,7 +14,7 @@ It is API-first and intentionally small. Sign in to the dashboard, create API ke
 
 - Meter definitions with units, aggregation mode, retention policy, and metadata schema
 - Single and bulk usage ingestion with idempotency
-- Bucketed usage queries with filtering, grouping, and CSV export
+- Bucketed usage queries with filtering, grouping, direct CSV export, and queued export jobs
 - Dashboard registration, cookie sessions, and API key management
 - Raw usage event search, pagination, CSV export, and retention pruning in the service API
 - SQLite and Postgres storage
@@ -54,6 +54,12 @@ Run the API with SQLite storage:
 
 ```sh
 task run:sqlite
+```
+
+Queued export jobs are processed by the export worker. Start it in a second terminal when you want dashboard export jobs to produce downloadable files:
+
+```sh
+task run:export-worker
 ```
 
 Open:
@@ -196,7 +202,12 @@ Run with Postgres storage:
 ```sh
 task postgres:up
 task run:postgres
+task run:export-worker:postgres
 ```
+
+Run the API and export worker in separate terminals so both processes stay active.
+
+For a containerized Postgres deployment, `docker-compose.app.yml` starts the API, export worker, Postgres, and a shared export volume together.
 
 Run Postgres integration tests:
 
@@ -226,6 +237,7 @@ task admin:dev
 
 ```text
 cmd/api                 API entrypoint
+cmd/export-worker       Queued export worker entrypoint
 internal/config         Environment configuration
 internal/server/http    HTTP server wiring
 internal/ui             Embedded dashboard routes/assets

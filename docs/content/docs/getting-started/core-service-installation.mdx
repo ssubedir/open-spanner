@@ -5,7 +5,7 @@ description: Run Open Spanner and send the first usage event.
 
 Open Spanner can run as a single container with SQLite or as an app, export worker, and Postgres stack with Docker Compose.
 
-Use Docker Run when you want the smallest local instance. Use Docker Compose when you want the service running against Postgres.
+Use Docker Run when you want the smallest local instance. Use Docker Compose when you want the API, export worker, Postgres, and shared export storage started together.
 
 ## Option 1: Docker Run
 
@@ -25,9 +25,20 @@ docker run --detach \
 
 Open the dashboard at `http://localhost:18081/register`.
 
+Queued export jobs need a worker process. Start a worker against the same Docker volume when you want dashboard export jobs to produce downloadable files:
+
+```sh
+docker run --detach \
+  --name open-spanner-export-worker \
+  --volume open-spanner-data:/data \
+  --entrypoint /usr/local/bin/open-spanner-export-worker \
+  open-spanner:local
+```
+
 Stop and remove the container:
 
 ```sh
+docker rm -f open-spanner-export-worker
 docker rm -f open-spanner
 ```
 
@@ -110,6 +121,19 @@ Run the export worker in another terminal when you want queued export jobs to pr
 
 ```sh
 task run:export-worker
+```
+
+For Postgres, start Postgres first:
+
+```sh
+task postgres:up
+```
+
+Then run the API and worker in separate terminals:
+
+```sh
+task run:postgres
+task run:export-worker:postgres
 ```
 
 ## Create An API Key

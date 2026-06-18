@@ -61,6 +61,8 @@ Raw event exports use the same direct export limit. For large audits, export nar
 
 Use queued exports when a report may take longer than a normal request or when a user wants to come back to a generated file later. The API creates the job, and the export worker claims queued jobs from storage, writes CSV files, and marks jobs completed.
 
+The API and worker must share the same database and export storage path. Docker Compose starts both services with a shared export volume. If you run containers manually, start `open-spanner` and `open-spanner-export-worker` with the same `/data` volume.
+
 ```sh
 curl "http://localhost:18081/v1/exports" \
   -H "Authorization: Bearer $OPEN_SPANNER_API_KEY" \
@@ -92,6 +94,20 @@ Completed jobs include a `download_url`. Download the file from that URL:
 curl "http://localhost:18081/v1/exports/{job_id}/download" \
   -H "Authorization: Bearer $OPEN_SPANNER_API_KEY" \
   -o usage-export.csv
+```
+
+Cancel a queued or running job:
+
+```sh
+curl -X POST "http://localhost:18081/v1/exports/{job_id}/cancel" \
+  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY"
+```
+
+Retry a failed or canceled job:
+
+```sh
+curl -X POST "http://localhost:18081/v1/exports/{job_id}/retry" \
+  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY"
 ```
 
 Run the export worker beside the API process when queued exports are enabled. Docker Compose starts both services. For a task-based local run, use `task run:export-worker` or `task run:export-worker:postgres` with the same database and export storage path as the API.
