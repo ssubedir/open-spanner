@@ -132,6 +132,7 @@ type AppState = {
     items: AlertRule[]
     meters: Meter[]
     saving: boolean
+    selectedEvent: AlertEvent | null
     status: LoadState
   }
   meters: {
@@ -227,6 +228,7 @@ export const appStore = createStore<AppState>({
     items: [],
     meters: [],
     saving: false,
+    selectedEvent: null,
     status: 'idle',
   },
   meters: {
@@ -373,12 +375,13 @@ export const appStoreActions = {
         listAlertRules(),
         listAlertEvents(),
       ])
-      setAlertsState({
+      setAlertsState((state) => ({
         events: events.items,
         eventStatus: 'ready',
         items: rules.items,
+        selectedEvent: state.selectedEvent ? events.items.find((event) => event.id === state.selectedEvent?.id) ?? null : null,
         status: 'ready',
-      })
+      }))
     } catch (err) {
       setAlertsState({
         error: errorMessage(err, 'Unable to load alerts'),
@@ -430,6 +433,7 @@ export const appStoreActions = {
         deleting: null,
         events: state.events.filter((event) => event.rule_id !== deleting.id),
         items: state.items.filter((item) => item.id !== deleting.id),
+        selectedEvent: state.selectedEvent?.rule_id === deleting.id ? null : state.selectedEvent,
       }))
     } catch (err) {
       setAlertsState({ error: errorMessage(err, 'Unable to delete alert') })
@@ -819,6 +823,9 @@ export const appStoreActions = {
   },
   setAlertEditing(editing: AlertRule | null) {
     setAlertsState({ editing })
+  },
+  setAlertSelectedEvent(selectedEvent: AlertEvent | null) {
+    setAlertsState({ selectedEvent })
   },
   setMeterEditing(editing: Meter | null) {
     const stats = appStore.state.meters.stats

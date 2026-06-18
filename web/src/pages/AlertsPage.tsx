@@ -1,5 +1,5 @@
 import { useSelector } from '@tanstack/react-store'
-import { BellRing, Loader2, Pencil, Play, Plus, Trash2 } from 'lucide-react'
+import { BellRing, Copy, Eye, Loader2, Pencil, Play, Plus, Trash2 } from 'lucide-react'
 import { type FormEvent, useCallback } from 'react'
 
 import { appStore, appStoreActions } from '../app-store'
@@ -9,7 +9,7 @@ import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { formatDate, formatNumber } from '../lib/format'
 import { useInitialLoad } from '../lib/hooks'
-import type { AlertRule, AlertRuleRequest, AlertRuleUpdateRequest } from '../api'
+import type { AlertEvent, AlertRule, AlertRuleRequest, AlertRuleUpdateRequest } from '../api'
 
 const comparators = [
   ['gte', '>='],
@@ -21,8 +21,9 @@ const comparators = [
 ] as const
 
 export function AlertsPage() {
-  const { deleting, editing, error, events, items, meters, saving } = useSelector(appStore, (state) => state.alerts)
+  const { deleting, editing, error, events, items, meters, saving, selectedEvent } = useSelector(appStore, (state) => state.alerts)
   const load = useCallback(() => appStoreActions.loadAlerts(), [])
+  const selectedEventRule = selectedEvent ? ruleForEvent(items, selectedEvent) : null
 
   useInitialLoad(load)
 
@@ -190,14 +191,22 @@ export function AlertsPage() {
         <CardContent>
           <DataTable
             emptyLabel="No alert events yet"
-            headers={['Type', 'Rule', 'Value', 'Message', 'Created']}
-            rows={events.map((event) => [
-              <Badge variant={event.type === 'triggered' ? 'warning' : event.type === 'resolved' ? 'success' : 'muted'}>{event.type}</Badge>,
-              <span className="mono">{event.rule_id}</span>,
-              formatNumber(event.value),
-              <span>{event.message}</span>,
-              formatDate(event.created_at),
-            ])}
+            headers={['Type', 'Rule', 'Value', 'Message', 'Created', 'Actions']}
+            rows={events.map((event) => {
+              const rule = ruleForEvent(items, event)
+              return [
+                <Badge variant={event.type === 'triggered' ? 'warning' : event.type === 'resolved' ? 'success' : 'muted'}>{event.type}</Badge>,
+                <EventRule event={event} rule={rule} />,
+                formatNumber(event.value),
+                <span>{event.message}</span>,
+                formatDate(event.created_at),
+                <span className="table-actions">
+                  <Button aria-label={`View ${event.type} alert event`} onClick={() => appStoreActions.setAlertSelectedEvent(event)} size="icon" type="button" variant="ghost">
+                    <Eye aria-hidden="true" />
+                  </Button>
+                </span>,
+              ]
+            })}
           />
         </CardContent>
       </Card>
@@ -272,6 +281,15 @@ export function AlertsPage() {
           </div>
         </Modal>
       ) : null}
+
+      {selectedEvent ? (
+        <Modal className="alert-event-modal" title="Alert Event" onClose={() => appStoreActions.setAlertSelectedEvent(null)}>
+          <AlertEventDetail event={selectedEvent} rule={selectedEventRule} />
+          <div className="modal-actions">
+            <Button onClick={() => appStoreActions.setAlertSelectedEvent(null)} type="button" variant="outline">Close</Button>
+          </div>
+        </Modal>
+      ) : null}
     </>
   )
 }
@@ -306,6 +324,118 @@ function RuleTrigger({ rule }: { rule: AlertRule }) {
       {rule.webhook_url ? <small className="muted block">Configured</small> : <small className="muted block">No URL</small>}
     </span>
   )
+}
+
+function EventRule({ event, rule }: { event: AlertEvent; rule: AlertRule | null }) {
+  if (!rule) {
+    return (
+      <span>
+        <strong>Unknown rule</strong>
+        <small className="muted block mono">{event.rule_id}</small>
+      </span>
+    )
+  }
+  return (
+    <span>
+      <strong>{rule.name}</strong>
+      <small className="muted block mono">{rule.meter}</small>
+    </span>
+  )
+}
+
+function AlertEventDetail({ event, rule }: { event: AlertEvent; rule: AlertRule | null }) {
+  const payload = alertEventJSON(event, rule)
+  return (
+    <div className="alert-event-detail">
+      <section className="alert-event-hero">
+        <div className="alert-event-heading">
+          <div>
+            <Badge variant={event.type === 'triggered' ? 'warning' : event.type === 'resolved' ? 'success' : 'muted'}>{event.type}</Badge>
+            <h3>{rule?.name || 'Unknown alert rule'}</h3>
+            <p>{event.message || 'No event message was recorded.'}</p>
+          </div>
+          <span className="muted">{formatDate(event.created_at)}</span>
+        </div>
+      </section>
+
+      <section className="alert-event-summary-grid" aria-label="Alert event details">
+        <DetailItem label="Meter" value={rule?.meter || 'unknown'} mono />
+        <DetailItem label="Value" value={formatNumber(event.value)} />
+        <DetailItem label="Condition" value={rule ? `${comparatorLabel(rule.comparator)} ${formatNumber(rule.threshold)}` : 'unknown'} />
+        <DetailItem label="Window" value={rule ? durationLabel(rule.window_seconds) : 'unknown'} />
+        <DetailItem label="Trigger" value={rule?.trigger_type || 'unknown'} />
+        <DetailItem label="Delivery" value={rule?.webhook_url ? 'Webhook configured' : 'No webhook URL'} />
+        <DetailItem label="Rule ID" value={event.rule_id} mono wide />
+        <DetailItem label="Webhook URL" value={rule?.webhook_url || 'not configured'} mono wide />
+      </section>
+
+      <section className="alert-event-json">
+        <div className="alert-event-json-header">
+          <div>
+            <h3>Event JSON</h3>
+            <p>Snapshot assembled from the recorded event and current rule.</p>
+          </div>
+          <Button onClick={() => void copyText(payload)} type="button" variant="outline">
+            <Copy aria-hidden="true" />
+            Copy
+          </Button>
+        </div>
+        <pre>{payload}</pre>
+      </section>
+    </div>
+  )
+}
+
+function DetailItem({ label, mono = false, value, wide = false }: { label: string; mono?: boolean; value: string; wide?: boolean }) {
+  return (
+    <div className={wide ? 'alert-event-detail-item wide' : 'alert-event-detail-item'}>
+      <span>{label}</span>
+      <strong className={mono ? 'mono' : undefined}>{value}</strong>
+    </div>
+  )
+}
+
+function ruleForEvent(rules: AlertRule[], event: AlertEvent) {
+  return rules.find((rule) => rule.id === event.rule_id) ?? null
+}
+
+function alertEventJSON(event: AlertEvent, rule: AlertRule | null) {
+  return JSON.stringify({
+    event,
+    rule: rule ? {
+      comparator: rule.comparator,
+      enabled: rule.enabled,
+      evaluation_interval_seconds: rule.evaluation_interval_seconds,
+      id: rule.id,
+      metadata: rule.metadata || {},
+      meter: rule.meter,
+      name: rule.name,
+      subject: rule.subject || '',
+      threshold: rule.threshold,
+      trigger_type: rule.trigger_type || 'webhook',
+      webhook_url: rule.webhook_url || '',
+      window_seconds: rule.window_seconds,
+    } : {
+      id: event.rule_id,
+    },
+    state: rule?.state || null,
+  }, null, 2)
+}
+
+async function copyText(value: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value)
+    return
+  }
+  const textarea = document.createElement('textarea')
+  textarea.value = value
+  textarea.setAttribute('readonly', 'true')
+  textarea.style.left = '-9999px'
+  textarea.style.position = 'fixed'
+  document.body.appendChild(textarea)
+  textarea.select()
+  document.execCommand('copy')
+  textarea.remove()
 }
 
 function alertRequestFromForm(form: FormData): AlertRuleRequest {
