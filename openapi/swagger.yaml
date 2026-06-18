@@ -121,6 +121,8 @@ definitions:
         type: string
       updated_at:
         type: string
+      webhook_signing:
+        $ref: '#/definitions/internal_metering_adapters_http_alert.WebhookSigning'
       webhook_url:
         type: string
       window_seconds:
@@ -200,6 +202,19 @@ definitions:
         type: string
       window_seconds:
         type: integer
+    type: object
+  internal_metering_adapters_http_alert.WebhookSigning:
+    properties:
+      algorithm:
+        type: string
+      enabled:
+        type: boolean
+      secret:
+        type: string
+      signature_header:
+        type: string
+      timestamp_header:
+        type: string
     type: object
   internal_metering_adapters_http_auth.APIKeyCreateResponse:
     properties:
@@ -981,6 +996,37 @@ paths:
           schema:
             $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
       summary: Evaluate alert rule
+      tags:
+      - alerts
+  /v1/alerts/{id}/webhook-secret/rotate:
+    post:
+      operationId: rotateAlertWebhookSecret
+      parameters:
+      - description: Alert rule ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_alert.RuleResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Rotate alert webhook signing secret
       tags:
       - alerts
   /v1/alerts/events:

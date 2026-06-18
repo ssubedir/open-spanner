@@ -44,11 +44,20 @@ type RuleResponse struct {
 	GroupBy                   string            `json:"group_by,omitempty"`
 	TriggerType               string            `json:"trigger_type"`
 	WebhookURL                string            `json:"webhook_url,omitempty"`
+	WebhookSigning            WebhookSigning    `json:"webhook_signing"`
 	NextEvaluateAt            string            `json:"next_evaluate_at"`
 	CreatedAt                 string            `json:"created_at"`
 	UpdatedAt                 string            `json:"updated_at"`
 	State                     *StateResponse    `json:"state,omitempty"`
 	States                    []StateResponse   `json:"states,omitempty"`
+}
+
+type WebhookSigning struct {
+	Enabled         bool   `json:"enabled"`
+	Algorithm       string `json:"algorithm"`
+	SignatureHeader string `json:"signature_header"`
+	TimestampHeader string `json:"timestamp_header"`
+	Secret          string `json:"secret,omitempty"`
 }
 
 type StateResponse struct {

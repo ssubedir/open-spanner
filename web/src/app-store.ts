@@ -36,6 +36,7 @@ import {
   listUsageEvents,
   listUsageExportJobs,
   refreshAuthSession,
+  rotateAlertWebhookSecret as rotateAlertWebhookSecretRequest,
   retryUsageExportJob,
   updateAlertRule,
   updateMeter as updateMeterRequest,
@@ -82,6 +83,15 @@ import { downloadBlob, safeDownloadName } from './lib/download'
 import type { LoadState } from './types'
 
 type UsageExportKind = '' | 'buckets' | 'events' | 'job'
+
+type AlertWebhookSecret = {
+  algorithm: string
+  ruleID: string
+  ruleName: string
+  secret: string
+  signatureHeader: string
+  timestampHeader: string
+}
 
 export type MeterDimensionDraft = {
   deprecated: boolean
@@ -133,6 +143,7 @@ type AppState = {
     meters: Meter[]
     saving: boolean
     selectedEvent: AlertEvent | null
+    signingSecret: AlertWebhookSecret | null
     status: LoadState
   }
   meters: {
@@ -229,6 +240,7 @@ export const appStore = createStore<AppState>({
     meters: [],
     saving: false,
     selectedEvent: null,
+    signingSecret: null,
     status: 'idle',
   },
   meters: {
@@ -299,6 +311,9 @@ export const appStore = createStore<AppState>({
 export const appStoreActions = {
   clearCreatedAPIKey() {
     setAPIKeysState({ createdKey: null })
+  },
+  clearAlertSigningSecret() {
+    setAlertsState({ signingSecret: null })
   },
   async createAPIKey(input: { name: string }) {
     setAPIKeysState({ createdKey: null, error: '', saving: true })
@@ -412,10 +427,30 @@ export const appStoreActions = {
   async createAlert(input: AlertRuleRequest) {
     setAlertsState({ error: '', saving: true })
     try {
-      await createAlertRule(input)
+      const created = await createAlertRule(input)
+      const signingSecret = alertWebhookSecretFromRule(created)
+      if (signingSecret) {
+        setAlertsState({ signingSecret })
+      }
       await appStoreActions.loadAlerts()
     } catch (err) {
       setAlertsState({ error: errorMessage(err, 'Unable to create alert') })
+      throw err
+    } finally {
+      setAlertsState({ saving: false })
+    }
+  },
+  async rotateAlertWebhookSecret(rule: AlertRule) {
+    setAlertsState({ error: '', saving: true })
+    try {
+      const updated = await rotateAlertWebhookSecretRequest(rule.id)
+      const signingSecret = alertWebhookSecretFromRule(updated)
+      setAlertsState((state) => ({
+        items: state.items.map((item) => item.id === updated.id ? updated : item),
+        signingSecret,
+      }))
+    } catch (err) {
+      setAlertsState({ error: errorMessage(err, 'Unable to rotate webhook signing secret') })
       throw err
     } finally {
       setAlertsState({ saving: false })
@@ -453,6 +488,7 @@ export const appStoreActions = {
         events: state.events.filter((event) => event.rule_id !== deleting.id),
         items: state.items.filter((item) => item.id !== deleting.id),
         selectedEvent: state.selectedEvent?.rule_id === deleting.id ? null : state.selectedEvent,
+        signingSecret: state.signingSecret?.ruleID === deleting.id ? null : state.signingSecret,
       }))
     } catch (err) {
       setAlertsState({ error: errorMessage(err, 'Unable to delete alert') })
@@ -1226,6 +1262,21 @@ function mergeAlertEvents(next: AlertEvent[], current: AlertEvent[]) {
   }
   const nextIDs = new Set(next.map((event) => event.id))
   return [...next, ...current.filter((event) => !nextIDs.has(event.id))].slice(0, 25)
+}
+
+function alertWebhookSecretFromRule(rule: AlertRule): AlertWebhookSecret | null {
+  const secret = rule.webhook_signing?.secret
+  if (!secret) {
+    return null
+  }
+  return {
+    algorithm: rule.webhook_signing.algorithm,
+    ruleID: rule.id,
+    ruleName: rule.name,
+    secret,
+    signatureHeader: rule.webhook_signing.signature_header,
+    timestampHeader: rule.webhook_signing.timestamp_header,
+  }
 }
 
 function setMetersState(update: Partial<AppState['meters']> | ((state: AppState['meters']) => Partial<AppState['meters']>)) {

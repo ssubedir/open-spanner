@@ -13,11 +13,12 @@ INSERT INTO alert_rules (
 	group_by,
 	trigger_type,
 	webhook_url,
+	webhook_secret,
 	next_evaluate_at,
 	created_at,
 	updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	name = excluded.name,
 	meter_name = excluded.meter_name,
@@ -31,11 +32,12 @@ ON CONFLICT(id) DO UPDATE SET
 	group_by = excluded.group_by,
 	trigger_type = excluded.trigger_type,
 	webhook_url = excluded.webhook_url,
+	webhook_secret = excluded.webhook_secret,
 	next_evaluate_at = excluded.next_evaluate_at,
 	updated_at = excluded.updated_at;
 
 -- name: ListAlertRules :many
-SELECT id, name, meter_name, enabled, subject, metadata, window_seconds, comparator, threshold, evaluation_interval_seconds, group_by, trigger_type, webhook_url, next_evaluate_at, created_at, updated_at
+SELECT id, name, meter_name, enabled, subject, metadata, window_seconds, comparator, threshold, evaluation_interval_seconds, group_by, trigger_type, webhook_url, webhook_secret, next_evaluate_at, created_at, updated_at
 FROM alert_rules
 WHERE (CAST(sqlc.narg('id') AS TEXT) IS NULL OR id = CAST(sqlc.narg('id') AS TEXT))
 	AND (CAST(sqlc.narg('meter_name') AS TEXT) IS NULL OR meter_name = CAST(sqlc.narg('meter_name') AS TEXT))

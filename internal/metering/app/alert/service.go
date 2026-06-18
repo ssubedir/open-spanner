@@ -2,6 +2,8 @@ package alert
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"math"
@@ -25,6 +27,7 @@ const (
 	DefaultEvaluationDelay    = 5 * time.Second
 	DefaultJobLimit           = 100
 	MaxNameRunes              = 120
+	WebhookSecretPrefix       = "osp_whsec_"
 )
 
 type Comparator string
@@ -59,6 +62,13 @@ type TriggerType string
 
 const (
 	TriggerWebhook TriggerType = "webhook"
+)
+
+const (
+	WebhookSignatureAlgorithm = "hmac-sha256"
+	WebhookSignatureHeader    = "X-Open-Spanner-Signature"
+	WebhookTimestampHeader    = "X-Open-Spanner-Timestamp"
+	WebhookSignatureVersion   = "v1"
 )
 
 type DeliveryStatus string
@@ -97,6 +107,7 @@ type Service interface {
 	Delete(ctx context.Context, cmd DeleteCommand) error
 	Get(ctx context.Context, query GetQuery) (RuleResult, error)
 	List(ctx context.Context, query ListQuery) (RuleListResult, error)
+	RotateWebhookSecret(ctx context.Context, cmd RotateWebhookSecretCommand) (RuleResult, error)
 	ListEvents(ctx context.Context, query EventListQuery) (EventListResult, error)
 	EnqueueForUsageEvents(ctx context.Context, events []UsageEvent) error
 	EnqueueDueRules(ctx context.Context, limit int) (int, error)
@@ -143,6 +154,7 @@ type Rule struct {
 	GroupBy            string
 	TriggerType        TriggerType
 	WebhookURL         string
+	WebhookSecret      string
 	NextEvaluateAt     time.Time
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
@@ -247,6 +259,10 @@ type DeleteCommand struct {
 	ID string
 }
 
+type RotateWebhookSecretCommand struct {
+	ID string
+}
+
 type GetQuery struct {
 	ID string
 }
@@ -307,6 +323,7 @@ type RuleResult struct {
 	GroupBy            string
 	TriggerType        string
 	WebhookURL         string
+	WebhookSecret      string
 	NextEvaluateAt     time.Time
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
@@ -491,6 +508,32 @@ func (s *service) Delete(ctx context.Context, cmd DeleteCommand) error {
 		return err
 	}
 	return s.repo.DeleteRule(ctx, id)
+}
+
+func (s *service) RotateWebhookSecret(ctx context.Context, cmd RotateWebhookSecretCommand) (RuleResult, error) {
+	rule, err := s.findRule(ctx, cmd.ID)
+	if err != nil {
+		return RuleResult{}, err
+	}
+	if rule.TriggerType != TriggerWebhook {
+		return RuleResult{}, errors.Join(domain.ErrInvalidInput, errors.New("only webhook alert rules can rotate signing secrets"))
+	}
+	if rule.WebhookURL == "" {
+		return RuleResult{}, errors.Join(domain.ErrInvalidInput, errors.New("webhook url must be configured before rotating signing secrets"))
+	}
+
+	secret, err := newWebhookSecret()
+	if err != nil {
+		return RuleResult{}, err
+	}
+	rule.WebhookSecret = secret
+	rule.UpdatedAt = s.now()
+
+	saved, err := s.repo.SaveRule(ctx, rule)
+	if err != nil {
+		return RuleResult{}, err
+	}
+	return s.ruleResult(ctx, saved), nil
 }
 
 func (s *service) Get(ctx context.Context, query GetQuery) (RuleResult, error) {
@@ -964,6 +1007,7 @@ func ruleFromInput(existing Rule, cmd SaveCommand, now time.Time) (Rule, error) 
 		GroupBy:            cmd.GroupBy,
 		TriggerType:        TriggerType(cmd.TriggerType),
 		WebhookURL:         cmd.WebhookURL,
+		WebhookSecret:      existing.WebhookSecret,
 		NextEvaluateAt:     existing.NextEvaluateAt,
 		CreatedAt:          existing.CreatedAt,
 		UpdatedAt:          now,
@@ -1027,6 +1071,13 @@ func validateRule(rule Rule, now time.Time) (Rule, error) {
 	if rule.NextEvaluateAt.IsZero() {
 		rule.NextEvaluateAt = now
 	}
+	if triggerType == TriggerWebhook && webhookURL != "" && strings.TrimSpace(rule.WebhookSecret) == "" {
+		secret, err := newWebhookSecret()
+		if err != nil {
+			return Rule{}, err
+		}
+		rule.WebhookSecret = secret
+	}
 
 	rule.Name = name
 	rule.MeterName = meterName
@@ -1038,6 +1089,7 @@ func validateRule(rule Rule, now time.Time) (Rule, error) {
 	rule.GroupBy = groupBy
 	rule.TriggerType = triggerType
 	rule.WebhookURL = webhookURL
+	rule.WebhookSecret = strings.TrimSpace(rule.WebhookSecret)
 	rule.CreatedAt = rule.CreatedAt.UTC()
 	rule.UpdatedAt = rule.UpdatedAt.UTC()
 	rule.NextEvaluateAt = rule.NextEvaluateAt.UTC()
@@ -1322,6 +1374,14 @@ func boolPointer(value bool) *bool {
 	return &value
 }
 
+func newWebhookSecret() (string, error) {
+	random := make([]byte, 32)
+	if _, err := rand.Read(random); err != nil {
+		return "", err
+	}
+	return WebhookSecretPrefix + base64.RawURLEncoding.EncodeToString(random), nil
+}
+
 func ruleResult(rule Rule) RuleResult {
 	return RuleResult{
 		ID:                 rule.ID,
@@ -1337,6 +1397,7 @@ func ruleResult(rule Rule) RuleResult {
 		GroupBy:            rule.GroupBy,
 		TriggerType:        string(rule.TriggerType),
 		WebhookURL:         rule.WebhookURL,
+		WebhookSecret:      rule.WebhookSecret,
 		NextEvaluateAt:     rule.NextEvaluateAt,
 		CreatedAt:          rule.CreatedAt,
 		UpdatedAt:          rule.UpdatedAt,

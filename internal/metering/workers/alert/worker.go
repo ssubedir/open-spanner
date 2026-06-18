@@ -3,11 +3,15 @@ package alert
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -258,6 +262,9 @@ func deliverWebhookTrigger(ctx context.Context, result appalert.EvaluationResult
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "open-spanner-alert-worker")
+	if result.Rule.WebhookSecret != "" {
+		signWebhookRequest(req, result.Rule.WebhookSecret, attemptedAt, body)
+	}
 
 	client := http.Client{Timeout: 10 * time.Second}
 	startedAt := time.Now()
@@ -287,6 +294,16 @@ func deliverWebhookTrigger(ctx context.Context, result appalert.EvaluationResult
 		duration:    duration,
 		attemptedAt: attemptedAt,
 	}, true
+}
+
+func signWebhookRequest(req *http.Request, secret string, timestamp time.Time, body []byte) {
+	timestampValue := strconv.FormatInt(timestamp.Unix(), 10)
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(timestampValue))
+	mac.Write([]byte("."))
+	mac.Write(body)
+	req.Header.Set(appalert.WebhookTimestampHeader, timestampValue)
+	req.Header.Set(appalert.WebhookSignatureHeader, appalert.WebhookSignatureVersion+"="+hex.EncodeToString(mac.Sum(nil)))
 }
 
 func resultEvents(result appalert.EvaluationResult) []appalert.EventResult {

@@ -375,6 +375,53 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/alerts/{id}/webhook-secret/rotate": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "alerts"
+                ],
+                "summary": "Rotate alert webhook signing secret",
+                "operationId": "rotateAlertWebhookSecret",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Alert rule ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_alert.RuleResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/auth/api-keys": {
             "get": {
                 "produces": [
@@ -2457,6 +2504,9 @@ const docTemplate = `{
                 "updated_at": {
                     "type": "string"
                 },
+                "webhook_signing": {
+                    "$ref": "#/definitions/internal_metering_adapters_http_alert.WebhookSigning"
+                },
                 "webhook_url": {
                     "type": "string"
                 },
@@ -2576,6 +2626,26 @@ const docTemplate = `{
                 },
                 "window_seconds": {
                     "type": "integer"
+                }
+            }
+        },
+        "internal_metering_adapters_http_alert.WebhookSigning": {
+            "type": "object",
+            "properties": {
+                "algorithm": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "secret": {
+                    "type": "string"
+                },
+                "signature_header": {
+                    "type": "string"
+                },
+                "timestamp_header": {
+                    "type": "string"
                 }
             }
         },

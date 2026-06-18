@@ -21,6 +21,7 @@ sql:
       - internal/metering/adapters/postgres/migrations/015_alert_triggers.up.sql
       - internal/metering/adapters/postgres/migrations/016_alert_groups.up.sql
       - internal/metering/adapters/postgres/migrations/017_alert_deliveries.up.sql
+      - internal/metering/adapters/postgres/migrations/018_alert_webhook_signing.up.sql
     queries: internal/metering/adapters/postgres/queries
     gen:
       go:
@@ -47,6 +48,7 @@ sql:
       - internal/metering/adapters/sqlite/migrations/012_alert_triggers.up.sql
       - internal/metering/adapters/sqlite/migrations/013_alert_groups.up.sql
       - internal/metering/adapters/sqlite/migrations/014_alert_deliveries.up.sql
+      - internal/metering/adapters/sqlite/migrations/015_alert_webhook_signing.up.sql
     queries: internal/metering/adapters/sqlite/queries
     gen:
       go:

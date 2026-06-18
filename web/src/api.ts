@@ -333,11 +333,20 @@ export type AlertRule = {
   group_by?: string
   trigger_type: string
   webhook_url?: string
+  webhook_signing: AlertWebhookSigning
   next_evaluate_at: string
   created_at: string
   updated_at: string
   state?: AlertState
   states?: AlertState[]
+}
+
+export type AlertWebhookSigning = {
+  enabled: boolean
+  algorithm: string
+  signature_header: string
+  timestamp_header: string
+  secret?: string
 }
 
 export type AlertRuleList = {
@@ -534,6 +543,12 @@ export async function updateAlertRule(id: string, input: AlertRuleUpdateRequest)
   return request<AlertRule>(`/v1/alerts/${encodeURIComponent(id)}`, {
     body: JSON.stringify(input),
     method: 'PUT',
+  })
+}
+
+export async function rotateAlertWebhookSecret(id: string) {
+  return request<AlertRule>(`/v1/alerts/${encodeURIComponent(id)}/webhook-secret/rotate`, {
+    method: 'POST',
   })
 }
 

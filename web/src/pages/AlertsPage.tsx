@@ -1,5 +1,5 @@
 import { useSelector } from '@tanstack/react-store'
-import { BellRing, Copy, Eye, Loader2, Pencil, Play, Plus, Trash2 } from 'lucide-react'
+import { BellRing, Copy, Eye, KeyRound, Loader2, Pencil, Play, Plus, Trash2 } from 'lucide-react'
 import { type FormEvent, useCallback, useEffect } from 'react'
 
 import { appStore, appStoreActions } from '../app-store'
@@ -21,7 +21,7 @@ const comparators = [
 ] as const
 
 export function AlertsPage() {
-  const { deleting, editing, error, events, items, meters, saving, selectedEvent } = useSelector(appStore, (state) => state.alerts)
+  const { deleting, editing, error, events, items, meters, saving, selectedEvent, signingSecret } = useSelector(appStore, (state) => state.alerts)
   const load = useCallback(() => appStoreActions.loadAlerts(), [])
   const pollEvents = useCallback(() => appStoreActions.loadAlertEvents({ quiet: true }), [])
   const selectedEventRule = selectedEvent ? ruleForEvent(items, selectedEvent) : null
@@ -64,6 +64,13 @@ export function AlertsPage() {
     }
   }
 
+  async function copySigningSecret() {
+    if (!signingSecret) {
+      return
+    }
+    await copyText(signingSecret.secret)
+  }
+
   return (
     <>
       <PageHeader
@@ -75,6 +82,24 @@ export function AlertsPage() {
       />
 
       {error ? <div className="error-banner">{error}</div> : null}
+
+      {signingSecret ? (
+        <section className="secret-panel" aria-label="Webhook signing secret">
+          <div>
+            <span>Webhook secret ready</span>
+            <strong>{signingSecret.ruleName}</strong>
+            <small>Copy this signing secret now. It will not be shown again.</small>
+          </div>
+          <code title={signingSecret.secret}>{signingSecret.secret}</code>
+          <div className="secret-actions">
+            <Button onClick={() => void copySigningSecret()} type="button">
+              <Copy aria-hidden="true" />
+              Copy secret
+            </Button>
+            <Button onClick={appStoreActions.clearAlertSigningSecret} type="button" variant="outline">Dismiss</Button>
+          </div>
+        </section>
+      ) : null}
 
       <section className="api-key-grid">
         <Card className="api-key-create-card">
@@ -183,6 +208,9 @@ export function AlertsPage() {
                 <span className="table-actions">
                   <Button aria-label={`Evaluate ${rule.name}`} disabled={saving} onClick={() => void appStoreActions.evaluateAlert(rule)} size="icon" type="button" variant="ghost">
                     <Play aria-hidden="true" />
+                  </Button>
+                  <Button aria-label={`Rotate webhook signing secret for ${rule.name}`} disabled={saving || !rule.webhook_url} onClick={() => void appStoreActions.rotateAlertWebhookSecret(rule)} size="icon" type="button" variant="ghost">
+                    <KeyRound aria-hidden="true" />
                   </Button>
                   <Button aria-label={`Edit ${rule.name}`} disabled={saving} onClick={() => appStoreActions.setAlertEditing(rule)} size="icon" type="button" variant="ghost">
                     <Pencil aria-hidden="true" />
@@ -344,7 +372,7 @@ function RuleTrigger({ rule }: { rule: AlertRule }) {
   return (
     <span>
       <Badge variant="muted">{rule.trigger_type || 'webhook'}</Badge>
-      {rule.webhook_url ? <small className="muted block">Configured</small> : <small className="muted block">No URL</small>}
+      {rule.webhook_url ? <small className="muted block">{rule.webhook_signing?.enabled ? 'Signed webhook' : 'Configured'}</small> : <small className="muted block">No URL</small>}
     </span>
   )
 }
@@ -398,6 +426,7 @@ function AlertEventDetail({ event, rule }: { event: AlertEvent; rule: AlertRule 
         <DetailItem label="Window" value={rule ? durationLabel(rule.window_seconds) : 'unknown'} />
         <DetailItem label="Trigger" value={rule?.trigger_type || 'unknown'} />
         <DetailItem label="Delivery" value={deliveryDetail(event)} />
+        <DetailItem label="Signature" value={rule?.webhook_signing?.enabled ? `${rule.webhook_signing.signature_header} · ${rule.webhook_signing.algorithm}` : 'not configured'} />
         <DetailItem label="Rule ID" value={event.rule_id} mono wide />
         <DetailItem label="Webhook URL" value={rule?.webhook_url || 'not configured'} mono wide />
         {event.delivery?.error ? <DetailItem label="Delivery Error" value={event.delivery.error} wide /> : null}

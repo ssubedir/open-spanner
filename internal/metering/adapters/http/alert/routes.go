@@ -10,4 +10,5 @@ func (h *Handler) RegisterRoutes(router chi.Router) {
 	router.Put("/alerts/{id}", h.Update)
 	router.Delete("/alerts/{id}", h.Delete)
 	router.Post("/alerts/{id}/evaluate", h.Evaluate)
+	router.Post("/alerts/{id}/webhook-secret/rotate", h.RotateWebhookSecret)
 }

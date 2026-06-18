@@ -450,6 +450,68 @@
                 }
             }
         },
+        "/v1/alerts/{id}/webhook-secret/rotate": {
+            "post": {
+                "tags": [
+                    "alerts"
+                ],
+                "summary": "Rotate alert webhook signing secret",
+                "operationId": "rotateAlertWebhookSecret",
+                "parameters": [
+                    {
+                        "description": "Alert rule ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/internal_metering_adapters_http_alert.RuleResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/auth/api-keys": {
             "get": {
                 "tags": [
@@ -3017,6 +3079,9 @@
                     "updated_at": {
                         "type": "string"
                     },
+                    "webhook_signing": {
+                        "$ref": "#/components/schemas/internal_metering_adapters_http_alert.WebhookSigning"
+                    },
                     "webhook_url": {
                         "type": "string"
                     },
@@ -3136,6 +3201,26 @@
                     },
                     "window_seconds": {
                         "type": "integer"
+                    }
+                }
+            },
+            "internal_metering_adapters_http_alert.WebhookSigning": {
+                "type": "object",
+                "properties": {
+                    "algorithm": {
+                        "type": "string"
+                    },
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "secret": {
+                        "type": "string"
+                    },
+                    "signature_header": {
+                        "type": "string"
+                    },
+                    "timestamp_header": {
+                        "type": "string"
                     }
                 }
             },

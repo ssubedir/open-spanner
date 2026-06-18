@@ -59,7 +59,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respond.JSON(w, http.StatusCreated, ruleResponse(rule))
+	respond.JSON(w, http.StatusCreated, ruleResponseWithSecret(rule, true))
 }
 
 // List lists alert rules.
@@ -187,6 +187,27 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// RotateWebhookSecret rotates an alert rule webhook signing secret.
+//
+// @Summary Rotate alert webhook signing secret
+// @ID rotateAlertWebhookSecret
+// @Tags alerts
+// @Produce json
+// @Param id path string true "Alert rule ID"
+// @Success 200 {object} RuleResponse
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 404 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/alerts/{id}/webhook-secret/rotate [post]
+func (h *Handler) RotateWebhookSecret(w http.ResponseWriter, r *http.Request) {
+	rule, err := h.service.RotateWebhookSecret(r.Context(), appalert.RotateWebhookSecretCommand{ID: chi.URLParam(r, "id")})
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	respond.JSON(w, http.StatusOK, ruleResponseWithSecret(rule, true))
+}
+
 // Evaluate evaluates an alert rule immediately.
 //
 // @Summary Evaluate alert rule
@@ -257,6 +278,10 @@ func (h *Handler) ListEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func ruleResponse(rule appalert.RuleResult) RuleResponse {
+	return ruleResponseWithSecret(rule, false)
+}
+
+func ruleResponseWithSecret(rule appalert.RuleResult, includeSecret bool) RuleResponse {
 	response := RuleResponse{
 		ID:                        rule.ID,
 		Name:                      rule.Name,
@@ -271,6 +296,7 @@ func ruleResponse(rule appalert.RuleResult) RuleResponse {
 		GroupBy:                   rule.GroupBy,
 		TriggerType:               rule.TriggerType,
 		WebhookURL:                rule.WebhookURL,
+		WebhookSigning:            webhookSigningResponse(rule, includeSecret),
 		NextEvaluateAt:            formatTime(rule.NextEvaluateAt),
 		CreatedAt:                 formatTime(rule.CreatedAt),
 		UpdatedAt:                 formatTime(rule.UpdatedAt),
@@ -281,6 +307,19 @@ func ruleResponse(rule appalert.RuleResult) RuleResponse {
 	}
 	for _, state := range rule.States {
 		response.States = append(response.States, stateResponse(state))
+	}
+	return response
+}
+
+func webhookSigningResponse(rule appalert.RuleResult, includeSecret bool) WebhookSigning {
+	response := WebhookSigning{
+		Enabled:         rule.WebhookURL != "" && rule.WebhookSecret != "",
+		Algorithm:       appalert.WebhookSignatureAlgorithm,
+		SignatureHeader: appalert.WebhookSignatureHeader,
+		TimestampHeader: appalert.WebhookTimestampHeader,
+	}
+	if includeSecret {
+		response.Secret = rule.WebhookSecret
 	}
 	return response
 }
