@@ -555,6 +555,18 @@ export async function createUsageExportJob(input: UsageExportJobCreateRequest) {
   })
 }
 
+export async function cancelUsageExportJob(id: string) {
+  return request<UsageExportJob>(`/v1/exports/${encodeURIComponent(id)}/cancel`, {
+    method: 'POST',
+  })
+}
+
+export async function retryUsageExportJob(id: string) {
+  return request<UsageExportJob>(`/v1/exports/${encodeURIComponent(id)}/retry`, {
+    method: 'POST',
+  })
+}
+
 export async function listUsageExportJobs(limit = 8) {
   return request<UsageExportJobList>(`/v1/exports?limit=${limit}`)
 }

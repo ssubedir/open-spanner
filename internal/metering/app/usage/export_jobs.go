@@ -37,6 +37,14 @@ type ExportJobFailCommand struct {
 	ErrorMessage string
 }
 
+type ExportJobCancelCommand struct {
+	ID string
+}
+
+type ExportJobRetryCommand struct {
+	ID string
+}
+
 func (s *service) CreateExportJob(ctx context.Context, cmd ExportJobCreateCommand) (ExportJobResult, error) {
 	kind := domainusage.ExportJobKind(cmd.Kind)
 	if kind == "" {
@@ -143,6 +151,38 @@ func (s *service) CompleteExportJob(ctx context.Context, cmd ExportJobCompleteCo
 
 func (s *service) FailExportJob(ctx context.Context, cmd ExportJobFailCommand) (ExportJobResult, error) {
 	job, err := s.usageRepo.FailExportJob(ctx, cmd.ID, cmd.ErrorMessage, s.now())
+	if err != nil {
+		return ExportJobResult{}, err
+	}
+	return exportJobResultFromDomain(job), nil
+}
+
+func (s *service) CancelExportJob(ctx context.Context, cmd ExportJobCancelCommand) (ExportJobResult, error) {
+	current, err := s.usageRepo.FindExportJob(ctx, cmd.ID)
+	if err != nil {
+		return ExportJobResult{}, err
+	}
+	if current.Status() != domainusage.ExportJobQueued && current.Status() != domainusage.ExportJobRunning {
+		return ExportJobResult{}, domain.ErrConflict
+	}
+
+	job, err := s.usageRepo.CancelExportJob(ctx, cmd.ID, s.now())
+	if err != nil {
+		return ExportJobResult{}, err
+	}
+	return exportJobResultFromDomain(job), nil
+}
+
+func (s *service) RetryExportJob(ctx context.Context, cmd ExportJobRetryCommand) (ExportJobResult, error) {
+	current, err := s.usageRepo.FindExportJob(ctx, cmd.ID)
+	if err != nil {
+		return ExportJobResult{}, err
+	}
+	if current.Status() != domainusage.ExportJobFailed && current.Status() != domainusage.ExportJobCanceled {
+		return ExportJobResult{}, domain.ErrConflict
+	}
+
+	job, err := s.usageRepo.RetryExportJob(ctx, cmd.ID, s.now())
 	if err != nil {
 		return ExportJobResult{}, err
 	}

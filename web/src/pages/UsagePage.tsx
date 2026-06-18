@@ -1,5 +1,5 @@
 import { useSelector } from '@tanstack/react-store'
-import { BarChart3, Copy, Download, FileClock, List, Loader2, Pin, PinOff, RefreshCw, Save, Search, Trash2, X } from 'lucide-react'
+import { Ban, BarChart3, Copy, Download, FileClock, List, Loader2, Pin, PinOff, RefreshCw, RotateCcw, Save, Search, Trash2, X } from 'lucide-react'
 import { type FormEvent, useCallback, useEffect, useMemo } from 'react'
 
 import { appStore, appStoreActions } from '../app-store'
@@ -38,6 +38,7 @@ export function UsagePage() {
     exportError,
     exportJobDownloading,
     exportJobError,
+    exportJobMutating,
     exportJobStatus,
     exportJobs,
     exporting,
@@ -301,6 +302,7 @@ export function UsagePage() {
           downloadingID={exportJobDownloading}
           error={exportJobError}
           jobs={exportJobs}
+          mutatingID={exportJobMutating}
           status={exportJobStatus}
         />
 
@@ -526,11 +528,13 @@ function ExportJobsCard({
   downloadingID,
   error,
   jobs,
+  mutatingID,
   status,
 }: {
   downloadingID: string
   error: string
   jobs: UsageExportJob[]
+  mutatingID: string
   status: string
 }) {
   const label = status === 'loading' && jobs.length === 0 ? 'Loading' : `${jobs.length} jobs`
@@ -564,16 +568,44 @@ function ExportJobsCard({
                   </div>
                   {job.error ? <p className="export-job-error">{job.error}</p> : null}
                 </div>
-                <Button
-                  disabled={job.status !== 'completed' || downloadingID === job.id}
-                  onClick={() => void appStoreActions.downloadUsageExport(job)}
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                >
-                  {downloadingID === job.id ? <Loader2 className="spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
-                  Download
-                </Button>
+                <div className="export-job-actions">
+                  {job.status === 'completed' ? (
+                    <Button
+                      disabled={downloadingID === job.id}
+                      onClick={() => void appStoreActions.downloadUsageExport(job)}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      {downloadingID === job.id ? <Loader2 className="spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
+                      Download
+                    </Button>
+                  ) : null}
+                  {job.status === 'queued' || job.status === 'running' ? (
+                    <Button
+                      disabled={mutatingID === job.id}
+                      onClick={() => void appStoreActions.cancelUsageExport(job)}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      {mutatingID === job.id ? <Loader2 className="spin" aria-hidden="true" /> : <Ban aria-hidden="true" />}
+                      Cancel
+                    </Button>
+                  ) : null}
+                  {job.status === 'failed' || job.status === 'canceled' ? (
+                    <Button
+                      disabled={mutatingID === job.id}
+                      onClick={() => void appStoreActions.retryUsageExport(job)}
+                      size="sm"
+                      type="button"
+                      variant="secondary"
+                    >
+                      {mutatingID === job.id ? <Loader2 className="spin" aria-hidden="true" /> : <RotateCcw aria-hidden="true" />}
+                      Retry
+                    </Button>
+                  ) : null}
+                </div>
               </article>
             ))}
           </div>
@@ -721,6 +753,9 @@ function exportJobStatusVariant(status: string): 'default' | 'muted' | 'success'
     return 'success'
   }
   if (status === 'failed') {
+    return 'warning'
+  }
+  if (status === 'canceled') {
     return 'warning'
   }
   if (status === 'running') {

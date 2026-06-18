@@ -348,6 +348,44 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 		t.Fatalf("found export job = %#v", foundExportJob)
 	}
 
+	cancelJobRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/exports", map[string]any{
+		"kind":   "usage_buckets",
+		"format": "csv",
+		"query": map[string]any{
+			"meter":       meterName,
+			"from":        "2026-06-08T00:00:00Z",
+			"to":          "2026-06-09T00:00:00Z",
+			"bucket_size": "day",
+			"group_by":    []string{"endpoint"},
+			"limit":       10,
+		},
+	}, authHeaders, nil)
+	if cancelJobRes.Code != http.StatusAccepted {
+		t.Fatalf("create cancelable export job status = %d, want %d: %s", cancelJobRes.Code, http.StatusAccepted, cancelJobRes.Body.String())
+	}
+	var cancelableExportJob usageExportJobResponse
+	decodeJSON(t, cancelJobRes, &cancelableExportJob)
+
+	cancelExportJobRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/exports/"+cancelableExportJob.ID+"/cancel", nil, authHeaders, nil)
+	if cancelExportJobRes.Code != http.StatusOK {
+		t.Fatalf("cancel export job status = %d, want %d: %s", cancelExportJobRes.Code, http.StatusOK, cancelExportJobRes.Body.String())
+	}
+	var canceledExportJob usageExportJobResponse
+	decodeJSON(t, cancelExportJobRes, &canceledExportJob)
+	if canceledExportJob.ID != cancelableExportJob.ID || canceledExportJob.Status != "canceled" {
+		t.Fatalf("canceled export job = %#v", canceledExportJob)
+	}
+
+	retryExportJobRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/exports/"+canceledExportJob.ID+"/retry", nil, authHeaders, nil)
+	if retryExportJobRes.Code != http.StatusOK {
+		t.Fatalf("retry export job status = %d, want %d: %s", retryExportJobRes.Code, http.StatusOK, retryExportJobRes.Body.String())
+	}
+	var retriedExportJob usageExportJobResponse
+	decodeJSON(t, retryExportJobRes, &retriedExportJob)
+	if retriedExportJob.ID != canceledExportJob.ID || retriedExportJob.Status != "queued" {
+		t.Fatalf("retried export job = %#v", retriedExportJob)
+	}
+
 	worker := exportworker.NewWorker(app.UsageService, fileexport.NewStore(cfg.ExportStoragePath), time.Millisecond, time.Minute, time.Minute, 3, t.Logf)
 	var completedExportJob usageExportJobResponse
 	for attempt := 0; attempt < 25; attempt++ {

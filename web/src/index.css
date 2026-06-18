@@ -1210,6 +1210,13 @@ svg {
   padding-right: 0;
 }
 
+.export-job-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 .export-job-error {
   margin: 0;
   color: var(--warning);
@@ -2681,7 +2688,13 @@ select:disabled,
     grid-template-columns: 1fr;
   }
 
-  .export-job-row .button {
+  .export-job-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    justify-content: stretch;
+  }
+
+  .export-job-actions .button {
     width: 100%;
   }
 

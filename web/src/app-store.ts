@@ -3,6 +3,7 @@ import type { RuleGroupType } from 'react-querybuilder'
 
 import {
   APIError,
+  cancelUsageExportJob,
   createAPIKey as createAPIKeyRequest,
   createAuthSession,
   createAuthUser,
@@ -30,6 +31,7 @@ import {
   listUsageEvents,
   listUsageExportJobs,
   refreshAuthSession,
+  retryUsageExportJob,
   updateMeter as updateMeterRequest,
   updateSavedUsageQuery,
   type APIKey,
@@ -155,6 +157,7 @@ type AppState = {
     exportError: string
     exportJobDownloading: string
     exportJobError: string
+    exportJobMutating: string
     exportJobStatus: LoadState
     exportJobs: UsageExportJob[]
     exporting: UsageExportKind
@@ -237,6 +240,7 @@ export const appStore = createStore<AppState>({
     exportError: '',
     exportJobDownloading: '',
     exportJobError: '',
+    exportJobMutating: '',
     exportJobStatus: 'idle',
     exportJobs: [],
     exporting: '',
@@ -857,6 +861,37 @@ export const appStoreActions = {
       setUsageState({ exportJobDownloading: '' })
     }
   },
+  async cancelUsageExport(job: UsageExportJob) {
+    if (job.status !== 'queued' && job.status !== 'running') {
+      return
+    }
+
+    setUsageState({ exportJobError: '', exportJobMutating: job.id })
+    try {
+      const updated = await cancelUsageExportJob(job.id)
+      setUsageState((state) => ({ exportJobs: upsertUsageExportJob(state.exportJobs, updated) }))
+    } catch (err) {
+      setUsageState({ exportJobError: errorMessage(err, 'Unable to cancel export job') })
+    } finally {
+      setUsageState({ exportJobMutating: '' })
+    }
+  },
+  async retryUsageExport(job: UsageExportJob) {
+    if (job.status !== 'failed' && job.status !== 'canceled') {
+      return
+    }
+
+    setUsageState({ exportJobError: '', exportJobMutating: job.id })
+    try {
+      const updated = await retryUsageExportJob(job.id)
+      setUsageState((state) => ({ exportJobs: upsertUsageExportJob(state.exportJobs, updated) }))
+      await appStoreActions.loadUsageExportJobs()
+    } catch (err) {
+      setUsageState({ exportJobError: errorMessage(err, 'Unable to retry export job') })
+    } finally {
+      setUsageState({ exportJobMutating: '' })
+    }
+  },
   async saveCurrentUsageQuery() {
     const state = appStore.state.usage
     const selectedID = state.selectedSavedQueryID
@@ -1140,6 +1175,10 @@ function currentUsageEventQuery(limit = 500): UsageEventQuery {
 function exportJobDownloadName(job: UsageExportJob) {
   const fileParts = ['usage-export', job.query.meter, job.id].filter((part): part is string => Boolean(part))
   return `${fileParts.map(safeDownloadName).join('-')}.csv`
+}
+
+function upsertUsageExportJob(items: UsageExportJob[], job: UsageExportJob) {
+  return items.map((item) => item.id === job.id ? job : item)
 }
 
 function usageStateFromSavedQuery(query: SavedUsageQuery, state: AppState['usage']): Partial<AppState['usage']> {

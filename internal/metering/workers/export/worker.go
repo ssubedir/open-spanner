@@ -10,6 +10,7 @@ import (
 
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/fileexport"
 	appusage "github.com/ssubedir/open-spanner/internal/metering/app/usage"
+	"github.com/ssubedir/open-spanner/internal/metering/domain"
 )
 
 type Service interface {
@@ -20,6 +21,8 @@ type Service interface {
 }
 
 type Logger func(format string, args ...any)
+
+var errExportJobNoLongerRunning = errors.New("export job is no longer running")
 
 type Worker struct {
 	service     Service
@@ -122,6 +125,10 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 		w.logger("export job completed: job_id=%s duration=%s", job.ID, duration)
 		return true, nil
 	}
+	if errors.Is(err, errExportJobNoLongerRunning) {
+		w.logger("export job skipped because it is no longer running: job_id=%s duration=%s", job.ID, duration)
+		return true, nil
+	}
 	if ctx.Err() != nil && errors.Is(err, context.Canceled) {
 		w.logger("export job abandoned during shutdown: job_id=%s duration=%s", job.ID, duration)
 		return true, nil
@@ -133,6 +140,10 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 		ID:           job.ID,
 		ErrorMessage: err.Error(),
 	}); failErr != nil {
+		if errors.Is(failErr, domain.ErrNotFound) {
+			w.logger("export job failure skipped because it is no longer running: job_id=%s duration=%s error=%v", job.ID, duration, err)
+			return true, nil
+		}
 		return true, errors.Join(err, failErr)
 	}
 	w.logger("export job failed: job_id=%s duration=%s error=%v", job.ID, duration, err)
@@ -162,5 +173,8 @@ func (w *Worker) process(ctx context.Context, job appusage.ExportJobResult) erro
 		ArtifactPath: artifact.Name,
 		ArtifactSize: artifact.Size,
 	})
+	if errors.Is(err, domain.ErrNotFound) {
+		return errExportJobNoLongerRunning
+	}
 	return err
 }
