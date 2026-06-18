@@ -2857,6 +2857,12 @@
                     "event": {
                         "$ref": "#/components/schemas/internal_metering_adapters_http_alert.EventResponse"
                     },
+                    "events": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/internal_metering_adapters_http_alert.EventResponse"
+                        }
+                    },
                     "rule": {
                         "$ref": "#/components/schemas/internal_metering_adapters_http_alert.RuleResponse"
                     },
@@ -2883,6 +2889,12 @@
                 "type": "object",
                 "properties": {
                     "created_at": {
+                        "type": "string"
+                    },
+                    "group_key": {
+                        "type": "string"
+                    },
+                    "group_value": {
                         "type": "string"
                     },
                     "id": {
@@ -2928,6 +2940,9 @@
                     "evaluation_interval_seconds": {
                         "type": "integer"
                     },
+                    "group_by": {
+                        "type": "string"
+                    },
                     "id": {
                         "type": "string"
                     },
@@ -2948,6 +2963,12 @@
                     },
                     "state": {
                         "$ref": "#/components/schemas/internal_metering_adapters_http_alert.StateResponse"
+                    },
+                    "states": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/internal_metering_adapters_http_alert.StateResponse"
+                        }
                     },
                     "subject": {
                         "type": "string"
@@ -2980,6 +3001,9 @@
                     },
                     "evaluation_interval_seconds": {
                         "type": "integer"
+                    },
+                    "group_by": {
+                        "type": "string"
                     },
                     "metadata": {
                         "type": "object",
@@ -3016,6 +3040,12 @@
                     "evaluated_at": {
                         "type": "string"
                     },
+                    "group_key": {
+                        "type": "string"
+                    },
+                    "group_value": {
+                        "type": "string"
+                    },
                     "message": {
                         "type": "string"
                     },
@@ -3041,6 +3071,9 @@
                     },
                     "evaluation_interval_seconds": {
                         "type": "integer"
+                    },
+                    "group_by": {
+                        "type": "string"
                     },
                     "metadata": {
                         "type": "object",

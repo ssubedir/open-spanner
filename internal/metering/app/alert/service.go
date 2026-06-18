@@ -66,7 +66,8 @@ type Repository interface {
 	FindRules(ctx context.Context, query RuleQuery) ([]Rule, error)
 	DeleteRule(ctx context.Context, id string) error
 	SaveState(ctx context.Context, state State) (State, error)
-	FindState(ctx context.Context, ruleID string) (State, bool, error)
+	FindState(ctx context.Context, ruleID string, groupKey string, groupValue string) (State, bool, error)
+	FindStates(ctx context.Context, ruleID string, limit int) ([]State, error)
 	SaveEvent(ctx context.Context, event Event) (Event, error)
 	FindEvents(ctx context.Context, query EventQuery) ([]Event, error)
 	EnqueueEvaluationJob(ctx context.Context, ruleID string, runAfter time.Time, now time.Time) error
@@ -79,6 +80,7 @@ type Repository interface {
 
 type UsageRepository interface {
 	Aggregate(ctx context.Context, query domainusage.AggregateQuery) (domainusage.Aggregate, error)
+	FindBreakdown(ctx context.Context, query domainusage.BreakdownQuery) ([]domainusage.BreakdownItem, error)
 }
 
 type Service interface {
@@ -129,6 +131,7 @@ type Rule struct {
 	Comparator         Comparator
 	Threshold          float64
 	EvaluationInterval time.Duration
+	GroupBy            string
 	TriggerType        TriggerType
 	WebhookURL         string
 	NextEvaluateAt     time.Time
@@ -138,6 +141,8 @@ type Rule struct {
 
 type State struct {
 	RuleID      string
+	GroupKey    string
+	GroupValue  string
 	Status      StateStatus
 	Value       float64
 	Message     string
@@ -146,12 +151,14 @@ type State struct {
 }
 
 type Event struct {
-	ID        string
-	RuleID    string
-	Type      EventType
-	Value     float64
-	Message   string
-	CreatedAt time.Time
+	ID         string
+	RuleID     string
+	GroupKey   string
+	GroupValue string
+	Type       EventType
+	Value      float64
+	Message    string
+	CreatedAt  time.Time
 }
 
 type EvaluationJob struct {
@@ -193,6 +200,7 @@ type SaveCommand struct {
 	Comparator         string
 	Threshold          float64
 	EvaluationInterval time.Duration
+	GroupBy            string
 	TriggerType        string
 	WebhookURL         string
 }
@@ -208,6 +216,7 @@ type UpdateCommand struct {
 	Comparator         string
 	Threshold          *float64
 	EvaluationInterval time.Duration
+	GroupBy            *string
 	TriggerType        string
 	WebhookURL         *string
 }
@@ -263,16 +272,20 @@ type RuleResult struct {
 	Comparator         string
 	Threshold          float64
 	EvaluationInterval int
+	GroupBy            string
 	TriggerType        string
 	WebhookURL         string
 	NextEvaluateAt     time.Time
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 	State              *StateResult
+	States             []StateResult
 }
 
 type StateResult struct {
 	Status      string
+	GroupKey    string
+	GroupValue  string
 	Value       float64
 	Message     string
 	EvaluatedAt time.Time
@@ -284,12 +297,14 @@ type RuleListResult struct {
 }
 
 type EventResult struct {
-	ID        string
-	RuleID    string
-	Type      string
-	Value     float64
-	Message   string
-	CreatedAt time.Time
+	ID         string
+	RuleID     string
+	GroupKey   string
+	GroupValue string
+	Type       string
+	Value      float64
+	Message    string
+	CreatedAt  time.Time
 }
 
 type EventListResult struct {
@@ -307,9 +322,10 @@ type EvaluationJobResult struct {
 }
 
 type EvaluationResult struct {
-	Rule  RuleResult
-	State StateResult
-	Event *EventResult
+	Rule   RuleResult
+	State  StateResult
+	Event  *EventResult
+	Events []EventResult
 }
 
 func (s *service) Create(ctx context.Context, cmd SaveCommand) (RuleResult, error) {
@@ -328,6 +344,7 @@ func (s *service) Create(ctx context.Context, cmd SaveCommand) (RuleResult, erro
 		Comparator:         cmd.Comparator,
 		Threshold:          cmd.Threshold,
 		EvaluationInterval: cmd.EvaluationInterval,
+		GroupBy:            cmd.GroupBy,
 		TriggerType:        cmd.TriggerType,
 		WebhookURL:         cmd.WebhookURL,
 	}, now)
@@ -391,6 +408,9 @@ func (s *service) Update(ctx context.Context, cmd UpdateCommand) (RuleResult, er
 	}
 	if cmd.EvaluationInterval > 0 {
 		next.EvaluationInterval = cmd.EvaluationInterval
+	}
+	if cmd.GroupBy != nil {
+		next.GroupBy = *cmd.GroupBy
 	}
 	if cmd.TriggerType != "" {
 		next.TriggerType = TriggerType(cmd.TriggerType)
@@ -574,6 +594,13 @@ func (s *service) Evaluate(ctx context.Context, cmd EvaluateCommand) (Evaluation
 		return EvaluationResult{}, err
 	}
 
+	if rule.GroupBy != "" {
+		return s.evaluateGrouped(ctx, rule, meter)
+	}
+	return s.evaluateGlobal(ctx, rule, meter)
+}
+
+func (s *service) evaluateGlobal(ctx context.Context, rule Rule, meter domainmeter.Meter) (EvaluationResult, error) {
 	now := s.now()
 	query, err := domainusage.NewAggregateQuery(
 		rule.Subject,
@@ -620,7 +647,7 @@ func (s *service) Evaluate(ctx context.Context, cmd EvaluateCommand) (Evaluation
 		nextState.Message = fmt.Sprintf("value %.4f is within threshold %.4f", aggregate.Quantity(), rule.Threshold)
 	}
 
-	previous, found, err := s.repo.FindState(ctx, rule.ID)
+	previous, found, err := s.repo.FindState(ctx, rule.ID, "", "")
 	if err != nil {
 		return EvaluationResult{}, err
 	}
@@ -641,17 +668,141 @@ func (s *service) Evaluate(ctx context.Context, cmd EvaluateCommand) (Evaluation
 	if event != nil {
 		eventResult := eventResult(*event)
 		result.Event = &eventResult
+		result.Events = []EventResult{eventResult}
+	}
+	return result, nil
+}
+
+func (s *service) evaluateGrouped(ctx context.Context, rule Rule, meter domainmeter.Meter) (EvaluationResult, error) {
+	now := s.now()
+	filter, err := metadataFilter(rule.Metadata)
+	if err != nil {
+		return EvaluationResult{}, err
+	}
+	query, err := domainusage.NewBreakdownQuery(
+		rule.MeterName,
+		rule.GroupBy,
+		rule.Subject,
+		now.Add(-rule.Window),
+		now,
+		meter.Aggregation(),
+		domainusage.MaxLimit,
+		filter,
+	)
+	if err != nil {
+		return EvaluationResult{}, err
+	}
+	items, err := s.usageRepo.FindBreakdown(ctx, query)
+	if err != nil {
+		state := State{
+			RuleID:      rule.ID,
+			Status:      StateError,
+			Message:     err.Error(),
+			EvaluatedAt: now,
+			UpdatedAt:   now,
+		}
+		event := Event{ID: uuid.NewString(), RuleID: rule.ID, Type: EventEvaluationFailed, Message: err.Error(), CreatedAt: now}
+		if saveErr := s.saveEvaluation(ctx, rule, state, &event, now); saveErr != nil {
+			return EvaluationResult{}, errors.Join(err, saveErr)
+		}
+		return EvaluationResult{}, err
+	}
+
+	previousStates, err := s.repo.FindStates(ctx, rule.ID, domainusage.MaxLimit)
+	if err != nil {
+		return EvaluationResult{}, err
+	}
+	previousByGroup := map[string]State{}
+	for _, state := range previousStates {
+		previousByGroup[groupID(state.GroupKey, state.GroupValue)] = state
+	}
+
+	states := make([]State, 0, len(items)+len(previousStates))
+	events := []Event{}
+	seen := map[string]struct{}{}
+	for _, item := range items {
+		state := groupedState(rule, rule.GroupBy, item.Value(), item.Quantity(), item.UsageEvents(), now)
+		key := groupID(state.GroupKey, state.GroupValue)
+		seen[key] = struct{}{}
+		if previous, found := previousByGroup[key]; shouldCreateEvent(previous, found, state) {
+			events = append(events, eventForState(rule.ID, state, found, now))
+		}
+		states = append(states, state)
+	}
+
+	for _, previous := range previousStates {
+		key := groupID(previous.GroupKey, previous.GroupValue)
+		if _, exists := seen[key]; exists || previous.GroupKey == "" {
+			continue
+		}
+		state := State{
+			RuleID:      rule.ID,
+			GroupKey:    previous.GroupKey,
+			GroupValue:  previous.GroupValue,
+			Status:      StateNoData,
+			Message:     groupMessage(previous.GroupKey, previous.GroupValue, "no usage data in alert window"),
+			EvaluatedAt: now,
+			UpdatedAt:   now,
+		}
+		if previous.Status == StateAlerting {
+			events = append(events, Event{
+				ID:         uuid.NewString(),
+				RuleID:     rule.ID,
+				GroupKey:   state.GroupKey,
+				GroupValue: state.GroupValue,
+				Type:       EventResolved,
+				Value:      state.Value,
+				Message:    state.Message,
+				CreatedAt:  now,
+			})
+		}
+		states = append(states, state)
+	}
+
+	if len(states) == 0 {
+		state := State{
+			RuleID:      rule.ID,
+			Status:      StateNoData,
+			Message:     "no usage data in alert window",
+			EvaluatedAt: now,
+			UpdatedAt:   now,
+		}
+		states = append(states, state)
+	}
+
+	if err := s.saveEvaluations(ctx, rule, states, events, now); err != nil {
+		return EvaluationResult{}, err
+	}
+
+	state := primaryState(states)
+	result := EvaluationResult{Rule: s.ruleResult(ctx, rule), State: stateResult(state)}
+	for _, event := range events {
+		eventResult := eventResult(event)
+		result.Events = append(result.Events, eventResult)
+	}
+	if len(result.Events) > 0 {
+		result.Event = &result.Events[0]
 	}
 	return result, nil
 }
 
 func (s *service) saveEvaluation(ctx context.Context, rule Rule, state State, event *Event, now time.Time) error {
+	events := []Event{}
+	if event != nil {
+		events = append(events, *event)
+	}
+	return s.saveEvaluations(ctx, rule, []State{state}, events, now)
+}
+
+func (s *service) saveEvaluations(ctx context.Context, rule Rule, states []State, events []Event, now time.Time) error {
 	return s.transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
-		if _, err := s.repo.SaveState(txCtx, state); err != nil {
-			return err
+		for _, state := range states {
+			if _, err := s.repo.SaveState(txCtx, state); err != nil {
+				return err
+			}
 		}
-		if event != nil {
-			if _, err := s.repo.SaveEvent(txCtx, *event); err != nil {
+		for _, event := range events {
+			if _, err := s.repo.SaveEvent(txCtx, event); err != nil {
 				return err
 			}
 		}
@@ -687,10 +838,21 @@ func (s *service) findMeter(ctx context.Context, meterName string) (domainmeter.
 
 func (s *service) ruleResult(ctx context.Context, rule Rule) RuleResult {
 	result := ruleResult(rule)
-	state, found, err := s.repo.FindState(ctx, rule.ID)
-	if err == nil && found {
-		value := stateResult(state)
-		result.State = &value
+	states, err := s.repo.FindStates(ctx, rule.ID, domainusage.MaxLimit)
+	if err == nil && len(states) > 0 {
+		results := make([]StateResult, 0, len(states))
+		for _, state := range states {
+			results = append(results, stateResult(state))
+		}
+		result.States = results
+		primary := stateResult(primaryState(states))
+		result.State = &primary
+	} else {
+		state, found, err := s.repo.FindState(ctx, rule.ID, "", "")
+		if err == nil && found {
+			value := stateResult(state)
+			result.State = &value
+		}
 	}
 	return result
 }
@@ -711,6 +873,7 @@ func ruleFromInput(existing Rule, cmd SaveCommand, now time.Time) (Rule, error) 
 		Comparator:         Comparator(cmd.Comparator),
 		Threshold:          cmd.Threshold,
 		EvaluationInterval: cmd.EvaluationInterval,
+		GroupBy:            cmd.GroupBy,
 		TriggerType:        TriggerType(cmd.TriggerType),
 		WebhookURL:         cmd.WebhookURL,
 		NextEvaluateAt:     existing.NextEvaluateAt,
@@ -755,6 +918,10 @@ func validateRule(rule Rule, now time.Time) (Rule, error) {
 	if interval == 0 {
 		interval = DefaultEvaluationInterval
 	}
+	groupBy, err := normalizeGroupBy(rule.GroupBy)
+	if err != nil {
+		return Rule{}, err
+	}
 	triggerType, err := normalizeTriggerType(rule.TriggerType)
 	if err != nil {
 		return Rule{}, err
@@ -780,6 +947,7 @@ func validateRule(rule Rule, now time.Time) (Rule, error) {
 	rule.Window = window
 	rule.Comparator = comparator
 	rule.EvaluationInterval = interval
+	rule.GroupBy = groupBy
 	rule.TriggerType = triggerType
 	rule.WebhookURL = webhookURL
 	rule.CreatedAt = rule.CreatedAt.UTC()
@@ -829,6 +997,20 @@ func normalizeComparator(value Comparator) (Comparator, error) {
 	default:
 		return "", errors.Join(domain.ErrInvalidInput, fmt.Errorf("unsupported comparator %q", value))
 	}
+}
+
+func normalizeGroupBy(value string) (string, error) {
+	value = strings.TrimPrefix(strings.TrimSpace(value), "metadata.")
+	if value == "" {
+		return "", nil
+	}
+	if domainusage.IsSubjectGroupBy(value) {
+		return value, nil
+	}
+	if _, err := domainmeter.NewDimension(value, domainmeter.MetadataString, "", "", false); err != nil {
+		return "", errors.Join(domain.ErrInvalidInput, fmt.Errorf("unsupported alert group field %q", value))
+	}
+	return value, nil
 }
 
 func normalizeTriggerType(value TriggerType) (TriggerType, error) {
@@ -913,6 +1095,109 @@ func ruleMatchesUsageEvent(rule Rule, event UsageEvent) bool {
 	return true
 }
 
+func metadataFilter(metadata map[string]string) (domainusage.Filter, error) {
+	conditions := make([]domainusage.Filter, 0, len(metadata))
+	for key, value := range metadata {
+		condition, err := domainusage.NewFilterCondition("metadata."+key, domainusage.FilterOpEqual, value, true)
+		if err != nil {
+			return domainusage.Filter{}, err
+		}
+		conditions = append(conditions, condition)
+	}
+	if len(conditions) == 0 {
+		return domainusage.EmptyFilter(), nil
+	}
+	if len(conditions) == 1 {
+		return conditions[0], nil
+	}
+	return domainusage.NewFilterGroup(domainusage.FilterGroupAnd, conditions)
+}
+
+func groupedState(rule Rule, groupKey string, groupValue string, value float64, usageEvents int, now time.Time) State {
+	state := State{
+		RuleID:      rule.ID,
+		GroupKey:    groupKey,
+		GroupValue:  groupValue,
+		Value:       value,
+		EvaluatedAt: now,
+		UpdatedAt:   now,
+	}
+	if usageEvents == 0 {
+		state.Status = StateNoData
+		state.Message = groupMessage(groupKey, groupValue, "no usage data in alert window")
+	} else if compare(rule.Comparator, value, rule.Threshold) {
+		state.Status = StateAlerting
+		state.Message = groupMessage(groupKey, groupValue, fmt.Sprintf("value %.4f %s threshold %.4f", value, rule.Comparator, rule.Threshold))
+	} else {
+		state.Status = StateOK
+		state.Message = groupMessage(groupKey, groupValue, fmt.Sprintf("value %.4f is within threshold %.4f", value, rule.Threshold))
+	}
+	return state
+}
+
+func shouldCreateEvent(previous State, found bool, next State) bool {
+	return next.Status == StateAlerting && (!found || previous.Status != StateAlerting) ||
+		found && previous.Status == StateAlerting && next.Status != StateAlerting
+}
+
+func eventForState(ruleID string, state State, found bool, now time.Time) Event {
+	eventType := EventTriggered
+	if found && state.Status != StateAlerting {
+		eventType = EventResolved
+	}
+	return Event{
+		ID:         uuid.NewString(),
+		RuleID:     ruleID,
+		GroupKey:   state.GroupKey,
+		GroupValue: state.GroupValue,
+		Type:       eventType,
+		Value:      state.Value,
+		Message:    state.Message,
+		CreatedAt:  now,
+	}
+}
+
+func groupID(groupKey string, groupValue string) string {
+	return groupKey + "\x00" + groupValue
+}
+
+func groupMessage(groupKey string, groupValue string, message string) string {
+	if groupKey == "" && groupValue == "" {
+		return message
+	}
+	return fmt.Sprintf("%s for %s %s", message, groupKey, groupValue)
+}
+
+func primaryState(states []State) State {
+	if len(states) == 0 {
+		return State{}
+	}
+	primary := states[0]
+	for _, state := range states[1:] {
+		if statePriority(state.Status) < statePriority(primary.Status) {
+			primary = state
+			continue
+		}
+		if statePriority(state.Status) == statePriority(primary.Status) && state.UpdatedAt.After(primary.UpdatedAt) {
+			primary = state
+		}
+	}
+	return primary
+}
+
+func statePriority(status StateStatus) int {
+	switch status {
+	case StateAlerting:
+		return 0
+	case StateError:
+		return 1
+	case StateNoData:
+		return 2
+	default:
+		return 3
+	}
+}
+
 func metadataValue(metadata map[string]any, key string) (any, bool) {
 	if value, ok := metadata[key]; ok {
 		return value, true
@@ -952,6 +1237,7 @@ func ruleResult(rule Rule) RuleResult {
 		Comparator:         string(rule.Comparator),
 		Threshold:          rule.Threshold,
 		EvaluationInterval: int(rule.EvaluationInterval.Seconds()),
+		GroupBy:            rule.GroupBy,
 		TriggerType:        string(rule.TriggerType),
 		WebhookURL:         rule.WebhookURL,
 		NextEvaluateAt:     rule.NextEvaluateAt,
@@ -963,6 +1249,8 @@ func ruleResult(rule Rule) RuleResult {
 func stateResult(state State) StateResult {
 	return StateResult{
 		Status:      string(state.Status),
+		GroupKey:    state.GroupKey,
+		GroupValue:  state.GroupValue,
 		Value:       state.Value,
 		Message:     state.Message,
 		EvaluatedAt: state.EvaluatedAt,
@@ -972,12 +1260,14 @@ func stateResult(state State) StateResult {
 
 func eventResult(event Event) EventResult {
 	return EventResult{
-		ID:        event.ID,
-		RuleID:    event.RuleID,
-		Type:      string(event.Type),
-		Value:     event.Value,
-		Message:   event.Message,
-		CreatedAt: event.CreatedAt,
+		ID:         event.ID,
+		RuleID:     event.RuleID,
+		GroupKey:   event.GroupKey,
+		GroupValue: event.GroupValue,
+		Type:       string(event.Type),
+		Value:      event.Value,
+		Message:    event.Message,
+		CreatedAt:  event.CreatedAt,
 	}
 }
 

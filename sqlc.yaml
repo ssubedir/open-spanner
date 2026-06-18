@@ -19,6 +19,7 @@ sql:
       - internal/metering/adapters/postgres/migrations/013_usage_export_job_processing.up.sql
       - internal/metering/adapters/postgres/migrations/014_alerts.up.sql
       - internal/metering/adapters/postgres/migrations/015_alert_triggers.up.sql
+      - internal/metering/adapters/postgres/migrations/016_alert_groups.up.sql
     queries: internal/metering/adapters/postgres/queries
     gen:
       go:
@@ -43,6 +44,7 @@ sql:
       - internal/metering/adapters/sqlite/migrations/010_usage_export_job_processing.up.sql
       - internal/metering/adapters/sqlite/migrations/011_alerts.up.sql
       - internal/metering/adapters/sqlite/migrations/012_alert_triggers.up.sql
+      - internal/metering/adapters/sqlite/migrations/013_alert_groups.up.sql
     queries: internal/metering/adapters/sqlite/queries
     gen:
       go:

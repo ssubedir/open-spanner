@@ -10,13 +10,14 @@ INSERT INTO alert_rules (
 	comparator,
 	threshold,
 	evaluation_interval_seconds,
+	group_by,
 	trigger_type,
 	webhook_url,
 	next_evaluate_at,
 	created_at,
 	updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	name = excluded.name,
 	meter_name = excluded.meter_name,
@@ -27,13 +28,14 @@ ON CONFLICT(id) DO UPDATE SET
 	comparator = excluded.comparator,
 	threshold = excluded.threshold,
 	evaluation_interval_seconds = excluded.evaluation_interval_seconds,
+	group_by = excluded.group_by,
 	trigger_type = excluded.trigger_type,
 	webhook_url = excluded.webhook_url,
 	next_evaluate_at = excluded.next_evaluate_at,
 	updated_at = excluded.updated_at;
 
 -- name: ListAlertRules :many
-SELECT id, name, meter_name, enabled, subject, metadata, window_seconds, comparator, threshold, evaluation_interval_seconds, trigger_type, webhook_url, next_evaluate_at, created_at, updated_at
+SELECT id, name, meter_name, enabled, subject, metadata, window_seconds, comparator, threshold, evaluation_interval_seconds, group_by, trigger_type, webhook_url, next_evaluate_at, created_at, updated_at
 FROM alert_rules
 WHERE (CAST(sqlc.narg('id') AS TEXT) IS NULL OR id = CAST(sqlc.narg('id') AS TEXT))
 	AND (CAST(sqlc.narg('meter_name') AS TEXT) IS NULL OR meter_name = CAST(sqlc.narg('meter_name') AS TEXT))
@@ -46,9 +48,9 @@ DELETE FROM alert_rules
 WHERE id = ?;
 
 -- name: SaveAlertState :exec
-INSERT INTO alert_states (rule_id, status, value, message, evaluated_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?)
-ON CONFLICT(rule_id) DO UPDATE SET
+INSERT INTO alert_states (rule_id, group_key, group_value, status, value, message, evaluated_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(rule_id, group_key, group_value) DO UPDATE SET
 	status = excluded.status,
 	value = excluded.value,
 	message = excluded.message,
@@ -56,16 +58,34 @@ ON CONFLICT(rule_id) DO UPDATE SET
 	updated_at = excluded.updated_at;
 
 -- name: FindAlertState :one
-SELECT rule_id, status, value, message, evaluated_at, updated_at
+SELECT rule_id, group_key, group_value, status, value, message, evaluated_at, updated_at
 FROM alert_states
-WHERE rule_id = ?;
+WHERE rule_id = sqlc.arg('rule_id')
+	AND group_key = sqlc.arg('group_key')
+	AND group_value = sqlc.arg('group_value');
+
+-- name: ListAlertStates :many
+SELECT rule_id, group_key, group_value, status, value, message, evaluated_at, updated_at
+FROM alert_states
+WHERE rule_id = sqlc.arg('rule_id')
+ORDER BY
+	CASE status
+		WHEN 'alerting' THEN 0
+		WHEN 'error' THEN 1
+		WHEN 'no_data' THEN 2
+		ELSE 3
+	END,
+	updated_at DESC,
+	group_key ASC,
+	group_value ASC
+LIMIT sqlc.arg('limit');
 
 -- name: SaveAlertEvent :exec
-INSERT INTO alert_events (id, rule_id, type, value, message, created_at)
-VALUES (?, ?, ?, ?, ?, ?);
+INSERT INTO alert_events (id, rule_id, group_key, group_value, type, value, message, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListAlertEvents :many
-SELECT id, rule_id, type, value, message, created_at
+SELECT id, rule_id, group_key, group_value, type, value, message, created_at
 FROM alert_events
 WHERE (CAST(sqlc.narg('rule_id') AS TEXT) IS NULL OR rule_id = CAST(sqlc.narg('rule_id') AS TEXT))
 	AND (CAST(sqlc.narg('cursor_created_at') AS TEXT) IS NULL

@@ -460,6 +460,7 @@ func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handl
 		"name":                        "High API calls " + suffix,
 		"meter":                       meterName,
 		"metadata":                    map[string]string{"endpoint": "/orders"},
+		"group_by":                    "subject",
 		"window_seconds":              3600,
 		"comparator":                  "gte",
 		"threshold":                   10,
@@ -478,10 +479,14 @@ func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handl
 	if alertRule.TriggerType != "webhook" || alertRule.WebhookURL != webhookServer.URL {
 		t.Fatalf("created alert trigger = %#v, want webhook %q", alertRule, webhookServer.URL)
 	}
+	if alertRule.GroupBy != "subject" {
+		t.Fatalf("created alert group_by = %q, want subject", alertRule.GroupBy)
+	}
 
+	alertSubject := "org_alert_" + suffix
 	createUsage := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages", map[string]any{
 		"idempotency_key": "alert-flow-" + suffix + "-1",
-		"subject":         "org_alert_" + suffix,
+		"subject":         alertSubject,
 		"meter":           meterName,
 		"quantity":        12,
 		"timestamp":       time.Now().UTC().Add(-time.Minute).Format(time.RFC3339Nano),
@@ -489,6 +494,17 @@ func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handl
 	}, authHeaders, nil)
 	if createUsage.Code != http.StatusCreated {
 		t.Fatalf("create alert usage status = %d, want %d: %s", createUsage.Code, http.StatusCreated, createUsage.Body.String())
+	}
+	createLowUsage := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages", map[string]any{
+		"idempotency_key": "alert-flow-" + suffix + "-2",
+		"subject":         "org_alert_low_" + suffix,
+		"meter":           meterName,
+		"quantity":        4,
+		"timestamp":       time.Now().UTC().Add(-time.Minute).Format(time.RFC3339Nano),
+		"metadata":        map[string]any{"endpoint": "/orders", "status": 200},
+	}, authHeaders, nil)
+	if createLowUsage.Code != http.StatusCreated {
+		t.Fatalf("create low alert usage status = %d, want %d: %s", createLowUsage.Code, http.StatusCreated, createLowUsage.Body.String())
 	}
 
 	worker := alertworker.NewWorker(app.AlertService, time.Millisecond, time.Minute, time.Minute, time.Second, 3, 10, t.Logf)
@@ -515,8 +531,8 @@ func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handl
 	if !delivered {
 		t.Fatal("alert webhook was not delivered")
 	}
-	if payload.Event.Type != "triggered" || payload.Event.Value != 12 || payload.Rule.Meter != meterName || payload.State.Status != "alerting" {
-		t.Fatalf("webhook payload = %#v, want triggered value 12 for %s", payload, meterName)
+	if payload.Event.Type != "triggered" || payload.Event.Value != 12 || payload.Event.GroupKey != "subject" || payload.Event.GroupValue != alertSubject || payload.Rule.Meter != meterName || payload.Rule.GroupBy != "subject" || payload.State.Status != "alerting" || payload.State.GroupValue != alertSubject {
+		t.Fatalf("webhook payload = %#v, want triggered value 12 for grouped subject %s", payload, alertSubject)
 	}
 
 	getAlert := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/alerts/"+alertRule.ID, nil, authHeaders, nil)
@@ -525,8 +541,11 @@ func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handl
 	}
 	var evaluated alertRuleResponse
 	decodeJSON(t, getAlert, &evaluated)
-	if evaluated.State == nil || evaluated.State.Status != "alerting" || evaluated.State.Value != 12 {
-		t.Fatalf("evaluated alert = %#v, want alerting value 12", evaluated)
+	if evaluated.State == nil || evaluated.State.Status != "alerting" || evaluated.State.Value != 12 || evaluated.State.GroupValue != alertSubject {
+		t.Fatalf("evaluated alert = %#v, want alerting value 12 for subject %s", evaluated, alertSubject)
+	}
+	if len(evaluated.States) < 2 {
+		t.Fatalf("evaluated states = %#v, want grouped states for alerting and ok subjects", evaluated.States)
 	}
 
 	events := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/alerts/events?rule_id="+url.QueryEscape(alertRule.ID)+"&limit=10", nil, authHeaders, nil)
@@ -535,8 +554,8 @@ func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handl
 	}
 	var alertEvents alertEventListResponse
 	decodeJSON(t, events, &alertEvents)
-	if len(alertEvents.Items) != 1 || alertEvents.Items[0].RuleID != alertRule.ID || alertEvents.Items[0].Type != "triggered" || alertEvents.Items[0].Value != 12 {
-		t.Fatalf("alert events = %#v, want one triggered event for value 12", alertEvents)
+	if len(alertEvents.Items) != 1 || alertEvents.Items[0].RuleID != alertRule.ID || alertEvents.Items[0].Type != "triggered" || alertEvents.Items[0].Value != 12 || alertEvents.Items[0].GroupValue != alertSubject {
+		t.Fatalf("alert events = %#v, want one triggered event for subject %s", alertEvents, alertSubject)
 	}
 }
 
@@ -1903,26 +1922,30 @@ type usageExportJobResponse struct {
 }
 
 type alertRuleResponse struct {
-	ID                        string              `json:"id"`
-	Name                      string              `json:"name"`
-	Meter                     string              `json:"meter"`
-	Enabled                   bool                `json:"enabled"`
-	Subject                   string              `json:"subject"`
-	Metadata                  map[string]string   `json:"metadata"`
-	WindowSeconds             int                 `json:"window_seconds"`
-	Comparator                string              `json:"comparator"`
-	Threshold                 float64             `json:"threshold"`
-	EvaluationIntervalSeconds int                 `json:"evaluation_interval_seconds"`
-	TriggerType               string              `json:"trigger_type"`
-	WebhookURL                string              `json:"webhook_url"`
-	NextEvaluateAt            string              `json:"next_evaluate_at"`
-	CreatedAt                 string              `json:"created_at"`
-	UpdatedAt                 string              `json:"updated_at"`
-	State                     *alertStateResponse `json:"state"`
+	ID                        string               `json:"id"`
+	Name                      string               `json:"name"`
+	Meter                     string               `json:"meter"`
+	Enabled                   bool                 `json:"enabled"`
+	Subject                   string               `json:"subject"`
+	Metadata                  map[string]string    `json:"metadata"`
+	WindowSeconds             int                  `json:"window_seconds"`
+	Comparator                string               `json:"comparator"`
+	Threshold                 float64              `json:"threshold"`
+	EvaluationIntervalSeconds int                  `json:"evaluation_interval_seconds"`
+	GroupBy                   string               `json:"group_by"`
+	TriggerType               string               `json:"trigger_type"`
+	WebhookURL                string               `json:"webhook_url"`
+	NextEvaluateAt            string               `json:"next_evaluate_at"`
+	CreatedAt                 string               `json:"created_at"`
+	UpdatedAt                 string               `json:"updated_at"`
+	State                     *alertStateResponse  `json:"state"`
+	States                    []alertStateResponse `json:"states"`
 }
 
 type alertStateResponse struct {
 	Status      string  `json:"status"`
+	GroupKey    string  `json:"group_key"`
+	GroupValue  string  `json:"group_value"`
 	Value       float64 `json:"value"`
 	Message     string  `json:"message"`
 	EvaluatedAt string  `json:"evaluated_at"`
@@ -1930,12 +1953,14 @@ type alertStateResponse struct {
 }
 
 type alertEventResponse struct {
-	ID        string  `json:"id"`
-	RuleID    string  `json:"rule_id"`
-	Type      string  `json:"type"`
-	Value     float64 `json:"value"`
-	Message   string  `json:"message"`
-	CreatedAt string  `json:"created_at"`
+	ID         string  `json:"id"`
+	RuleID     string  `json:"rule_id"`
+	GroupKey   string  `json:"group_key"`
+	GroupValue string  `json:"group_value"`
+	Type       string  `json:"type"`
+	Value      float64 `json:"value"`
+	Message    string  `json:"message"`
+	CreatedAt  string  `json:"created_at"`
 }
 
 type alertEventListResponse struct {
@@ -1945,13 +1970,17 @@ type alertEventListResponse struct {
 
 type alertWebhookPayload struct {
 	Event struct {
-		Type  string  `json:"type"`
-		Value float64 `json:"value"`
+		Type       string  `json:"type"`
+		GroupKey   string  `json:"group_key"`
+		GroupValue string  `json:"group_value"`
+		Value      float64 `json:"value"`
 	} `json:"event"`
 	Rule struct {
-		Meter string `json:"meter"`
+		Meter   string `json:"meter"`
+		GroupBy string `json:"group_by"`
 	} `json:"rule"`
 	State struct {
-		Status string `json:"status"`
+		Status     string `json:"status"`
+		GroupValue string `json:"group_value"`
 	} `json:"state"`
 }

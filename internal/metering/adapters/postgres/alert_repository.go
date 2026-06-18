@@ -37,6 +37,7 @@ func (r *AlertRepository) SaveRule(ctx context.Context, rule appalert.Rule) (app
 		Comparator:                string(rule.Comparator),
 		Threshold:                 rule.Threshold,
 		EvaluationIntervalSeconds: int32(rule.EvaluationInterval.Seconds()),
+		GroupBy:                   rule.GroupBy,
 		TriggerType:               string(rule.TriggerType),
 		WebhookUrl:                rule.WebhookURL,
 		NextEvaluateAt:            formatTime(rule.NextEvaluateAt),
@@ -86,6 +87,8 @@ func (r *AlertRepository) DeleteRule(ctx context.Context, id string) error {
 func (r *AlertRepository) SaveState(ctx context.Context, state appalert.State) (appalert.State, error) {
 	err := queriesFor(ctx, r.queries).SaveAlertState(ctx, postgresdb.SaveAlertStateParams{
 		RuleID:      state.RuleID,
+		GroupKey:    state.GroupKey,
+		GroupValue:  state.GroupValue,
 		Status:      string(state.Status),
 		Value:       state.Value,
 		Message:     state.Message,
@@ -98,8 +101,12 @@ func (r *AlertRepository) SaveState(ctx context.Context, state appalert.State) (
 	return state, nil
 }
 
-func (r *AlertRepository) FindState(ctx context.Context, ruleID string) (appalert.State, bool, error) {
-	row, err := queriesFor(ctx, r.queries).FindAlertState(ctx, ruleID)
+func (r *AlertRepository) FindState(ctx context.Context, ruleID string, groupKey string, groupValue string) (appalert.State, bool, error) {
+	row, err := queriesFor(ctx, r.queries).FindAlertState(ctx, postgresdb.FindAlertStateParams{
+		RuleID:     ruleID,
+		GroupKey:   groupKey,
+		GroupValue: groupValue,
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return appalert.State{}, false, nil
 	}
@@ -107,21 +114,43 @@ func (r *AlertRepository) FindState(ctx context.Context, ruleID string) (appaler
 		return appalert.State{}, false, err
 	}
 
-	state, err := postgresAlertState(row)
+	state, err := postgresAlertStateFromFind(row)
 	if err != nil {
 		return appalert.State{}, false, err
 	}
 	return state, true, nil
 }
 
+func (r *AlertRepository) FindStates(ctx context.Context, ruleID string, limit int) ([]appalert.State, error) {
+	rows, err := queriesFor(ctx, r.queries).ListAlertStates(ctx, postgresdb.ListAlertStatesParams{
+		RuleID: ruleID,
+		Limit:  int32(limit),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	states := make([]appalert.State, 0, len(rows))
+	for _, row := range rows {
+		state, err := postgresAlertStateFromList(row)
+		if err != nil {
+			return nil, err
+		}
+		states = append(states, state)
+	}
+	return states, nil
+}
+
 func (r *AlertRepository) SaveEvent(ctx context.Context, event appalert.Event) (appalert.Event, error) {
 	err := queriesFor(ctx, r.queries).SaveAlertEvent(ctx, postgresdb.SaveAlertEventParams{
-		ID:        event.ID,
-		RuleID:    event.RuleID,
-		Type:      string(event.Type),
-		Value:     event.Value,
-		Message:   event.Message,
-		CreatedAt: formatTime(event.CreatedAt),
+		ID:         event.ID,
+		RuleID:     event.RuleID,
+		GroupKey:   event.GroupKey,
+		GroupValue: event.GroupValue,
+		Type:       string(event.Type),
+		Value:      event.Value,
+		Message:    event.Message,
+		CreatedAt:  formatTime(event.CreatedAt),
 	})
 	if err != nil {
 		return appalert.Event{}, err
@@ -255,6 +284,7 @@ func postgresAlertRule(row postgresdb.ListAlertRulesRow) (appalert.Rule, error) 
 		Comparator:         appalert.Comparator(row.Comparator),
 		Threshold:          row.Threshold,
 		EvaluationInterval: time.Duration(row.EvaluationIntervalSeconds) * time.Second,
+		GroupBy:            row.GroupBy,
 		TriggerType:        appalert.TriggerType(row.TriggerType),
 		WebhookURL:         row.WebhookUrl,
 		NextEvaluateAt:     nextEvaluateAt,
@@ -263,42 +293,54 @@ func postgresAlertRule(row postgresdb.ListAlertRulesRow) (appalert.Rule, error) 
 	}, nil
 }
 
-func postgresAlertState(row postgresdb.AlertState) (appalert.State, error) {
+func postgresAlertStateFromFind(row postgresdb.FindAlertStateRow) (appalert.State, error) {
+	return postgresAlertState(row.RuleID, row.GroupKey, row.GroupValue, row.Status, row.Value, row.Message, row.EvaluatedAt, row.UpdatedAt)
+}
+
+func postgresAlertStateFromList(row postgresdb.ListAlertStatesRow) (appalert.State, error) {
+	return postgresAlertState(row.RuleID, row.GroupKey, row.GroupValue, row.Status, row.Value, row.Message, row.EvaluatedAt, row.UpdatedAt)
+}
+
+func postgresAlertState(ruleID string, groupKey string, groupValue string, status string, value float64, message string, evaluatedAtValue sql.NullString, updatedAtValue string) (appalert.State, error) {
 	evaluatedAt := time.Time{}
 	var err error
-	if row.EvaluatedAt.Valid {
-		evaluatedAt, err = time.Parse(time.RFC3339Nano, row.EvaluatedAt.String)
+	if evaluatedAtValue.Valid {
+		evaluatedAt, err = time.Parse(time.RFC3339Nano, evaluatedAtValue.String)
 		if err != nil {
 			return appalert.State{}, err
 		}
 	}
-	updatedAt, err := time.Parse(time.RFC3339Nano, row.UpdatedAt)
+	updatedAt, err := time.Parse(time.RFC3339Nano, updatedAtValue)
 	if err != nil {
 		return appalert.State{}, err
 	}
 
 	return appalert.State{
-		RuleID:      row.RuleID,
-		Status:      appalert.StateStatus(row.Status),
-		Value:       row.Value,
-		Message:     row.Message,
+		RuleID:      ruleID,
+		GroupKey:    groupKey,
+		GroupValue:  groupValue,
+		Status:      appalert.StateStatus(status),
+		Value:       value,
+		Message:     message,
 		EvaluatedAt: evaluatedAt,
 		UpdatedAt:   updatedAt,
 	}, nil
 }
 
-func postgresAlertEvent(row postgresdb.AlertEvent) (appalert.Event, error) {
+func postgresAlertEvent(row postgresdb.ListAlertEventsRow) (appalert.Event, error) {
 	createdAt, err := time.Parse(time.RFC3339Nano, row.CreatedAt)
 	if err != nil {
 		return appalert.Event{}, err
 	}
 	return appalert.Event{
-		ID:        row.ID,
-		RuleID:    row.RuleID,
-		Type:      appalert.EventType(row.Type),
-		Value:     row.Value,
-		Message:   row.Message,
-		CreatedAt: createdAt,
+		ID:         row.ID,
+		RuleID:     row.RuleID,
+		GroupKey:   row.GroupKey,
+		GroupValue: row.GroupValue,
+		Type:       appalert.EventType(row.Type),
+		Value:      row.Value,
+		Message:    row.Message,
+		CreatedAt:  createdAt,
 	}, nil
 }
 

@@ -390,6 +390,25 @@ export const appStoreActions = {
       })
     }
   },
+  async loadAlertEvents(options: { quiet?: boolean } = {}) {
+    if (!options.quiet) {
+      setAlertsState({ error: '', eventStatus: 'loading' })
+    }
+
+    try {
+      const events = await listAlertEvents()
+      setAlertsState((state) => ({
+        events: events.items,
+        eventStatus: 'ready',
+        selectedEvent: state.selectedEvent ? events.items.find((event) => event.id === state.selectedEvent?.id) ?? state.selectedEvent : null,
+      }))
+    } catch (err) {
+      setAlertsState({
+        error: errorMessage(err, 'Unable to load alert events'),
+        eventStatus: 'error',
+      })
+    }
+  },
   async createAlert(input: AlertRuleRequest) {
     setAlertsState({ error: '', saving: true })
     try {
@@ -447,7 +466,7 @@ export const appStoreActions = {
     try {
       const result = await evaluateAlertRule(rule.id)
       setAlertsState((state) => ({
-        events: result.event ? [result.event, ...state.events.filter((event) => event.id !== result.event?.id)].slice(0, 25) : state.events,
+        events: mergeAlertEvents(result.events?.length ? result.events : result.event ? [result.event] : [], state.events),
         items: state.items.map((item) => item.id === rule.id ? result.rule : item),
       }))
     } catch (err) {
@@ -1199,6 +1218,14 @@ function setAlertsState(update: Partial<AppState['alerts']> | ((state: AppState[
       ...(typeof update === 'function' ? update(state.alerts) : update),
     },
   }))
+}
+
+function mergeAlertEvents(next: AlertEvent[], current: AlertEvent[]) {
+  if (next.length === 0) {
+    return current
+  }
+  const nextIDs = new Set(next.map((event) => event.id))
+  return [...next, ...current.filter((event) => !nextIDs.has(event.id))].slice(0, 25)
 }
 
 function setMetersState(update: Partial<AppState['meters']> | ((state: AppState['meters']) => Partial<AppState['meters']>)) {

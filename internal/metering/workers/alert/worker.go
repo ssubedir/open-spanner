@@ -130,9 +130,9 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 	result, err := w.service.Evaluate(jobCtx, appalert.EvaluateCommand{RuleID: job.RuleID})
 	duration := time.Since(startedAt).Round(time.Millisecond)
 	if err == nil {
-		if result.Event != nil {
-			if triggerErr := deliverWebhookTrigger(jobCtx, result); triggerErr != nil {
-				w.logger("alert trigger delivery failed: rule_id=%s event_id=%s error=%v", job.RuleID, result.Event.ID, triggerErr)
+		for _, event := range resultEvents(result) {
+			if triggerErr := deliverWebhookTrigger(jobCtx, result, event); triggerErr != nil {
+				w.logger("alert trigger delivery failed: rule_id=%s event_id=%s error=%v", job.RuleID, event.ID, triggerErr)
 			}
 		}
 		if err := w.service.CompleteEvaluationJob(ctx, appalert.CompleteCommand{RuleID: job.RuleID}); err != nil && !errors.Is(err, domain.ErrNotFound) {
@@ -166,11 +166,12 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-func deliverWebhookTrigger(ctx context.Context, result appalert.EvaluationResult) error {
-	if result.Rule.TriggerType != string(appalert.TriggerWebhook) || result.Rule.WebhookURL == "" || result.Event == nil {
+func deliverWebhookTrigger(ctx context.Context, result appalert.EvaluationResult, event appalert.EventResult) error {
+	if result.Rule.TriggerType != string(appalert.TriggerWebhook) || result.Rule.WebhookURL == "" {
 		return nil
 	}
 
+	state := stateForEvent(result, event)
 	payload := webhookPayload{
 		Rule: webhookRulePayload{
 			ID:                        result.Rule.ID,
@@ -183,21 +184,26 @@ func deliverWebhookTrigger(ctx context.Context, result appalert.EvaluationResult
 			Comparator:                result.Rule.Comparator,
 			Threshold:                 result.Rule.Threshold,
 			EvaluationIntervalSeconds: result.Rule.EvaluationInterval,
+			GroupBy:                   result.Rule.GroupBy,
 		},
 		State: webhookStatePayload{
-			Status:      result.State.Status,
-			Value:       result.State.Value,
-			Message:     result.State.Message,
-			EvaluatedAt: result.State.EvaluatedAt.Format(time.RFC3339),
-			UpdatedAt:   result.State.UpdatedAt.Format(time.RFC3339),
+			Status:      state.Status,
+			GroupKey:    state.GroupKey,
+			GroupValue:  state.GroupValue,
+			Value:       state.Value,
+			Message:     state.Message,
+			EvaluatedAt: state.EvaluatedAt.Format(time.RFC3339),
+			UpdatedAt:   state.UpdatedAt.Format(time.RFC3339),
 		},
 		Event: webhookEventPayload{
-			ID:        result.Event.ID,
-			RuleID:    result.Event.RuleID,
-			Type:      result.Event.Type,
-			Value:     result.Event.Value,
-			Message:   result.Event.Message,
-			CreatedAt: result.Event.CreatedAt.Format(time.RFC3339),
+			ID:         event.ID,
+			RuleID:     event.RuleID,
+			GroupKey:   event.GroupKey,
+			GroupValue: event.GroupValue,
+			Type:       event.Type,
+			Value:      event.Value,
+			Message:    event.Message,
+			CreatedAt:  event.CreatedAt.Format(time.RFC3339),
 		},
 	}
 
@@ -224,6 +230,28 @@ func deliverWebhookTrigger(ctx context.Context, result appalert.EvaluationResult
 	return nil
 }
 
+func resultEvents(result appalert.EvaluationResult) []appalert.EventResult {
+	if len(result.Events) > 0 {
+		return result.Events
+	}
+	if result.Event == nil {
+		return nil
+	}
+	return []appalert.EventResult{*result.Event}
+}
+
+func stateForEvent(result appalert.EvaluationResult, event appalert.EventResult) appalert.StateResult {
+	for _, state := range result.Rule.States {
+		if state.GroupKey == event.GroupKey && state.GroupValue == event.GroupValue {
+			return state
+		}
+	}
+	if result.State.GroupKey == event.GroupKey && result.State.GroupValue == event.GroupValue {
+		return result.State
+	}
+	return result.State
+}
+
 type webhookPayload struct {
 	Event webhookEventPayload `json:"event"`
 	Rule  webhookRulePayload  `json:"rule"`
@@ -241,10 +269,13 @@ type webhookRulePayload struct {
 	Comparator                string            `json:"comparator"`
 	Threshold                 float64           `json:"threshold"`
 	EvaluationIntervalSeconds int               `json:"evaluation_interval_seconds"`
+	GroupBy                   string            `json:"group_by,omitempty"`
 }
 
 type webhookStatePayload struct {
 	Status      string  `json:"status"`
+	GroupKey    string  `json:"group_key,omitempty"`
+	GroupValue  string  `json:"group_value,omitempty"`
 	Value       float64 `json:"value"`
 	Message     string  `json:"message"`
 	EvaluatedAt string  `json:"evaluated_at"`
@@ -252,10 +283,12 @@ type webhookStatePayload struct {
 }
 
 type webhookEventPayload struct {
-	ID        string  `json:"id"`
-	RuleID    string  `json:"rule_id"`
-	Type      string  `json:"type"`
-	Value     float64 `json:"value"`
-	Message   string  `json:"message"`
-	CreatedAt string  `json:"created_at"`
+	ID         string  `json:"id"`
+	RuleID     string  `json:"rule_id"`
+	GroupKey   string  `json:"group_key,omitempty"`
+	GroupValue string  `json:"group_value,omitempty"`
+	Type       string  `json:"type"`
+	Value      float64 `json:"value"`
+	Message    string  `json:"message"`
+	CreatedAt  string  `json:"created_at"`
 }

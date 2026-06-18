@@ -37,6 +37,7 @@ func (r *AlertRepository) SaveRule(ctx context.Context, rule appalert.Rule) (app
 		Comparator:                string(rule.Comparator),
 		Threshold:                 rule.Threshold,
 		EvaluationIntervalSeconds: int64(rule.EvaluationInterval.Seconds()),
+		GroupBy:                   rule.GroupBy,
 		TriggerType:               string(rule.TriggerType),
 		WebhookUrl:                rule.WebhookURL,
 		NextEvaluateAt:            formatTime(rule.NextEvaluateAt),
@@ -86,6 +87,8 @@ func (r *AlertRepository) DeleteRule(ctx context.Context, id string) error {
 func (r *AlertRepository) SaveState(ctx context.Context, state appalert.State) (appalert.State, error) {
 	err := queriesFor(ctx, r.queries).SaveAlertState(ctx, sqlitedb.SaveAlertStateParams{
 		RuleID:      state.RuleID,
+		GroupKey:    state.GroupKey,
+		GroupValue:  state.GroupValue,
 		Status:      string(state.Status),
 		Value:       state.Value,
 		Message:     state.Message,
@@ -98,8 +101,12 @@ func (r *AlertRepository) SaveState(ctx context.Context, state appalert.State) (
 	return state, nil
 }
 
-func (r *AlertRepository) FindState(ctx context.Context, ruleID string) (appalert.State, bool, error) {
-	row, err := queriesFor(ctx, r.queries).FindAlertState(ctx, ruleID)
+func (r *AlertRepository) FindState(ctx context.Context, ruleID string, groupKey string, groupValue string) (appalert.State, bool, error) {
+	row, err := queriesFor(ctx, r.queries).FindAlertState(ctx, sqlitedb.FindAlertStateParams{
+		RuleID:     ruleID,
+		GroupKey:   groupKey,
+		GroupValue: groupValue,
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return appalert.State{}, false, nil
 	}
@@ -114,14 +121,36 @@ func (r *AlertRepository) FindState(ctx context.Context, ruleID string) (appaler
 	return state, true, nil
 }
 
+func (r *AlertRepository) FindStates(ctx context.Context, ruleID string, limit int) ([]appalert.State, error) {
+	rows, err := queriesFor(ctx, r.queries).ListAlertStates(ctx, sqlitedb.ListAlertStatesParams{
+		RuleID: ruleID,
+		Limit:  int64(limit),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	states := make([]appalert.State, 0, len(rows))
+	for _, row := range rows {
+		state, err := sqliteAlertState(row)
+		if err != nil {
+			return nil, err
+		}
+		states = append(states, state)
+	}
+	return states, nil
+}
+
 func (r *AlertRepository) SaveEvent(ctx context.Context, event appalert.Event) (appalert.Event, error) {
 	err := queriesFor(ctx, r.queries).SaveAlertEvent(ctx, sqlitedb.SaveAlertEventParams{
-		ID:        event.ID,
-		RuleID:    event.RuleID,
-		Type:      string(event.Type),
-		Value:     event.Value,
-		Message:   event.Message,
-		CreatedAt: formatTime(event.CreatedAt),
+		ID:         event.ID,
+		RuleID:     event.RuleID,
+		GroupKey:   event.GroupKey,
+		GroupValue: event.GroupValue,
+		Type:       string(event.Type),
+		Value:      event.Value,
+		Message:    event.Message,
+		CreatedAt:  formatTime(event.CreatedAt),
 	})
 	if err != nil {
 		return appalert.Event{}, err
@@ -255,6 +284,7 @@ func sqliteAlertRule(row sqlitedb.ListAlertRulesRow) (appalert.Rule, error) {
 		Comparator:         appalert.Comparator(row.Comparator),
 		Threshold:          row.Threshold,
 		EvaluationInterval: time.Duration(row.EvaluationIntervalSeconds) * time.Second,
+		GroupBy:            row.GroupBy,
 		TriggerType:        appalert.TriggerType(row.TriggerType),
 		WebhookURL:         row.WebhookUrl,
 		NextEvaluateAt:     nextEvaluateAt,
@@ -279,6 +309,8 @@ func sqliteAlertState(row sqlitedb.AlertState) (appalert.State, error) {
 
 	return appalert.State{
 		RuleID:      row.RuleID,
+		GroupKey:    row.GroupKey,
+		GroupValue:  row.GroupValue,
 		Status:      appalert.StateStatus(row.Status),
 		Value:       row.Value,
 		Message:     row.Message,
@@ -287,18 +319,20 @@ func sqliteAlertState(row sqlitedb.AlertState) (appalert.State, error) {
 	}, nil
 }
 
-func sqliteAlertEvent(row sqlitedb.AlertEvent) (appalert.Event, error) {
+func sqliteAlertEvent(row sqlitedb.ListAlertEventsRow) (appalert.Event, error) {
 	createdAt, err := time.Parse(time.RFC3339Nano, row.CreatedAt)
 	if err != nil {
 		return appalert.Event{}, err
 	}
 	return appalert.Event{
-		ID:        row.ID,
-		RuleID:    row.RuleID,
-		Type:      appalert.EventType(row.Type),
-		Value:     row.Value,
-		Message:   row.Message,
-		CreatedAt: createdAt,
+		ID:         row.ID,
+		RuleID:     row.RuleID,
+		GroupKey:   row.GroupKey,
+		GroupValue: row.GroupValue,
+		Type:       appalert.EventType(row.Type),
+		Value:      row.Value,
+		Message:    row.Message,
+		CreatedAt:  createdAt,
 	}, nil
 }
 

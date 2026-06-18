@@ -311,6 +311,8 @@ export type APIKeyCreateResponse = APIKey & {
 
 export type AlertState = {
   status: string
+  group_key?: string
+  group_value?: string
   value: number
   message: string
   evaluated_at?: string
@@ -328,12 +330,14 @@ export type AlertRule = {
   comparator: string
   threshold: number
   evaluation_interval_seconds: number
+  group_by?: string
   trigger_type: string
   webhook_url?: string
   next_evaluate_at: string
   created_at: string
   updated_at: string
   state?: AlertState
+  states?: AlertState[]
 }
 
 export type AlertRuleList = {
@@ -343,6 +347,8 @@ export type AlertRuleList = {
 export type AlertEvent = {
   id: string
   rule_id: string
+  group_key?: string
+  group_value?: string
   type: string
   value: number
   message: string
@@ -364,6 +370,7 @@ export type AlertRuleRequest = {
   comparator?: string
   threshold: number
   evaluation_interval_seconds?: number
+  group_by?: string
   trigger_type?: string
   webhook_url?: string
 }
@@ -524,7 +531,7 @@ export async function deleteAlertRule(id: string) {
 }
 
 export async function evaluateAlertRule(id: string) {
-  return request<{ rule: AlertRule; state: AlertState; event?: AlertEvent }>(`/v1/alerts/${encodeURIComponent(id)}/evaluate`, {
+  return request<{ rule: AlertRule; state: AlertState; event?: AlertEvent; events?: AlertEvent[] }>(`/v1/alerts/${encodeURIComponent(id)}/evaluate`, {
     method: 'POST',
   })
 }

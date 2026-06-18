@@ -1,6 +1,6 @@
 import { useSelector } from '@tanstack/react-store'
 import { BellRing, Copy, Eye, Loader2, Pencil, Play, Plus, Trash2 } from 'lucide-react'
-import { type FormEvent, useCallback } from 'react'
+import { type FormEvent, useCallback, useEffect } from 'react'
 
 import { appStore, appStoreActions } from '../app-store'
 import { DataTable, Modal, PageHeader } from '../components/dashboard'
@@ -9,7 +9,7 @@ import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { formatDate, formatNumber } from '../lib/format'
 import { useInitialLoad } from '../lib/hooks'
-import type { AlertEvent, AlertRule, AlertRuleRequest, AlertRuleUpdateRequest } from '../api'
+import type { AlertEvent, AlertRule, AlertRuleRequest, AlertRuleUpdateRequest, Meter } from '../api'
 
 const comparators = [
   ['gte', '>='],
@@ -23,9 +23,19 @@ const comparators = [
 export function AlertsPage() {
   const { deleting, editing, error, events, items, meters, saving, selectedEvent } = useSelector(appStore, (state) => state.alerts)
   const load = useCallback(() => appStoreActions.loadAlerts(), [])
+  const pollEvents = useCallback(() => appStoreActions.loadAlertEvents({ quiet: true }), [])
   const selectedEventRule = selectedEvent ? ruleForEvent(items, selectedEvent) : null
+  const groupByOptions = alertGroupByOptions(meters)
 
   useInitialLoad(load)
+
+  useEffect(() => {
+    const poll = window.setInterval(() => {
+      void pollEvents()
+    }, 5000)
+
+    return () => window.clearInterval(poll)
+  }, [pollEvents])
 
   async function submitCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -116,6 +126,12 @@ export function AlertsPage() {
                 </select>
               </label>
               <label>
+                Evaluate Per
+                <select name="group_by" defaultValue="">
+                  {groupByOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </label>
+              <label>
                 Trigger
                 <select name="trigger_type" defaultValue="webhook">
                   <option value="webhook">Webhook</option>
@@ -197,7 +213,7 @@ export function AlertsPage() {
               return [
                 <Badge variant={event.type === 'triggered' ? 'warning' : event.type === 'resolved' ? 'success' : 'muted'}>{event.type}</Badge>,
                 <EventRule event={event} rule={rule} />,
-                formatNumber(event.value),
+                <EventValue event={event} />,
                 <span>{event.message}</span>,
                 formatDate(event.created_at),
                 <span className="table-actions">
@@ -241,6 +257,12 @@ export function AlertsPage() {
             <label>
               Evaluate Every
               <input defaultValue={editing.evaluation_interval_seconds} min="1" name="evaluation_interval_seconds" required type="number" />
+            </label>
+            <label>
+              Evaluate Per
+              <select defaultValue={editing.group_by || ''} name="group_by">
+                {groupByOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
             </label>
             <label>
               Trigger
@@ -298,7 +320,7 @@ function RuleName({ rule }: { rule: AlertRule }) {
   return (
     <span>
       <strong>{rule.name}</strong>
-      <small className="muted block">{rule.enabled ? 'Enabled' : 'Disabled'}</small>
+      <small className="muted block">{rule.enabled ? 'Enabled' : 'Disabled'}{rule.group_by ? ` · per ${groupLabel(rule.group_by)}` : ''}</small>
     </span>
   )
 }
@@ -312,7 +334,7 @@ function RuleState({ rule }: { rule: AlertRule }) {
   return (
     <span>
       <Badge variant={variant}>{state.status}</Badge>
-      <small className="muted block">{formatNumber(state.value)}</small>
+      <small className="muted block">{state.group_value ? `${groupLabel(state.group_key)} ${state.group_value} · ` : ''}{formatNumber(state.value)}</small>
     </span>
   )
 }
@@ -338,7 +360,16 @@ function EventRule({ event, rule }: { event: AlertEvent; rule: AlertRule | null 
   return (
     <span>
       <strong>{rule.name}</strong>
-      <small className="muted block mono">{rule.meter}</small>
+      <small className="muted block mono">{event.group_value ? `${groupLabel(event.group_key)} ${event.group_value}` : rule.meter}</small>
+    </span>
+  )
+}
+
+function EventValue({ event }: { event: AlertEvent }) {
+  return (
+    <span>
+      {formatNumber(event.value)}
+      {event.group_value ? <small className="muted block">{groupLabel(event.group_key)} {event.group_value}</small> : null}
     </span>
   )
 }
@@ -362,6 +393,7 @@ function AlertEventDetail({ event, rule }: { event: AlertEvent; rule: AlertRule 
         <DetailItem label="Meter" value={rule?.meter || 'unknown'} mono />
         <DetailItem label="Value" value={formatNumber(event.value)} />
         <DetailItem label="Condition" value={rule ? `${comparatorLabel(rule.comparator)} ${formatNumber(rule.threshold)}` : 'unknown'} />
+        <DetailItem label="Group" value={event.group_value ? `${groupLabel(event.group_key)} ${event.group_value}` : rule?.group_by ? `per ${groupLabel(rule.group_by)}` : 'total'} />
         <DetailItem label="Window" value={rule ? durationLabel(rule.window_seconds) : 'unknown'} />
         <DetailItem label="Trigger" value={rule?.trigger_type || 'unknown'} />
         <DetailItem label="Delivery" value={rule?.webhook_url ? 'Webhook configured' : 'No webhook URL'} />
@@ -406,6 +438,7 @@ function alertEventJSON(event: AlertEvent, rule: AlertRule | null) {
       comparator: rule.comparator,
       enabled: rule.enabled,
       evaluation_interval_seconds: rule.evaluation_interval_seconds,
+      group_by: rule.group_by || '',
       id: rule.id,
       metadata: rule.metadata || {},
       meter: rule.meter,
@@ -443,6 +476,7 @@ function alertRequestFromForm(form: FormData): AlertRuleRequest {
     comparator: String(form.get('comparator') || 'gte'),
     enabled: form.get('enabled') === 'on',
     evaluation_interval_seconds: numberField(form, 'evaluation_interval_seconds'),
+    group_by: String(form.get('group_by') || '').trim(),
     metadata: metadataFromText(String(form.get('metadata') || '')),
     meter: String(form.get('meter') || ''),
     name: String(form.get('name') || ''),
@@ -483,6 +517,33 @@ function metadataText(metadata?: Record<string, string>) {
   return Object.entries(metadata || {})
     .map(([key, value]) => `${key}=${value}`)
     .join('\n')
+}
+
+function alertGroupByOptions(meters: Meter[]) {
+  const options = new Map<string, string>([
+    ['', 'Total'],
+    ['subject', 'Subject'],
+  ])
+  for (const meter of meters) {
+    for (const dimension of meter.dimensions || []) {
+      if (!dimension.name || dimension.deprecated) {
+        continue
+      }
+      options.set(dimension.name, groupLabel(dimension.name))
+    }
+  }
+  return Array.from(options, ([value, label]) => ({ label, value }))
+}
+
+function groupLabel(value?: string) {
+  const field = String(value || '').replace(/^metadata\./, '')
+  if (!field) {
+    return 'total'
+  }
+  if (field === 'subject') {
+    return 'subject'
+  }
+  return field
 }
 
 function comparatorLabel(value: string) {

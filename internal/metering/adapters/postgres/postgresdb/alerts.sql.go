@@ -130,16 +130,37 @@ func (q *Queries) EnqueueDueAlertEvaluationJobs(ctx context.Context, arg Enqueue
 }
 
 const findAlertState = `-- name: FindAlertState :one
-SELECT rule_id, status, value, message, evaluated_at, updated_at
+SELECT rule_id, group_key, group_value, status, value, message, evaluated_at, updated_at
 FROM alert_states
 WHERE rule_id = $1
+	AND group_key = $2
+	AND group_value = $3
 `
 
-func (q *Queries) FindAlertState(ctx context.Context, ruleID string) (AlertState, error) {
-	row := q.db.QueryRowContext(ctx, findAlertState, ruleID)
-	var i AlertState
+type FindAlertStateParams struct {
+	RuleID     string
+	GroupKey   string
+	GroupValue string
+}
+
+type FindAlertStateRow struct {
+	RuleID      string
+	GroupKey    string
+	GroupValue  string
+	Status      string
+	Value       float64
+	Message     string
+	EvaluatedAt sql.NullString
+	UpdatedAt   string
+}
+
+func (q *Queries) FindAlertState(ctx context.Context, arg FindAlertStateParams) (FindAlertStateRow, error) {
+	row := q.db.QueryRowContext(ctx, findAlertState, arg.RuleID, arg.GroupKey, arg.GroupValue)
+	var i FindAlertStateRow
 	err := row.Scan(
 		&i.RuleID,
+		&i.GroupKey,
+		&i.GroupValue,
 		&i.Status,
 		&i.Value,
 		&i.Message,
@@ -150,7 +171,7 @@ func (q *Queries) FindAlertState(ctx context.Context, ruleID string) (AlertState
 }
 
 const listAlertEvents = `-- name: ListAlertEvents :many
-SELECT id, rule_id, type, value, message, created_at
+SELECT id, rule_id, group_key, group_value, type, value, message, created_at
 FROM alert_events
 WHERE ($1::text IS NULL OR rule_id = $1::text)
 	AND ($2::text IS NULL
@@ -167,7 +188,18 @@ type ListAlertEventsParams struct {
 	Limit           int32
 }
 
-func (q *Queries) ListAlertEvents(ctx context.Context, arg ListAlertEventsParams) ([]AlertEvent, error) {
+type ListAlertEventsRow struct {
+	ID         string
+	RuleID     string
+	GroupKey   string
+	GroupValue string
+	Type       string
+	Value      float64
+	Message    string
+	CreatedAt  string
+}
+
+func (q *Queries) ListAlertEvents(ctx context.Context, arg ListAlertEventsParams) ([]ListAlertEventsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listAlertEvents,
 		arg.RuleID,
 		arg.CursorCreatedAt,
@@ -178,12 +210,14 @@ func (q *Queries) ListAlertEvents(ctx context.Context, arg ListAlertEventsParams
 		return nil, err
 	}
 	defer rows.Close()
-	items := []AlertEvent{}
+	items := []ListAlertEventsRow{}
 	for rows.Next() {
-		var i AlertEvent
+		var i ListAlertEventsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.RuleID,
+			&i.GroupKey,
+			&i.GroupValue,
 			&i.Type,
 			&i.Value,
 			&i.Message,
@@ -203,7 +237,7 @@ func (q *Queries) ListAlertEvents(ctx context.Context, arg ListAlertEventsParams
 }
 
 const listAlertRules = `-- name: ListAlertRules :many
-SELECT id, name, meter_name, enabled, subject, metadata, window_seconds, comparator, threshold, evaluation_interval_seconds, trigger_type, webhook_url, next_evaluate_at, created_at, updated_at
+SELECT id, name, meter_name, enabled, subject, metadata, window_seconds, comparator, threshold, evaluation_interval_seconds, group_by, trigger_type, webhook_url, next_evaluate_at, created_at, updated_at
 FROM alert_rules
 WHERE ($1::text IS NULL OR id = $1::text)
 	AND ($2::text IS NULL OR meter_name = $2::text)
@@ -230,6 +264,7 @@ type ListAlertRulesRow struct {
 	Comparator                string
 	Threshold                 float64
 	EvaluationIntervalSeconds int32
+	GroupBy                   string
 	TriggerType               string
 	WebhookUrl                string
 	NextEvaluateAt            string
@@ -262,10 +297,76 @@ func (q *Queries) ListAlertRules(ctx context.Context, arg ListAlertRulesParams) 
 			&i.Comparator,
 			&i.Threshold,
 			&i.EvaluationIntervalSeconds,
+			&i.GroupBy,
 			&i.TriggerType,
 			&i.WebhookUrl,
 			&i.NextEvaluateAt,
 			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAlertStates = `-- name: ListAlertStates :many
+SELECT rule_id, group_key, group_value, status, value, message, evaluated_at, updated_at
+FROM alert_states
+WHERE rule_id = $1
+ORDER BY
+	CASE status
+		WHEN 'alerting' THEN 0
+		WHEN 'error' THEN 1
+		WHEN 'no_data' THEN 2
+		ELSE 3
+	END,
+	updated_at DESC,
+	group_key ASC,
+	group_value ASC
+LIMIT $2::int
+`
+
+type ListAlertStatesParams struct {
+	RuleID string
+	Limit  int32
+}
+
+type ListAlertStatesRow struct {
+	RuleID      string
+	GroupKey    string
+	GroupValue  string
+	Status      string
+	Value       float64
+	Message     string
+	EvaluatedAt sql.NullString
+	UpdatedAt   string
+}
+
+func (q *Queries) ListAlertStates(ctx context.Context, arg ListAlertStatesParams) ([]ListAlertStatesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAlertStates, arg.RuleID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAlertStatesRow{}
+	for rows.Next() {
+		var i ListAlertStatesRow
+		if err := rows.Scan(
+			&i.RuleID,
+			&i.GroupKey,
+			&i.GroupValue,
+			&i.Status,
+			&i.Value,
+			&i.Message,
+			&i.EvaluatedAt,
 			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
@@ -304,23 +405,27 @@ func (q *Queries) RequeueAlertEvaluationJob(ctx context.Context, arg RequeueAler
 }
 
 const saveAlertEvent = `-- name: SaveAlertEvent :exec
-INSERT INTO alert_events (id, rule_id, type, value, message, created_at)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO alert_events (id, rule_id, group_key, group_value, type, value, message, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 `
 
 type SaveAlertEventParams struct {
-	ID        string
-	RuleID    string
-	Type      string
-	Value     float64
-	Message   string
-	CreatedAt string
+	ID         string
+	RuleID     string
+	GroupKey   string
+	GroupValue string
+	Type       string
+	Value      float64
+	Message    string
+	CreatedAt  string
 }
 
 func (q *Queries) SaveAlertEvent(ctx context.Context, arg SaveAlertEventParams) error {
 	_, err := q.db.ExecContext(ctx, saveAlertEvent,
 		arg.ID,
 		arg.RuleID,
+		arg.GroupKey,
+		arg.GroupValue,
 		arg.Type,
 		arg.Value,
 		arg.Message,
@@ -341,6 +446,7 @@ INSERT INTO alert_rules (
 	comparator,
 	threshold,
 	evaluation_interval_seconds,
+	group_by,
 	trigger_type,
 	webhook_url,
 	next_evaluate_at,
@@ -362,7 +468,8 @@ VALUES (
 	$12,
 	$13,
 	$14,
-	$15
+	$15,
+	$16
 )
 ON CONFLICT(id) DO UPDATE SET
 	name = excluded.name,
@@ -374,6 +481,7 @@ ON CONFLICT(id) DO UPDATE SET
 	comparator = excluded.comparator,
 	threshold = excluded.threshold,
 	evaluation_interval_seconds = excluded.evaluation_interval_seconds,
+	group_by = excluded.group_by,
 	trigger_type = excluded.trigger_type,
 	webhook_url = excluded.webhook_url,
 	next_evaluate_at = excluded.next_evaluate_at,
@@ -391,6 +499,7 @@ type SaveAlertRuleParams struct {
 	Comparator                string
 	Threshold                 float64
 	EvaluationIntervalSeconds int32
+	GroupBy                   string
 	TriggerType               string
 	WebhookUrl                string
 	NextEvaluateAt            string
@@ -410,6 +519,7 @@ func (q *Queries) SaveAlertRule(ctx context.Context, arg SaveAlertRuleParams) er
 		arg.Comparator,
 		arg.Threshold,
 		arg.EvaluationIntervalSeconds,
+		arg.GroupBy,
 		arg.TriggerType,
 		arg.WebhookUrl,
 		arg.NextEvaluateAt,
@@ -420,9 +530,9 @@ func (q *Queries) SaveAlertRule(ctx context.Context, arg SaveAlertRuleParams) er
 }
 
 const saveAlertState = `-- name: SaveAlertState :exec
-INSERT INTO alert_states (rule_id, status, value, message, evaluated_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6)
-ON CONFLICT(rule_id) DO UPDATE SET
+INSERT INTO alert_states (rule_id, group_key, group_value, status, value, message, evaluated_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT(rule_id, group_key, group_value) DO UPDATE SET
 	status = excluded.status,
 	value = excluded.value,
 	message = excluded.message,
@@ -432,6 +542,8 @@ ON CONFLICT(rule_id) DO UPDATE SET
 
 type SaveAlertStateParams struct {
 	RuleID      string
+	GroupKey    string
+	GroupValue  string
 	Status      string
 	Value       float64
 	Message     string
@@ -442,6 +554,8 @@ type SaveAlertStateParams struct {
 func (q *Queries) SaveAlertState(ctx context.Context, arg SaveAlertStateParams) error {
 	_, err := q.db.ExecContext(ctx, saveAlertState,
 		arg.RuleID,
+		arg.GroupKey,
+		arg.GroupValue,
 		arg.Status,
 		arg.Value,
 		arg.Message,

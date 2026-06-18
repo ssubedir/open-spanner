@@ -2297,6 +2297,12 @@ const docTemplate = `{
                 "event": {
                     "$ref": "#/definitions/internal_metering_adapters_http_alert.EventResponse"
                 },
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_alert.EventResponse"
+                    }
+                },
                 "rule": {
                     "$ref": "#/definitions/internal_metering_adapters_http_alert.RuleResponse"
                 },
@@ -2323,6 +2329,12 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "created_at": {
+                    "type": "string"
+                },
+                "group_key": {
+                    "type": "string"
+                },
+                "group_value": {
                     "type": "string"
                 },
                 "id": {
@@ -2368,6 +2380,9 @@ const docTemplate = `{
                 "evaluation_interval_seconds": {
                     "type": "integer"
                 },
+                "group_by": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -2388,6 +2403,12 @@ const docTemplate = `{
                 },
                 "state": {
                     "$ref": "#/definitions/internal_metering_adapters_http_alert.StateResponse"
+                },
+                "states": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_alert.StateResponse"
+                    }
                 },
                 "subject": {
                     "type": "string"
@@ -2420,6 +2441,9 @@ const docTemplate = `{
                 },
                 "evaluation_interval_seconds": {
                     "type": "integer"
+                },
+                "group_by": {
+                    "type": "string"
                 },
                 "metadata": {
                     "type": "object",
@@ -2456,6 +2480,12 @@ const docTemplate = `{
                 "evaluated_at": {
                     "type": "string"
                 },
+                "group_key": {
+                    "type": "string"
+                },
+                "group_value": {
+                    "type": "string"
+                },
                 "message": {
                     "type": "string"
                 },
@@ -2481,6 +2511,9 @@ const docTemplate = `{
                 },
                 "evaluation_interval_seconds": {
                     "type": "integer"
+                },
+                "group_by": {
+                    "type": "string"
                 },
                 "metadata": {
                     "type": "object",

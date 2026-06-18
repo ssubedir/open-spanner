@@ -50,6 +50,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		Comparator:         req.Comparator,
 		Threshold:          req.Threshold,
 		EvaluationInterval: secondsDuration(req.EvaluationIntervalSeconds),
+		GroupBy:            req.GroupBy,
 		TriggerType:        req.TriggerType,
 		WebhookURL:         req.WebhookURL,
 	})
@@ -155,6 +156,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		Comparator:         stringValue(req.Comparator),
 		Threshold:          req.Threshold,
 		EvaluationInterval: secondsDurationPointer(req.EvaluationIntervalSeconds),
+		GroupBy:            req.GroupBy,
 		TriggerType:        stringValue(req.TriggerType),
 		WebhookURL:         req.WebhookURL,
 	})
@@ -211,6 +213,9 @@ func (h *Handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 		event := eventResponse(*result.Event)
 		response.Event = &event
 	}
+	for _, resultEvent := range result.Events {
+		response.Events = append(response.Events, eventResponse(resultEvent))
+	}
 	respond.JSON(w, http.StatusOK, response)
 }
 
@@ -263,6 +268,7 @@ func ruleResponse(rule appalert.RuleResult) RuleResponse {
 		Comparator:                rule.Comparator,
 		Threshold:                 rule.Threshold,
 		EvaluationIntervalSeconds: rule.EvaluationInterval,
+		GroupBy:                   rule.GroupBy,
 		TriggerType:               rule.TriggerType,
 		WebhookURL:                rule.WebhookURL,
 		NextEvaluateAt:            formatTime(rule.NextEvaluateAt),
@@ -273,12 +279,17 @@ func ruleResponse(rule appalert.RuleResult) RuleResponse {
 		state := stateResponse(*rule.State)
 		response.State = &state
 	}
+	for _, state := range rule.States {
+		response.States = append(response.States, stateResponse(state))
+	}
 	return response
 }
 
 func stateResponse(state appalert.StateResult) StateResponse {
 	return StateResponse{
 		Status:      state.Status,
+		GroupKey:    state.GroupKey,
+		GroupValue:  state.GroupValue,
 		Value:       state.Value,
 		Message:     state.Message,
 		EvaluatedAt: formatTime(state.EvaluatedAt),
@@ -288,12 +299,14 @@ func stateResponse(state appalert.StateResult) StateResponse {
 
 func eventResponse(event appalert.EventResult) EventResponse {
 	return EventResponse{
-		ID:        event.ID,
-		RuleID:    event.RuleID,
-		Type:      event.Type,
-		Value:     event.Value,
-		Message:   event.Message,
-		CreatedAt: formatTime(event.CreatedAt),
+		ID:         event.ID,
+		RuleID:     event.RuleID,
+		GroupKey:   event.GroupKey,
+		GroupValue: event.GroupValue,
+		Type:       event.Type,
+		Value:      event.Value,
+		Message:    event.Message,
+		CreatedAt:  formatTime(event.CreatedAt),
 	}
 }
 
