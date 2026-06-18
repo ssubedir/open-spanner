@@ -17,6 +17,8 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/ssubedir/open-spanner/internal/config"
+	"github.com/ssubedir/open-spanner/internal/metering/adapters/fileexport"
+	exportworker "github.com/ssubedir/open-spanner/internal/metering/workers/export"
 )
 
 func TestIntegrationAuthGuardsSDKAndDashboardRoutes(t *testing.T) {
@@ -128,6 +130,10 @@ func TestIntegrationPostgresSDKUsageFlow(t *testing.T) {
 
 func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace string) {
 	t.Helper()
+
+	if cfg.ExportStoragePath == "" {
+		cfg.ExportStoragePath = t.TempDir()
+	}
 
 	ctx := context.Background()
 	router := chi.NewRouter()
@@ -309,6 +315,111 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 	decodeJSON(t, ingestionsRes, &ingestions)
 	if len(ingestions.Items) < 3 {
 		t.Fatalf("ingestions = %#v, want at least one run per single usage create", ingestions)
+	}
+
+	exportJobRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/exports", map[string]any{
+		"kind":   "usage_buckets",
+		"format": "csv",
+		"query": map[string]any{
+			"meter":       meterName,
+			"from":        "2026-06-08T00:00:00Z",
+			"to":          "2026-06-09T00:00:00Z",
+			"bucket_size": "day",
+			"group_by":    []string{"endpoint"},
+			"limit":       10,
+		},
+	}, authHeaders, nil)
+	if exportJobRes.Code != http.StatusAccepted {
+		t.Fatalf("create export job status = %d, want %d: %s", exportJobRes.Code, http.StatusAccepted, exportJobRes.Body.String())
+	}
+	var exportJob usageExportJobResponse
+	decodeJSON(t, exportJobRes, &exportJob)
+	if exportJob.ID == "" || exportJob.Status != "queued" || exportJob.Kind != "usage_buckets" || exportJob.Format != "csv" || exportJob.Query["meter"] != meterName {
+		t.Fatalf("export job = %#v", exportJob)
+	}
+
+	getExportJobRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/exports/"+exportJob.ID, nil, authHeaders, nil)
+	if getExportJobRes.Code != http.StatusOK {
+		t.Fatalf("get export job status = %d, want %d: %s", getExportJobRes.Code, http.StatusOK, getExportJobRes.Body.String())
+	}
+	var foundExportJob usageExportJobResponse
+	decodeJSON(t, getExportJobRes, &foundExportJob)
+	if foundExportJob.ID != exportJob.ID || foundExportJob.Status != "queued" {
+		t.Fatalf("found export job = %#v", foundExportJob)
+	}
+
+	cancelJobRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/exports", map[string]any{
+		"kind":   "usage_buckets",
+		"format": "csv",
+		"query": map[string]any{
+			"meter":       meterName,
+			"from":        "2026-06-08T00:00:00Z",
+			"to":          "2026-06-09T00:00:00Z",
+			"bucket_size": "day",
+			"group_by":    []string{"endpoint"},
+			"limit":       10,
+		},
+	}, authHeaders, nil)
+	if cancelJobRes.Code != http.StatusAccepted {
+		t.Fatalf("create cancelable export job status = %d, want %d: %s", cancelJobRes.Code, http.StatusAccepted, cancelJobRes.Body.String())
+	}
+	var cancelableExportJob usageExportJobResponse
+	decodeJSON(t, cancelJobRes, &cancelableExportJob)
+
+	cancelExportJobRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/exports/"+cancelableExportJob.ID+"/cancel", nil, authHeaders, nil)
+	if cancelExportJobRes.Code != http.StatusOK {
+		t.Fatalf("cancel export job status = %d, want %d: %s", cancelExportJobRes.Code, http.StatusOK, cancelExportJobRes.Body.String())
+	}
+	var canceledExportJob usageExportJobResponse
+	decodeJSON(t, cancelExportJobRes, &canceledExportJob)
+	if canceledExportJob.ID != cancelableExportJob.ID || canceledExportJob.Status != "canceled" {
+		t.Fatalf("canceled export job = %#v", canceledExportJob)
+	}
+
+	retryExportJobRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/exports/"+canceledExportJob.ID+"/retry", nil, authHeaders, nil)
+	if retryExportJobRes.Code != http.StatusOK {
+		t.Fatalf("retry export job status = %d, want %d: %s", retryExportJobRes.Code, http.StatusOK, retryExportJobRes.Body.String())
+	}
+	var retriedExportJob usageExportJobResponse
+	decodeJSON(t, retryExportJobRes, &retriedExportJob)
+	if retriedExportJob.ID != canceledExportJob.ID || retriedExportJob.Status != "queued" {
+		t.Fatalf("retried export job = %#v", retriedExportJob)
+	}
+
+	worker := exportworker.NewWorker(app.UsageService, fileexport.NewStore(cfg.ExportStoragePath), time.Millisecond, time.Minute, time.Minute, 3, t.Logf)
+	var completedExportJob usageExportJobResponse
+	for attempt := 0; attempt < 25; attempt++ {
+		processed, err := worker.ProcessOnce(ctx)
+		if err != nil {
+			t.Fatalf("process export job: %v", err)
+		}
+		if !processed {
+			t.Fatal("process export job processed no work")
+		}
+
+		getCompletedExportJobRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/exports/"+exportJob.ID, nil, authHeaders, nil)
+		if getCompletedExportJobRes.Code != http.StatusOK {
+			t.Fatalf("get completed export job status = %d, want %d: %s", getCompletedExportJobRes.Code, http.StatusOK, getCompletedExportJobRes.Body.String())
+		}
+		decodeJSON(t, getCompletedExportJobRes, &completedExportJob)
+		if completedExportJob.Status == "completed" {
+			break
+		}
+	}
+	if completedExportJob.Status != "completed" || completedExportJob.DownloadURL == "" || completedExportJob.ArtifactSize == 0 {
+		t.Fatalf("completed export job = %#v", completedExportJob)
+	}
+
+	downloadReq := httptest.NewRequest(http.MethodGet, completedExportJob.DownloadURL, nil)
+	downloadReq.Header.Set("Authorization", "Bearer "+apiKey)
+	downloadRes := httptest.NewRecorder()
+	router.ServeHTTP(downloadRes, downloadReq)
+	if downloadRes.Code != http.StatusOK {
+		t.Fatalf("download export job status = %d, want %d: %s", downloadRes.Code, http.StatusOK, downloadRes.Body.String())
+	}
+	csvBody := downloadRes.Body.String()
+	if !strings.Contains(csvBody, "bucket_start,subject,meter,bucket_size,aggregation,unit,quantity,endpoint") || !strings.Contains(csvBody, "/orders") || !strings.Contains(csvBody, "/users") {
+		t.Fatalf("downloaded export csv = %q", csvBody)
 	}
 
 	runIntegrationHyphenatedDimensionFlow(t, router, authHeaders, suffix)
@@ -1668,4 +1779,17 @@ type usageIngestionResponse struct {
 type usageIngestionListResponse struct {
 	Items      []usageIngestionResponse `json:"items"`
 	NextCursor string                   `json:"next_cursor"`
+}
+
+type usageExportJobResponse struct {
+	ID           string         `json:"id"`
+	Kind         string         `json:"kind"`
+	Status       string         `json:"status"`
+	Format       string         `json:"format"`
+	Query        map[string]any `json:"query"`
+	ArtifactSize int64          `json:"artifact_size"`
+	DownloadURL  string         `json:"download_url"`
+	CreatedAt    string         `json:"created_at"`
+	UpdatedAt    string         `json:"updated_at"`
+	CompletedAt  string         `json:"completed_at"`
 }

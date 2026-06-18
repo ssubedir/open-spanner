@@ -10,6 +10,187 @@ import (
 	"database/sql"
 )
 
+const cancelUsageExportJob = `-- name: CancelUsageExportJob :one
+UPDATE usage_export_jobs
+SET status = 'canceled',
+	error = 'canceled by user',
+	locked_until = NULL,
+	updated_at = $1::text,
+	completed_at = $1::text
+WHERE id = $2::text
+	AND status IN ('queued', 'running')
+RETURNING id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at
+`
+
+type CancelUsageExportJobParams struct {
+	CanceledAt string
+	ID         string
+}
+
+type CancelUsageExportJobRow struct {
+	ID           string
+	Kind         string
+	Status       string
+	Format       string
+	QueryJson    string
+	Error        string
+	Attempts     int32
+	LockedUntil  sql.NullString
+	ArtifactPath string
+	ArtifactSize int64
+	CreatedAt    string
+	UpdatedAt    string
+	CompletedAt  sql.NullString
+}
+
+func (q *Queries) CancelUsageExportJob(ctx context.Context, arg CancelUsageExportJobParams) (CancelUsageExportJobRow, error) {
+	row := q.db.QueryRowContext(ctx, cancelUsageExportJob, arg.CanceledAt, arg.ID)
+	var i CancelUsageExportJobRow
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.Status,
+		&i.Format,
+		&i.QueryJson,
+		&i.Error,
+		&i.Attempts,
+		&i.LockedUntil,
+		&i.ArtifactPath,
+		&i.ArtifactSize,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CompletedAt,
+	)
+	return i, err
+}
+
+const claimUsageExportJob = `-- name: ClaimUsageExportJob :one
+WITH next_job AS (
+	SELECT id
+	FROM usage_export_jobs
+	WHERE (status = 'queued'
+		OR (status = 'running' AND locked_until IS NOT NULL AND locked_until < $2::text))
+		AND usage_export_jobs.attempts < $3::int
+	ORDER BY created_at ASC, id ASC
+	FOR UPDATE SKIP LOCKED
+	LIMIT 1
+)
+UPDATE usage_export_jobs
+SET status = 'running',
+	attempts = usage_export_jobs.attempts + 1,
+	locked_until = $1::text,
+	error = '',
+	updated_at = $2::text
+WHERE id = (SELECT id FROM next_job)
+RETURNING id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at
+`
+
+type ClaimUsageExportJobParams struct {
+	LockedUntil string
+	Now         string
+	MaxAttempts int32
+}
+
+type ClaimUsageExportJobRow struct {
+	ID           string
+	Kind         string
+	Status       string
+	Format       string
+	QueryJson    string
+	Error        string
+	Attempts     int32
+	LockedUntil  sql.NullString
+	ArtifactPath string
+	ArtifactSize int64
+	CreatedAt    string
+	UpdatedAt    string
+	CompletedAt  sql.NullString
+}
+
+func (q *Queries) ClaimUsageExportJob(ctx context.Context, arg ClaimUsageExportJobParams) (ClaimUsageExportJobRow, error) {
+	row := q.db.QueryRowContext(ctx, claimUsageExportJob, arg.LockedUntil, arg.Now, arg.MaxAttempts)
+	var i ClaimUsageExportJobRow
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.Status,
+		&i.Format,
+		&i.QueryJson,
+		&i.Error,
+		&i.Attempts,
+		&i.LockedUntil,
+		&i.ArtifactPath,
+		&i.ArtifactSize,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CompletedAt,
+	)
+	return i, err
+}
+
+const completeUsageExportJob = `-- name: CompleteUsageExportJob :one
+UPDATE usage_export_jobs
+SET status = 'completed',
+	artifact_path = $1::text,
+	artifact_size = $2::bigint,
+	locked_until = NULL,
+	error = '',
+	updated_at = $3::text,
+	completed_at = $3::text
+WHERE id = $4::text
+	AND status = 'running'
+RETURNING id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at
+`
+
+type CompleteUsageExportJobParams struct {
+	ArtifactPath string
+	ArtifactSize int64
+	CompletedAt  string
+	ID           string
+}
+
+type CompleteUsageExportJobRow struct {
+	ID           string
+	Kind         string
+	Status       string
+	Format       string
+	QueryJson    string
+	Error        string
+	Attempts     int32
+	LockedUntil  sql.NullString
+	ArtifactPath string
+	ArtifactSize int64
+	CreatedAt    string
+	UpdatedAt    string
+	CompletedAt  sql.NullString
+}
+
+func (q *Queries) CompleteUsageExportJob(ctx context.Context, arg CompleteUsageExportJobParams) (CompleteUsageExportJobRow, error) {
+	row := q.db.QueryRowContext(ctx, completeUsageExportJob,
+		arg.ArtifactPath,
+		arg.ArtifactSize,
+		arg.CompletedAt,
+		arg.ID,
+	)
+	var i CompleteUsageExportJobRow
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.Status,
+		&i.Format,
+		&i.QueryJson,
+		&i.Error,
+		&i.Attempts,
+		&i.LockedUntil,
+		&i.ArtifactPath,
+		&i.ArtifactSize,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CompletedAt,
+	)
+	return i, err
+}
+
 const countPrunableUsageEvents = `-- name: CountPrunableUsageEvents :one
 SELECT COUNT(*)
 FROM usage_events
@@ -39,6 +220,173 @@ func (q *Queries) CountUsagePruneRuns(ctx context.Context) (int64, error) {
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const failUsageExportJob = `-- name: FailUsageExportJob :one
+UPDATE usage_export_jobs
+SET status = 'failed',
+	error = $1::text,
+	locked_until = NULL,
+	updated_at = $2::text,
+	completed_at = $2::text
+WHERE id = $3::text
+	AND status = 'running'
+RETURNING id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at
+`
+
+type FailUsageExportJobParams struct {
+	Error    string
+	FailedAt string
+	ID       string
+}
+
+type FailUsageExportJobRow struct {
+	ID           string
+	Kind         string
+	Status       string
+	Format       string
+	QueryJson    string
+	Error        string
+	Attempts     int32
+	LockedUntil  sql.NullString
+	ArtifactPath string
+	ArtifactSize int64
+	CreatedAt    string
+	UpdatedAt    string
+	CompletedAt  sql.NullString
+}
+
+func (q *Queries) FailUsageExportJob(ctx context.Context, arg FailUsageExportJobParams) (FailUsageExportJobRow, error) {
+	row := q.db.QueryRowContext(ctx, failUsageExportJob, arg.Error, arg.FailedAt, arg.ID)
+	var i FailUsageExportJobRow
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.Status,
+		&i.Format,
+		&i.QueryJson,
+		&i.Error,
+		&i.Attempts,
+		&i.LockedUntil,
+		&i.ArtifactPath,
+		&i.ArtifactSize,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CompletedAt,
+	)
+	return i, err
+}
+
+const findUsageExportJob = `-- name: FindUsageExportJob :one
+SELECT id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at
+FROM usage_export_jobs
+WHERE id = $1
+`
+
+type FindUsageExportJobRow struct {
+	ID           string
+	Kind         string
+	Status       string
+	Format       string
+	QueryJson    string
+	Error        string
+	Attempts     int32
+	LockedUntil  sql.NullString
+	ArtifactPath string
+	ArtifactSize int64
+	CreatedAt    string
+	UpdatedAt    string
+	CompletedAt  sql.NullString
+}
+
+func (q *Queries) FindUsageExportJob(ctx context.Context, id string) (FindUsageExportJobRow, error) {
+	row := q.db.QueryRowContext(ctx, findUsageExportJob, id)
+	var i FindUsageExportJobRow
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.Status,
+		&i.Format,
+		&i.QueryJson,
+		&i.Error,
+		&i.Attempts,
+		&i.LockedUntil,
+		&i.ArtifactPath,
+		&i.ArtifactSize,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CompletedAt,
+	)
+	return i, err
+}
+
+const listUsageExportJobs = `-- name: ListUsageExportJobs :many
+SELECT id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at
+FROM usage_export_jobs
+WHERE ($1::text IS NULL
+	OR (created_at < $1::text
+		OR (created_at = $1::text AND id < $2::text)))
+ORDER BY created_at DESC, id DESC
+LIMIT $3::int
+`
+
+type ListUsageExportJobsParams struct {
+	CursorCreatedAt sql.NullString
+	CursorID        sql.NullString
+	Limit           int32
+}
+
+type ListUsageExportJobsRow struct {
+	ID           string
+	Kind         string
+	Status       string
+	Format       string
+	QueryJson    string
+	Error        string
+	Attempts     int32
+	LockedUntil  sql.NullString
+	ArtifactPath string
+	ArtifactSize int64
+	CreatedAt    string
+	UpdatedAt    string
+	CompletedAt  sql.NullString
+}
+
+func (q *Queries) ListUsageExportJobs(ctx context.Context, arg ListUsageExportJobsParams) ([]ListUsageExportJobsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listUsageExportJobs, arg.CursorCreatedAt, arg.CursorID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUsageExportJobsRow{}
+	for rows.Next() {
+		var i ListUsageExportJobsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.Status,
+			&i.Format,
+			&i.QueryJson,
+			&i.Error,
+			&i.Attempts,
+			&i.LockedUntil,
+			&i.ArtifactPath,
+			&i.ArtifactSize,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CompletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listUsageIngestionRuns = `-- name: ListUsageIngestionRuns :many
@@ -157,6 +505,117 @@ func (q *Queries) PruneUsageEventsBatch(ctx context.Context, arg PruneUsageEvent
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const retryUsageExportJob = `-- name: RetryUsageExportJob :one
+UPDATE usage_export_jobs
+SET status = 'queued',
+	error = '',
+	attempts = 0,
+	locked_until = NULL,
+	artifact_path = '',
+	artifact_size = 0,
+	updated_at = $1::text,
+	completed_at = NULL
+WHERE id = $2::text
+	AND status IN ('failed', 'canceled')
+RETURNING id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at
+`
+
+type RetryUsageExportJobParams struct {
+	RetriedAt string
+	ID        string
+}
+
+type RetryUsageExportJobRow struct {
+	ID           string
+	Kind         string
+	Status       string
+	Format       string
+	QueryJson    string
+	Error        string
+	Attempts     int32
+	LockedUntil  sql.NullString
+	ArtifactPath string
+	ArtifactSize int64
+	CreatedAt    string
+	UpdatedAt    string
+	CompletedAt  sql.NullString
+}
+
+func (q *Queries) RetryUsageExportJob(ctx context.Context, arg RetryUsageExportJobParams) (RetryUsageExportJobRow, error) {
+	row := q.db.QueryRowContext(ctx, retryUsageExportJob, arg.RetriedAt, arg.ID)
+	var i RetryUsageExportJobRow
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.Status,
+		&i.Format,
+		&i.QueryJson,
+		&i.Error,
+		&i.Attempts,
+		&i.LockedUntil,
+		&i.ArtifactPath,
+		&i.ArtifactSize,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CompletedAt,
+	)
+	return i, err
+}
+
+const saveUsageExportJob = `-- name: SaveUsageExportJob :exec
+INSERT INTO usage_export_jobs (
+	id,
+	kind,
+	status,
+	format,
+	query_json,
+	error,
+	attempts,
+	locked_until,
+	artifact_path,
+	artifact_size,
+	created_at,
+	updated_at,
+	completed_at
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+`
+
+type SaveUsageExportJobParams struct {
+	ID           string
+	Kind         string
+	Status       string
+	Format       string
+	QueryJson    string
+	Error        string
+	Attempts     int32
+	LockedUntil  sql.NullString
+	ArtifactPath string
+	ArtifactSize int64
+	CreatedAt    string
+	UpdatedAt    string
+	CompletedAt  sql.NullString
+}
+
+func (q *Queries) SaveUsageExportJob(ctx context.Context, arg SaveUsageExportJobParams) error {
+	_, err := q.db.ExecContext(ctx, saveUsageExportJob,
+		arg.ID,
+		arg.Kind,
+		arg.Status,
+		arg.Format,
+		arg.QueryJson,
+		arg.Error,
+		arg.Attempts,
+		arg.LockedUntil,
+		arg.ArtifactPath,
+		arg.ArtifactSize,
+		arg.CreatedAt,
+		arg.UpdatedAt,
+		arg.CompletedAt,
+	)
+	return err
 }
 
 const saveUsageIngestionRun = `-- name: SaveUsageIngestionRun :exec

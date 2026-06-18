@@ -1,9 +1,11 @@
 import { useSelector } from '@tanstack/react-store'
-import { BarChart3, Download, Loader2, Pin, PinOff, RefreshCw, Save, Search, Trash2 } from 'lucide-react'
+import { BarChart3, Copy, Download, FileClock, List, Loader2, Pin, PinOff, RefreshCw, Save, Search, Trash2, X } from 'lucide-react'
 import { type FormEvent, useCallback, useEffect, useMemo } from 'react'
 
 import { appStore, appStoreActions } from '../app-store'
+import type { UsageEvent } from '../api'
 import { DataTable, Modal, PageHeader } from '../components/dashboard'
+import { ExportJobsCard, isActiveExportJob } from '../components/export-jobs-card'
 import { FilterBuilder } from '../components/filter-builder'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
@@ -31,7 +33,15 @@ export function UsagePage() {
     buckets,
     dimensionValues,
     error,
+    events,
+    eventsError,
+    eventsStatus,
     exportError,
+    exportJobDownloading,
+    exportJobError,
+    exportJobMutating,
+    exportJobStatus,
+    exportJobs,
     exporting,
     filterQuery,
     groupBy,
@@ -44,6 +54,7 @@ export function UsagePage() {
     savedQueryStatus,
     savedQueries,
     selectedSavedQueryID,
+    selectedUsageEvent,
     status,
   } = useSelector(appStore, (state) => state.usage)
   const load = useCallback(() => appStoreActions.loadUsageControls(), [])
@@ -61,6 +72,18 @@ export function UsagePage() {
 
   async function exportBuckets() {
     await appStoreActions.exportCurrentUsageBuckets(activeGroupBy, limit, bucketSize)
+  }
+
+  async function exportEvents() {
+    await appStoreActions.exportCurrentUsageEvents(limit)
+  }
+
+  async function viewEvents() {
+    await appStoreActions.loadCurrentUsageEvents(limit)
+  }
+
+  async function queueExport() {
+    await appStoreActions.queueCurrentUsageExport(activeGroupBy, limit, bucketSize)
   }
 
   async function confirmDeleteSavedQuery() {
@@ -85,6 +108,8 @@ export function UsagePage() {
     [breakdownFields, breakdowns],
   )
   const selectedSavedQuery = savedQueries.find((item) => item.id === selectedSavedQueryID)
+  const exportInProgress = exporting !== ''
+  const hasActiveExportJobs = useMemo(() => exportJobs.some(isActiveExportJob), [exportJobs])
 
   useEffect(() => {
     void appStoreActions.loadUsageDimensionValues()
@@ -93,6 +118,17 @@ export function UsagePage() {
   useEffect(() => {
     void appStoreActions.loadUsageBreakdowns()
   }, [breakdownKey])
+
+  useEffect(() => {
+    if (!hasActiveExportJobs) {
+      return
+    }
+
+    const poll = window.setInterval(() => {
+      void appStoreActions.loadUsageExportJobs()
+    }, 5000)
+    return () => window.clearInterval(poll)
+  }, [hasActiveExportJobs])
 
   function resetQuery() {
     appStoreActions.resetUsageQuery()
@@ -235,9 +271,21 @@ export function UsagePage() {
                       <RefreshCw aria-hidden="true" />
                       Reset
                     </Button>
-                    <Button disabled={exporting} onClick={() => void exportBuckets()} type="button" variant="outline">
-                      {exporting ? <Loader2 className="spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
-                      Export CSV
+                    <Button disabled={exportInProgress} onClick={() => void exportBuckets()} type="button" variant="outline">
+                      {exporting === 'buckets' ? <Loader2 className="spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
+                      Export Buckets
+                    </Button>
+                    <Button disabled={exportInProgress} onClick={() => void exportEvents()} type="button" variant="outline">
+                      {exporting === 'events' ? <Loader2 className="spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
+                      Export Events
+                    </Button>
+                    <Button disabled={exportInProgress} onClick={() => void queueExport()} type="button" variant="outline">
+                      {exporting === 'job' ? <Loader2 className="spin" aria-hidden="true" /> : <FileClock aria-hidden="true" />}
+                      Queue Export
+                    </Button>
+                    <Button disabled={eventsStatus === 'loading'} onClick={() => void viewEvents()} type="button" variant="outline">
+                      {eventsStatus === 'loading' ? <Loader2 className="spin" aria-hidden="true" /> : <List aria-hidden="true" />}
+                      View Events
                     </Button>
                     <Button disabled={status === 'loading'} type="submit">
                       {status === 'loading' ? <Loader2 className="spin" aria-hidden="true" /> : <Search aria-hidden="true" />}
@@ -250,6 +298,14 @@ export function UsagePage() {
             </form>
           </CardContent>
         </Card>
+
+        <ExportJobsCard
+          downloadingID={exportJobDownloading}
+          error={exportJobError}
+          jobs={exportJobs}
+          mutatingID={exportJobMutating}
+          status={exportJobStatus}
+        />
 
         <Card className="usage-breakdown-card">
           <CardHeader className="usage-card-header">
@@ -305,6 +361,13 @@ export function UsagePage() {
             />
           </CardContent>
         </Card>
+
+        <UsageEventsCard
+          error={eventsError}
+          events={events}
+          onSelectEvent={appStoreActions.setSelectedUsageEvent}
+          status={eventsStatus}
+        />
       </section>
 
       {savedQueryDeleting ? (
@@ -316,7 +379,168 @@ export function UsagePage() {
           </div>
         </Modal>
       ) : null}
+
+      {selectedUsageEvent ? (
+        <UsageEventDrawer
+          event={selectedUsageEvent}
+          onClose={() => appStoreActions.setSelectedUsageEvent(null)}
+        />
+      ) : null}
     </>
+  )
+}
+
+function UsageEventsCard({
+  error,
+  events,
+  onSelectEvent,
+  status,
+}: {
+  error: string
+  events: UsageEvent[]
+  onSelectEvent: (event: UsageEvent) => void
+  status: string
+}) {
+  return (
+    <Card className="usage-events-card">
+      <CardHeader>
+        <div>
+          <CardTitle>Events</CardTitle>
+          <CardDescription>Raw usage events matching the current filter.</CardDescription>
+        </div>
+        <Badge variant={status === 'loading' ? 'muted' : events.length > 0 ? 'success' : 'muted'}>
+          {status === 'loading' ? 'Loading' : `${events.length} rows`}
+        </Badge>
+      </CardHeader>
+      <CardContent>
+        {error ? <div className="inline-error">{error}</div> : null}
+        <DataTable
+          emptyLabel={status === 'loading' ? 'Loading events' : 'View events to inspect raw usage'}
+          headers={['Timestamp', 'Subject', 'Meter', 'Quantity', 'Metadata', 'Idempotency Key', 'Event ID', 'Details']}
+          rows={events.map((event) => [
+            formatDate(event.timestamp),
+            <SubjectValue subject={event.subject} />,
+            <Badge variant="muted">{event.meter}</Badge>,
+            formatNumber(event.quantity),
+            <MetadataValues metadata={event.metadata} />,
+            event.idempotency_key ? <span className="mono truncate">{event.idempotency_key}</span> : <span className="muted">none</span>,
+            <span className="mono truncate">{event.id}</span>,
+            <Button
+              aria-label={`View details for event ${event.id}`}
+              onClick={() => onSelectEvent(event)}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Details
+            </Button>,
+          ])}
+        />
+      </CardContent>
+    </Card>
+  )
+}
+
+function UsageEventDrawer({
+  event,
+  onClose,
+}: {
+  event: UsageEvent
+  onClose: () => void
+}) {
+  const metadataJSON = JSON.stringify(event.metadata || {}, null, 2)
+
+  return (
+    <div
+      className="usage-event-drawer-backdrop"
+      onMouseDown={(mouseEvent) => {
+        if (mouseEvent.target === mouseEvent.currentTarget) {
+          onClose()
+        }
+      }}
+      role="presentation"
+    >
+      <aside
+        aria-labelledby="usage-event-detail-title"
+        aria-modal="true"
+        className="usage-event-drawer"
+        role="dialog"
+      >
+        <header className="usage-event-drawer-header">
+          <div>
+            <span>Usage Event</span>
+            <h2 id="usage-event-detail-title">{event.subject}</h2>
+          </div>
+          <Button aria-label="Close event details" onClick={onClose} size="icon" type="button" variant="ghost">
+            <X aria-hidden="true" />
+          </Button>
+        </header>
+
+        <div className="usage-event-detail-grid">
+          <EventDetailItem copyLabel="Copy event ID" label="Event ID" value={event.id} />
+          <EventDetailItem copyLabel="Copy idempotency key" label="Idempotency Key" value={event.idempotency_key || 'none'} />
+          <EventDetailItem copyLabel="Copy subject" label="Subject" value={event.subject} />
+          <EventDetailItem copyLabel="Copy meter" label="Meter" value={event.meter} />
+          <EventDetailItem label="Quantity" value={formatNumber(event.quantity)} />
+          <EventDetailItem copyLabel="Copy timestamp" label="Timestamp" value={event.timestamp} />
+          <EventDetailItem copyLabel="Copy received time" label="Received At" value={event.received_at} />
+        </div>
+
+        <section className="usage-event-metadata-panel">
+          <div className="usage-event-section-header">
+            <h3>Metadata</h3>
+            <Button aria-label="Copy metadata" onClick={() => void copyText(metadataJSON)} size="sm" type="button" variant="outline">
+              <Copy aria-hidden="true" />
+              Copy
+            </Button>
+          </div>
+          <pre>{metadataJSON}</pre>
+        </section>
+      </aside>
+    </div>
+  )
+}
+
+function EventDetailItem({
+  copyLabel,
+  label,
+  value,
+}: {
+  copyLabel?: string
+  label: string
+  value: string
+}) {
+  return (
+    <div className="usage-event-detail-item">
+      <span>{label}</span>
+      <div>
+        <strong className="mono">{value}</strong>
+        {copyLabel ? (
+          <Button aria-label={copyLabel} onClick={() => void copyText(value)} size="icon" type="button" variant="ghost">
+            <Copy aria-hidden="true" />
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function MetadataValues({ metadata }: { metadata: Record<string, unknown> }) {
+  const entries = Object.entries(metadata || {})
+  if (entries.length === 0) {
+    return <span className="muted">none</span>
+  }
+
+  return (
+    <div className="dimension-values">
+      {entries.slice(0, 4).map(([key, value]) => (
+        <span className="dimension-value" key={key}>
+          <span>{key}</span>
+          <strong>{formatMetadataValue(value)}</strong>
+        </span>
+      ))}
+      {entries.length > 4 ? <span className="muted">+{entries.length - 4}</span> : null}
+    </div>
   )
 }
 
@@ -415,6 +639,31 @@ function breakdownWidth(quantity: number, maxQuantity: number) {
     return 4
   }
   return Math.max(4, (quantity / maxQuantity) * 100)
+}
+
+async function copyText(value: string) {
+  if (!navigator.clipboard) {
+    return
+  }
+
+  try {
+    await navigator.clipboard.writeText(value)
+  } catch {
+    // Copying is a convenience action; failing silently keeps the drawer usable.
+  }
+}
+
+function formatMetadataValue(value: unknown) {
+  if (typeof value === 'string') {
+    return value
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value)
+  }
+  if (value == null) {
+    return 'null'
+  }
+  return JSON.stringify(value)
 }
 
 function humanizeField(key: string) {

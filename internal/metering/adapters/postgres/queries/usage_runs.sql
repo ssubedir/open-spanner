@@ -48,3 +48,104 @@ WHERE (sqlc.narg('cursor_created_at')::text IS NULL
 		OR (created_at = sqlc.narg('cursor_created_at')::text AND id < sqlc.narg('cursor_id')::text)))
 ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg('limit')::int;
+
+-- name: SaveUsageExportJob :exec
+INSERT INTO usage_export_jobs (
+	id,
+	kind,
+	status,
+	format,
+	query_json,
+	error,
+	attempts,
+	locked_until,
+	artifact_path,
+	artifact_size,
+	created_at,
+	updated_at,
+	completed_at
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13);
+
+-- name: FindUsageExportJob :one
+SELECT id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at
+FROM usage_export_jobs
+WHERE id = $1;
+
+-- name: ListUsageExportJobs :many
+SELECT id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at
+FROM usage_export_jobs
+WHERE (sqlc.narg('cursor_created_at')::text IS NULL
+	OR (created_at < sqlc.narg('cursor_created_at')::text
+		OR (created_at = sqlc.narg('cursor_created_at')::text AND id < sqlc.narg('cursor_id')::text)))
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg('limit')::int;
+
+-- name: ClaimUsageExportJob :one
+WITH next_job AS (
+	SELECT id
+	FROM usage_export_jobs
+	WHERE (status = 'queued'
+		OR (status = 'running' AND locked_until IS NOT NULL AND locked_until < sqlc.arg('now')::text))
+		AND usage_export_jobs.attempts < sqlc.arg('max_attempts')::int
+	ORDER BY created_at ASC, id ASC
+	FOR UPDATE SKIP LOCKED
+	LIMIT 1
+)
+UPDATE usage_export_jobs
+SET status = 'running',
+	attempts = usage_export_jobs.attempts + 1,
+	locked_until = sqlc.arg('locked_until')::text,
+	error = '',
+	updated_at = sqlc.arg('now')::text
+WHERE id = (SELECT id FROM next_job)
+RETURNING id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at;
+
+-- name: CompleteUsageExportJob :one
+UPDATE usage_export_jobs
+SET status = 'completed',
+	artifact_path = sqlc.arg('artifact_path')::text,
+	artifact_size = sqlc.arg('artifact_size')::bigint,
+	locked_until = NULL,
+	error = '',
+	updated_at = sqlc.arg('completed_at')::text,
+	completed_at = sqlc.arg('completed_at')::text
+WHERE id = sqlc.arg('id')::text
+	AND status = 'running'
+RETURNING id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at;
+
+-- name: FailUsageExportJob :one
+UPDATE usage_export_jobs
+SET status = 'failed',
+	error = sqlc.arg('error')::text,
+	locked_until = NULL,
+	updated_at = sqlc.arg('failed_at')::text,
+	completed_at = sqlc.arg('failed_at')::text
+WHERE id = sqlc.arg('id')::text
+	AND status = 'running'
+RETURNING id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at;
+
+-- name: CancelUsageExportJob :one
+UPDATE usage_export_jobs
+SET status = 'canceled',
+	error = 'canceled by user',
+	locked_until = NULL,
+	updated_at = sqlc.arg('canceled_at')::text,
+	completed_at = sqlc.arg('canceled_at')::text
+WHERE id = sqlc.arg('id')::text
+	AND status IN ('queued', 'running')
+RETURNING id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at;
+
+-- name: RetryUsageExportJob :one
+UPDATE usage_export_jobs
+SET status = 'queued',
+	error = '',
+	attempts = 0,
+	locked_until = NULL,
+	artifact_path = '',
+	artifact_size = 0,
+	updated_at = sqlc.arg('retried_at')::text,
+	completed_at = NULL
+WHERE id = sqlc.arg('id')::text
+	AND status IN ('failed', 'canceled')
+RETURNING id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at;

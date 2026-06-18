@@ -50,6 +50,13 @@ type BreakdownRequest struct {
 	Filter  *FilterRequest `json:"filter,omitempty"`
 }
 
+// ExportJobCreateRequest queues an async usage export.
+type ExportJobCreateRequest struct {
+	Kind   string         `json:"kind,omitempty"`
+	Format string         `json:"format,omitempty"`
+	Query  *SearchRequest `json:"query"`
+}
+
 // GroupByRequest accepts a single metadata key or an ordered list of metadata keys.
 type GroupByRequest []string
 
@@ -148,6 +155,12 @@ type IngestionListResponse struct {
 	NextCursor string              `json:"next_cursor,omitempty"`
 }
 
+// ExportJobListResponse is a paged async export job list.
+type ExportJobListResponse struct {
+	Items      []ExportJobResponse `json:"items"`
+	NextCursor string              `json:"next_cursor,omitempty"`
+}
+
 // BulkResponse is a bulk ingestion result.
 type BulkResponse struct {
 	AcceptedCount  int                   `json:"accepted"`
@@ -189,6 +202,21 @@ type IngestionResponse struct {
 	Duplicates int    `json:"duplicates"`
 	Failed     int    `json:"failed"`
 	CreatedAt  string `json:"created_at"`
+}
+
+// ExportJobResponse is an async export job summary.
+type ExportJobResponse struct {
+	ID           string        `json:"id"`
+	Kind         string        `json:"kind"`
+	Status       string        `json:"status"`
+	Format       string        `json:"format"`
+	Query        SearchRequest `json:"query"`
+	Error        string        `json:"error,omitempty"`
+	ArtifactSize int64         `json:"artifact_size,omitempty"`
+	DownloadURL  string        `json:"download_url,omitempty"`
+	CreatedAt    string        `json:"created_at"`
+	UpdatedAt    string        `json:"updated_at"`
+	CompletedAt  string        `json:"completed_at,omitempty"`
 }
 
 // ListItemResponse is a usage bucket.

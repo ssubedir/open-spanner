@@ -11,14 +11,19 @@ import (
 )
 
 type Config struct {
-	HTTPAddr               string
-	DBDriver               string
-	SQLitePath             string
-	PostgresDSN            string
-	DBPool                 DBPoolConfig
-	RetentionPruneEnabled  bool
-	RetentionPruneInterval time.Duration
-	RetentionPruneTimeout  time.Duration
+	HTTPAddr                string
+	DBDriver                string
+	SQLitePath              string
+	PostgresDSN             string
+	DBPool                  DBPoolConfig
+	ExportStoragePath       string
+	ExportWorkerInterval    time.Duration
+	ExportWorkerLockTTL     time.Duration
+	ExportWorkerTimeout     time.Duration
+	ExportWorkerMaxAttempts int
+	RetentionPruneEnabled   bool
+	RetentionPruneInterval  time.Duration
+	RetentionPruneTimeout   time.Duration
 }
 
 type DBPoolConfig struct {
@@ -47,16 +52,37 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	exportWorkerInterval, err := envDuration("OPEN_SPANNER_EXPORT_WORKER_INTERVAL", 5*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	exportWorkerLockTTL, err := envDuration("OPEN_SPANNER_EXPORT_WORKER_LOCK_TTL", 5*time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	exportWorkerTimeout, err := envDuration("OPEN_SPANNER_EXPORT_WORKER_TIMEOUT", 10*time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	exportWorkerMaxAttempts, err := envInt("OPEN_SPANNER_EXPORT_WORKER_MAX_ATTEMPTS", 3)
+	if err != nil {
+		return Config{}, err
+	}
 
 	cfg := Config{
-		HTTPAddr:               env("OPEN_SPANNER_HTTP_ADDR", ":18081"),
-		DBDriver:               strings.ToLower(env("OPEN_SPANNER_DB_DRIVER", "sqlite")),
-		SQLitePath:             env("OPEN_SPANNER_SQLITE_PATH", "open-spanner.db"),
-		PostgresDSN:            env("OPEN_SPANNER_POSTGRES_DSN", ""),
-		DBPool:                 pool,
-		RetentionPruneEnabled:  retentionEnabled,
-		RetentionPruneInterval: retentionInterval,
-		RetentionPruneTimeout:  retentionTimeout,
+		HTTPAddr:                env("OPEN_SPANNER_HTTP_ADDR", ":18081"),
+		DBDriver:                strings.ToLower(env("OPEN_SPANNER_DB_DRIVER", "sqlite")),
+		SQLitePath:              env("OPEN_SPANNER_SQLITE_PATH", "open-spanner.db"),
+		PostgresDSN:             env("OPEN_SPANNER_POSTGRES_DSN", ""),
+		DBPool:                  pool,
+		ExportStoragePath:       env("OPEN_SPANNER_EXPORT_STORAGE_PATH", "open-spanner-exports"),
+		ExportWorkerInterval:    exportWorkerInterval,
+		ExportWorkerLockTTL:     exportWorkerLockTTL,
+		ExportWorkerTimeout:     exportWorkerTimeout,
+		ExportWorkerMaxAttempts: exportWorkerMaxAttempts,
+		RetentionPruneEnabled:   retentionEnabled,
+		RetentionPruneInterval:  retentionInterval,
+		RetentionPruneTimeout:   retentionTimeout,
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -95,6 +121,21 @@ func (cfg Config) Validate() error {
 	}
 	if cfg.DBPool.ConnMaxIdleTime < 0 {
 		return fmt.Errorf("OPEN_SPANNER_DB_CONN_MAX_IDLE_TIME cannot be negative")
+	}
+	if strings.TrimSpace(cfg.ExportStoragePath) == "" {
+		return fmt.Errorf("OPEN_SPANNER_EXPORT_STORAGE_PATH is required")
+	}
+	if cfg.ExportWorkerInterval <= 0 {
+		return fmt.Errorf("OPEN_SPANNER_EXPORT_WORKER_INTERVAL must be greater than zero")
+	}
+	if cfg.ExportWorkerLockTTL <= 0 {
+		return fmt.Errorf("OPEN_SPANNER_EXPORT_WORKER_LOCK_TTL must be greater than zero")
+	}
+	if cfg.ExportWorkerTimeout <= 0 {
+		return fmt.Errorf("OPEN_SPANNER_EXPORT_WORKER_TIMEOUT must be greater than zero")
+	}
+	if cfg.ExportWorkerMaxAttempts <= 0 {
+		return fmt.Errorf("OPEN_SPANNER_EXPORT_WORKER_MAX_ATTEMPTS must be greater than zero")
 	}
 	if cfg.RetentionPruneInterval <= 0 {
 		return fmt.Errorf("OPEN_SPANNER_RETENTION_PRUNE_INTERVAL must be greater than zero")

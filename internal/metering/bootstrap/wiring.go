@@ -26,9 +26,14 @@ import (
 )
 
 type App struct {
-	UsageService appusage.Service
-	ready        func(context.Context) error
-	cleanup      func() error
+	UsageService      appusage.Service
+	authService       appauth.Service
+	meterService      appmeter.Service
+	savedQueryService appsavedquery.Service
+	subjectService    appsubject.Service
+	systemService     appsystem.Service
+	ready             func(context.Context) error
+	cleanup           func() error
 }
 
 type readinessChecker interface {
@@ -59,7 +64,7 @@ func (a *App) Cleanup() error {
 	return a.cleanup()
 }
 
-func RegisterRoutes(ctx context.Context, router chi.Router, cfg config.Config) (*App, error) {
+func NewApp(ctx context.Context, cfg config.Config) (*App, error) {
 	repos, err := repositories(ctx, cfg)
 	if err != nil {
 		return nil, err
@@ -72,23 +77,41 @@ func RegisterRoutes(ctx context.Context, router chi.Router, cfg config.Config) (
 	usageService := appusage.NewService(repos.meter, repos.usage, repos.transactor)
 	systemService := appsystem.NewService(repos.meter, repos.usage)
 
+	return &App{
+		UsageService:      usageService,
+		authService:       authService,
+		meterService:      meterService,
+		savedQueryService: savedQueryService,
+		subjectService:    subjectService,
+		systemService:     systemService,
+		ready:             repos.ready,
+		cleanup:           repos.cleanup,
+	}, nil
+}
+
+func RegisterRoutes(ctx context.Context, router chi.Router, cfg config.Config) (*App, error) {
+	app, err := NewApp(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+
 	router.Route("/v1", func(r chi.Router) {
-		authHandler := httpauth.NewHandler(authService)
+		authHandler := httpauth.NewHandler(app.authService)
 		authHandler.RegisterRoutes(r)
 		r.Group(func(dashboard chi.Router) {
 			dashboard.Use(authHandler.RequireSession)
-			httpsavedquery.NewHandler(savedQueryService).RegisterRoutes(dashboard)
+			httpsavedquery.NewHandler(app.savedQueryService).RegisterRoutes(dashboard)
 		})
 		r.Group(func(protected chi.Router) {
 			protected.Use(authHandler.RequireAuth)
-			httpmeter.NewHandler(meterService).RegisterRoutes(protected)
-			httpsubject.NewHandler(subjectService).RegisterRoutes(protected)
-			httpusage.NewHandler(usageService).RegisterRoutes(protected)
-			httpsystem.NewHandler(systemService).RegisterRoutes(protected)
+			httpmeter.NewHandler(app.meterService).RegisterRoutes(protected)
+			httpsubject.NewHandler(app.subjectService).RegisterRoutes(protected)
+			httpusage.NewHandler(app.UsageService, cfg.ExportStoragePath).RegisterRoutes(protected)
+			httpsystem.NewHandler(app.systemService).RegisterRoutes(protected)
 		})
 	})
 
-	return &App{UsageService: usageService, ready: repos.ready, cleanup: repos.cleanup}, nil
+	return app, nil
 }
 
 func repositories(ctx context.Context, cfg config.Config) (repositorySet, error) {

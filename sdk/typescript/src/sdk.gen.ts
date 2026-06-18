@@ -2,7 +2,7 @@
 
 import { client } from './client.gen.js';
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client/index.js';
-import type { CreateMeterData, CreateMeterErrors, CreateMeterResponses, CreateUsageBulkData, CreateUsageBulkErrors, CreateUsageBulkResponses, CreateUsageData, CreateUsageErrors, CreateUsageResponses, DeleteMeterData, DeleteMeterErrors, DeleteMeterResponses, ExportUsageBucketsData, ExportUsageBucketsErrors, ExportUsageBucketsResponses, GetMeterData, GetMeterErrors, GetMeterResponses, HealthCheckData, HealthCheckResponses, ListMetersData, ListMetersErrors, ListMetersResponses, ListUsageDimensionValuesData, ListUsageDimensionValuesErrors, ListUsageDimensionValuesResponses, ReadinessCheckData, ReadinessCheckErrors, ReadinessCheckResponses, SearchUsageBreakdownData, SearchUsageBreakdownErrors, SearchUsageBreakdownResponses, SearchUsageBucketsData, SearchUsageBucketsErrors, SearchUsageBucketsResponses, UpdateMeterData, UpdateMeterErrors, UpdateMeterResponses } from './types.gen.js';
+import type { CreateMeterData, CreateMeterErrors, CreateMeterResponses, CreateUsageBulkData, CreateUsageBulkErrors, CreateUsageBulkResponses, CreateUsageData, CreateUsageErrors, CreateUsageResponses, DeleteMeterData, DeleteMeterErrors, DeleteMeterResponses, ExportFilteredUsageBucketsData, ExportFilteredUsageBucketsErrors, ExportFilteredUsageBucketsResponses, ExportUsageBucketsData, ExportUsageBucketsErrors, ExportUsageBucketsResponses, GetMeterData, GetMeterErrors, GetMeterResponses, HealthCheckData, HealthCheckResponses, ListMetersData, ListMetersErrors, ListMetersResponses, ListUsageDimensionValuesData, ListUsageDimensionValuesErrors, ListUsageDimensionValuesResponses, ReadinessCheckData, ReadinessCheckErrors, ReadinessCheckResponses, SearchUsageBreakdownData, SearchUsageBreakdownErrors, SearchUsageBreakdownResponses, SearchUsageBucketsData, SearchUsageBucketsErrors, SearchUsageBucketsResponses, UpdateMeterData, UpdateMeterErrors, UpdateMeterResponses } from './types.gen.js';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -116,6 +116,18 @@ export const listUsageDimensionValues = <ThrowOnError extends boolean = false>(o
  * Export usage buckets
  */
 export const exportUsageBuckets = <ThrowOnError extends boolean = false>(options: Options<ExportUsageBucketsData, ThrowOnError>): RequestResult<ExportUsageBucketsResponses, ExportUsageBucketsErrors, ThrowOnError> => (options.client ?? client).get<ExportUsageBucketsResponses, ExportUsageBucketsErrors, ThrowOnError>({ url: '/v1/usages/export', ...options });
+
+/**
+ * Export filtered usage buckets
+ */
+export const exportFilteredUsageBuckets = <ThrowOnError extends boolean = false>(options: Options<ExportFilteredUsageBucketsData, ThrowOnError>): RequestResult<ExportFilteredUsageBucketsResponses, ExportFilteredUsageBucketsErrors, ThrowOnError> => (options.client ?? client).post<ExportFilteredUsageBucketsResponses, ExportFilteredUsageBucketsErrors, ThrowOnError>({
+    url: '/v1/usages/export',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
 
 /**
  * Search usage buckets

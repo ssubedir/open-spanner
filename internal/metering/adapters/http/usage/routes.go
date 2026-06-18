@@ -3,13 +3,21 @@ package usage
 import "github.com/go-chi/chi/v5"
 
 func (h *Handler) RegisterRoutes(router chi.Router) {
+	router.Post("/exports", h.CreateExportJob)
 	router.Post("/usages", h.Create)
 	router.Post("/usages/bulk", h.CreateBulk)
 	router.Post("/usages/breakdowns/search", h.SearchBreakdown)
+	router.Post("/usages/export", h.ExportSearch)
 	router.Post("/usages/search", h.Search)
 	router.Post("/usageevents/prune", h.PruneEvents)
+	router.Post("/usageevents/export", h.ExportEventsSearch)
 	router.Post("/usageevents/search", h.SearchEvents)
 	router.Get("/usages/dimensions", h.ListDimensionValues)
+	router.Get("/exports", h.ListExportJobs)
+	router.Get("/exports/{id}", h.GetExportJob)
+	router.Post("/exports/{id}/cancel", h.CancelExportJob)
+	router.Post("/exports/{id}/retry", h.RetryExportJob)
+	router.Get("/exports/{id}/download", h.DownloadExportJob)
 	router.Get("/usages", h.List)
 	router.Get("/usages/export", h.Export)
 	router.Get("/usageingestions", h.ListIngestions)

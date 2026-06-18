@@ -152,7 +152,7 @@ export type UsageBucketExportQuery = {
   bucket_size: string
   group_by?: string[]
   limit?: number
-  metadata?: Record<string, string>
+  filter?: UsageFilter
 }
 
 export type UsageEventExportQuery = {
@@ -161,6 +161,41 @@ export type UsageEventExportQuery = {
   from?: string
   to?: string
   limit?: number
+  filter?: UsageFilter
+}
+
+export type UsageEventQuery = UsageEventExportQuery & {
+  cursor?: string
+}
+
+export type UsageEventList = {
+  items: UsageEvent[]
+  next_cursor?: string
+}
+
+export type UsageExportJob = {
+  id: string
+  kind: string
+  status: string
+  format: string
+  query: UsageBucketExportQuery
+  error?: string
+  artifact_size?: number
+  download_url?: string
+  created_at: string
+  updated_at: string
+  completed_at?: string
+}
+
+export type UsageExportJobList = {
+  items: UsageExportJob[]
+  next_cursor?: string
+}
+
+export type UsageExportJobCreateRequest = {
+  kind: string
+  format: string
+  query: UsageBucketExportQuery
 }
 
 export type UsageDimensionValue = {
@@ -346,7 +381,15 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 async function requestBlob(path: string, options: RequestInit = {}) {
-  const response = await fetchWithAuthRefresh(path, options)
+  const headers = new Headers(options.headers)
+  if (options.body && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
+
+  const response = await fetchWithAuthRefresh(path, {
+    ...options,
+    headers,
+  })
 
   if (!response.ok) {
     throw await apiError(response)
@@ -461,51 +504,75 @@ export async function listUsageBuckets(query: UsageBucketQuery) {
 }
 
 export async function exportUsageBuckets(query: UsageBucketExportQuery) {
-  const params = new URLSearchParams({
-    bucket_size: query.bucket_size,
-    from: query.from,
-    meter: query.meter,
-    to: query.to,
+  return requestBlob('/v1/usages/export', {
+    body: JSON.stringify({
+      bucket_size: query.bucket_size,
+      filter: query.filter,
+      from: query.from,
+      group_by: query.group_by && query.group_by.length > 0 ? query.group_by : undefined,
+      limit: query.limit,
+      meter: query.meter,
+      subject: query.subject,
+      to: query.to,
+    }),
+    method: 'POST',
   })
-  if (query.subject) {
-    params.set('subject', query.subject)
-  }
-  if (query.limit) {
-    params.set('limit', String(query.limit))
-  }
-  query.group_by?.forEach((field) => {
-    if (field) {
-      params.append('group_by', field)
-    }
-  })
-  Object.entries(query.metadata || {}).forEach(([key, value]) => {
-    if (key && value !== '') {
-      params.set(`metadata.${key}`, value)
-    }
-  })
-
-  return requestBlob(`/v1/usages/export?${params.toString()}`)
 }
 
 export async function exportUsageEvents(query: UsageEventExportQuery) {
-  const params = new URLSearchParams()
-  if (query.subject) {
-    params.set('subject', query.subject)
-  }
-  if (query.meter) {
-    params.set('meter', query.meter)
-  }
-  if (query.from) {
-    params.set('from', query.from)
-  }
-  if (query.to) {
-    params.set('to', query.to)
-  }
-  if (query.limit) {
-    params.set('limit', String(query.limit))
-  }
+  return requestBlob('/v1/usageevents/export', {
+    body: JSON.stringify({
+      filter: query.filter,
+      from: query.from,
+      limit: query.limit,
+      meter: query.meter,
+      subject: query.subject,
+      to: query.to,
+    }),
+    method: 'POST',
+  })
+}
 
-  return requestBlob(`/v1/usageevents/export?${params.toString()}`)
+export async function listUsageEvents(query: UsageEventQuery) {
+  return request<UsageEventList>('/v1/usageevents/search', {
+    body: JSON.stringify({
+      cursor: query.cursor,
+      filter: query.filter,
+      from: query.from,
+      limit: query.limit,
+      meter: query.meter,
+      subject: query.subject,
+      to: query.to,
+    }),
+    method: 'POST',
+  })
+}
+
+export async function createUsageExportJob(input: UsageExportJobCreateRequest) {
+  return request<UsageExportJob>('/v1/exports', {
+    body: JSON.stringify(input),
+    method: 'POST',
+  })
+}
+
+export async function cancelUsageExportJob(id: string) {
+  return request<UsageExportJob>(`/v1/exports/${encodeURIComponent(id)}/cancel`, {
+    method: 'POST',
+  })
+}
+
+export async function retryUsageExportJob(id: string) {
+  return request<UsageExportJob>(`/v1/exports/${encodeURIComponent(id)}/retry`, {
+    method: 'POST',
+  })
+}
+
+export async function listUsageExportJobs(limit = 8) {
+  return request<UsageExportJobList>(`/v1/exports?limit=${limit}`)
+}
+
+export async function downloadUsageExportJob(job: Pick<UsageExportJob, 'download_url' | 'id'>) {
+  return requestBlob(job.download_url || `/v1/exports/${encodeURIComponent(job.id)}/download`)
 }
 
 export async function listUsageDimensionValues(query: UsageDimensionValueQuery) {

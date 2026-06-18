@@ -422,6 +422,230 @@
                 }
             }
         },
+        "/v1/exports": {
+            "get": {
+                "tags": [
+                    "exports"
+                ],
+                "summary": "List usage export jobs",
+                "operationId": "listUsageExportJobs",
+                "parameters": [
+                    {
+                        "description": "Page size",
+                        "name": "limit",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Pagination cursor",
+                        "name": "cursor",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/internal_metering_adapters_http_usage.ExportJobListResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Queues a usage bucket export job. Jobs are created as queued and can be listed or inspected by ID.",
+                "tags": [
+                    "exports"
+                ],
+                "summary": "Queue usage export",
+                "operationId": "createUsageExportJob",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/internal_metering_adapters_http_usage.ExportJobCreateRequest"
+                            }
+                        }
+                    },
+                    "description": "Usage export job",
+                    "required": true
+                },
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/internal_metering_adapters_http_usage.ExportJobResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/exports/{id}": {
+            "get": {
+                "tags": [
+                    "exports"
+                ],
+                "summary": "Get usage export job",
+                "operationId": "getUsageExportJob",
+                "parameters": [
+                    {
+                        "description": "Export job ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/internal_metering_adapters_http_usage.ExportJobResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/exports/{id}/download": {
+            "get": {
+                "tags": [
+                    "exports"
+                ],
+                "summary": "Download usage export job",
+                "operationId": "downloadUsageExportJob",
+                "parameters": [
+                    {
+                        "description": "Export job ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "CSV",
+                        "content": {
+                            "text/csv": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "text/csv": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "content": {
+                            "text/csv": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "text/csv": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/meters": {
             "get": {
                 "tags": [
@@ -1069,7 +1293,7 @@
                         }
                     },
                     {
-                        "description": "Result limit",
+                        "description": "Result limit. Defaults to 100 and cannot exceed 1000.",
                         "name": "limit",
                         "in": "query",
                         "schema": {
@@ -1077,6 +1301,56 @@
                         }
                     }
                 ],
+                "responses": {
+                    "200": {
+                        "description": "CSV",
+                        "content": {
+                            "text/csv": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "text/csv": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "text/csv": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "usage-events"
+                ],
+                "summary": "Export filtered usage events",
+                "operationId": "exportFilteredUsageEvents",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/internal_metering_adapters_http_usage.EventSearchRequest"
+                            }
+                        }
+                    },
+                    "description": "Usage event export search",
+                    "required": true
+                },
                 "responses": {
                     "200": {
                         "description": "CSV",
@@ -1837,7 +2111,7 @@
                         }
                     },
                     {
-                        "description": "Result limit",
+                        "description": "Result limit. Defaults to 100 and cannot exceed 1000.",
                         "name": "limit",
                         "in": "query",
                         "schema": {
@@ -1845,6 +2119,66 @@
                         }
                     }
                 ],
+                "responses": {
+                    "200": {
+                        "description": "CSV",
+                        "content": {
+                            "text/csv": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "text/csv": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "text/csv": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "text/csv": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "usages"
+                ],
+                "summary": "Export filtered usage buckets",
+                "operationId": "exportFilteredUsageBuckets",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/internal_metering_adapters_http_usage.SearchRequest"
+                            }
+                        }
+                    },
+                    "description": "Usage export search",
+                    "required": true
+                },
                 "responses": {
                     "200": {
                         "description": "CSV",
@@ -2586,6 +2920,72 @@
                         "type": "string"
                     },
                     "to": {
+                        "type": "string"
+                    }
+                }
+            },
+            "internal_metering_adapters_http_usage.ExportJobCreateRequest": {
+                "type": "object",
+                "properties": {
+                    "format": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "query": {
+                        "$ref": "#/components/schemas/internal_metering_adapters_http_usage.SearchRequest"
+                    }
+                }
+            },
+            "internal_metering_adapters_http_usage.ExportJobListResponse": {
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/internal_metering_adapters_http_usage.ExportJobResponse"
+                        }
+                    },
+                    "next_cursor": {
+                        "type": "string"
+                    }
+                }
+            },
+            "internal_metering_adapters_http_usage.ExportJobResponse": {
+                "type": "object",
+                "properties": {
+                    "artifact_size": {
+                        "type": "integer"
+                    },
+                    "completed_at": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "download_url": {
+                        "type": "string"
+                    },
+                    "error": {
+                        "type": "string"
+                    },
+                    "format": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "query": {
+                        "$ref": "#/components/schemas/internal_metering_adapters_http_usage.SearchRequest"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "updated_at": {
                         "type": "string"
                     }
                 }

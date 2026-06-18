@@ -9,6 +9,22 @@ The running service serves Swagger UI at:
 http://localhost:18081/docs
 ```
 
-The full REST API includes dashboard auth, API key management, meter operations, usage ingestion, usage querying, exports, system stats, and operational endpoints.
+The full REST API includes dashboard auth, API key management, meter operations, usage ingestion, usage querying, direct CSV exports, queued export jobs, system stats, and operational endpoints.
+
+The direct CSV endpoints return files from the request:
+
+- `GET /v1/usages/export`
+- `POST /v1/usages/export`
+- `GET /v1/usageevents/export`
+- `POST /v1/usageevents/export`
+
+Queued export jobs are available for longer-running bucketed exports:
+
+- `POST /v1/exports`
+- `GET /v1/exports`
+- `GET /v1/exports/{id}`
+- `POST /v1/exports/{id}/cancel`
+- `POST /v1/exports/{id}/retry`
+- `GET /v1/exports/{id}/download`
 
 Open Spanner does not expose a gRPC API today.

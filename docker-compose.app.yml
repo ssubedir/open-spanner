@@ -8,10 +8,13 @@ services:
       OPEN_SPANNER_HTTP_ADDR: :18081
       OPEN_SPANNER_DB_DRIVER: postgres
       OPEN_SPANNER_POSTGRES_DSN: postgres://open_spanner:${OPEN_SPANNER_POSTGRES_PASSWORD:-open_spanner}@postgres:5432/open_spanner?sslmode=disable
+      OPEN_SPANNER_EXPORT_STORAGE_PATH: /data/exports
       OPEN_SPANNER_RETENTION_PRUNE_ENABLED: ${OPEN_SPANNER_RETENTION_PRUNE_ENABLED:-false}
     depends_on:
       postgres:
         condition: service_healthy
+    volumes:
+      - open-spanner-app-exports:/data/exports
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:18081/ready || exit 1"]
       interval: 5s
@@ -20,6 +23,27 @@ services:
       start_period: 5s
     ports:
       - "${OPEN_SPANNER_HTTP_PORT:-18081}:18081"
+    restart: unless-stopped
+
+  export-worker:
+    image: open-spanner:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    entrypoint: ["/usr/local/bin/open-spanner-export-worker"]
+    environment:
+      OPEN_SPANNER_DB_DRIVER: postgres
+      OPEN_SPANNER_POSTGRES_DSN: postgres://open_spanner:${OPEN_SPANNER_POSTGRES_PASSWORD:-open_spanner}@postgres:5432/open_spanner?sslmode=disable
+      OPEN_SPANNER_EXPORT_STORAGE_PATH: /data/exports
+      OPEN_SPANNER_EXPORT_WORKER_INTERVAL: ${OPEN_SPANNER_EXPORT_WORKER_INTERVAL:-5s}
+      OPEN_SPANNER_EXPORT_WORKER_LOCK_TTL: ${OPEN_SPANNER_EXPORT_WORKER_LOCK_TTL:-5m}
+      OPEN_SPANNER_EXPORT_WORKER_TIMEOUT: ${OPEN_SPANNER_EXPORT_WORKER_TIMEOUT:-10m}
+      OPEN_SPANNER_EXPORT_WORKER_MAX_ATTEMPTS: ${OPEN_SPANNER_EXPORT_WORKER_MAX_ATTEMPTS:-3}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - open-spanner-app-exports:/data/exports
     restart: unless-stopped
 
   postgres:
@@ -39,3 +63,4 @@ services:
 
 volumes:
   open-spanner-app-postgres:
+  open-spanner-app-exports:
