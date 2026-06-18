@@ -1,97 +1,61 @@
 # Releasing
 
-Use this checklist before publishing SDK packages or cutting a tagged release.
+Use the release workflows from `main`.
 
 ## Prerequisites
 
 - GitHub Actions publish workflows are enabled.
-- npm package publishing is configured for `@ssubedir/open-spanner`.
-- PyPI trusted publishing is configured for `open-spanner`.
-- NuGet trusted publishing is configured for `OpenSpanner`.
-- Local tools are installed: Go, Node/npm, Python/uv, .NET SDK, and Task.
+- `RELEASE_TOKEN` is configured with permission to push release commits and tags.
+- npm publishing is configured for `@ssubedir/open-spanner`.
+- PyPI publishing is configured for `open-spanner`.
+- NuGet publishing is configured for `OpenSpanner`.
 
-## Verify
+## Prepare Version
 
-Run the full release gate from a clean working tree:
+Open the `Prepare Release Version` workflow from `main` and enter the release version, for example `0.1.6`.
+
+The workflow runs:
+
+```sh
+task release:version VERSION=0.1.6
+```
+
+It commits the SDK package metadata directly to `main`.
+
+## Release
+
+Open the `Release Orchestrator` workflow from `main` and enter the same release version.
+
+The workflow:
+
+- runs `task release:check`
+- verifies SDK package versions match the release version
+- creates the app and SDK release tags in order
+
+Those tags trigger the GitHub release and SDK publish workflows.
+
+## Optional Local Preflight
+
+Before running the orchestrator, you can run:
 
 ```sh
 task release:check
 ```
 
-This regenerates OpenAPI and SDK artifacts, runs tests, builds package artifacts, and fails if generated files are not committed.
+If generated files change, commit them to `main` and rerun the check.
 
-If the command reports a diff, review it and commit the generated artifacts before tagging:
+## Publish Targets
 
-```sh
-git status --short
-git diff --stat
-```
+| Package | Registry | Workflow |
+| --- | --- | --- |
+| Open Spanner | GitHub Releases | `Create GitHub Release` |
+| TypeScript | npm `@ssubedir/open-spanner` | `Publish TypeScript SDK` |
+| Python | PyPI `open-spanner` | `Publish Python SDK` |
+| C# | NuGet `OpenSpanner` | `Publish C# SDK` |
+| Go | Go module proxy | `Release Orchestrator` |
 
-Then rerun:
+## Failed Releases
 
-```sh
-task release:check
-```
+If the release check fails, fix and commit the reported files on `main`, then rerun `Release Orchestrator`.
 
-## Version Updates
-
-Update package versions before tagging:
-
-- TypeScript: `sdk/typescript/package.json`
-- Python: `sdk/python/pyproject.toml`
-- C#: `sdk/csharp/OpenSpanner.csproj`
-
-Regenerate and verify after version changes:
-
-```sh
-task release:check
-```
-
-## Tags
-
-Create a project release tag first:
-
-```sh
-git tag v0.1.2
-git push origin v0.1.2
-```
-
-This creates a GitHub Release with generated release notes.
-
-SDK publish workflows are also tag driven:
-
-```sh
-git tag sdk-js-v0.1.2
-git tag sdk-python-v0.1.2
-git tag sdk-csharp-v0.1.2
-git push origin sdk-js-v0.1.2 sdk-python-v0.1.2 sdk-csharp-v0.1.2
-```
-
-For the Go SDK, use a module tag when publishing a new Go module version:
-
-```sh
-git tag sdk/go/v0.1.2
-git push origin sdk/go/v0.1.2
-```
-
-## Package Targets
-
-| SDK | Registry | Workflow | Tag |
-| --- | --- | --- | --- |
-| Project | GitHub Releases | `Create GitHub Release` | `v*` |
-| TypeScript | npm `@ssubedir/open-spanner` | `Publish TypeScript SDK` | `sdk-js-v*` |
-| Python | PyPI `open-spanner` | `Publish Python SDK` | `sdk-python-v*` |
-| C# | NuGet `OpenSpanner` | `Publish C# SDK` | `sdk-csharp-v*` |
-| Go | Go module proxy | none | `sdk/go/v*` |
-
-## Failed Release Checks
-
-If a publish workflow fails because generated files changed, do not rerun the failed job blindly. Pull the branch locally, run:
-
-```sh
-task release:check
-```
-
-Commit the generated OpenAPI or SDK changes, push the commit, then recreate or push a new release tag.
-
-If a registry rejects a package because the version already exists, bump the package version and create a new tag.
+If a registry rejects a package because the version already exists, prepare the next version and run the release again.

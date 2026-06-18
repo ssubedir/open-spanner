@@ -1,0 +1,140 @@
+name: Prepare Release Version
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, for example 0.1.6"
+        required: true
+        type: string
+
+concurrency:
+  group: prepare-release-version-${{ inputs.version }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  bump:
+    name: Commit version bump
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Require release owner
+        if: github.actor != 'ssubedir'
+        run: |
+          echo "Only @ssubedir can run release workflows."
+          exit 1
+
+      - name: Require main branch
+        if: github.ref_name != 'main'
+        run: |
+          echo "Run this workflow from main after merging the release branch."
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Task
+        run: npm install --global @go-task/cli
+
+      - name: Resolve release version
+        id: release
+        shell: bash
+        run: |
+          VERSION="${{ inputs.version }}"
+          VERSION="${VERSION#v}"
+
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Version must look like 0.1.6 or 0.1.6-rc.1"
+            exit 1
+          fi
+
+          {
+            echo "version=$VERSION"
+            echo "commit_message=release: bump package versions to $VERSION"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Configure release token
+        shell: bash
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          if [ -z "$RELEASE_TOKEN" ]; then
+            echo "::error title=Missing RELEASE_TOKEN::Set RELEASE_TOKEN to a token with contents:write."
+            exit 1
+          fi
+
+          git config --global --unset-all "http.https://github.com/.extraheader" || true
+          git remote set-url origin "https://x-access-token:${RELEASE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+      - name: Update SDK package versions
+        run: task release:version VERSION=${{ steps.release.outputs.version }}
+
+      - name: Verify release version diff
+        id: diff
+        shell: bash
+        run: |
+          ALLOWED='^(sdk/typescript/package(-lock)?\.json|sdk/python/(pyproject\.toml|uv\.lock)|sdk/python-client\.yml|sdk/csharp/OpenSpanner\.csproj)$'
+          UNEXPECTED="$(git diff --name-only | grep -Ev "$ALLOWED" || true)"
+
+          if [ -n "$UNEXPECTED" ]; then
+            echo "Unexpected files changed:"
+            echo "$UNEXPECTED"
+            exit 1
+          fi
+
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit version bump to main
+        if: steps.diff.outputs.changed == 'true'
+        shell: bash
+        run: |
+          VERSION="${{ steps.release.outputs.version }}"
+          COMMIT_MESSAGE="${{ steps.release.outputs.commit_message }}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add sdk/typescript/package.json sdk/typescript/package-lock.json
+          git add sdk/python/pyproject.toml sdk/python/uv.lock sdk/python-client.yml
+          git add sdk/csharp/OpenSpanner.csproj
+          git commit -m "$COMMIT_MESSAGE"
+          git push origin "HEAD:main"
+
+          {
+            echo "### Version bump committed"
+            echo
+            echo "- Version: \`$VERSION\`"
+            echo "- Commit: \`$COMMIT_MESSAGE\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report next release step
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          {
+            echo "### Next step"
+            echo
+            echo "Run the Release Orchestrator workflow for \`${{ steps.release.outputs.version }}\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report unchanged version
+        if: steps.diff.outputs.changed == 'false'
+        run: |
+          {
+            echo "### No version changes needed"
+            echo
+            echo "SDK package metadata already matches ${{ steps.release.outputs.version }}."
+          } >> "$GITHUB_STEP_SUMMARY"

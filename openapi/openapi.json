@@ -584,6 +584,68 @@
                 }
             }
         },
+        "/v1/exports/{id}/cancel": {
+            "post": {
+                "tags": [
+                    "exports"
+                ],
+                "summary": "Cancel usage export job",
+                "operationId": "cancelUsageExportJob",
+                "parameters": [
+                    {
+                        "description": "Export job ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/internal_metering_adapters_http_usage.ExportJobResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/exports/{id}/download": {
             "get": {
                 "tags": [
@@ -637,6 +699,68 @@
                         "description": "Internal Server Error",
                         "content": {
                             "text/csv": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/exports/{id}/retry": {
+            "post": {
+                "tags": [
+                    "exports"
+                ],
+                "summary": "Retry usage export job",
+                "operationId": "retryUsageExportJob",
+                "parameters": [
+                    {
+                        "description": "Export job ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/internal_metering_adapters_http_usage.ExportJobResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
                                 }
