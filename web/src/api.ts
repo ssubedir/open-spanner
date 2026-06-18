@@ -309,6 +309,69 @@ export type APIKeyCreateResponse = APIKey & {
   key: string
 }
 
+export type AlertState = {
+  status: string
+  value: number
+  message: string
+  evaluated_at?: string
+  updated_at: string
+}
+
+export type AlertRule = {
+  id: string
+  name: string
+  meter: string
+  enabled: boolean
+  subject?: string
+  metadata?: Record<string, string>
+  window_seconds: number
+  comparator: string
+  threshold: number
+  evaluation_interval_seconds: number
+  trigger_type: string
+  webhook_url?: string
+  next_evaluate_at: string
+  created_at: string
+  updated_at: string
+  state?: AlertState
+}
+
+export type AlertRuleList = {
+  items: AlertRule[]
+}
+
+export type AlertEvent = {
+  id: string
+  rule_id: string
+  type: string
+  value: number
+  message: string
+  created_at: string
+}
+
+export type AlertEventList = {
+  items: AlertEvent[]
+  next_cursor?: string
+}
+
+export type AlertRuleRequest = {
+  name: string
+  meter: string
+  enabled?: boolean
+  subject?: string
+  metadata?: Record<string, string>
+  window_seconds?: number
+  comparator?: string
+  threshold: number
+  evaluation_interval_seconds?: number
+  trigger_type?: string
+  webhook_url?: string
+}
+
+export type AlertRuleUpdateRequest = Partial<Omit<AlertRuleRequest, 'threshold'>> & {
+  threshold?: number
+}
+
 export class APIError extends Error {
   code: string
   status: number
@@ -434,6 +497,40 @@ export async function deleteAPIKey(id: string) {
   return request<void>(`/v1/auth/api-keys/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   })
+}
+
+export async function listAlertRules() {
+  return request<AlertRuleList>('/v1/alerts')
+}
+
+export async function createAlertRule(input: AlertRuleRequest) {
+  return request<AlertRule>('/v1/alerts', {
+    body: JSON.stringify(input),
+    method: 'POST',
+  })
+}
+
+export async function updateAlertRule(id: string, input: AlertRuleUpdateRequest) {
+  return request<AlertRule>(`/v1/alerts/${encodeURIComponent(id)}`, {
+    body: JSON.stringify(input),
+    method: 'PUT',
+  })
+}
+
+export async function deleteAlertRule(id: string) {
+  return request<void>(`/v1/alerts/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function evaluateAlertRule(id: string) {
+  return request<{ rule: AlertRule; state: AlertState; event?: AlertEvent }>(`/v1/alerts/${encodeURIComponent(id)}/evaluate`, {
+    method: 'POST',
+  })
+}
+
+export async function listAlertEvents(limit = 25) {
+  return request<AlertEventList>(`/v1/alerts/events?limit=${limit}`)
 }
 
 export async function getSystemStats() {

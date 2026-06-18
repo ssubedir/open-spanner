@@ -35,6 +35,19 @@ tasks:
     cmds:
       - go run ./cmd/export-worker
 
+  run:alert-worker:
+    desc: Run the alert worker
+    cmds:
+      - go run ./cmd/alert-worker
+
+  run:alert-worker:postgres:
+    desc: Run the alert worker with Postgres storage
+    env:
+      OPEN_SPANNER_DB_DRIVER: postgres
+      OPEN_SPANNER_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/open_spanner?sslmode=disable
+    cmds:
+      - go run ./cmd/alert-worker
+
   postgres:up:
     desc: Start local Postgres for development and integration tests
     cmds:

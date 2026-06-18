@@ -1,9 +1,11 @@
 package usage
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"sort"
@@ -14,6 +16,7 @@ import (
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/fileexport"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/http/internal/request"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/http/internal/respond"
+	appalert "github.com/ssubedir/open-spanner/internal/metering/app/alert"
 	appusage "github.com/ssubedir/open-spanner/internal/metering/app/usage"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
 	domainusage "github.com/ssubedir/open-spanner/internal/metering/domain/usage"
@@ -21,15 +24,24 @@ import (
 
 type Handler struct {
 	service     appusage.Service
+	alerts      alertEnqueuer
 	exportStore fileexport.Store
 }
 
+type alertEnqueuer interface {
+	EnqueueForUsageEvents(ctx context.Context, events []appalert.UsageEvent) error
+}
+
 func NewHandler(service appusage.Service, exportStoragePaths ...string) *Handler {
+	return NewHandlerWithAlerts(service, nil, exportStoragePaths...)
+}
+
+func NewHandlerWithAlerts(service appusage.Service, alerts alertEnqueuer, exportStoragePaths ...string) *Handler {
 	exportStoragePath := "open-spanner-exports"
 	if len(exportStoragePaths) > 0 && strings.TrimSpace(exportStoragePaths[0]) != "" {
 		exportStoragePath = exportStoragePaths[0]
 	}
-	return &Handler{service: service, exportStore: fileexport.NewStore(exportStoragePath)}
+	return &Handler{service: service, alerts: alerts, exportStore: fileexport.NewStore(exportStoragePath)}
 }
 
 // Create creates a usage event.
@@ -80,6 +92,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		respond.ServiceError(w, err)
 		return
 	}
+	h.enqueueAlerts(r.Context(), []appusage.Result{event})
 
 	respond.JSON(w, http.StatusCreated, responseFromResult(event))
 }
@@ -157,6 +170,7 @@ func (h *Handler) CreateBulk(w http.ResponseWriter, r *http.Request) {
 		respond.ServiceError(w, err)
 		return
 	}
+	h.enqueueAlerts(r.Context(), result.Accepted)
 
 	respond.JSON(w, status, bulkResponseFromResult(result))
 }
@@ -882,6 +896,23 @@ func writeEventCSV(w http.ResponseWriter, events []appusage.Result) {
 	w.WriteHeader(http.StatusOK)
 
 	_ = appusage.WriteEventCSV(w, events)
+}
+
+func (h *Handler) enqueueAlerts(ctx context.Context, events []appusage.Result) {
+	if h.alerts == nil || len(events) == 0 {
+		return
+	}
+	alertEvents := make([]appalert.UsageEvent, 0, len(events))
+	for _, event := range events {
+		alertEvents = append(alertEvents, appalert.UsageEvent{
+			Subject:  event.Subject,
+			Meter:    event.MeterName,
+			Metadata: event.Metadata,
+		})
+	}
+	if err := h.alerts.EnqueueForUsageEvents(ctx, alertEvents); err != nil {
+		log.Printf("alert enqueue failed: %v", err)
+	}
 }
 
 func validateDirectExportLimit(limit int) error {

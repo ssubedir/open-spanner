@@ -21,6 +21,12 @@ type Config struct {
 	ExportWorkerLockTTL     time.Duration
 	ExportWorkerTimeout     time.Duration
 	ExportWorkerMaxAttempts int
+	AlertWorkerInterval     time.Duration
+	AlertWorkerLockTTL      time.Duration
+	AlertWorkerTimeout      time.Duration
+	AlertWorkerRetryAfter   time.Duration
+	AlertWorkerMaxAttempts  int
+	AlertWorkerBatchSize    int
 	RetentionPruneEnabled   bool
 	RetentionPruneInterval  time.Duration
 	RetentionPruneTimeout   time.Duration
@@ -68,6 +74,30 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	alertWorkerInterval, err := envDuration("OPEN_SPANNER_ALERT_WORKER_INTERVAL", 5*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	alertWorkerLockTTL, err := envDuration("OPEN_SPANNER_ALERT_WORKER_LOCK_TTL", 5*time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	alertWorkerTimeout, err := envDuration("OPEN_SPANNER_ALERT_WORKER_TIMEOUT", time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	alertWorkerRetryAfter, err := envDuration("OPEN_SPANNER_ALERT_WORKER_RETRY_AFTER", 30*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	alertWorkerMaxAttempts, err := envInt("OPEN_SPANNER_ALERT_WORKER_MAX_ATTEMPTS", 3)
+	if err != nil {
+		return Config{}, err
+	}
+	alertWorkerBatchSize, err := envInt("OPEN_SPANNER_ALERT_WORKER_BATCH_SIZE", 100)
+	if err != nil {
+		return Config{}, err
+	}
 
 	cfg := Config{
 		HTTPAddr:                env("OPEN_SPANNER_HTTP_ADDR", ":18081"),
@@ -80,6 +110,12 @@ func Load() (Config, error) {
 		ExportWorkerLockTTL:     exportWorkerLockTTL,
 		ExportWorkerTimeout:     exportWorkerTimeout,
 		ExportWorkerMaxAttempts: exportWorkerMaxAttempts,
+		AlertWorkerInterval:     alertWorkerInterval,
+		AlertWorkerLockTTL:      alertWorkerLockTTL,
+		AlertWorkerTimeout:      alertWorkerTimeout,
+		AlertWorkerRetryAfter:   alertWorkerRetryAfter,
+		AlertWorkerMaxAttempts:  alertWorkerMaxAttempts,
+		AlertWorkerBatchSize:    alertWorkerBatchSize,
 		RetentionPruneEnabled:   retentionEnabled,
 		RetentionPruneInterval:  retentionInterval,
 		RetentionPruneTimeout:   retentionTimeout,
@@ -136,6 +172,24 @@ func (cfg Config) Validate() error {
 	}
 	if cfg.ExportWorkerMaxAttempts <= 0 {
 		return fmt.Errorf("OPEN_SPANNER_EXPORT_WORKER_MAX_ATTEMPTS must be greater than zero")
+	}
+	if cfg.AlertWorkerInterval <= 0 {
+		return fmt.Errorf("OPEN_SPANNER_ALERT_WORKER_INTERVAL must be greater than zero")
+	}
+	if cfg.AlertWorkerLockTTL <= 0 {
+		return fmt.Errorf("OPEN_SPANNER_ALERT_WORKER_LOCK_TTL must be greater than zero")
+	}
+	if cfg.AlertWorkerTimeout <= 0 {
+		return fmt.Errorf("OPEN_SPANNER_ALERT_WORKER_TIMEOUT must be greater than zero")
+	}
+	if cfg.AlertWorkerRetryAfter <= 0 {
+		return fmt.Errorf("OPEN_SPANNER_ALERT_WORKER_RETRY_AFTER must be greater than zero")
+	}
+	if cfg.AlertWorkerMaxAttempts <= 0 {
+		return fmt.Errorf("OPEN_SPANNER_ALERT_WORKER_MAX_ATTEMPTS must be greater than zero")
+	}
+	if cfg.AlertWorkerBatchSize <= 0 {
+		return fmt.Errorf("OPEN_SPANNER_ALERT_WORKER_BATCH_SIZE must be greater than zero")
 	}
 	if cfg.RetentionPruneInterval <= 0 {
 		return fmt.Errorf("OPEN_SPANNER_RETENTION_PRUNE_INTERVAL must be greater than zero")

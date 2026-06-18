@@ -4,10 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { appStore, appStoreActions } from '../app-store'
 import type { UsageExportJob } from '../api'
-import { ExportJobsCard, exportJobStatusLabel, isActiveExportJob } from '../components/export-jobs-card'
+import { ExportJobsCard } from '../components/export-jobs-card'
 import { MetricCard, PageHeader } from '../components/dashboard'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
+import { exportJobStatusLabel, isActiveExportJob } from '../lib/export-jobs'
 import { useInitialLoad } from '../lib/hooks'
 
 const exportJobPageSize = 50

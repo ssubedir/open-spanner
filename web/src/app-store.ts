@@ -2,6 +2,7 @@ import { createStore } from '@tanstack/react-store'
 import type { RuleGroupType } from 'react-querybuilder'
 
 import {
+  createAlertRule,
   APIError,
   cancelUsageExportJob,
   createAPIKey as createAPIKeyRequest,
@@ -10,6 +11,7 @@ import {
   createMeter as createMeterRequest,
   createSavedUsageQuery,
   createUsageExportJob,
+  deleteAlertRule,
   deleteAPIKey as deleteAPIKeyRequest,
   deleteAuthSession,
   deleteMeter as deleteMeterRequest,
@@ -17,7 +19,10 @@ import {
   downloadUsageExportJob,
   exportUsageBuckets,
   exportUsageEvents,
+  evaluateAlertRule,
   getSystemStats,
+  listAlertEvents,
+  listAlertRules,
   listAPIKeys,
   listIngestions,
   listMeterStats,
@@ -32,8 +37,13 @@ import {
   listUsageExportJobs,
   refreshAuthSession,
   retryUsageExportJob,
+  updateAlertRule,
   updateMeter as updateMeterRequest,
   updateSavedUsageQuery,
+  type AlertEvent,
+  type AlertRule,
+  type AlertRuleRequest,
+  type AlertRuleUpdateRequest,
   type APIKey,
   type APIKeyCreateResponse,
   type AuthSession,
@@ -110,6 +120,17 @@ type AppState = {
     deleting: APIKey | null
     error: string
     items: APIKey[]
+    saving: boolean
+    status: LoadState
+  }
+  alerts: {
+    deleting: AlertRule | null
+    editing: AlertRule | null
+    error: string
+    events: AlertEvent[]
+    eventStatus: LoadState
+    items: AlertRule[]
+    meters: Meter[]
     saving: boolean
     status: LoadState
   }
@@ -194,6 +215,17 @@ export const appStore = createStore<AppState>({
     deleting: null,
     error: '',
     items: [],
+    saving: false,
+    status: 'idle',
+  },
+  alerts: {
+    deleting: null,
+    editing: null,
+    error: '',
+    events: [],
+    eventStatus: 'idle',
+    items: [],
+    meters: [],
     saving: false,
     status: 'idle',
   },
@@ -329,6 +361,96 @@ export const appStoreActions = {
       throw err
     } finally {
       setAPIKeysState({ saving: false })
+    }
+  },
+  async loadAlerts() {
+    setAlertsState({ error: '', eventStatus: 'loading', status: 'loading' })
+    try {
+      const meters = await listMeters()
+      setAlertsState({ meters: meters.items })
+
+      const [rules, events] = await Promise.all([
+        listAlertRules(),
+        listAlertEvents(),
+      ])
+      setAlertsState({
+        events: events.items,
+        eventStatus: 'ready',
+        items: rules.items,
+        status: 'ready',
+      })
+    } catch (err) {
+      setAlertsState({
+        error: errorMessage(err, 'Unable to load alerts'),
+        eventStatus: 'error',
+        status: 'error',
+      })
+    }
+  },
+  async createAlert(input: AlertRuleRequest) {
+    setAlertsState({ error: '', saving: true })
+    try {
+      await createAlertRule(input)
+      await appStoreActions.loadAlerts()
+    } catch (err) {
+      setAlertsState({ error: errorMessage(err, 'Unable to create alert') })
+      throw err
+    } finally {
+      setAlertsState({ saving: false })
+    }
+  },
+  async updateEditingAlert(input: AlertRuleUpdateRequest) {
+    const editing = appStore.state.alerts.editing
+    if (!editing) {
+      return
+    }
+
+    setAlertsState({ error: '', saving: true })
+    try {
+      await updateAlertRule(editing.id, input)
+      setAlertsState({ editing: null })
+      await appStoreActions.loadAlerts()
+    } catch (err) {
+      setAlertsState({ error: errorMessage(err, 'Unable to update alert') })
+      throw err
+    } finally {
+      setAlertsState({ saving: false })
+    }
+  },
+  async deleteSelectedAlert() {
+    const deleting = appStore.state.alerts.deleting
+    if (!deleting) {
+      return
+    }
+
+    setAlertsState({ error: '', saving: true })
+    try {
+      await deleteAlertRule(deleting.id)
+      setAlertsState((state) => ({
+        deleting: null,
+        events: state.events.filter((event) => event.rule_id !== deleting.id),
+        items: state.items.filter((item) => item.id !== deleting.id),
+      }))
+    } catch (err) {
+      setAlertsState({ error: errorMessage(err, 'Unable to delete alert') })
+      throw err
+    } finally {
+      setAlertsState({ saving: false })
+    }
+  },
+  async evaluateAlert(rule: AlertRule) {
+    setAlertsState({ error: '', saving: true })
+    try {
+      const result = await evaluateAlertRule(rule.id)
+      setAlertsState((state) => ({
+        events: result.event ? [result.event, ...state.events.filter((event) => event.id !== result.event?.id)].slice(0, 25) : state.events,
+        items: state.items.map((item) => item.id === rule.id ? result.rule : item),
+      }))
+    } catch (err) {
+      setAlertsState({ error: errorMessage(err, 'Unable to evaluate alert') })
+      throw err
+    } finally {
+      setAlertsState({ saving: false })
     }
   },
   async ensureAuthUser() {
@@ -692,6 +814,12 @@ export const appStoreActions = {
   setAPIKeyDeleting(deleting: APIKey | null) {
     setAPIKeysState({ deleting })
   },
+  setAlertDeleting(deleting: AlertRule | null) {
+    setAlertsState({ deleting })
+  },
+  setAlertEditing(editing: AlertRule | null) {
+    setAlertsState({ editing })
+  },
   setMeterEditing(editing: Meter | null) {
     const stats = appStore.state.meters.stats
     setMetersState({
@@ -1052,6 +1180,16 @@ function setAPIKeysState(update: Partial<AppState['apiKeys']> | ((state: AppStat
     apiKeys: {
       ...state.apiKeys,
       ...(typeof update === 'function' ? update(state.apiKeys) : update),
+    },
+  }))
+}
+
+function setAlertsState(update: Partial<AppState['alerts']> | ((state: AppState['alerts']) => Partial<AppState['alerts']>)) {
+  appStore.setState((state) => ({
+    ...state,
+    alerts: {
+      ...state.alerts,
+      ...(typeof update === 'function' ? update(state.alerts) : update),
     },
   }))
 }

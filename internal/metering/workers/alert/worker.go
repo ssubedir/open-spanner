@@ -1,0 +1,261 @@
+package alert
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log"
+	"net/http"
+	"sync"
+	"time"
+
+	appalert "github.com/ssubedir/open-spanner/internal/metering/app/alert"
+	"github.com/ssubedir/open-spanner/internal/metering/domain"
+)
+
+type Service interface {
+	EnqueueDueRules(ctx context.Context, limit int) (int, error)
+	ClaimEvaluationJob(ctx context.Context, cmd appalert.ClaimCommand) (appalert.EvaluationJobResult, bool, error)
+	Evaluate(ctx context.Context, cmd appalert.EvaluateCommand) (appalert.EvaluationResult, error)
+	CompleteEvaluationJob(ctx context.Context, cmd appalert.CompleteCommand) error
+	FailEvaluationJob(ctx context.Context, cmd appalert.FailCommand) error
+}
+
+type Logger func(format string, args ...any)
+
+type Worker struct {
+	service     Service
+	interval    time.Duration
+	lockTTL     time.Duration
+	timeout     time.Duration
+	retryAfter  time.Duration
+	maxAttempts int
+	batchSize   int
+	logger      Logger
+}
+
+func NewWorker(service Service, interval time.Duration, lockTTL time.Duration, timeout time.Duration, retryAfter time.Duration, maxAttempts int, batchSize int, logger Logger) *Worker {
+	if logger == nil {
+		logger = log.Printf
+	}
+	return &Worker{
+		service:     service,
+		interval:    interval,
+		lockTTL:     lockTTL,
+		timeout:     timeout,
+		retryAfter:  retryAfter,
+		maxAttempts: maxAttempts,
+		batchSize:   batchSize,
+		logger:      logger,
+	}
+}
+
+func (w *Worker) Start(ctx context.Context) func() {
+	workerCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		w.run(workerCtx)
+	}()
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			cancel()
+			<-done
+		})
+	}
+}
+
+func (w *Worker) run(ctx context.Context) {
+	if w.service == nil || w.interval <= 0 {
+		return
+	}
+
+	ticker := time.NewTicker(w.interval)
+	defer ticker.Stop()
+
+	w.logger("alert worker started: interval=%s lock_ttl=%s timeout=%s retry_after=%s max_attempts=%d batch_size=%d", w.interval, w.lockTTL, w.timeout, w.retryAfter, w.maxAttempts, w.batchSize)
+	defer w.logger("alert worker stopped")
+
+	for {
+		w.drain(ctx)
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func (w *Worker) drain(ctx context.Context) {
+	if _, err := w.service.EnqueueDueRules(ctx, w.batchSize); err != nil {
+		w.logger("alert due rule enqueue failed: error=%v", err)
+		return
+	}
+
+	for processed := 0; processed < w.batchSize; processed++ {
+		ok, err := w.ProcessOnce(ctx)
+		if err != nil {
+			w.logger("alert evaluation processing failed: error=%v", err)
+			return
+		}
+		if !ok {
+			return
+		}
+	}
+}
+
+func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
+	job, ok, err := w.service.ClaimEvaluationJob(ctx, appalert.ClaimCommand{
+		LockTTL:     w.lockTTL,
+		MaxAttempts: w.maxAttempts,
+	})
+	if err != nil || !ok {
+		return ok, err
+	}
+
+	startedAt := time.Now()
+	jobCtx := ctx
+	cancel := func() {}
+	if w.timeout > 0 {
+		jobCtx, cancel = context.WithTimeout(ctx, w.timeout)
+	}
+	defer cancel()
+
+	result, err := w.service.Evaluate(jobCtx, appalert.EvaluateCommand{RuleID: job.RuleID})
+	duration := time.Since(startedAt).Round(time.Millisecond)
+	if err == nil {
+		if result.Event != nil {
+			if triggerErr := deliverWebhookTrigger(jobCtx, result); triggerErr != nil {
+				w.logger("alert trigger delivery failed: rule_id=%s event_id=%s error=%v", job.RuleID, result.Event.ID, triggerErr)
+			}
+		}
+		if err := w.service.CompleteEvaluationJob(ctx, appalert.CompleteCommand{RuleID: job.RuleID}); err != nil && !errors.Is(err, domain.ErrNotFound) {
+			return true, err
+		}
+		w.logger("alert evaluation completed: rule_id=%s status=%s value=%.4f duration=%s", job.RuleID, result.State.Status, result.State.Value, duration)
+		return true, nil
+	}
+	if ctx.Err() != nil && errors.Is(err, context.Canceled) {
+		w.logger("alert evaluation abandoned during shutdown: rule_id=%s duration=%s", job.RuleID, duration)
+		return true, nil
+	}
+
+	failCtx, failCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer failCancel()
+	if job.Attempts >= w.maxAttempts {
+		if completeErr := w.service.CompleteEvaluationJob(failCtx, appalert.CompleteCommand{RuleID: job.RuleID}); completeErr != nil && !errors.Is(completeErr, domain.ErrNotFound) {
+			return true, errors.Join(err, completeErr)
+		}
+		w.logger("alert evaluation failed permanently: rule_id=%s attempts=%d duration=%s error=%v", job.RuleID, job.Attempts, duration, err)
+		return true, nil
+	}
+	if failErr := w.service.FailEvaluationJob(failCtx, appalert.FailCommand{
+		RuleID:     job.RuleID,
+		RetryAfter: w.retryAfter,
+		Error:      err.Error(),
+	}); failErr != nil && !errors.Is(failErr, domain.ErrNotFound) {
+		return true, errors.Join(err, failErr)
+	}
+	w.logger("alert evaluation failed and requeued: rule_id=%s attempts=%d duration=%s error=%v", job.RuleID, job.Attempts, duration, err)
+	return true, nil
+}
+
+func deliverWebhookTrigger(ctx context.Context, result appalert.EvaluationResult) error {
+	if result.Rule.TriggerType != string(appalert.TriggerWebhook) || result.Rule.WebhookURL == "" || result.Event == nil {
+		return nil
+	}
+
+	payload := webhookPayload{
+		Rule: webhookRulePayload{
+			ID:                        result.Rule.ID,
+			Name:                      result.Rule.Name,
+			Meter:                     result.Rule.MeterName,
+			Enabled:                   result.Rule.Enabled,
+			Subject:                   result.Rule.Subject,
+			Metadata:                  result.Rule.Metadata,
+			WindowSeconds:             result.Rule.WindowSeconds,
+			Comparator:                result.Rule.Comparator,
+			Threshold:                 result.Rule.Threshold,
+			EvaluationIntervalSeconds: result.Rule.EvaluationInterval,
+		},
+		State: webhookStatePayload{
+			Status:      result.State.Status,
+			Value:       result.State.Value,
+			Message:     result.State.Message,
+			EvaluatedAt: result.State.EvaluatedAt.Format(time.RFC3339),
+			UpdatedAt:   result.State.UpdatedAt.Format(time.RFC3339),
+		},
+		Event: webhookEventPayload{
+			ID:        result.Event.ID,
+			RuleID:    result.Event.RuleID,
+			Type:      result.Event.Type,
+			Value:     result.Event.Value,
+			Message:   result.Event.Message,
+			CreatedAt: result.Event.CreatedAt.Format(time.RFC3339),
+		},
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, result.Rule.WebhookURL, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "open-spanner-alert-worker")
+
+	client := http.Client{Timeout: 10 * time.Second}
+	res, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode < http.StatusOK || res.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("webhook returned status %d", res.StatusCode)
+	}
+	return nil
+}
+
+type webhookPayload struct {
+	Event webhookEventPayload `json:"event"`
+	Rule  webhookRulePayload  `json:"rule"`
+	State webhookStatePayload `json:"state"`
+}
+
+type webhookRulePayload struct {
+	ID                        string            `json:"id"`
+	Name                      string            `json:"name"`
+	Meter                     string            `json:"meter"`
+	Enabled                   bool              `json:"enabled"`
+	Subject                   string            `json:"subject,omitempty"`
+	Metadata                  map[string]string `json:"metadata,omitempty"`
+	WindowSeconds             int               `json:"window_seconds"`
+	Comparator                string            `json:"comparator"`
+	Threshold                 float64           `json:"threshold"`
+	EvaluationIntervalSeconds int               `json:"evaluation_interval_seconds"`
+}
+
+type webhookStatePayload struct {
+	Status      string  `json:"status"`
+	Value       float64 `json:"value"`
+	Message     string  `json:"message"`
+	EvaluatedAt string  `json:"evaluated_at"`
+	UpdatedAt   string  `json:"updated_at"`
+}
+
+type webhookEventPayload struct {
+	ID        string  `json:"id"`
+	RuleID    string  `json:"rule_id"`
+	Type      string  `json:"type"`
+	Value     float64 `json:"value"`
+	Message   string  `json:"message"`
+	CreatedAt string  `json:"created_at"`
+}

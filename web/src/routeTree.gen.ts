@@ -19,6 +19,7 @@ import { Route as DashboardOverviewRouteRouteImport } from './routes/_dashboard/
 import { Route as DashboardMetersRouteRouteImport } from './routes/_dashboard/meters/route'
 import { Route as DashboardExportsRouteRouteImport } from './routes/_dashboard/exports/route'
 import { Route as DashboardApiKeysRouteRouteImport } from './routes/_dashboard/api-keys/route'
+import { Route as DashboardAlertsRouteRouteImport } from './routes/_dashboard/alerts/route'
 import { Route as DashboardSubjectsSubjectRouteImport } from './routes/_dashboard/subjects_.$subject'
 
 const RegisterRouteRoute = RegisterRouteRouteImport.update({
@@ -70,6 +71,11 @@ const DashboardApiKeysRouteRoute = DashboardApiKeysRouteRouteImport.update({
   path: '/api-keys',
   getParentRoute: () => DashboardRouteRoute,
 } as any)
+const DashboardAlertsRouteRoute = DashboardAlertsRouteRouteImport.update({
+  id: '/alerts',
+  path: '/alerts',
+  getParentRoute: () => DashboardRouteRoute,
+} as any)
 const DashboardSubjectsSubjectRoute =
   DashboardSubjectsSubjectRouteImport.update({
     id: '/subjects_/$subject',
@@ -81,6 +87,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRouteRoute
   '/register': typeof RegisterRouteRoute
+  '/alerts': typeof DashboardAlertsRouteRoute
   '/api-keys': typeof DashboardApiKeysRouteRoute
   '/exports': typeof DashboardExportsRouteRoute
   '/meters': typeof DashboardMetersRouteRoute
@@ -93,6 +100,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRouteRoute
   '/register': typeof RegisterRouteRoute
+  '/alerts': typeof DashboardAlertsRouteRoute
   '/api-keys': typeof DashboardApiKeysRouteRoute
   '/exports': typeof DashboardExportsRouteRoute
   '/meters': typeof DashboardMetersRouteRoute
@@ -107,6 +115,7 @@ export interface FileRoutesById {
   '/_dashboard': typeof DashboardRouteRouteWithChildren
   '/login': typeof LoginRouteRoute
   '/register': typeof RegisterRouteRoute
+  '/_dashboard/alerts': typeof DashboardAlertsRouteRoute
   '/_dashboard/api-keys': typeof DashboardApiKeysRouteRoute
   '/_dashboard/exports': typeof DashboardExportsRouteRoute
   '/_dashboard/meters': typeof DashboardMetersRouteRoute
@@ -121,6 +130,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/register'
+    | '/alerts'
     | '/api-keys'
     | '/exports'
     | '/meters'
@@ -133,6 +143,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/register'
+    | '/alerts'
     | '/api-keys'
     | '/exports'
     | '/meters'
@@ -146,6 +157,7 @@ export interface FileRouteTypes {
     | '/_dashboard'
     | '/login'
     | '/register'
+    | '/_dashboard/alerts'
     | '/_dashboard/api-keys'
     | '/_dashboard/exports'
     | '/_dashboard/meters'
@@ -234,6 +246,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardApiKeysRouteRouteImport
       parentRoute: typeof DashboardRouteRoute
     }
+    '/_dashboard/alerts': {
+      id: '/_dashboard/alerts'
+      path: '/alerts'
+      fullPath: '/alerts'
+      preLoaderRoute: typeof DashboardAlertsRouteRouteImport
+      parentRoute: typeof DashboardRouteRoute
+    }
     '/_dashboard/subjects_/$subject': {
       id: '/_dashboard/subjects_/$subject'
       path: '/subjects/$subject'
@@ -245,6 +264,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface DashboardRouteRouteChildren {
+  DashboardAlertsRouteRoute: typeof DashboardAlertsRouteRoute
   DashboardApiKeysRouteRoute: typeof DashboardApiKeysRouteRoute
   DashboardExportsRouteRoute: typeof DashboardExportsRouteRoute
   DashboardMetersRouteRoute: typeof DashboardMetersRouteRoute
@@ -255,6 +275,7 @@ interface DashboardRouteRouteChildren {
 }
 
 const DashboardRouteRouteChildren: DashboardRouteRouteChildren = {
+  DashboardAlertsRouteRoute: DashboardAlertsRouteRoute,
   DashboardApiKeysRouteRoute: DashboardApiKeysRouteRoute,
   DashboardExportsRouteRoute: DashboardExportsRouteRoute,
   DashboardMetersRouteRoute: DashboardMetersRouteRoute,

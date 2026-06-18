@@ -1,0 +1,134 @@
+-- name: SaveAlertRule :exec
+INSERT INTO alert_rules (
+	id,
+	name,
+	meter_name,
+	enabled,
+	subject,
+	metadata,
+	window_seconds,
+	comparator,
+	threshold,
+	evaluation_interval_seconds,
+	trigger_type,
+	webhook_url,
+	next_evaluate_at,
+	created_at,
+	updated_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+	name = excluded.name,
+	meter_name = excluded.meter_name,
+	enabled = excluded.enabled,
+	subject = excluded.subject,
+	metadata = excluded.metadata,
+	window_seconds = excluded.window_seconds,
+	comparator = excluded.comparator,
+	threshold = excluded.threshold,
+	evaluation_interval_seconds = excluded.evaluation_interval_seconds,
+	trigger_type = excluded.trigger_type,
+	webhook_url = excluded.webhook_url,
+	next_evaluate_at = excluded.next_evaluate_at,
+	updated_at = excluded.updated_at;
+
+-- name: ListAlertRules :many
+SELECT id, name, meter_name, enabled, subject, metadata, window_seconds, comparator, threshold, evaluation_interval_seconds, trigger_type, webhook_url, next_evaluate_at, created_at, updated_at
+FROM alert_rules
+WHERE (CAST(sqlc.narg('id') AS TEXT) IS NULL OR id = CAST(sqlc.narg('id') AS TEXT))
+	AND (CAST(sqlc.narg('meter_name') AS TEXT) IS NULL OR meter_name = CAST(sqlc.narg('meter_name') AS TEXT))
+	AND (CAST(sqlc.narg('enabled') AS INTEGER) IS NULL OR enabled = CAST(sqlc.narg('enabled') AS INTEGER))
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg('limit');
+
+-- name: DeleteAlertRule :execrows
+DELETE FROM alert_rules
+WHERE id = ?;
+
+-- name: SaveAlertState :exec
+INSERT INTO alert_states (rule_id, status, value, message, evaluated_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT(rule_id) DO UPDATE SET
+	status = excluded.status,
+	value = excluded.value,
+	message = excluded.message,
+	evaluated_at = excluded.evaluated_at,
+	updated_at = excluded.updated_at;
+
+-- name: FindAlertState :one
+SELECT rule_id, status, value, message, evaluated_at, updated_at
+FROM alert_states
+WHERE rule_id = ?;
+
+-- name: SaveAlertEvent :exec
+INSERT INTO alert_events (id, rule_id, type, value, message, created_at)
+VALUES (?, ?, ?, ?, ?, ?);
+
+-- name: ListAlertEvents :many
+SELECT id, rule_id, type, value, message, created_at
+FROM alert_events
+WHERE (CAST(sqlc.narg('rule_id') AS TEXT) IS NULL OR rule_id = CAST(sqlc.narg('rule_id') AS TEXT))
+	AND (CAST(sqlc.narg('cursor_created_at') AS TEXT) IS NULL
+		OR (created_at < CAST(sqlc.narg('cursor_created_at') AS TEXT)
+			OR (created_at = CAST(sqlc.narg('cursor_created_at') AS TEXT) AND id < CAST(sqlc.narg('cursor_id') AS TEXT))))
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg('limit');
+
+-- name: EnqueueAlertEvaluationJob :exec
+INSERT INTO alert_evaluation_jobs (rule_id, run_after, locked_until, attempts, created_at, updated_at)
+VALUES (sqlc.arg('rule_id'), sqlc.arg('run_after'), NULL, 0, sqlc.arg('now'), sqlc.arg('now'))
+ON CONFLICT(rule_id) DO UPDATE SET
+	run_after = CASE
+		WHEN alert_evaluation_jobs.run_after > excluded.run_after THEN excluded.run_after
+		ELSE alert_evaluation_jobs.run_after
+	END,
+	updated_at = excluded.updated_at
+WHERE alert_evaluation_jobs.locked_until IS NULL
+	OR alert_evaluation_jobs.locked_until < excluded.updated_at;
+
+-- name: EnqueueDueAlertEvaluationJobs :execrows
+INSERT INTO alert_evaluation_jobs (rule_id, run_after, locked_until, attempts, created_at, updated_at)
+SELECT id, sqlc.arg('run_after'), NULL, 0, sqlc.arg('now'), sqlc.arg('now')
+FROM alert_rules
+WHERE enabled = 1
+	AND next_evaluate_at <= sqlc.arg('now')
+ORDER BY next_evaluate_at ASC, id ASC
+LIMIT sqlc.arg('limit')
+ON CONFLICT(rule_id) DO UPDATE SET
+	run_after = excluded.run_after,
+	updated_at = excluded.updated_at
+WHERE alert_evaluation_jobs.locked_until IS NULL
+	OR alert_evaluation_jobs.locked_until < excluded.updated_at;
+
+-- name: ClaimAlertEvaluationJob :one
+UPDATE alert_evaluation_jobs
+SET attempts = alert_evaluation_jobs.attempts + 1,
+	locked_until = sqlc.arg('locked_until'),
+	updated_at = sqlc.arg('now')
+WHERE rule_id = (
+	SELECT rule_id
+	FROM alert_evaluation_jobs
+	WHERE run_after <= sqlc.arg('now')
+		AND (locked_until IS NULL OR locked_until < sqlc.arg('now'))
+		AND alert_evaluation_jobs.attempts < sqlc.arg('max_attempts')
+	ORDER BY run_after ASC, created_at ASC, rule_id ASC
+	LIMIT 1
+)
+RETURNING rule_id, run_after, locked_until, attempts, created_at, updated_at;
+
+-- name: RequeueAlertEvaluationJob :execrows
+UPDATE alert_evaluation_jobs
+SET run_after = sqlc.arg('run_after'),
+	locked_until = NULL,
+	updated_at = sqlc.arg('now')
+WHERE rule_id = sqlc.arg('rule_id');
+
+-- name: DeleteAlertEvaluationJob :execrows
+DELETE FROM alert_evaluation_jobs
+WHERE rule_id = ?;
+
+-- name: UpdateAlertRuleNextEvaluation :execrows
+UPDATE alert_rules
+SET next_evaluate_at = sqlc.arg('next_evaluate_at'),
+	updated_at = sqlc.arg('updated_at')
+WHERE id = sqlc.arg('id');

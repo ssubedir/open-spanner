@@ -8,6 +8,33 @@ import (
 	"database/sql"
 )
 
+type AlertEvaluationJob struct {
+	RuleID      string
+	RunAfter    string
+	LockedUntil sql.NullString
+	Attempts    int64
+	CreatedAt   string
+	UpdatedAt   string
+}
+
+type AlertEvent struct {
+	ID        string
+	RuleID    string
+	Type      string
+	Value     float64
+	Message   string
+	CreatedAt string
+}
+
+type AlertState struct {
+	RuleID      string
+	Status      string
+	Value       float64
+	Message     string
+	EvaluatedAt sql.NullString
+	UpdatedAt   string
+}
+
 type AuthApiKey struct {
 	ID         string
 	UserID     string
