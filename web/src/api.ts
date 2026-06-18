@@ -353,6 +353,19 @@ export type AlertEvent = {
   value: number
   message: string
   created_at: string
+  delivery?: AlertDelivery
+}
+
+export type AlertDelivery = {
+  id: string
+  event_id: string
+  trigger_type: string
+  status: string
+  status_code?: number
+  error?: string
+  duration_ms: number
+  attempted_at: string
+  created_at: string
 }
 
 export type AlertEventList = {

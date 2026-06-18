@@ -207,11 +207,12 @@ export function AlertsPage() {
         <CardContent>
           <DataTable
             emptyLabel="No alert events yet"
-            headers={['Type', 'Rule', 'Value', 'Message', 'Created', 'Actions']}
+            headers={['Type', 'Delivery', 'Rule', 'Value', 'Message', 'Created', 'Actions']}
             rows={events.map((event) => {
               const rule = ruleForEvent(items, event)
               return [
                 <Badge variant={event.type === 'triggered' ? 'warning' : event.type === 'resolved' ? 'success' : 'muted'}>{event.type}</Badge>,
+                <DeliveryBadge event={event} />,
                 <EventRule event={event} rule={rule} />,
                 <EventValue event={event} />,
                 <span>{event.message}</span>,
@@ -396,9 +397,10 @@ function AlertEventDetail({ event, rule }: { event: AlertEvent; rule: AlertRule 
         <DetailItem label="Group" value={event.group_value ? `${groupLabel(event.group_key)} ${event.group_value}` : rule?.group_by ? `per ${groupLabel(rule.group_by)}` : 'total'} />
         <DetailItem label="Window" value={rule ? durationLabel(rule.window_seconds) : 'unknown'} />
         <DetailItem label="Trigger" value={rule?.trigger_type || 'unknown'} />
-        <DetailItem label="Delivery" value={rule?.webhook_url ? 'Webhook configured' : 'No webhook URL'} />
+        <DetailItem label="Delivery" value={deliveryDetail(event)} />
         <DetailItem label="Rule ID" value={event.rule_id} mono wide />
         <DetailItem label="Webhook URL" value={rule?.webhook_url || 'not configured'} mono wide />
+        {event.delivery?.error ? <DetailItem label="Delivery Error" value={event.delivery.error} wide /> : null}
       </section>
 
       <section className="alert-event-json">
@@ -425,6 +427,37 @@ function DetailItem({ label, mono = false, value, wide = false }: { label: strin
       <strong className={mono ? 'mono' : undefined}>{value}</strong>
     </div>
   )
+}
+
+function DeliveryBadge({ event }: { event: AlertEvent }) {
+  const delivery = event.delivery
+  if (!delivery) {
+    return <Badge variant="muted">Not sent</Badge>
+  }
+  if (delivery.status === 'delivered') {
+    return (
+      <span>
+        <Badge variant="success">Delivered</Badge>
+        <small className="muted block">{delivery.status_code || 'ok'} · {delivery.duration_ms}ms</small>
+      </span>
+    )
+  }
+  return (
+    <span>
+      <Badge variant="warning">Failed</Badge>
+      <small className="muted block">{delivery.status_code || 'network'} · {delivery.duration_ms}ms</small>
+    </span>
+  )
+}
+
+function deliveryDetail(event: AlertEvent) {
+  const delivery = event.delivery
+  if (!delivery) {
+    return 'Not sent yet'
+  }
+  const status = delivery.status === 'delivered' ? 'Delivered' : 'Failed'
+  const statusCode = delivery.status_code ? `HTTP ${delivery.status_code}` : 'no status code'
+  return `${status} · ${statusCode} · ${delivery.duration_ms}ms`
 }
 
 function ruleForEvent(rules: AlertRule[], event: AlertEvent) {

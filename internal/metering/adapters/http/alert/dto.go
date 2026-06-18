@@ -62,14 +62,27 @@ type StateResponse struct {
 }
 
 type EventResponse struct {
-	ID         string  `json:"id"`
-	RuleID     string  `json:"rule_id"`
-	GroupKey   string  `json:"group_key,omitempty"`
-	GroupValue string  `json:"group_value,omitempty"`
-	Type       string  `json:"type"`
-	Value      float64 `json:"value"`
-	Message    string  `json:"message"`
-	CreatedAt  string  `json:"created_at"`
+	ID         string            `json:"id"`
+	RuleID     string            `json:"rule_id"`
+	GroupKey   string            `json:"group_key,omitempty"`
+	GroupValue string            `json:"group_value,omitempty"`
+	Type       string            `json:"type"`
+	Value      float64           `json:"value"`
+	Message    string            `json:"message"`
+	CreatedAt  string            `json:"created_at"`
+	Delivery   *DeliveryResponse `json:"delivery,omitempty"`
+}
+
+type DeliveryResponse struct {
+	ID          string `json:"id"`
+	EventID     string `json:"event_id"`
+	TriggerType string `json:"trigger_type"`
+	Status      string `json:"status"`
+	StatusCode  int    `json:"status_code,omitempty"`
+	Error       string `json:"error,omitempty"`
+	DurationMs  int    `json:"duration_ms"`
+	AttemptedAt string `json:"attempted_at"`
+	CreatedAt   string `json:"created_at"`
 }
 
 type RuleListResponse struct {

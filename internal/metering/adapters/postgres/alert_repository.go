@@ -158,6 +158,24 @@ func (r *AlertRepository) SaveEvent(ctx context.Context, event appalert.Event) (
 	return event, nil
 }
 
+func (r *AlertRepository) SaveDelivery(ctx context.Context, delivery appalert.Delivery) (appalert.Delivery, error) {
+	err := queriesFor(ctx, r.queries).SaveAlertDelivery(ctx, postgresdb.SaveAlertDeliveryParams{
+		ID:          delivery.ID,
+		EventID:     delivery.EventID,
+		TriggerType: string(delivery.TriggerType),
+		Status:      string(delivery.Status),
+		StatusCode:  alertIntValue(delivery.StatusCode),
+		Error:       delivery.Error,
+		DurationMs:  int32(delivery.Duration.Milliseconds()),
+		AttemptedAt: formatTime(delivery.AttemptedAt),
+		CreatedAt:   formatTime(delivery.CreatedAt),
+	})
+	if err != nil {
+		return appalert.Delivery{}, err
+	}
+	return delivery, nil
+}
+
 func (r *AlertRepository) FindEvents(ctx context.Context, query appalert.EventQuery) ([]appalert.Event, error) {
 	rows, err := queriesFor(ctx, r.queries).ListAlertEvents(ctx, postgresdb.ListAlertEventsParams{
 		RuleID:          alertStringValue(query.RuleID),
@@ -341,7 +359,49 @@ func postgresAlertEvent(row postgresdb.ListAlertEventsRow) (appalert.Event, erro
 		Value:      row.Value,
 		Message:    row.Message,
 		CreatedAt:  createdAt,
+		Delivery:   postgresAlertDelivery(row),
 	}, nil
+}
+
+func postgresAlertDelivery(row postgresdb.ListAlertEventsRow) *appalert.Delivery {
+	if !row.DeliveryID.Valid {
+		return nil
+	}
+
+	attemptedAt := time.Time{}
+	if row.DeliveryAttemptedAt.Valid {
+		parsed, err := time.Parse(time.RFC3339Nano, row.DeliveryAttemptedAt.String)
+		if err == nil {
+			attemptedAt = parsed
+		}
+	}
+	createdAt := time.Time{}
+	if row.DeliveryCreatedAt.Valid {
+		parsed, err := time.Parse(time.RFC3339Nano, row.DeliveryCreatedAt.String)
+		if err == nil {
+			createdAt = parsed
+		}
+	}
+	statusCode := 0
+	if row.DeliveryStatusCode.Valid {
+		statusCode = int(row.DeliveryStatusCode.Int32)
+	}
+	duration := time.Duration(0)
+	if row.DeliveryDurationMs.Valid {
+		duration = time.Duration(row.DeliveryDurationMs.Int32) * time.Millisecond
+	}
+
+	return &appalert.Delivery{
+		ID:          row.DeliveryID.String,
+		EventID:     row.ID,
+		TriggerType: appalert.TriggerType(row.DeliveryTriggerType.String),
+		Status:      appalert.DeliveryStatus(row.DeliveryStatus.String),
+		StatusCode:  statusCode,
+		Error:       row.DeliveryError.String,
+		Duration:    duration,
+		AttemptedAt: attemptedAt,
+		CreatedAt:   createdAt,
+	}
 }
 
 func postgresAlertEvaluationJob(row postgresdb.AlertEvaluationJob) (appalert.EvaluationJob, error) {
@@ -394,4 +454,11 @@ func alertBoolValue(value *bool) sql.NullBool {
 		return sql.NullBool{}
 	}
 	return sql.NullBool{Bool: *value, Valid: true}
+}
+
+func alertIntValue(value int) sql.NullInt32 {
+	if value == 0 {
+		return sql.NullInt32{}
+	}
+	return sql.NullInt32{Int32: int32(value), Valid: true}
 }

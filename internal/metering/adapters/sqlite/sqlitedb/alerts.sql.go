@@ -157,13 +157,37 @@ func (q *Queries) FindAlertState(ctx context.Context, arg FindAlertStateParams) 
 }
 
 const listAlertEvents = `-- name: ListAlertEvents :many
-SELECT id, rule_id, group_key, group_value, type, value, message, created_at
+SELECT
+	alert_events.id,
+	alert_events.rule_id,
+	alert_events.group_key,
+	alert_events.group_value,
+	alert_events.type,
+	alert_events.value,
+	alert_events.message,
+	alert_events.created_at,
+	delivery.id AS delivery_id,
+	delivery.trigger_type AS delivery_trigger_type,
+	delivery.status AS delivery_status,
+	delivery.status_code AS delivery_status_code,
+	delivery.error AS delivery_error,
+	delivery.duration_ms AS delivery_duration_ms,
+	delivery.attempted_at AS delivery_attempted_at,
+	delivery.created_at AS delivery_created_at
 FROM alert_events
-WHERE (CAST(?1 AS TEXT) IS NULL OR rule_id = CAST(?1 AS TEXT))
+LEFT JOIN alert_deliveries AS delivery
+	ON delivery.id = (
+		SELECT id
+		FROM alert_deliveries
+		WHERE event_id = alert_events.id
+		ORDER BY attempted_at DESC, id DESC
+		LIMIT 1
+	)
+WHERE (CAST(?1 AS TEXT) IS NULL OR alert_events.rule_id = CAST(?1 AS TEXT))
 	AND (CAST(?2 AS TEXT) IS NULL
-		OR (created_at < CAST(?2 AS TEXT)
-			OR (created_at = CAST(?2 AS TEXT) AND id < CAST(?3 AS TEXT))))
-ORDER BY created_at DESC, id DESC
+		OR (alert_events.created_at < CAST(?2 AS TEXT)
+			OR (alert_events.created_at = CAST(?2 AS TEXT) AND alert_events.id < CAST(?3 AS TEXT))))
+ORDER BY alert_events.created_at DESC, alert_events.id DESC
 LIMIT ?4
 `
 
@@ -175,14 +199,22 @@ type ListAlertEventsParams struct {
 }
 
 type ListAlertEventsRow struct {
-	ID         string
-	RuleID     string
-	GroupKey   string
-	GroupValue string
-	Type       string
-	Value      float64
-	Message    string
-	CreatedAt  string
+	ID                  string
+	RuleID              string
+	GroupKey            string
+	GroupValue          string
+	Type                string
+	Value               float64
+	Message             string
+	CreatedAt           string
+	DeliveryID          sql.NullString
+	DeliveryTriggerType sql.NullString
+	DeliveryStatus      sql.NullString
+	DeliveryStatusCode  sql.NullInt64
+	DeliveryError       sql.NullString
+	DeliveryDurationMs  sql.NullInt64
+	DeliveryAttemptedAt sql.NullString
+	DeliveryCreatedAt   sql.NullString
 }
 
 func (q *Queries) ListAlertEvents(ctx context.Context, arg ListAlertEventsParams) ([]ListAlertEventsRow, error) {
@@ -208,6 +240,14 @@ func (q *Queries) ListAlertEvents(ctx context.Context, arg ListAlertEventsParams
 			&i.Value,
 			&i.Message,
 			&i.CreatedAt,
+			&i.DeliveryID,
+			&i.DeliveryTriggerType,
+			&i.DeliveryStatus,
+			&i.DeliveryStatusCode,
+			&i.DeliveryError,
+			&i.DeliveryDurationMs,
+			&i.DeliveryAttemptedAt,
+			&i.DeliveryCreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -377,6 +417,38 @@ func (q *Queries) RequeueAlertEvaluationJob(ctx context.Context, arg RequeueAler
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const saveAlertDelivery = `-- name: SaveAlertDelivery :exec
+INSERT INTO alert_deliveries (id, event_id, trigger_type, status, status_code, error, duration_ms, attempted_at, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type SaveAlertDeliveryParams struct {
+	ID          string
+	EventID     string
+	TriggerType string
+	Status      string
+	StatusCode  sql.NullInt64
+	Error       string
+	DurationMs  int64
+	AttemptedAt string
+	CreatedAt   string
+}
+
+func (q *Queries) SaveAlertDelivery(ctx context.Context, arg SaveAlertDeliveryParams) error {
+	_, err := q.db.ExecContext(ctx, saveAlertDelivery,
+		arg.ID,
+		arg.EventID,
+		arg.TriggerType,
+		arg.Status,
+		arg.StatusCode,
+		arg.Error,
+		arg.DurationMs,
+		arg.AttemptedAt,
+		arg.CreatedAt,
+	)
+	return err
 }
 
 const saveAlertEvent = `-- name: SaveAlertEvent :exec

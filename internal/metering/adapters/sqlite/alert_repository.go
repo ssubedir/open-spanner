@@ -158,6 +158,24 @@ func (r *AlertRepository) SaveEvent(ctx context.Context, event appalert.Event) (
 	return event, nil
 }
 
+func (r *AlertRepository) SaveDelivery(ctx context.Context, delivery appalert.Delivery) (appalert.Delivery, error) {
+	err := queriesFor(ctx, r.queries).SaveAlertDelivery(ctx, sqlitedb.SaveAlertDeliveryParams{
+		ID:          delivery.ID,
+		EventID:     delivery.EventID,
+		TriggerType: string(delivery.TriggerType),
+		Status:      string(delivery.Status),
+		StatusCode:  alertIntValue(delivery.StatusCode),
+		Error:       delivery.Error,
+		DurationMs:  delivery.Duration.Milliseconds(),
+		AttemptedAt: formatTime(delivery.AttemptedAt),
+		CreatedAt:   formatTime(delivery.CreatedAt),
+	})
+	if err != nil {
+		return appalert.Delivery{}, err
+	}
+	return delivery, nil
+}
+
 func (r *AlertRepository) FindEvents(ctx context.Context, query appalert.EventQuery) ([]appalert.Event, error) {
 	rows, err := queriesFor(ctx, r.queries).ListAlertEvents(ctx, sqlitedb.ListAlertEventsParams{
 		RuleID:          alertStringValue(query.RuleID),
@@ -333,7 +351,49 @@ func sqliteAlertEvent(row sqlitedb.ListAlertEventsRow) (appalert.Event, error) {
 		Value:      row.Value,
 		Message:    row.Message,
 		CreatedAt:  createdAt,
+		Delivery:   sqliteAlertDelivery(row),
 	}, nil
+}
+
+func sqliteAlertDelivery(row sqlitedb.ListAlertEventsRow) *appalert.Delivery {
+	if !row.DeliveryID.Valid {
+		return nil
+	}
+
+	attemptedAt := time.Time{}
+	if row.DeliveryAttemptedAt.Valid {
+		parsed, err := time.Parse(time.RFC3339Nano, row.DeliveryAttemptedAt.String)
+		if err == nil {
+			attemptedAt = parsed
+		}
+	}
+	createdAt := time.Time{}
+	if row.DeliveryCreatedAt.Valid {
+		parsed, err := time.Parse(time.RFC3339Nano, row.DeliveryCreatedAt.String)
+		if err == nil {
+			createdAt = parsed
+		}
+	}
+	statusCode := 0
+	if row.DeliveryStatusCode.Valid {
+		statusCode = int(row.DeliveryStatusCode.Int64)
+	}
+	duration := time.Duration(0)
+	if row.DeliveryDurationMs.Valid {
+		duration = time.Duration(row.DeliveryDurationMs.Int64) * time.Millisecond
+	}
+
+	return &appalert.Delivery{
+		ID:          row.DeliveryID.String,
+		EventID:     row.ID,
+		TriggerType: appalert.TriggerType(row.DeliveryTriggerType.String),
+		Status:      appalert.DeliveryStatus(row.DeliveryStatus.String),
+		StatusCode:  statusCode,
+		Error:       row.DeliveryError.String,
+		Duration:    duration,
+		AttemptedAt: attemptedAt,
+		CreatedAt:   createdAt,
+	}
 }
 
 func sqliteAlertEvaluationJob(row sqlitedb.AlertEvaluationJob) (appalert.EvaluationJob, error) {
@@ -386,4 +446,11 @@ func alertBoolIntValue(value *bool) sql.NullInt64 {
 		return sql.NullInt64{}
 	}
 	return sql.NullInt64{Int64: int64(boolInt(*value)), Valid: true}
+}
+
+func alertIntValue(value int) sql.NullInt64 {
+	if value == 0 {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: int64(value), Valid: true}
 }

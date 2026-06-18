@@ -84,14 +84,42 @@ LIMIT sqlc.arg('limit');
 INSERT INTO alert_events (id, rule_id, group_key, group_value, type, value, message, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
+-- name: SaveAlertDelivery :exec
+INSERT INTO alert_deliveries (id, event_id, trigger_type, status, status_code, error, duration_ms, attempted_at, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+
 -- name: ListAlertEvents :many
-SELECT id, rule_id, group_key, group_value, type, value, message, created_at
+SELECT
+	alert_events.id,
+	alert_events.rule_id,
+	alert_events.group_key,
+	alert_events.group_value,
+	alert_events.type,
+	alert_events.value,
+	alert_events.message,
+	alert_events.created_at,
+	delivery.id AS delivery_id,
+	delivery.trigger_type AS delivery_trigger_type,
+	delivery.status AS delivery_status,
+	delivery.status_code AS delivery_status_code,
+	delivery.error AS delivery_error,
+	delivery.duration_ms AS delivery_duration_ms,
+	delivery.attempted_at AS delivery_attempted_at,
+	delivery.created_at AS delivery_created_at
 FROM alert_events
-WHERE (CAST(sqlc.narg('rule_id') AS TEXT) IS NULL OR rule_id = CAST(sqlc.narg('rule_id') AS TEXT))
+LEFT JOIN alert_deliveries AS delivery
+	ON delivery.id = (
+		SELECT id
+		FROM alert_deliveries
+		WHERE event_id = alert_events.id
+		ORDER BY attempted_at DESC, id DESC
+		LIMIT 1
+	)
+WHERE (CAST(sqlc.narg('rule_id') AS TEXT) IS NULL OR alert_events.rule_id = CAST(sqlc.narg('rule_id') AS TEXT))
 	AND (CAST(sqlc.narg('cursor_created_at') AS TEXT) IS NULL
-		OR (created_at < CAST(sqlc.narg('cursor_created_at') AS TEXT)
-			OR (created_at = CAST(sqlc.narg('cursor_created_at') AS TEXT) AND id < CAST(sqlc.narg('cursor_id') AS TEXT))))
-ORDER BY created_at DESC, id DESC
+		OR (alert_events.created_at < CAST(sqlc.narg('cursor_created_at') AS TEXT)
+			OR (alert_events.created_at = CAST(sqlc.narg('cursor_created_at') AS TEXT) AND alert_events.id < CAST(sqlc.narg('cursor_id') AS TEXT))))
+ORDER BY alert_events.created_at DESC, alert_events.id DESC
 LIMIT sqlc.arg('limit');
 
 -- name: EnqueueAlertEvaluationJob :exec

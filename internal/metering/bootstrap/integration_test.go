@@ -557,6 +557,9 @@ func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handl
 	if len(alertEvents.Items) != 1 || alertEvents.Items[0].RuleID != alertRule.ID || alertEvents.Items[0].Type != "triggered" || alertEvents.Items[0].Value != 12 || alertEvents.Items[0].GroupValue != alertSubject {
 		t.Fatalf("alert events = %#v, want one triggered event for subject %s", alertEvents, alertSubject)
 	}
+	if alertEvents.Items[0].Delivery == nil || alertEvents.Items[0].Delivery.Status != "delivered" || alertEvents.Items[0].Delivery.StatusCode != http.StatusNoContent || alertEvents.Items[0].Delivery.TriggerType != "webhook" {
+		t.Fatalf("alert event delivery = %#v, want delivered webhook with status %d", alertEvents.Items[0].Delivery, http.StatusNoContent)
+	}
 }
 
 func runIntegrationDimensionNameValidationFlow(t *testing.T, router http.Handler, authHeaders map[string]string, suffix string) {
@@ -1961,6 +1964,17 @@ type alertEventResponse struct {
 	Value      float64 `json:"value"`
 	Message    string  `json:"message"`
 	CreatedAt  string  `json:"created_at"`
+	Delivery   *struct {
+		ID          string `json:"id"`
+		EventID     string `json:"event_id"`
+		TriggerType string `json:"trigger_type"`
+		Status      string `json:"status"`
+		StatusCode  int    `json:"status_code"`
+		Error       string `json:"error"`
+		DurationMs  int    `json:"duration_ms"`
+		AttemptedAt string `json:"attempted_at"`
+		CreatedAt   string `json:"created_at"`
+	} `json:"delivery"`
 }
 
 type alertEventListResponse struct {

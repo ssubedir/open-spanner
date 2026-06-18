@@ -21,6 +21,7 @@ type Service interface {
 	Evaluate(ctx context.Context, cmd appalert.EvaluateCommand) (appalert.EvaluationResult, error)
 	CompleteEvaluationJob(ctx context.Context, cmd appalert.CompleteCommand) error
 	FailEvaluationJob(ctx context.Context, cmd appalert.FailCommand) error
+	RecordDelivery(ctx context.Context, cmd appalert.DeliveryCommand) (appalert.DeliveryResult, error)
 }
 
 type Logger func(format string, args ...any)
@@ -131,8 +132,23 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 	duration := time.Since(startedAt).Round(time.Millisecond)
 	if err == nil {
 		for _, event := range resultEvents(result) {
-			if triggerErr := deliverWebhookTrigger(jobCtx, result, event); triggerErr != nil {
-				w.logger("alert trigger delivery failed: rule_id=%s event_id=%s error=%v", job.RuleID, event.ID, triggerErr)
+			attempt, attempted := deliverWebhookTrigger(jobCtx, result, event)
+			if !attempted {
+				continue
+			}
+			if _, recordErr := w.service.RecordDelivery(ctx, appalert.DeliveryCommand{
+				EventID:     event.ID,
+				TriggerType: result.Rule.TriggerType,
+				Status:      string(attempt.status),
+				StatusCode:  attempt.statusCode,
+				Error:       attempt.message,
+				Duration:    attempt.duration,
+				AttemptedAt: attempt.attemptedAt,
+			}); recordErr != nil {
+				w.logger("alert trigger delivery record failed: rule_id=%s event_id=%s error=%v", job.RuleID, event.ID, recordErr)
+			}
+			if attempt.status == appalert.DeliveryFailed {
+				w.logger("alert trigger delivery failed: rule_id=%s event_id=%s error=%s", job.RuleID, event.ID, attempt.message)
 			}
 		}
 		if err := w.service.CompleteEvaluationJob(ctx, appalert.CompleteCommand{RuleID: job.RuleID}); err != nil && !errors.Is(err, domain.ErrNotFound) {
@@ -166,9 +182,26 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-func deliverWebhookTrigger(ctx context.Context, result appalert.EvaluationResult, event appalert.EventResult) error {
-	if result.Rule.TriggerType != string(appalert.TriggerWebhook) || result.Rule.WebhookURL == "" {
-		return nil
+type deliveryAttempt struct {
+	status      appalert.DeliveryStatus
+	statusCode  int
+	message     string
+	duration    time.Duration
+	attemptedAt time.Time
+}
+
+func deliverWebhookTrigger(ctx context.Context, result appalert.EvaluationResult, event appalert.EventResult) (deliveryAttempt, bool) {
+	if result.Rule.TriggerType != string(appalert.TriggerWebhook) {
+		return deliveryAttempt{}, false
+	}
+
+	attemptedAt := time.Now().UTC()
+	if result.Rule.WebhookURL == "" {
+		return deliveryAttempt{
+			status:      appalert.DeliveryFailed,
+			message:     "webhook url is not configured",
+			attemptedAt: attemptedAt,
+		}, true
 	}
 
 	state := stateForEvent(result, event)
@@ -209,25 +242,51 @@ func deliverWebhookTrigger(ctx context.Context, result appalert.EvaluationResult
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return err
+		return deliveryAttempt{
+			status:      appalert.DeliveryFailed,
+			message:     err.Error(),
+			attemptedAt: attemptedAt,
+		}, true
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, result.Rule.WebhookURL, bytes.NewReader(body))
 	if err != nil {
-		return err
+		return deliveryAttempt{
+			status:      appalert.DeliveryFailed,
+			message:     err.Error(),
+			attemptedAt: attemptedAt,
+		}, true
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "open-spanner-alert-worker")
 
 	client := http.Client{Timeout: 10 * time.Second}
+	startedAt := time.Now()
 	res, err := client.Do(req)
+	duration := time.Since(startedAt).Round(time.Millisecond)
 	if err != nil {
-		return err
+		return deliveryAttempt{
+			status:      appalert.DeliveryFailed,
+			message:     err.Error(),
+			duration:    duration,
+			attemptedAt: attemptedAt,
+		}, true
 	}
 	defer res.Body.Close()
 	if res.StatusCode < http.StatusOK || res.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("webhook returned status %d", res.StatusCode)
+		return deliveryAttempt{
+			status:      appalert.DeliveryFailed,
+			statusCode:  res.StatusCode,
+			message:     fmt.Sprintf("webhook returned status %d", res.StatusCode),
+			duration:    duration,
+			attemptedAt: attemptedAt,
+		}, true
 	}
-	return nil
+	return deliveryAttempt{
+		status:      appalert.DeliveryDelivered,
+		statusCode:  res.StatusCode,
+		duration:    duration,
+		attemptedAt: attemptedAt,
+	}, true
 }
 
 func resultEvents(result appalert.EvaluationResult) []appalert.EventResult {

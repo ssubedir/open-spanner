@@ -298,7 +298,7 @@ func stateResponse(state appalert.StateResult) StateResponse {
 }
 
 func eventResponse(event appalert.EventResult) EventResponse {
-	return EventResponse{
+	response := EventResponse{
 		ID:         event.ID,
 		RuleID:     event.RuleID,
 		GroupKey:   event.GroupKey,
@@ -307,6 +307,25 @@ func eventResponse(event appalert.EventResult) EventResponse {
 		Value:      event.Value,
 		Message:    event.Message,
 		CreatedAt:  formatTime(event.CreatedAt),
+	}
+	if event.Delivery != nil {
+		delivery := deliveryResponse(*event.Delivery)
+		response.Delivery = &delivery
+	}
+	return response
+}
+
+func deliveryResponse(delivery appalert.DeliveryResult) DeliveryResponse {
+	return DeliveryResponse{
+		ID:          delivery.ID,
+		EventID:     delivery.EventID,
+		TriggerType: delivery.TriggerType,
+		Status:      delivery.Status,
+		StatusCode:  delivery.StatusCode,
+		Error:       delivery.Error,
+		DurationMs:  delivery.DurationMs,
+		AttemptedAt: formatTime(delivery.AttemptedAt),
+		CreatedAt:   formatTime(delivery.CreatedAt),
 	}
 }
 

@@ -61,6 +61,13 @@ const (
 	TriggerWebhook TriggerType = "webhook"
 )
 
+type DeliveryStatus string
+
+const (
+	DeliveryDelivered DeliveryStatus = "delivered"
+	DeliveryFailed    DeliveryStatus = "failed"
+)
+
 type Repository interface {
 	SaveRule(ctx context.Context, rule Rule) (Rule, error)
 	FindRules(ctx context.Context, query RuleQuery) ([]Rule, error)
@@ -70,6 +77,7 @@ type Repository interface {
 	FindStates(ctx context.Context, ruleID string, limit int) ([]State, error)
 	SaveEvent(ctx context.Context, event Event) (Event, error)
 	FindEvents(ctx context.Context, query EventQuery) ([]Event, error)
+	SaveDelivery(ctx context.Context, delivery Delivery) (Delivery, error)
 	EnqueueEvaluationJob(ctx context.Context, ruleID string, runAfter time.Time, now time.Time) error
 	EnqueueDueEvaluationJobs(ctx context.Context, now time.Time, limit int) (int, error)
 	ClaimEvaluationJob(ctx context.Context, now time.Time, lockedUntil time.Time, maxAttempts int) (EvaluationJob, error)
@@ -95,6 +103,7 @@ type Service interface {
 	ClaimEvaluationJob(ctx context.Context, cmd ClaimCommand) (EvaluationJobResult, bool, error)
 	CompleteEvaluationJob(ctx context.Context, cmd CompleteCommand) error
 	FailEvaluationJob(ctx context.Context, cmd FailCommand) error
+	RecordDelivery(ctx context.Context, cmd DeliveryCommand) (DeliveryResult, error)
 	Evaluate(ctx context.Context, cmd EvaluateCommand) (EvaluationResult, error)
 }
 
@@ -159,6 +168,19 @@ type Event struct {
 	Value      float64
 	Message    string
 	CreatedAt  time.Time
+	Delivery   *Delivery
+}
+
+type Delivery struct {
+	ID          string
+	EventID     string
+	TriggerType TriggerType
+	Status      DeliveryStatus
+	StatusCode  int
+	Error       string
+	Duration    time.Duration
+	AttemptedAt time.Time
+	CreatedAt   time.Time
 }
 
 type EvaluationJob struct {
@@ -261,6 +283,16 @@ type EvaluateCommand struct {
 	RuleID string
 }
 
+type DeliveryCommand struct {
+	EventID     string
+	TriggerType string
+	Status      string
+	StatusCode  int
+	Error       string
+	Duration    time.Duration
+	AttemptedAt time.Time
+}
+
 type RuleResult struct {
 	ID                 string
 	Name               string
@@ -305,6 +337,19 @@ type EventResult struct {
 	Value      float64
 	Message    string
 	CreatedAt  time.Time
+	Delivery   *DeliveryResult
+}
+
+type DeliveryResult struct {
+	ID          string
+	EventID     string
+	TriggerType string
+	Status      string
+	StatusCode  int
+	Error       string
+	DurationMs  int
+	AttemptedAt time.Time
+	CreatedAt   time.Time
 }
 
 type EventListResult struct {
@@ -573,6 +618,49 @@ func (s *service) FailEvaluationJob(ctx context.Context, cmd FailCommand) error 
 	}
 	now := s.now()
 	return s.repo.RequeueEvaluationJob(ctx, id, now.Add(cmd.RetryAfter), now)
+}
+
+func (s *service) RecordDelivery(ctx context.Context, cmd DeliveryCommand) (DeliveryResult, error) {
+	eventID, err := normalizeRequired(cmd.EventID, "alert event id is required")
+	if err != nil {
+		return DeliveryResult{}, err
+	}
+	triggerType, err := normalizeTriggerType(TriggerType(cmd.TriggerType))
+	if err != nil {
+		return DeliveryResult{}, err
+	}
+	status, err := normalizeDeliveryStatus(DeliveryStatus(cmd.Status))
+	if err != nil {
+		return DeliveryResult{}, err
+	}
+	if cmd.StatusCode < 0 {
+		return DeliveryResult{}, errors.Join(domain.ErrInvalidInput, errors.New("delivery status code cannot be negative"))
+	}
+	if cmd.Duration < 0 {
+		return DeliveryResult{}, errors.Join(domain.ErrInvalidInput, errors.New("delivery duration cannot be negative"))
+	}
+
+	now := s.now()
+	attemptedAt := cmd.AttemptedAt
+	if attemptedAt.IsZero() {
+		attemptedAt = now
+	}
+	delivery := Delivery{
+		ID:          uuid.NewString(),
+		EventID:     eventID,
+		TriggerType: triggerType,
+		Status:      status,
+		StatusCode:  cmd.StatusCode,
+		Error:       strings.TrimSpace(cmd.Error),
+		Duration:    cmd.Duration,
+		AttemptedAt: attemptedAt.UTC(),
+		CreatedAt:   now,
+	}
+	saved, err := s.repo.SaveDelivery(ctx, delivery)
+	if err != nil {
+		return DeliveryResult{}, err
+	}
+	return deliveryResult(saved), nil
 }
 
 func (s *service) Evaluate(ctx context.Context, cmd EvaluateCommand) (EvaluationResult, error) {
@@ -1022,6 +1110,15 @@ func normalizeTriggerType(value TriggerType) (TriggerType, error) {
 	}
 }
 
+func normalizeDeliveryStatus(value DeliveryStatus) (DeliveryStatus, error) {
+	switch value {
+	case DeliveryDelivered, DeliveryFailed:
+		return value, nil
+	default:
+		return "", errors.Join(domain.ErrInvalidInput, fmt.Errorf("unsupported delivery status %q", value))
+	}
+}
+
 func normalizeWebhookURL(value string) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -1259,7 +1356,7 @@ func stateResult(state State) StateResult {
 }
 
 func eventResult(event Event) EventResult {
-	return EventResult{
+	result := EventResult{
 		ID:         event.ID,
 		RuleID:     event.RuleID,
 		GroupKey:   event.GroupKey,
@@ -1268,6 +1365,25 @@ func eventResult(event Event) EventResult {
 		Value:      event.Value,
 		Message:    event.Message,
 		CreatedAt:  event.CreatedAt,
+	}
+	if event.Delivery != nil {
+		delivery := deliveryResult(*event.Delivery)
+		result.Delivery = &delivery
+	}
+	return result
+}
+
+func deliveryResult(delivery Delivery) DeliveryResult {
+	return DeliveryResult{
+		ID:          delivery.ID,
+		EventID:     delivery.EventID,
+		TriggerType: string(delivery.TriggerType),
+		Status:      string(delivery.Status),
+		StatusCode:  delivery.StatusCode,
+		Error:       delivery.Error,
+		DurationMs:  int(delivery.Duration.Milliseconds()),
+		AttemptedAt: delivery.AttemptedAt,
+		CreatedAt:   delivery.CreatedAt,
 	}
 }
 

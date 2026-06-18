@@ -101,14 +101,42 @@ LIMIT sqlc.arg('limit')::int;
 INSERT INTO alert_events (id, rule_id, group_key, group_value, type, value, message, created_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
 
+-- name: SaveAlertDelivery :exec
+INSERT INTO alert_deliveries (id, event_id, trigger_type, status, status_code, error, duration_ms, attempted_at, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
+
 -- name: ListAlertEvents :many
-SELECT id, rule_id, group_key, group_value, type, value, message, created_at
+SELECT
+	alert_events.id,
+	alert_events.rule_id,
+	alert_events.group_key,
+	alert_events.group_value,
+	alert_events.type,
+	alert_events.value,
+	alert_events.message,
+	alert_events.created_at,
+	delivery.id AS delivery_id,
+	delivery.trigger_type AS delivery_trigger_type,
+	delivery.status AS delivery_status,
+	delivery.status_code AS delivery_status_code,
+	delivery.error AS delivery_error,
+	delivery.duration_ms AS delivery_duration_ms,
+	delivery.attempted_at AS delivery_attempted_at,
+	delivery.created_at AS delivery_created_at
 FROM alert_events
-WHERE (sqlc.narg('rule_id')::text IS NULL OR rule_id = sqlc.narg('rule_id')::text)
+LEFT JOIN alert_deliveries AS delivery
+	ON delivery.id = (
+		SELECT id
+		FROM alert_deliveries
+		WHERE event_id = alert_events.id
+		ORDER BY attempted_at DESC, id DESC
+		LIMIT 1
+	)
+WHERE (sqlc.narg('rule_id')::text IS NULL OR alert_events.rule_id = sqlc.narg('rule_id')::text)
 	AND (sqlc.narg('cursor_created_at')::text IS NULL
-		OR (created_at < sqlc.narg('cursor_created_at')::text
-			OR (created_at = sqlc.narg('cursor_created_at')::text AND id < sqlc.narg('cursor_id')::text)))
-ORDER BY created_at DESC, id DESC
+		OR (alert_events.created_at < sqlc.narg('cursor_created_at')::text
+			OR (alert_events.created_at = sqlc.narg('cursor_created_at')::text AND alert_events.id < sqlc.narg('cursor_id')::text)))
+ORDER BY alert_events.created_at DESC, alert_events.id DESC
 LIMIT sqlc.arg('limit')::int;
 
 -- name: EnqueueAlertEvaluationJob :exec

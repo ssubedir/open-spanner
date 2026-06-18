@@ -12,6 +12,27 @@ definitions:
       error:
         $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorBody'
     type: object
+  internal_metering_adapters_http_alert.DeliveryResponse:
+    properties:
+      attempted_at:
+        type: string
+      created_at:
+        type: string
+      duration_ms:
+        type: integer
+      error:
+        type: string
+      event_id:
+        type: string
+      id:
+        type: string
+      status:
+        type: string
+      status_code:
+        type: integer
+      trigger_type:
+        type: string
+    type: object
   internal_metering_adapters_http_alert.EvaluationResponse:
     properties:
       event:
@@ -38,6 +59,8 @@ definitions:
     properties:
       created_at:
         type: string
+      delivery:
+        $ref: '#/definitions/internal_metering_adapters_http_alert.DeliveryResponse'
       group_key:
         type: string
       group_value:

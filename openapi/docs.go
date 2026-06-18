@@ -2291,6 +2291,38 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_metering_adapters_http_alert.DeliveryResponse": {
+            "type": "object",
+            "properties": {
+                "attempted_at": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "event_id": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "status_code": {
+                    "type": "integer"
+                },
+                "trigger_type": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_metering_adapters_http_alert.EvaluationResponse": {
             "type": "object",
             "properties": {
@@ -2330,6 +2362,9 @@ const docTemplate = `{
             "properties": {
                 "created_at": {
                     "type": "string"
+                },
+                "delivery": {
+                    "$ref": "#/definitions/internal_metering_adapters_http_alert.DeliveryResponse"
                 },
                 "group_key": {
                     "type": "string"
