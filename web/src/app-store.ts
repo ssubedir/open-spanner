@@ -157,6 +157,7 @@ type AppState = {
     exportError: string
     exportJobDownloading: string
     exportJobError: string
+    exportJobLimit: number
     exportJobMutating: string
     exportJobStatus: LoadState
     exportJobs: UsageExportJob[]
@@ -240,6 +241,7 @@ export const appStore = createStore<AppState>({
     exportError: '',
     exportJobDownloading: '',
     exportJobError: '',
+    exportJobLimit: 8,
     exportJobMutating: '',
     exportJobStatus: 'idle',
     exportJobs: [],
@@ -459,6 +461,7 @@ export const appStoreActions = {
         listUsageExportJobs(),
       ])
       setUsageState((state) => ({
+        exportJobLimit: 8,
         exportJobs: exportJobs.items,
         exportJobStatus: 'ready',
         meters: nextMeters.items,
@@ -478,11 +481,11 @@ export const appStoreActions = {
       })
     }
   },
-  async loadUsageExportJobs() {
+  async loadUsageExportJobs(limit = appStore.state.usage.exportJobLimit || 8) {
     setUsageState({ exportJobError: '', exportJobStatus: 'loading' })
     try {
-      const exportJobs = await listUsageExportJobs()
-      setUsageState({ exportJobs: exportJobs.items, exportJobStatus: 'ready' })
+      const exportJobs = await listUsageExportJobs(limit)
+      setUsageState({ exportJobLimit: limit, exportJobs: exportJobs.items, exportJobStatus: 'ready' })
     } catch (err) {
       setUsageState({
         exportJobError: errorMessage(err, 'Unable to load export jobs'),
@@ -885,7 +888,7 @@ export const appStoreActions = {
     try {
       const updated = await retryUsageExportJob(job.id)
       setUsageState((state) => ({ exportJobs: upsertUsageExportJob(state.exportJobs, updated) }))
-      await appStoreActions.loadUsageExportJobs()
+      await appStoreActions.loadUsageExportJobs(appStore.state.usage.exportJobLimit)
     } catch (err) {
       setUsageState({ exportJobError: errorMessage(err, 'Unable to retry export job') })
     } finally {

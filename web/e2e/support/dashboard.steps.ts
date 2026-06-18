@@ -466,6 +466,20 @@ export const Then = {
     expect(download.text).not.toContain('silver')
   },
 
+  async theExportsPageShowsCompletedJob(page: Page, scenario: UsageScenario) {
+    await page.goto('/exports')
+    await expect(page.getByRole('heading', { name: 'Export jobs' })).toBeVisible()
+
+    const filters = page.locator('.exports-filter-bar')
+    await expect(filters.getByRole('button', { name: /Completed/ })).toBeVisible()
+    await filters.getByRole('button', { name: /Completed/ }).click()
+
+    const jobs = page.locator('.usage-export-card')
+    await expect(jobs).toContainText(scenario.meterName)
+    await expect(jobs).toContainText('Completed')
+    await expect(jobs.getByRole('button', { name: 'Download' })).toBeVisible()
+  },
+
   async directUsageBucketCSVResponseIncludesCurrentQuery(response: CSVResponse, scenario: UsageScenario) {
     expect(response.status).toBe(200)
     expect(response.headers['content-type']).toContain('text/csv')

@@ -658,6 +658,49 @@ svg {
   margin-top: 4px;
 }
 
+.exports-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.exports-grid .metric-card {
+  min-height: 84px;
+  padding: 12px;
+}
+
+.exports-grid .metric-icon {
+  width: 36px;
+  height: 36px;
+}
+
+.exports-grid .metric-card strong {
+  margin-top: 3px;
+  font-size: 22px;
+}
+
+.exports-grid .metric-card small {
+  margin-top: 4px;
+}
+
+.exports-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.exports-filter-bar .button {
+  gap: 7px;
+}
+
+.exports-filter-bar .badge {
+  min-width: 22px;
+  justify-content: center;
+  padding: 2px 6px;
+}
+
 .pinned-query-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
@@ -2524,6 +2567,10 @@ select:disabled,
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
+  .exports-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .usage-query-layout {
     grid-template-columns: 1fr;
   }
@@ -2615,6 +2662,7 @@ select:disabled,
   }
 
   .metric-grid,
+  .exports-grid,
   .form-grid,
   .subject-snapshot,
   .saved-query-controls,

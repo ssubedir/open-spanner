@@ -1,10 +1,11 @@
 import { useSelector } from '@tanstack/react-store'
-import { Ban, BarChart3, Copy, Download, FileClock, List, Loader2, Pin, PinOff, RefreshCw, RotateCcw, Save, Search, Trash2, X } from 'lucide-react'
+import { BarChart3, Copy, Download, FileClock, List, Loader2, Pin, PinOff, RefreshCw, Save, Search, Trash2, X } from 'lucide-react'
 import { type FormEvent, useCallback, useEffect, useMemo } from 'react'
 
 import { appStore, appStoreActions } from '../app-store'
-import type { UsageEvent, UsageExportJob } from '../api'
+import type { UsageEvent } from '../api'
 import { DataTable, Modal, PageHeader } from '../components/dashboard'
+import { ExportJobsCard, isActiveExportJob } from '../components/export-jobs-card'
 import { FilterBuilder } from '../components/filter-builder'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
@@ -524,99 +525,6 @@ function EventDetailItem({
   )
 }
 
-function ExportJobsCard({
-  downloadingID,
-  error,
-  jobs,
-  mutatingID,
-  status,
-}: {
-  downloadingID: string
-  error: string
-  jobs: UsageExportJob[]
-  mutatingID: string
-  status: string
-}) {
-  const label = status === 'loading' && jobs.length === 0 ? 'Loading' : `${jobs.length} jobs`
-
-  return (
-    <Card className="usage-export-card">
-      <CardHeader className="usage-card-header">
-        <div>
-          <CardTitle>Export Jobs</CardTitle>
-          <CardDescription>Queued CSV exports handled by the worker.</CardDescription>
-        </div>
-        <Badge variant={jobs.length > 0 ? 'success' : 'muted'}>{label}</Badge>
-      </CardHeader>
-      <CardContent className="export-jobs-content">
-        {error ? <div className="inline-error">{error}</div> : null}
-        {jobs.length > 0 ? (
-          <div className="export-job-list">
-            {jobs.map((job) => (
-              <article className="export-job-row" key={job.id}>
-                <div className="export-job-main">
-                  <div className="export-job-title">
-                    <strong>{exportJobKindLabel(job.kind)}</strong>
-                    <Badge variant={exportJobStatusVariant(job.status)}>{exportJobStatusLabel(job.status)}</Badge>
-                  </div>
-                  <div className="export-job-meta">
-                    <span>{job.query.meter}</span>
-                    <span>{job.query.bucket_size}</span>
-                    <span>{job.query.group_by?.length ? `${job.query.group_by.length} groups` : 'no groups'}</span>
-                    <span>{formatDate(job.created_at)}</span>
-                    {job.artifact_size ? <span>{formatBytes(job.artifact_size)}</span> : null}
-                  </div>
-                  {job.error ? <p className="export-job-error">{job.error}</p> : null}
-                </div>
-                <div className="export-job-actions">
-                  {job.status === 'completed' ? (
-                    <Button
-                      disabled={downloadingID === job.id}
-                      onClick={() => void appStoreActions.downloadUsageExport(job)}
-                      size="sm"
-                      type="button"
-                      variant="outline"
-                    >
-                      {downloadingID === job.id ? <Loader2 className="spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
-                      Download
-                    </Button>
-                  ) : null}
-                  {job.status === 'queued' || job.status === 'running' ? (
-                    <Button
-                      disabled={mutatingID === job.id}
-                      onClick={() => void appStoreActions.cancelUsageExport(job)}
-                      size="sm"
-                      type="button"
-                      variant="outline"
-                    >
-                      {mutatingID === job.id ? <Loader2 className="spin" aria-hidden="true" /> : <Ban aria-hidden="true" />}
-                      Cancel
-                    </Button>
-                  ) : null}
-                  {job.status === 'failed' || job.status === 'canceled' ? (
-                    <Button
-                      disabled={mutatingID === job.id}
-                      onClick={() => void appStoreActions.retryUsageExport(job)}
-                      size="sm"
-                      type="button"
-                      variant="secondary"
-                    >
-                      {mutatingID === job.id ? <Loader2 className="spin" aria-hidden="true" /> : <RotateCcw aria-hidden="true" />}
-                      Retry
-                    </Button>
-                  ) : null}
-                </div>
-              </article>
-            ))}
-          </div>
-        ) : (
-          <div className="breakdown-empty">Queued exports will appear here.</div>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
 function MetadataValues({ metadata }: { metadata: Record<string, unknown> }) {
   const entries = Object.entries(metadata || {})
   if (entries.length === 0) {
@@ -731,47 +639,6 @@ function breakdownWidth(quantity: number, maxQuantity: number) {
     return 4
   }
   return Math.max(4, (quantity / maxQuantity) * 100)
-}
-
-function isActiveExportJob(job: UsageExportJob) {
-  return job.status === 'queued' || job.status === 'running'
-}
-
-function exportJobKindLabel(kind: string) {
-  if (kind === 'usage_buckets') {
-    return 'Usage buckets'
-  }
-  return humanizeField(kind)
-}
-
-function exportJobStatusLabel(status: string) {
-  return humanizeField(status)
-}
-
-function exportJobStatusVariant(status: string): 'default' | 'muted' | 'success' | 'warning' {
-  if (status === 'completed') {
-    return 'success'
-  }
-  if (status === 'failed') {
-    return 'warning'
-  }
-  if (status === 'canceled') {
-    return 'warning'
-  }
-  if (status === 'running') {
-    return 'default'
-  }
-  return 'muted'
-}
-
-function formatBytes(value: number) {
-  if (value < 1024) {
-    return `${formatNumber(value)} B`
-  }
-  if (value < 1024 * 1024) {
-    return `${formatNumber(Math.round(value / 102.4) / 10)} KB`
-  }
-  return `${formatNumber(Math.round(value / 104857.6) / 10)} MB`
 }
 
 async function copyText(value: string) {

@@ -78,6 +78,7 @@ test.describe('Feature: Dashboard usage exploration', () => {
     await When.theUserQueuesCurrentUsageExport(page)
     const queuedExport = await Then.queuedUsageExportCompletesInDashboard(page, scenario)
     await Then.queuedUsageBucketCSVIncludesCurrentQuery(queuedExport, scenario)
+    await Then.theExportsPageShowsCompletedJob(page, scenario)
 
     const eventExport = await When.theUserExportsSubjectEvents(page, scenario)
     await Then.subjectEventCSVIncludesPrimaryUsage(eventExport, scenario)
