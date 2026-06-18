@@ -34,6 +34,9 @@ test.describe('Feature: Dashboard usage exploration', () => {
     await Then.theUsagePageLoadsWithoutDimensionErrors(page)
     await Then.advancedQueryReturnsOnlyMatchingUsage(page, meterName)
 
+    await When.theUserViewsCurrentUsageEvents(page)
+    await Then.rawUsageEventsIncludeOnlyMatchingUsage(page, scenario)
+
     const bucketExport = await When.theUserExportsCurrentUsageBuckets(page)
     await Then.advancedUsageBucketCSVIncludesMatchingUsage(bucketExport, scenario)
   })

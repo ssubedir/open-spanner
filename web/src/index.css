@@ -1002,6 +1002,14 @@ svg {
   min-height: 420px;
 }
 
+.usage-events-card .table {
+  min-width: 940px;
+}
+
+.usage-events-card .dimension-values {
+  max-width: 420px;
+}
+
 .card-content.export-jobs-content {
   padding: 10px 12px;
 }

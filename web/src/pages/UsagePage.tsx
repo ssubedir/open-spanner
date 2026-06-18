@@ -1,9 +1,9 @@
 import { useSelector } from '@tanstack/react-store'
-import { BarChart3, Download, FileClock, Loader2, Pin, PinOff, RefreshCw, Save, Search, Trash2 } from 'lucide-react'
+import { BarChart3, Download, FileClock, List, Loader2, Pin, PinOff, RefreshCw, Save, Search, Trash2 } from 'lucide-react'
 import { type FormEvent, useCallback, useEffect, useMemo } from 'react'
 
 import { appStore, appStoreActions } from '../app-store'
-import type { UsageExportJob } from '../api'
+import type { UsageEvent, UsageExportJob } from '../api'
 import { DataTable, Modal, PageHeader } from '../components/dashboard'
 import { FilterBuilder } from '../components/filter-builder'
 import { Badge } from '../components/ui/badge'
@@ -32,6 +32,9 @@ export function UsagePage() {
     buckets,
     dimensionValues,
     error,
+    events,
+    eventsError,
+    eventsStatus,
     exportError,
     exportJobDownloading,
     exportJobError,
@@ -70,6 +73,10 @@ export function UsagePage() {
 
   async function exportEvents() {
     await appStoreActions.exportCurrentUsageEvents(limit)
+  }
+
+  async function viewEvents() {
+    await appStoreActions.loadCurrentUsageEvents(limit)
   }
 
   async function queueExport() {
@@ -273,6 +280,10 @@ export function UsagePage() {
                       {exporting === 'job' ? <Loader2 className="spin" aria-hidden="true" /> : <FileClock aria-hidden="true" />}
                       Queue Export
                     </Button>
+                    <Button disabled={eventsStatus === 'loading'} onClick={() => void viewEvents()} type="button" variant="outline">
+                      {eventsStatus === 'loading' ? <Loader2 className="spin" aria-hidden="true" /> : <List aria-hidden="true" />}
+                      View Events
+                    </Button>
                     <Button disabled={status === 'loading'} type="submit">
                       {status === 'loading' ? <Loader2 className="spin" aria-hidden="true" /> : <Search aria-hidden="true" />}
                       Run Query
@@ -346,6 +357,8 @@ export function UsagePage() {
             />
           </CardContent>
         </Card>
+
+        <UsageEventsCard error={eventsError} events={events} status={eventsStatus} />
       </section>
 
       {savedQueryDeleting ? (
@@ -358,6 +371,46 @@ export function UsagePage() {
         </Modal>
       ) : null}
     </>
+  )
+}
+
+function UsageEventsCard({
+  error,
+  events,
+  status,
+}: {
+  error: string
+  events: UsageEvent[]
+  status: string
+}) {
+  return (
+    <Card className="usage-events-card">
+      <CardHeader>
+        <div>
+          <CardTitle>Events</CardTitle>
+          <CardDescription>Raw usage events matching the current filter.</CardDescription>
+        </div>
+        <Badge variant={status === 'loading' ? 'muted' : events.length > 0 ? 'success' : 'muted'}>
+          {status === 'loading' ? 'Loading' : `${events.length} rows`}
+        </Badge>
+      </CardHeader>
+      <CardContent>
+        {error ? <div className="inline-error">{error}</div> : null}
+        <DataTable
+          emptyLabel={status === 'loading' ? 'Loading events' : 'View events to inspect raw usage'}
+          headers={['Timestamp', 'Subject', 'Meter', 'Quantity', 'Metadata', 'Idempotency Key', 'Event ID']}
+          rows={events.map((event) => [
+            formatDate(event.timestamp),
+            <SubjectValue subject={event.subject} />,
+            <Badge variant="muted">{event.meter}</Badge>,
+            formatNumber(event.quantity),
+            <MetadataValues metadata={event.metadata} />,
+            event.idempotency_key ? <span className="mono truncate">{event.idempotency_key}</span> : <span className="muted">none</span>,
+            <span className="mono truncate">{event.id}</span>,
+          ])}
+        />
+      </CardContent>
+    </Card>
   )
 }
 
@@ -421,6 +474,25 @@ function ExportJobsCard({
         )}
       </CardContent>
     </Card>
+  )
+}
+
+function MetadataValues({ metadata }: { metadata: Record<string, unknown> }) {
+  const entries = Object.entries(metadata || {})
+  if (entries.length === 0) {
+    return <span className="muted">none</span>
+  }
+
+  return (
+    <div className="dimension-values">
+      {entries.slice(0, 4).map(([key, value]) => (
+        <span className="dimension-value" key={key}>
+          <span>{key}</span>
+          <strong>{formatMetadataValue(value)}</strong>
+        </span>
+      ))}
+      {entries.length > 4 ? <span className="muted">+{entries.length - 4}</span> : null}
+    </div>
   )
 }
 
@@ -557,6 +629,19 @@ function formatBytes(value: number) {
     return `${formatNumber(Math.round(value / 102.4) / 10)} KB`
   }
   return `${formatNumber(Math.round(value / 104857.6) / 10)} MB`
+}
+
+function formatMetadataValue(value: unknown) {
+  if (typeof value === 'string') {
+    return value
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value)
+  }
+  if (value == null) {
+    return 'null'
+  }
+  return JSON.stringify(value)
 }
 
 function humanizeField(key: string) {

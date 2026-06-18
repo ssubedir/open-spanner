@@ -233,6 +233,10 @@ export const When = {
     return csvDownload(await downloadPromise)
   },
 
+  async theUserViewsCurrentUsageEvents(page: Page) {
+    await page.getByRole('button', { name: 'View Events' }).click()
+  },
+
   async theUserQueuesCurrentUsageExport(page: Page) {
     await page.getByRole('button', { name: 'Queue Export' }).click()
     await expect(page.locator('.usage-export-card')).toContainText('Usage buckets')
@@ -366,6 +370,19 @@ export const Then = {
     expect(download.text).toContain(',12,')
     expect(download.text).not.toContain('eu-west-1')
     expect(download.text).not.toContain('silver')
+  },
+
+  async rawUsageEventsIncludeOnlyMatchingUsage(page: Page, scenario: UsageScenario) {
+    const events = page.locator('.usage-events-card')
+    await expect(events).toContainText(scenario.primarySubject)
+    await expect(events).toContainText(scenario.meterName)
+    await expect(events).toContainText('region-name')
+    await expect(events).toContainText('us-east-1')
+    await expect(events).toContainText('service')
+    await expect(events).toContainText('gold')
+    await expect(events).toContainText('12')
+    await expect(events).not.toContainText('silver')
+    await expect(events).not.toContainText('eu-west-1')
   },
 
   async usageQueryIsScopedToSubjectAndMeter(page: Page, scenario: UsageScenario) {

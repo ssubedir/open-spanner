@@ -27,6 +27,7 @@ import {
   listUsageBreakdowns,
   listUsageBuckets,
   listUsageDimensionValues,
+  listUsageEvents,
   listUsageExportJobs,
   refreshAuthSession,
   updateMeter as updateMeterRequest,
@@ -45,6 +46,7 @@ import {
   type UsageBreakdown,
   type UsageDimensionValue,
   type UsageEvent,
+  type UsageEventQuery,
   type UsageExportJob,
   type IngestionRun,
   type SubjectStats,
@@ -147,6 +149,9 @@ type AppState = {
     buckets: UsageBucket[]
     dimensionValues: Record<string, UsageDimensionValue[]>
     error: string
+    events: UsageEvent[]
+    eventsError: string
+    eventsStatus: LoadState
     exportError: string
     exportJobDownloading: string
     exportJobError: string
@@ -225,6 +230,9 @@ export const appStore = createStore<AppState>({
     buckets: [],
     dimensionValues: {},
     error: '',
+    events: [],
+    eventsError: '',
+    eventsStatus: 'idle',
     exportError: '',
     exportJobDownloading: '',
     exportJobError: '',
@@ -603,6 +611,9 @@ export const appStoreActions = {
     const meters = appStore.state.usage.meters
     setUsageState({
       bucketSize: 'day',
+      events: [],
+      eventsError: '',
+      eventsStatus: 'idle',
       exportError: '',
       filterQuery: queryWithAvailableMeter(defaultFilterQuery(), meters),
       groupBy: [],
@@ -621,6 +632,9 @@ export const appStoreActions = {
     setUsageState((state) => ({
       buckets: [],
       error: '',
+      events: [],
+      eventsError: '',
+      eventsStatus: 'idle',
       exportError: '',
       filterQuery: normalizedMeter
         ? queryWithMeter(queryWithSubject(state.filterQuery, normalizedSubject), normalizedMeter)
@@ -731,7 +745,7 @@ export const appStoreActions = {
     })
   },
   async submitUsageQuery(groupByValue: string[], limit = 500, bucketSize = 'day') {
-    setUsageState({ error: '', exportError: '', status: 'loading' })
+    setUsageState({ error: '', events: [], eventsError: '', eventsStatus: 'idle', exportError: '', status: 'loading' })
     try {
       const query = appStore.state.usage.filterQuery
       const scope = usageScopeFromQuery(query)
@@ -751,6 +765,15 @@ export const appStoreActions = {
       setUsageState({ buckets, status: 'ready' })
     } catch (err) {
       setUsageState({ error: errorMessage(err, 'Unable to query usage'), status: 'error' })
+    }
+  },
+  async loadCurrentUsageEvents(limit = 500) {
+    setUsageState({ eventsError: '', eventsStatus: 'loading' })
+    try {
+      const events = await listUsageEvents(currentUsageEventQuery(limit))
+      setUsageState({ events: events.items, eventsStatus: 'ready' })
+    } catch (err) {
+      setUsageState({ eventsError: errorMessage(err, 'Unable to load usage events'), eventsStatus: 'error' })
     }
   },
   async exportCurrentUsageBuckets(groupByValue: string[], limit = 500, bucketSize = 'day') {
@@ -782,19 +805,9 @@ export const appStoreActions = {
   async exportCurrentUsageEvents(limit = 500) {
     setUsageState({ exportError: '', exporting: 'events' })
     try {
-      const query = appStore.state.usage.filterQuery
-      const scope = usageScopeFromQuery(query)
-      const timeRange = usageTimeRangeFromQuery(query)
-      const filter = usageFilterFromQuery(query, metadataTypesByField(appStore.state.usage.meters, scope.meter))
-      const blob = await exportUsageEvents({
-        filter,
-        from: timeRange.from,
-        limit,
-        meter: scope.meter,
-        subject: scope.subject || undefined,
-        to: timeRange.to,
-      })
-      const fileParts = ['usage-events', scope.meter, scope.subject].filter((part): part is string => Boolean(part))
+      const eventQuery = currentUsageEventQuery(limit)
+      const blob = await exportUsageEvents(eventQuery)
+      const fileParts = ['usage-events', eventQuery.meter, eventQuery.subject].filter((part): part is string => Boolean(part))
       downloadBlob(blob, `${fileParts.map(safeDownloadName).join('-')}.csv`)
     } catch (err) {
       setUsageState({ exportError: errorMessage(err, 'Unable to export usage events') })
@@ -1095,6 +1108,21 @@ function currentUsageBucketExportQuery(groupByValue: string[], limit = 500, buck
     filter,
     from: timeRange.from,
     group_by: groupBy.length > 0 ? groupBy : undefined,
+    limit,
+    meter: scope.meter,
+    subject: scope.subject || undefined,
+    to: timeRange.to,
+  }
+}
+
+function currentUsageEventQuery(limit = 500): UsageEventQuery {
+  const query = appStore.state.usage.filterQuery
+  const scope = usageScopeFromQuery(query)
+  const timeRange = usageTimeRangeFromQuery(query)
+  const filter = usageFilterFromQuery(query, metadataTypesByField(appStore.state.usage.meters, scope.meter))
+  return {
+    filter,
+    from: timeRange.from,
     limit,
     meter: scope.meter,
     subject: scope.subject || undefined,

@@ -164,6 +164,15 @@ export type UsageEventExportQuery = {
   filter?: UsageFilter
 }
 
+export type UsageEventQuery = UsageEventExportQuery & {
+  cursor?: string
+}
+
+export type UsageEventList = {
+  items: UsageEvent[]
+  next_cursor?: string
+}
+
 export type UsageExportJob = {
   id: string
   kind: string
@@ -513,6 +522,21 @@ export async function exportUsageBuckets(query: UsageBucketExportQuery) {
 export async function exportUsageEvents(query: UsageEventExportQuery) {
   return requestBlob('/v1/usageevents/export', {
     body: JSON.stringify({
+      filter: query.filter,
+      from: query.from,
+      limit: query.limit,
+      meter: query.meter,
+      subject: query.subject,
+      to: query.to,
+    }),
+    method: 'POST',
+  })
+}
+
+export async function listUsageEvents(query: UsageEventQuery) {
+  return request<UsageEventList>('/v1/usageevents/search', {
+    body: JSON.stringify({
+      cursor: query.cursor,
       filter: query.filter,
       from: query.from,
       limit: query.limit,

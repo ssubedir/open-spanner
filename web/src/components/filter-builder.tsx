@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react'
 import { QueryBuilder, ValueEditor, type Field, type RuleGroupType, type ValueEditorProps } from 'react-querybuilder'
 import 'react-querybuilder/dist/query-builder.css'
 
@@ -55,35 +54,26 @@ function FilterValueEditor(props: ValueEditorProps) {
 
 function DateTimeValueEditor({ className, disabled, handleOnChange, title, value }: ValueEditorProps) {
   const normalizedValue = normalizeInputDateTime(value)
-  const [draft, setDraft] = useState(normalizedValue)
-
-  useEffect(() => {
-    setDraft(normalizedValue)
-  }, [normalizedValue])
 
   return (
     <input
       className={className}
       disabled={disabled}
-      onBlur={() => {
-        const normalizedDraft = normalizeInputDateTime(draft)
+      onBlur={(event) => {
+        const next = event.currentTarget.value
+        const normalizedDraft = normalizeInputDateTime(next)
         if (normalizedDraft && isCompleteInputDateTime(normalizedDraft)) {
-          setDraft(normalizedDraft)
           handleOnChange(normalizedDraft)
           return
         }
-        setDraft(normalizedValue)
+        handleOnChange(normalizedValue)
       }}
       onChange={(event) => {
-        const next = event.target.value
-        setDraft(next)
-        if (next === '' || isCompleteInputDateTime(next)) {
-          handleOnChange(next)
-        }
+        handleOnChange(event.currentTarget.value)
       }}
       title={title}
       type="datetime-local"
-      value={draft}
+      value={normalizedValue}
     />
   )
 }
