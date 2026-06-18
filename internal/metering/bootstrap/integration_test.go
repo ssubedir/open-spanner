@@ -18,6 +18,7 @@ import (
 
 	"github.com/ssubedir/open-spanner/internal/config"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/fileexport"
+	alertworker "github.com/ssubedir/open-spanner/internal/metering/workers/alert"
 	exportworker "github.com/ssubedir/open-spanner/internal/metering/workers/export"
 )
 
@@ -176,6 +177,8 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 	if createMeter.Code != http.StatusCreated {
 		t.Fatalf("create meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
 	}
+
+	runIntegrationAlertEvaluationFlow(t, app, router, authHeaders, meterName, suffix)
 
 	for _, event := range []map[string]any{
 		{
@@ -430,6 +433,111 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 	runIntegrationSummaryAggregationFlow(t, router, authHeaders, suffix)
 	runIntegrationFilterOperatorFlow(t, router, authHeaders, suffix)
 	runIntegrationDynamicSQLParityFlow(t, router, authHeaders, suffix)
+}
+
+func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handler, authHeaders map[string]string, meterName string, suffix string) {
+	t.Helper()
+
+	webhookRequests := make(chan alertWebhookPayload, 1)
+	webhookServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("webhook method = %s, want POST", r.Method)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		var payload alertWebhookPayload
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Errorf("decode webhook payload: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		webhookRequests <- payload
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer webhookServer.Close()
+
+	createAlert := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/alerts", map[string]any{
+		"name":                        "High API calls " + suffix,
+		"meter":                       meterName,
+		"metadata":                    map[string]string{"endpoint": "/orders"},
+		"window_seconds":              3600,
+		"comparator":                  "gte",
+		"threshold":                   10,
+		"evaluation_interval_seconds": 60,
+		"trigger_type":                "webhook",
+		"webhook_url":                 webhookServer.URL,
+	}, authHeaders, nil)
+	if createAlert.Code != http.StatusCreated {
+		t.Fatalf("create alert status = %d, want %d: %s", createAlert.Code, http.StatusCreated, createAlert.Body.String())
+	}
+	var alertRule alertRuleResponse
+	decodeJSON(t, createAlert, &alertRule)
+	if alertRule.ID == "" || alertRule.Meter != meterName || !alertRule.Enabled {
+		t.Fatalf("created alert rule = %#v", alertRule)
+	}
+	if alertRule.TriggerType != "webhook" || alertRule.WebhookURL != webhookServer.URL {
+		t.Fatalf("created alert trigger = %#v, want webhook %q", alertRule, webhookServer.URL)
+	}
+
+	createUsage := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages", map[string]any{
+		"idempotency_key": "alert-flow-" + suffix + "-1",
+		"subject":         "org_alert_" + suffix,
+		"meter":           meterName,
+		"quantity":        12,
+		"timestamp":       time.Now().UTC().Add(-time.Minute).Format(time.RFC3339Nano),
+		"metadata":        map[string]any{"endpoint": "/orders", "status": 200},
+	}, authHeaders, nil)
+	if createUsage.Code != http.StatusCreated {
+		t.Fatalf("create alert usage status = %d, want %d: %s", createUsage.Code, http.StatusCreated, createUsage.Body.String())
+	}
+
+	worker := alertworker.NewWorker(app.AlertService, time.Millisecond, time.Minute, time.Minute, time.Second, 3, 10, t.Logf)
+	var payload alertWebhookPayload
+	delivered := false
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		processed, err := worker.ProcessOnce(context.Background())
+		if err != nil {
+			t.Fatalf("process alert job: %v", err)
+		}
+		select {
+		case payload = <-webhookRequests:
+			delivered = true
+		default:
+		}
+		if delivered {
+			break
+		}
+		if !processed {
+			time.Sleep(25 * time.Millisecond)
+		}
+	}
+	if !delivered {
+		t.Fatal("alert webhook was not delivered")
+	}
+	if payload.Event.Type != "triggered" || payload.Event.Value != 12 || payload.Rule.Meter != meterName || payload.State.Status != "alerting" {
+		t.Fatalf("webhook payload = %#v, want triggered value 12 for %s", payload, meterName)
+	}
+
+	getAlert := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/alerts/"+alertRule.ID, nil, authHeaders, nil)
+	if getAlert.Code != http.StatusOK {
+		t.Fatalf("get alert status = %d, want %d: %s", getAlert.Code, http.StatusOK, getAlert.Body.String())
+	}
+	var evaluated alertRuleResponse
+	decodeJSON(t, getAlert, &evaluated)
+	if evaluated.State == nil || evaluated.State.Status != "alerting" || evaluated.State.Value != 12 {
+		t.Fatalf("evaluated alert = %#v, want alerting value 12", evaluated)
+	}
+
+	events := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/alerts/events?rule_id="+url.QueryEscape(alertRule.ID)+"&limit=10", nil, authHeaders, nil)
+	if events.Code != http.StatusOK {
+		t.Fatalf("list alert events status = %d, want %d: %s", events.Code, http.StatusOK, events.Body.String())
+	}
+	var alertEvents alertEventListResponse
+	decodeJSON(t, events, &alertEvents)
+	if len(alertEvents.Items) != 1 || alertEvents.Items[0].RuleID != alertRule.ID || alertEvents.Items[0].Type != "triggered" || alertEvents.Items[0].Value != 12 {
+		t.Fatalf("alert events = %#v, want one triggered event for value 12", alertEvents)
+	}
 }
 
 func runIntegrationDimensionNameValidationFlow(t *testing.T, router http.Handler, authHeaders map[string]string, suffix string) {
@@ -1792,4 +1900,58 @@ type usageExportJobResponse struct {
 	CreatedAt    string         `json:"created_at"`
 	UpdatedAt    string         `json:"updated_at"`
 	CompletedAt  string         `json:"completed_at"`
+}
+
+type alertRuleResponse struct {
+	ID                        string              `json:"id"`
+	Name                      string              `json:"name"`
+	Meter                     string              `json:"meter"`
+	Enabled                   bool                `json:"enabled"`
+	Subject                   string              `json:"subject"`
+	Metadata                  map[string]string   `json:"metadata"`
+	WindowSeconds             int                 `json:"window_seconds"`
+	Comparator                string              `json:"comparator"`
+	Threshold                 float64             `json:"threshold"`
+	EvaluationIntervalSeconds int                 `json:"evaluation_interval_seconds"`
+	TriggerType               string              `json:"trigger_type"`
+	WebhookURL                string              `json:"webhook_url"`
+	NextEvaluateAt            string              `json:"next_evaluate_at"`
+	CreatedAt                 string              `json:"created_at"`
+	UpdatedAt                 string              `json:"updated_at"`
+	State                     *alertStateResponse `json:"state"`
+}
+
+type alertStateResponse struct {
+	Status      string  `json:"status"`
+	Value       float64 `json:"value"`
+	Message     string  `json:"message"`
+	EvaluatedAt string  `json:"evaluated_at"`
+	UpdatedAt   string  `json:"updated_at"`
+}
+
+type alertEventResponse struct {
+	ID        string  `json:"id"`
+	RuleID    string  `json:"rule_id"`
+	Type      string  `json:"type"`
+	Value     float64 `json:"value"`
+	Message   string  `json:"message"`
+	CreatedAt string  `json:"created_at"`
+}
+
+type alertEventListResponse struct {
+	Items      []alertEventResponse `json:"items"`
+	NextCursor string               `json:"next_cursor"`
+}
+
+type alertWebhookPayload struct {
+	Event struct {
+		Type  string  `json:"type"`
+		Value float64 `json:"value"`
+	} `json:"event"`
+	Rule struct {
+		Meter string `json:"meter"`
+	} `json:"rule"`
+	State struct {
+		Status string `json:"status"`
+	} `json:"state"`
 }

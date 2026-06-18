@@ -1023,6 +1023,55 @@ svg {
   text-overflow: ellipsis;
 }
 
+.alert-rule-create-form {
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.alert-rule-create-form label {
+  gap: 5px;
+}
+
+.alert-rule-create-form textarea {
+  min-height: 86px;
+}
+
+.alert-rule-create-form .button {
+  width: 100%;
+}
+
+.modal-panel.alert-rule-modal {
+  width: min(680px, 100%);
+  max-height: calc(100vh - 36px);
+  overflow: hidden;
+}
+
+.alert-rule-modal-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  max-height: calc(100vh - 140px);
+  overflow: auto;
+  padding: 16px;
+}
+
+.alert-rule-modal-form label {
+  gap: 5px;
+}
+
+.alert-rule-modal-form input,
+.alert-rule-modal-form select,
+.alert-rule-modal-form textarea {
+  min-height: 38px;
+}
+
+.alert-rule-modal-form textarea {
+  min-height: 92px;
+}
+
+.alert-rule-modal-form .checkbox-row {
+  min-height: 38px;
+}
+
 .usage-grid {
   display: grid;
   gap: 12px;
@@ -2066,6 +2115,21 @@ label {
 
 .wide {
   grid-column: 1 / -1;
+}
+
+.block {
+  display: block;
+}
+
+.checkbox-row {
+  align-items: center;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+}
+
+.checkbox-row input {
+  width: auto;
 }
 
 input,

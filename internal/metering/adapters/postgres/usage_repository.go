@@ -183,6 +183,10 @@ func (r *UsageRepository) Query(ctx context.Context, query domainusage.Query) ([
 	return r.queryBucketsWithDynamicSQL(ctx, query)
 }
 
+func (r *UsageRepository) Aggregate(ctx context.Context, query domainusage.AggregateQuery) (domainusage.Aggregate, error) {
+	return r.aggregateWithDynamicSQL(ctx, query)
+}
+
 func bucketQueryNeedsDynamicSQL(query domainusage.Query) bool {
 	return !query.Filter().IsZero() || len(query.Metadata()) > 0 || len(query.GroupByFields()) > 0
 }

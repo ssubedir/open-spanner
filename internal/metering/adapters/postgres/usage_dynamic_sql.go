@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -116,6 +117,46 @@ func (r *UsageRepository) queryBucketsWithDynamicSQL(ctx context.Context, query 
 	return buckets, nil
 }
 
+func (r *UsageRepository) aggregateWithDynamicSQL(ctx context.Context, query domainusage.AggregateQuery) (domainusage.Aggregate, error) {
+	predicates, err := aggregatePredicates(query)
+	if err != nil {
+		return domainusage.Aggregate{}, err
+	}
+
+	filtered := postgresUsageDialect.
+		From("usage_events").
+		Prepared(true).
+		Select(
+			goqu.C("quantity"),
+			goqu.L("event_time::timestamptz").As("event_at"),
+		).
+		Where(predicates...)
+
+	sqlQuery, args, err := postgresUsageDialect.
+		From(filtered.As("filtered")).
+		Prepared(true).
+		Select(
+			breakdownAggregationExpression(query.Aggregation(), query.To().Sub(query.From()).Seconds()).As("quantity"),
+			goqu.L("COUNT(*)").As("usage_events"),
+		).
+		ToSQL()
+	if err != nil {
+		return domainusage.Aggregate{}, err
+	}
+
+	var quantity sql.NullFloat64
+	var usageEvents int
+	if err := r.store.QueryRowContext(ctx, sqlQuery, args...).Scan(&quantity, &usageEvents); err != nil {
+		return domainusage.Aggregate{}, err
+	}
+
+	value := 0.0
+	if quantity.Valid {
+		value = quantity.Float64
+	}
+	return domainusage.NewAggregate(value, usageEvents), nil
+}
+
 func (r *UsageRepository) findBreakdownWithDynamicSQL(ctx context.Context, query domainusage.BreakdownQuery) ([]domainusage.BreakdownItem, error) {
 	valueExpression, err := breakdownFieldExpression(query.Field())
 	if err != nil {
@@ -220,6 +261,32 @@ func (r *UsageRepository) findEventsWithDynamicSQL(ctx context.Context, query do
 }
 
 func bucketPredicates(query domainusage.Query) ([]exp.Expression, error) {
+	predicates := []exp.Expression{
+		goqu.C("meter_name").Eq(query.MeterName()),
+		goqu.C("event_time").Gte(formatTime(query.From())),
+		goqu.C("event_time").Lt(formatTime(query.To())),
+	}
+	if query.Subject() != "" {
+		predicates = append(predicates, goqu.C("subject").Eq(query.Subject()))
+	}
+	for key, value := range query.Metadata() {
+		expression, err := metadataTextExpression(key)
+		if err != nil {
+			return nil, err
+		}
+		predicates = append(predicates, expression.Eq(value))
+	}
+	filterExpression, err := filterPredicateExpression(query.Filter())
+	if err != nil {
+		return nil, err
+	}
+	if filterExpression != nil {
+		predicates = append(predicates, filterExpression)
+	}
+	return predicates, nil
+}
+
+func aggregatePredicates(query domainusage.AggregateQuery) ([]exp.Expression, error) {
 	predicates := []exp.Expression{
 		goqu.C("meter_name").Eq(query.MeterName()),
 		goqu.C("event_time").Gte(formatTime(query.From())),

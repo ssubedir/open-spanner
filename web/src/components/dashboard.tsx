@@ -1,4 +1,5 @@
 import type React from 'react'
+import { useId } from 'react'
 
 import { Card } from './ui/card'
 import { Button } from './ui/button'
@@ -71,12 +72,14 @@ export function EmptyRow({ colSpan, label }: { colSpan: number; label: string })
   )
 }
 
-export function Modal({ children, onClose, title }: { children: React.ReactNode; onClose: () => void; title: string }) {
+export function Modal({ children, className = '', onClose, title }: { children: React.ReactNode; className?: string; onClose: () => void; title: string }) {
+  const titleID = useId()
+
   return (
     <div className="modal-backdrop" role="presentation">
-      <section aria-modal="true" className="modal-panel" role="dialog">
+      <section aria-labelledby={titleID} aria-modal="true" className={`modal-panel ${className}`.trim()} role="dialog">
         <div className="modal-header">
-          <h2>{title}</h2>
+          <h2 id={titleID}>{title}</h2>
           <Button onClick={onClose} size="sm" type="button" variant="ghost">Close</Button>
         </div>
         {children}

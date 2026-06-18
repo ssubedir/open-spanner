@@ -7,6 +7,7 @@ import (
 
 	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/config"
+	httpalert "github.com/ssubedir/open-spanner/internal/metering/adapters/http/alert"
 	httpauth "github.com/ssubedir/open-spanner/internal/metering/adapters/http/auth"
 	httpmeter "github.com/ssubedir/open-spanner/internal/metering/adapters/http/meter"
 	httpsavedquery "github.com/ssubedir/open-spanner/internal/metering/adapters/http/savedquery"
@@ -15,6 +16,7 @@ import (
 	httpusage "github.com/ssubedir/open-spanner/internal/metering/adapters/http/usage"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/postgres"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/sqlite"
+	appalert "github.com/ssubedir/open-spanner/internal/metering/app/alert"
 	appmeter "github.com/ssubedir/open-spanner/internal/metering/app/meter"
 	appsavedquery "github.com/ssubedir/open-spanner/internal/metering/app/savedquery"
 	appsubject "github.com/ssubedir/open-spanner/internal/metering/app/subject"
@@ -27,6 +29,7 @@ import (
 
 type App struct {
 	UsageService      appusage.Service
+	AlertService      appalert.Service
 	authService       appauth.Service
 	meterService      appmeter.Service
 	savedQueryService appsavedquery.Service
@@ -45,6 +48,7 @@ type repositorySet struct {
 	meter      domainmeter.Repository
 	savedQuery appsavedquery.Repository
 	usage      domainusage.Repository
+	alert      appalert.Repository
 	transactor apptransaction.Transactor
 	ready      func(context.Context) error
 	cleanup    func() error
@@ -75,10 +79,12 @@ func NewApp(ctx context.Context, cfg config.Config) (*App, error) {
 	savedQueryService := appsavedquery.NewService(repos.savedQuery)
 	subjectService := appsubject.NewService(repos.usage)
 	usageService := appusage.NewService(repos.meter, repos.usage, repos.transactor)
+	alertService := appalert.NewService(repos.alert, repos.meter, repos.usage, repos.transactor)
 	systemService := appsystem.NewService(repos.meter, repos.usage)
 
 	return &App{
 		UsageService:      usageService,
+		AlertService:      alertService,
 		authService:       authService,
 		meterService:      meterService,
 		savedQueryService: savedQueryService,
@@ -104,9 +110,10 @@ func RegisterRoutes(ctx context.Context, router chi.Router, cfg config.Config) (
 		})
 		r.Group(func(protected chi.Router) {
 			protected.Use(authHandler.RequireAuth)
+			httpalert.NewHandler(app.AlertService).RegisterRoutes(protected)
 			httpmeter.NewHandler(app.meterService).RegisterRoutes(protected)
 			httpsubject.NewHandler(app.subjectService).RegisterRoutes(protected)
-			httpusage.NewHandler(app.UsageService, cfg.ExportStoragePath).RegisterRoutes(protected)
+			httpusage.NewHandlerWithAlerts(app.UsageService, app.AlertService, cfg.ExportStoragePath).RegisterRoutes(protected)
 			httpsystem.NewHandler(app.systemService).RegisterRoutes(protected)
 		})
 	})
@@ -127,6 +134,7 @@ func repositories(ctx context.Context, cfg config.Config) (repositorySet, error)
 			meter:      postgres.NewMeterRepository(store),
 			savedQuery: postgres.NewSavedQueryRepository(store),
 			usage:      postgres.NewUsageRepository(store),
+			alert:      postgres.NewAlertRepository(store),
 			transactor: store,
 			ready:      readiness(store),
 			cleanup:    store.Close,
@@ -142,6 +150,7 @@ func repositories(ctx context.Context, cfg config.Config) (repositorySet, error)
 			meter:      sqlite.NewMeterRepository(store),
 			savedQuery: sqlite.NewSavedQueryRepository(store),
 			usage:      sqlite.NewUsageRepository(store),
+			alert:      sqlite.NewAlertRepository(store),
 			transactor: store,
 			ready:      readiness(store),
 			cleanup:    store.Close,

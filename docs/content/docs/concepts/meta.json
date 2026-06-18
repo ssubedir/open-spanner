@@ -5,6 +5,7 @@
     "meters",
     "meter-dimensions",
     "usage",
+    "alerts",
     "auth-model",
     "query-model",
     "retention"
