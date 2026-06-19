@@ -16,4 +16,4 @@ tasks:
     cmds:
       - task: proto:lint
       - task: proto
-      - git diff --exit-code proto internal/metering/adapters/grpc/pb sdk/go/grpc/pb buf.yaml buf.gen.yaml
+      - git diff --exit-code proto internal/metering/adapters/grpc/pb sdk/go/grpc/pb sdk/typescript/src/grpc/pb buf.yaml buf.gen.yaml
