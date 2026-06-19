@@ -31,3 +31,7 @@ plugins:
       - outputServices=grpc-js
       - useDate=true
       - useExactTypes=false
+  - remote: buf.build/protocolbuffers/python:v33.1
+    out: sdk/python/open_spanner_client/grpc/pb
+  - remote: buf.build/grpc/python:v1.76.0
+    out: sdk/python/open_spanner_client/grpc/pb

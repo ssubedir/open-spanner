@@ -51,6 +51,7 @@ tasks:
     cmds:
       - task: test:sdk:go
       - task: test:sdk:typescript
+      - task: test:sdk:python
 
   test:sdk:go:
     desc: Run Go SDK integration tests against a local Open Spanner service
@@ -61,6 +62,11 @@ tasks:
     desc: Run TypeScript SDK integration tests against a local Open Spanner service
     cmds:
       - cd sdk/typescript; npm run test:stream
+
+  test:sdk:python:
+    desc: Run Python SDK integration tests against a local Open Spanner service
+    cmds:
+      - cd sdk/python; uv run python ../../sdk-test/python/stream_integration_test.py
 
   test:examples:rest:
     desc: Verify all REST SDK examples

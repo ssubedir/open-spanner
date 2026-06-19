@@ -39,3 +39,31 @@ usage = create_usage.sync(
 
 print(usage.id)
 ```
+
+Stream usage over gRPC:
+
+```python
+from datetime import UTC, datetime
+
+from open_spanner_client.stream import Event, StreamClient
+
+client = StreamClient("localhost:18090", "osp_...")
+try:
+    result = client.track_bulk(
+        "batch-1",
+        [
+            Event(
+                idempotency_key="usage-1",
+                subject="org_123",
+                meter="api_requests",
+                quantity=1,
+                timestamp=datetime.now(UTC),
+                metadata={"endpoint": "/v1/orders", "status": 200},
+            )
+        ],
+    )
+finally:
+    client.close()
+
+print(result.accepted_count)
+```
