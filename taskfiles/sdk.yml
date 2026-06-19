@@ -24,8 +24,10 @@ tasks:
     desc: Generate the Python SDK from OpenAPI docs
     cmds:
       - task: openapi:sdk
+      - node scripts/preserve-paths.mjs .tmp/sdk-python-preserve sdk/python/open_spanner_client/stream.py sdk/python/open_spanner_client/grpc
       - node scripts/remove-paths.mjs sdk/python/open_spanner_client/__init__.py sdk/python/open_spanner_client/api sdk/python/open_spanner_client/models sdk/python/open_spanner_client/client.py sdk/python/open_spanner_client/errors.py sdk/python/open_spanner_client/py.typed sdk/python/open_spanner_client/types.py sdk/python/README.md sdk/python/pyproject.toml
       - uvx --from openapi-python-client==0.29.0 openapi-python-client generate --path openapi/sdk-openapi.json --output-path sdk/python --meta uv --config sdk/python-client.yml --overwrite
+      - node scripts/restore-preserved-paths.mjs .tmp/sdk-python-preserve
       - node scripts/finalize-python-sdk.mjs
       - node scripts/trim-trailing-whitespace.mjs sdk/python/open_spanner_client
       - cd sdk/python; uv lock
