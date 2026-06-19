@@ -196,7 +196,7 @@ sealed class OpenSpannerService : IAsyncDisposable
 
     public static async Task<OpenSpannerService> StartAsync(string httpAddr, string grpcAddr)
     {
-        var repoRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
+        var repoRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", ".."));
         var tempDir = Directory.CreateTempSubdirectory("open-spanner-sdk-csharp-").FullName;
         var binaryPath = Path.Combine(tempDir, OperatingSystem.IsWindows() ? "open-spanner-sdk-test.exe" : "open-spanner-sdk-test");
 

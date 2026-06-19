@@ -57,7 +57,7 @@ tasks:
   test:sdk:go:
     desc: Run Go SDK integration tests against a local Open Spanner service
     cmds:
-      - cd sdk-test/go; go test ./... -count=1
+      - cd sdk/tests/go; go test ./... -count=1
 
   test:sdk:typescript:
     desc: Run TypeScript SDK integration tests against a local Open Spanner service
@@ -67,12 +67,12 @@ tasks:
   test:sdk:python:
     desc: Run Python SDK integration tests against a local Open Spanner service
     cmds:
-      - cd sdk/python; uv run python ../../sdk-test/python/stream_integration_test.py
+      - cd sdk/python; uv run python ../tests/python/stream_integration_test.py
 
   test:sdk:csharp:
     desc: Run C# SDK integration tests against a local Open Spanner service
     cmds:
-      - dotnet run --project sdk-test/csharp/OpenSpanner.StreamIntegration.csproj
+      - dotnet run --project sdk/tests/csharp/OpenSpanner.StreamIntegration.csproj
 
   test:examples:rest:
     desc: Verify all REST SDK examples

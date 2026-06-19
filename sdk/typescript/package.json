@@ -38,7 +38,7 @@
     "pack:dry-run": "npm pack --dry-run",
     "publish:sdk": "npm publish --access public",
     "test": "npm run build && node --test test/*.test.mjs",
-    "test:stream": "tsx --test ../../sdk-test/typescript/stream_integration.test.ts"
+    "test:stream": "tsx --test ../tests/typescript/stream_integration.test.ts"
   },
   "devDependencies": {
     "@hey-api/openapi-ts": "0.98.2",

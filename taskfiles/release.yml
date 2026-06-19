@@ -19,4 +19,4 @@ tasks:
       - task: sdk:typescript:check
       - task: sdk:python:pack
       - task: sdk:csharp:pack
-      - git diff --exit-code openapi sdk/go sdk/typescript sdk/python sdk/python-client.yml sdk/csharp sdk-test examples dotnet-tools.json
+      - git diff --exit-code openapi sdk/go sdk/typescript sdk/python sdk/python-client.yml sdk/csharp sdk/tests examples dotnet-tools.json

@@ -7,6 +7,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\sdk\csharp\OpenSpanner.csproj" />
+    <ProjectReference Include="..\..\csharp\OpenSpanner.csproj" />
   </ItemGroup>
 </Project>

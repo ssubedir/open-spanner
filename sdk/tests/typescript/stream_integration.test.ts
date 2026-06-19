@@ -7,7 +7,7 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { StreamClient, type Event } from "../../sdk/typescript/src/stream/index.js";
+import { StreamClient, type Event } from "../../typescript/src/stream/index.js";
 
 interface Service {
   baseURL: string;
@@ -83,7 +83,7 @@ test("TypeScript stream client records bulk and streamed usage", async (t) => {
 });
 
 async function startOpenSpanner(t: TestContext, httpAddr: string, grpcAddr: string): Promise<Service> {
-  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
   const tempDir = mkdtempSync(path.join(tmpdir(), "open-spanner-sdk-ts-"));
 
   const binaryPath = path.join(tempDir, process.platform === "win32" ? "open-spanner-sdk-test.exe" : "open-spanner-sdk-test");

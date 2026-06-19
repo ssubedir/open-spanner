@@ -104,7 +104,7 @@ class OpenSpannerService:
 
 
 def start_open_spanner(http_addr: str, grpc_addr: str) -> OpenSpannerService:
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = Path(__file__).resolve().parents[3]
     temp_dir = tempfile.TemporaryDirectory(prefix="open-spanner-sdk-python-")
     temp_path = Path(temp_dir.name)
     binary_path = temp_path / ("open-spanner-sdk-test.exe" if sys.platform == "win32" else "open-spanner-sdk-test")

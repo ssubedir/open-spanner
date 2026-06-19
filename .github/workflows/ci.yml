@@ -82,7 +82,7 @@ jobs:
 
           SHARED='^\.github/workflows/ci\.yml$|^Taskfile\.yml$|^taskfiles/|^scripts/'
           BACKEND='^cmd/|^internal/|^go\.mod$|^go\.sum$|^sqlc\.yaml$|^openapi/|^docker-compose.*\.yml$|^Dockerfile$'
-          SDKS='^sdk/|^sdk-test/|^examples/|^openapi/|^dotnet-tools\.json$'
+          SDKS='^sdk/|^examples/|^openapi/|^dotnet-tools\.json$'
           ADMIN='^web/|^internal/ui/'
           DOCS='^docs/'
 

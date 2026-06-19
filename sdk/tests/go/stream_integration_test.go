@@ -73,7 +73,7 @@ func TestGoStreamClientUsageFlow(t *testing.T) {
 func startOpenSpanner(t *testing.T, httpAddr string, grpcAddr string) string {
 	t.Helper()
 
-	repoRoot, err := filepath.Abs("../..")
+	repoRoot, err := filepath.Abs("../../..")
 	if err != nil {
 		t.Fatalf("resolve repo root: %v", err)
 	}

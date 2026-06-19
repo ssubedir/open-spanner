@@ -308,7 +308,7 @@ Verify local examples compile and build:
 task test:examples
 ```
 
-Run the Go stream SDK integration test:
+Run SDK integration tests for the stream clients:
 
 ```sh
 task test:sdk
@@ -370,7 +370,7 @@ web                     React dashboard source
 docs                    Fumadocs documentation site
 openapi                 Generated Swagger/OpenAPI artifacts
 sdk                     Generated SDKs
-sdk-test                SDK integration tests
+sdk/tests               SDK integration tests
 examples                REST and gRPC stream examples
 ```
 
