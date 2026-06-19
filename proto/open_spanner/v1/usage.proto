@@ -6,6 +6,7 @@ import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/ssubedir/open-spanner/internal/metering/adapters/grpc/pb;pb";
+option csharp_namespace = "OpenSpanner.Grpc.V1";
 
 service UsageService {
   rpc CreateUsage(CreateUsageRequest) returns (CreateUsageResponse);

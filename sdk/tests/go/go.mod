@@ -1,4 +1,4 @@
-module github.com/ssubedir/open-spanner/sdk-test/go
+module github.com/ssubedir/open-spanner/sdk/tests/go
 
 go 1.25.5
 
@@ -13,4 +13,4 @@ require (
 	google.golang.org/protobuf v1.36.7 // indirect
 )
 
-replace github.com/ssubedir/open-spanner/sdk/go => ../../sdk/go
+replace github.com/ssubedir/open-spanner/sdk/go => ../../go
