@@ -24,6 +24,16 @@ const apiKeyScopes = [
 
 const defaultAPIKeyScopes = new Set(['usage:write', 'usage:read', 'meters:read', 'meters:write'])
 
+const apiKeyExpirationPresets = [
+  { value: '', label: 'Never expires' },
+  { value: '1d', label: '1 day' },
+  { value: '7d', label: '1 week' },
+  { value: '30d', label: '1 month' },
+  { value: '90d', label: '3 months' },
+  { value: '180d', label: '6 months' },
+  { value: '365d', label: '1 year' },
+]
+
 export function APIKeysPage() {
   const { creating, createdKey, deleting, error, items, saving } = useSelector(appStore, (state) => state.apiKeys)
   const load = useCallback(() => appStoreActions.loadAPIKeys(), [])
@@ -36,10 +46,10 @@ export function APIKeysPage() {
     const form = new FormData(formElement)
 
     try {
-      const expiresAt = String(form.get('expires_at') || '').trim()
+      const expiresAfter = String(form.get('expires_after') || '').trim()
       await appStoreActions.createAPIKey({
         allowed_meters: splitList(String(form.get('allowed_meters') || '')),
-        expires_at: expiresAt ? new Date(expiresAt).toISOString() : undefined,
+        expires_at: expirationPresetToISO(expiresAfter),
         name: String(form.get('name') || ''),
         scopes: form.getAll('scopes').map(String),
       })
@@ -157,8 +167,12 @@ export function APIKeysPage() {
               <textarea name="allowed_meters" placeholder="Leave blank for all meters&#10;api_requests&#10;storage_bytes" rows={3} />
             </label>
             <label>
-              Expires at
-              <input name="expires_at" type="datetime-local" />
+              Expires after
+              <select defaultValue="" name="expires_after">
+                {apiKeyExpirationPresets.map((preset) => (
+                  <option key={preset.value || 'never'} value={preset.value}>{preset.label}</option>
+                ))}
+              </select>
             </label>
             <div className="modal-actions">
               <Button onClick={() => appStoreActions.setAPIKeyCreating(false)} type="button" variant="outline">Cancel</Button>
@@ -206,4 +220,19 @@ function splitList(value: string) {
     .split(/[\n,]/)
     .map((item) => item.trim())
     .filter(Boolean)
+}
+
+function expirationPresetToISO(value: string) {
+  if (!value) {
+    return undefined
+  }
+
+  const match = value.match(/^(\d+)d$/)
+  if (!match) {
+    return undefined
+  }
+
+  const expiresAt = new Date()
+  expiresAt.setDate(expiresAt.getDate() + Number(match[1]))
+  return expiresAt.toISOString()
 }
