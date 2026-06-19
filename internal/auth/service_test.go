@@ -132,6 +132,9 @@ func TestAPIKeyFlow(t *testing.T) {
 	if created.ID == "" || created.Name != "sdk" || created.Key == "" || created.Prefix == "" {
 		t.Fatalf("created key = %#v", created)
 	}
+	if strings.Join(created.Scopes, ",") != "usage:write,usage:read,meters:read,meters:write" {
+		t.Fatalf("created scopes = %#v", created.Scopes)
+	}
 	if !strings.HasPrefix(created.Key, created.Prefix) {
 		t.Fatalf("prefix looks wrong: %q key %q", created.Prefix, created.Key)
 	}
@@ -142,6 +145,9 @@ func TestAPIKeyFlow(t *testing.T) {
 	}
 	if len(keys) != 1 || keys[0].ID != created.ID || keys[0].LastUsedAt != nil {
 		t.Fatalf("keys = %#v", keys)
+	}
+	if strings.Join(keys[0].Scopes, ",") != strings.Join(created.Scopes, ",") {
+		t.Fatalf("listed scopes = %#v, want %#v", keys[0].Scopes, created.Scopes)
 	}
 
 	authenticated, err := service.AuthenticateAPIKey(ctx, created.Key)
@@ -160,6 +166,63 @@ func TestAPIKeyFlow(t *testing.T) {
 	}
 	if _, err := service.AuthenticateAPIKey(ctx, created.Key); !errors.Is(err, domain.ErrUnauthorized) {
 		t.Fatalf("deleted api key auth error = %v, want ErrUnauthorized", err)
+	}
+}
+
+func TestAPIKeyAuthenticationRejectsExpiredKeys(t *testing.T) {
+	ctx := context.Background()
+	repo := newFakeRepository()
+	service := NewService(repo)
+	now := time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+
+	user, err := service.CreateUser(ctx, CreateUserCommand{Email: "admin@example.com", Password: "strong-password"})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	expiresAt := now.Add(time.Hour)
+	created, err := service.CreateAPIKey(ctx, CreateAPIKeyCommand{UserID: user.ID, Name: "short-lived", ExpiresAt: &expiresAt})
+	if err != nil {
+		t.Fatalf("create api key: %v", err)
+	}
+
+	service.now = func() time.Time { return expiresAt.Add(time.Second) }
+	if _, err := service.AuthenticateAPIKey(ctx, created.Key); !errors.Is(err, domain.ErrUnauthorized) {
+		t.Fatalf("expired api key auth error = %v, want ErrUnauthorized", err)
+	}
+}
+
+func TestCasbinAuthorizerEnforcesScopesAndMeters(t *testing.T) {
+	ctx := context.Background()
+	authorizer, err := NewCasbinAuthorizer()
+	if err != nil {
+		t.Fatalf("create authorizer: %v", err)
+	}
+
+	principal := Principal{
+		Kind:          PrincipalKindAPIKey,
+		ID:            "key_123",
+		Scopes:        []string{string(ActionUsageWrite)},
+		AllowedMeters: []string{"api_calls"},
+	}
+
+	if err := authorizer.Can(ctx, principal, ActionUsageWrite, Resource{Type: ResourceUsage, Meter: "api_calls"}); err != nil {
+		t.Fatalf("usage write allowed error = %v", err)
+	}
+	if err := authorizer.Can(ctx, principal, ActionUsageRead, Resource{Type: ResourceUsage, Meter: "api_calls"}); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("usage read error = %v, want ErrForbidden", err)
+	}
+	if err := authorizer.Can(ctx, principal, ActionUsageWrite, Resource{Type: ResourceUsage, Meter: "other_meter"}); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("meter restriction error = %v, want ErrForbidden", err)
+	}
+	if err := authorizer.Can(ctx, principal, ActionUsageWrite, Resource{Type: ResourceUsage}); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("empty meter restriction error = %v, want ErrForbidden", err)
+	}
+
+	session := Principal{Kind: PrincipalKindSession, ID: "user_123"}
+	if err := authorizer.Can(ctx, session, ActionAlertsWrite, Resource{Type: ResourceAlert, Meter: "other_meter"}); err != nil {
+		t.Fatalf("session write error = %v", err)
 	}
 }
 

@@ -53,6 +53,7 @@ import {
   type AlertRuleRequest,
   type AlertRuleUpdateRequest,
   type APIKey,
+  type APIKeyCreateRequest,
   type APIKeyCreateResponse,
   type AuthSession,
   type Meter,
@@ -335,7 +336,7 @@ export const appStoreActions = {
   clearAlertSigningSecret() {
     setAlertsState({ signingSecret: null })
   },
-  async createAPIKey(input: { name: string }) {
+  async createAPIKey(input: APIKeyCreateRequest) {
     setAPIKeysState({ createdKey: null, error: '', saving: true })
     try {
       const createdKey = await createAPIKeyRequest(input)

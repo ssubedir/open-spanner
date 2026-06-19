@@ -2023,10 +2023,10 @@ func newTestRouter() http.Handler {
 	router := chi.NewRouter()
 	router.Route("/v1", func(r chi.Router) {
 		httpauth.NewHandler(authService).RegisterRoutes(r)
-		httpmeter.NewHandler(meterService).RegisterRoutes(r)
-		httpsubject.NewHandler(subjectService).RegisterRoutes(r)
-		httpusage.NewHandler(usageService).RegisterRoutes(r)
-		httpsystem.NewHandler(systemService).RegisterRoutes(r)
+		httpmeter.NewHandler(meterService).RegisterRoutes(r, nil)
+		httpsubject.NewHandler(subjectService).RegisterRoutes(r, nil)
+		httpusage.NewHandler(usageService, httpusage.HandlerOptions{}).RegisterRoutes(r, nil)
+		httpsystem.NewHandler(systemService).RegisterRoutes(r, nil)
 	})
 
 	return router

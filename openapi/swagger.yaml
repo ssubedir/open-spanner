@@ -260,7 +260,13 @@ definitions:
     type: object
   internal_metering_adapters_http_auth.APIKeyCreateResponse:
     properties:
+      allowed_meters:
+        items:
+          type: string
+        type: array
       created_at:
+        type: string
+      expires_at:
         type: string
       id:
         type: string
@@ -272,6 +278,12 @@ definitions:
         type: string
       prefix:
         type: string
+      revoked_at:
+        type: string
+      scopes:
+        items:
+          type: string
+        type: array
     type: object
   internal_metering_adapters_http_auth.APIKeyListResponse:
     properties:
@@ -282,7 +294,13 @@ definitions:
     type: object
   internal_metering_adapters_http_auth.APIKeyResponse:
     properties:
+      allowed_meters:
+        items:
+          type: string
+        type: array
       created_at:
+        type: string
+      expires_at:
         type: string
       id:
         type: string
@@ -292,11 +310,27 @@ definitions:
         type: string
       prefix:
         type: string
+      revoked_at:
+        type: string
+      scopes:
+        items:
+          type: string
+        type: array
     type: object
   internal_metering_adapters_http_auth.CreateAPIKeyRequest:
     properties:
+      allowed_meters:
+        items:
+          type: string
+        type: array
+      expires_at:
+        type: string
       name:
         type: string
+      scopes:
+        items:
+          type: string
+        type: array
     type: object
   internal_metering_adapters_http_auth.CreateUserRequest:
     properties:

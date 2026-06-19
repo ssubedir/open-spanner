@@ -2914,7 +2914,16 @@ const docTemplate = `{
         "internal_metering_adapters_http_auth.APIKeyCreateResponse": {
             "type": "object",
             "properties": {
+                "allowed_meters": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "created_at": {
+                    "type": "string"
+                },
+                "expires_at": {
                     "type": "string"
                 },
                 "id": {
@@ -2931,6 +2940,15 @@ const docTemplate = `{
                 },
                 "prefix": {
                     "type": "string"
+                },
+                "revoked_at": {
+                    "type": "string"
+                },
+                "scopes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -2948,7 +2966,16 @@ const docTemplate = `{
         "internal_metering_adapters_http_auth.APIKeyResponse": {
             "type": "object",
             "properties": {
+                "allowed_meters": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "created_at": {
+                    "type": "string"
+                },
+                "expires_at": {
                     "type": "string"
                 },
                 "id": {
@@ -2962,14 +2989,38 @@ const docTemplate = `{
                 },
                 "prefix": {
                     "type": "string"
+                },
+                "revoked_at": {
+                    "type": "string"
+                },
+                "scopes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
         "internal_metering_adapters_http_auth.CreateAPIKeyRequest": {
             "type": "object",
             "properties": {
+                "allowed_meters": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "expires_at": {
+                    "type": "string"
+                },
                 "name": {
                     "type": "string"
+                },
+                "scopes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },

@@ -19,13 +19,6 @@ func NewHandler(service appsubject.Service) *Handler {
 	return &Handler{service: service}
 }
 
-func (h *Handler) RegisterRoutes(router interface {
-	Get(pattern string, handlerFn http.HandlerFunc)
-}) {
-	router.Get("/subjects", h.List)
-	router.Get("/subjects/{subject}/usageevents", h.ListEvents)
-}
-
 // List lists subject activity stats.
 //
 // @Summary List subjects

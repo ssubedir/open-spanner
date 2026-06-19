@@ -24,24 +24,29 @@ import (
 
 type Handler struct {
 	service     appusage.Service
-	alerts      alertEnqueuer
+	alerts      AlertEnqueuer
 	exportStore fileexport.Store
 }
 
-type alertEnqueuer interface {
+type AlertEnqueuer interface {
 	EnqueueForUsageEvents(ctx context.Context, events []appalert.UsageEvent) error
 }
 
-func NewHandler(service appusage.Service, exportStoragePaths ...string) *Handler {
-	return NewHandlerWithAlerts(service, nil, exportStoragePaths...)
+type HandlerOptions struct {
+	Alerts            AlertEnqueuer
+	ExportStoragePath string
 }
 
-func NewHandlerWithAlerts(service appusage.Service, alerts alertEnqueuer, exportStoragePaths ...string) *Handler {
+func NewHandler(service appusage.Service, options HandlerOptions) *Handler {
 	exportStoragePath := "open-spanner-exports"
-	if len(exportStoragePaths) > 0 && strings.TrimSpace(exportStoragePaths[0]) != "" {
-		exportStoragePath = exportStoragePaths[0]
+	if strings.TrimSpace(options.ExportStoragePath) != "" {
+		exportStoragePath = options.ExportStoragePath
 	}
-	return &Handler{service: service, alerts: alerts, exportStore: fileexport.NewStore(exportStoragePath)}
+	return &Handler{
+		service:     service,
+		alerts:      options.Alerts,
+		exportStore: fileexport.NewStore(exportStoragePath),
+	}
 }
 
 // Create creates a usage event.
@@ -71,7 +76,6 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		respond.ValidationError(w, err)
 		return
 	}
-
 	event, err := h.service.Create(r.Context(), appusage.CreateCommand{
 		IdempotencyKey: req.IdempotencyKey,
 		Subject:        req.Subject,
@@ -143,7 +147,6 @@ func (h *Handler) CreateBulk(w http.ResponseWriter, r *http.Request) {
 			Metadata:       item.Metadata,
 		})
 	}
-
 	result := appusage.BulkResult{Failed: failures}
 	if len(commands) > 0 || len(failures) == 0 {
 		serviceResult, err := h.service.CreateBulk(r.Context(), r.Header.Get("Idempotency-Key"), commands)
@@ -1161,6 +1164,14 @@ func exportJobResponseFromResult(result appusage.ExportJobResult) ExportJobRespo
 		res.CompletedAt = result.CompletedAt.Format(time.RFC3339)
 	}
 	return res
+}
+
+func exportJobMeter(result appusage.ExportJobResult) string {
+	var query SearchRequest
+	if err := json.Unmarshal([]byte(result.QueryJSON), &query); err != nil {
+		return ""
+	}
+	return query.Meter
 }
 
 func metadataFilters(query map[string][]string) map[string]string {

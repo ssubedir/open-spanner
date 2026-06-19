@@ -108,6 +108,69 @@ func TestIntegrationAuthGuardsSDKAndDashboardRoutes(t *testing.T) {
 		t.Fatalf("api-key saved query status = %d, want %d: %s", apiKeySavedQuery.Code, http.StatusUnauthorized, apiKeySavedQuery.Body.String())
 	}
 
+	allowedMeter := "auth_allowed_meter"
+	deniedMeter := "auth_denied_meter"
+	for _, meter := range []string{allowedMeter, deniedMeter} {
+		createMeter := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
+			"name":        meter,
+			"description": "Auth scope test",
+			"unit":        "event",
+			"aggregation": "sum",
+			"dimensions":  []any{},
+		}, login.Result().Cookies())
+		if createMeter.Code != http.StatusCreated {
+			t.Fatalf("create %s status = %d, want %d: %s", meter, createMeter.Code, http.StatusCreated, createMeter.Body.String())
+		}
+	}
+
+	limitedKeyRes := requestJSON(t, router, http.MethodPost, "/v1/auth/api-keys", map[string]any{
+		"name":           "limited-writer",
+		"scopes":         []string{"usage:write"},
+		"allowed_meters": []string{allowedMeter},
+	}, login.Result().Cookies())
+	if limitedKeyRes.Code != http.StatusCreated {
+		t.Fatalf("create limited api key status = %d, want %d: %s", limitedKeyRes.Code, http.StatusCreated, limitedKeyRes.Body.String())
+	}
+	var limitedKey struct {
+		Key string `json:"key"`
+	}
+	decodeJSON(t, limitedKeyRes, &limitedKey)
+	limitedHeaders := map[string]string{"Authorization": "Bearer " + limitedKey.Key}
+
+	allowedUsage := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages", map[string]any{
+		"idempotency_key": "auth-allowed-1",
+		"subject":         "subject_auth",
+		"meter":           allowedMeter,
+		"quantity":        1,
+		"timestamp":       "2026-06-08T10:00:00Z",
+		"metadata":        map[string]any{},
+	}, limitedHeaders, nil)
+	if allowedUsage.Code != http.StatusCreated {
+		t.Fatalf("allowed usage status = %d, want %d: %s", allowedUsage.Code, http.StatusCreated, allowedUsage.Body.String())
+	}
+
+	deniedUsage := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages", map[string]any{
+		"idempotency_key": "auth-denied-1",
+		"subject":         "subject_auth",
+		"meter":           deniedMeter,
+		"quantity":        1,
+		"timestamp":       "2026-06-08T10:00:00Z",
+		"metadata":        map[string]any{},
+	}, limitedHeaders, nil)
+	if deniedUsage.Code != http.StatusForbidden {
+		t.Fatalf("denied usage status = %d, want %d: %s", deniedUsage.Code, http.StatusForbidden, deniedUsage.Body.String())
+	}
+
+	readQuery := url.Values{}
+	readQuery.Set("meter", allowedMeter)
+	readQuery.Set("from", "2026-06-08T00:00:00Z")
+	readQuery.Set("to", "2026-06-09T00:00:00Z")
+	readQuery.Set("bucket_size", "day")
+	deniedRead := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/usages?"+readQuery.Encode(), nil, limitedHeaders, nil)
+	if deniedRead.Code != http.StatusForbidden {
+		t.Fatalf("limited read status = %d, want %d: %s", deniedRead.Code, http.StatusForbidden, deniedRead.Body.String())
+	}
+
 	sessionSavedQuery := requestJSON(t, router, http.MethodPost, "/v1/usage/saved-queries", savedQueryPayload, login.Result().Cookies())
 	if sessionSavedQuery.Code != http.StatusCreated {
 		t.Fatalf("session saved query status = %d, want %d: %s", sessionSavedQuery.Code, http.StatusCreated, sessionSavedQuery.Body.String())
@@ -1899,6 +1962,25 @@ func requestJSONWithHeaders(t *testing.T, handler http.Handler, method string, p
 func createTestDashboardAPIKey(t *testing.T, handler http.Handler, email string) string {
 	t.Helper()
 
+	return createTestDashboardAPIKeyWithPayload(t, handler, email, map[string]any{
+		"name": "integration-sdk",
+		"scopes": []string{
+			"usage:write",
+			"usage:read",
+			"meters:write",
+			"meters:read",
+			"alerts:write",
+			"alerts:read",
+			"exports:write",
+			"exports:read",
+			"system:read",
+		},
+	})
+}
+
+func createTestDashboardAPIKeyWithPayload(t *testing.T, handler http.Handler, email string, payload map[string]any) string {
+	t.Helper()
+
 	createUser := requestJSON(t, handler, http.MethodPost, "/v1/auth/users", map[string]any{
 		"email":    email,
 		"password": "strong-password",
@@ -1915,9 +1997,7 @@ func createTestDashboardAPIKey(t *testing.T, handler http.Handler, email string)
 		t.Fatalf("login status = %d, want %d: %s", login.Code, http.StatusCreated, login.Body.String())
 	}
 
-	createKey := requestJSON(t, handler, http.MethodPost, "/v1/auth/api-keys", map[string]any{
-		"name": "integration-sdk",
-	}, login.Result().Cookies())
+	createKey := requestJSON(t, handler, http.MethodPost, "/v1/auth/api-keys", payload, login.Result().Cookies())
 	if createKey.Code != http.StatusCreated {
 		t.Fatalf("create api key status = %d, want %d: %s", createKey.Code, http.StatusCreated, createKey.Body.String())
 	}

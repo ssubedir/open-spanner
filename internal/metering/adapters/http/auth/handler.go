@@ -151,10 +151,22 @@ func (h *Handler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 		respond.ValidationError(w, err)
 		return
 	}
+	expiresAt, err := request.OptionalTime("expires_at", req.ExpiresAt)
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+	var expiresAtPtr *time.Time
+	if !expiresAt.IsZero() {
+		expiresAtPtr = &expiresAt
+	}
 
 	key, err := h.service.CreateAPIKey(r.Context(), appauth.CreateAPIKeyCommand{
-		UserID: user.ID,
-		Name:   req.Name,
+		UserID:        user.ID,
+		Name:          req.Name,
+		Scopes:        req.Scopes,
+		AllowedMeters: req.AllowedMeters,
+		ExpiresAt:     expiresAtPtr,
 	})
 	if err != nil {
 		respond.ServiceError(w, err)
@@ -235,13 +247,7 @@ func (h *Handler) RefreshSession(w http.ResponseWriter, r *http.Request) {
 // @Failure 500 {object} respond.ErrorResponse
 // @Router /v1/auth/session [get]
 func (h *Handler) GetSession(w http.ResponseWriter, r *http.Request) {
-	token, err := tokenFromCookie(r, accessCookieName)
-	if err != nil {
-		respond.ServiceError(w, err)
-		return
-	}
-
-	user, err := h.service.AuthenticateSession(r.Context(), token)
+	user, err := h.currentUser(r)
 	if err != nil {
 		respond.ServiceError(w, err)
 		return
@@ -279,11 +285,22 @@ func (h *Handler) DeleteSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) currentUser(r *http.Request) (appauth.UserResult, error) {
-	token, err := tokenFromCookie(r, accessCookieName)
+	if user, ok := UserFromContext(r.Context()); ok {
+		return user, nil
+	}
+	principal, err := h.currentPrincipal(r)
 	if err != nil {
 		return appauth.UserResult{}, err
 	}
-	return h.service.AuthenticateSession(r.Context(), token)
+	return principal.User, nil
+}
+
+func (h *Handler) currentPrincipal(r *http.Request) (appauth.Principal, error) {
+	token, err := tokenFromCookie(r, accessCookieName)
+	if err != nil {
+		return appauth.Principal{}, err
+	}
+	return h.service.AuthenticateSessionPrincipal(r.Context(), token)
 }
 
 func userResponse(user appauth.UserResult) UserResponse {
@@ -300,13 +317,34 @@ func apiKeyResponse(key appauth.APIKeyResult) APIKeyResponse {
 		formatted := key.LastUsedAt.Format(time.RFC3339)
 		lastUsedAt = &formatted
 	}
-	return APIKeyResponse{
-		ID:         key.ID,
-		Name:       key.Name,
-		Prefix:     key.Prefix,
-		CreatedAt:  key.CreatedAt.Format(time.RFC3339),
-		LastUsedAt: lastUsedAt,
+	var expiresAt *string
+	if key.ExpiresAt != nil {
+		formatted := key.ExpiresAt.Format(time.RFC3339)
+		expiresAt = &formatted
 	}
+	var revokedAt *string
+	if key.RevokedAt != nil {
+		formatted := key.RevokedAt.Format(time.RFC3339)
+		revokedAt = &formatted
+	}
+	return APIKeyResponse{
+		ID:            key.ID,
+		Name:          key.Name,
+		Prefix:        key.Prefix,
+		Scopes:        stringSlice(key.Scopes),
+		AllowedMeters: stringSlice(key.AllowedMeters),
+		ExpiresAt:     expiresAt,
+		RevokedAt:     revokedAt,
+		CreatedAt:     key.CreatedAt.Format(time.RFC3339),
+		LastUsedAt:    lastUsedAt,
+	}
+}
+
+func stringSlice(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
 }
 
 func tokenFromCookie(r *http.Request, name string) (string, error) {
@@ -323,21 +361,12 @@ func tokenFromCookie(r *http.Request, name string) (string, error) {
 	return cookie.Value, nil
 }
 
-func (h *Handler) AuthenticateRequest(r *http.Request) error {
-	_, err := h.authenticateRequestUser(r)
-	return err
-}
-
-func (h *Handler) authenticateRequestUser(r *http.Request) (appauth.UserResult, error) {
+func (h *Handler) authenticateRequestPrincipal(r *http.Request) (appauth.Principal, error) {
 	if token := apiKeyFromRequest(r); token != "" {
-		return h.service.AuthenticateAPIKey(r.Context(), token)
+		return h.service.AuthenticateAPIKeyPrincipal(r.Context(), token)
 	}
 
-	token, err := tokenFromCookie(r, accessCookieName)
-	if err != nil {
-		return appauth.UserResult{}, err
-	}
-	return h.service.AuthenticateSession(r.Context(), token)
+	return h.currentPrincipal(r)
 }
 
 func apiKeyFromRequest(r *http.Request) string {

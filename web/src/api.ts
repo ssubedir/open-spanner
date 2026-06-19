@@ -294,6 +294,10 @@ export type APIKey = {
   id: string
   name: string
   prefix: string
+  scopes: string[]
+  allowed_meters: string[]
+  expires_at?: string | null
+  revoked_at?: string | null
   created_at: string
   last_used_at: string | null
 }
@@ -304,6 +308,13 @@ export type APIKeyList = {
 
 export type APIKeyCreateResponse = APIKey & {
   key: string
+}
+
+export type APIKeyCreateRequest = {
+  name: string
+  scopes?: string[]
+  allowed_meters?: string[]
+  expires_at?: string
 }
 
 export type AlertState = {
@@ -534,7 +545,7 @@ export async function listAPIKeys() {
   return request<APIKeyList>('/v1/auth/api-keys')
 }
 
-export async function createAPIKey(input: { name: string }) {
+export async function createAPIKey(input: APIKeyCreateRequest) {
   return request<APIKeyCreateResponse>('/v1/auth/api-keys', {
     body: JSON.stringify(input),
     method: 'POST',

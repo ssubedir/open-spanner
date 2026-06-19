@@ -59,13 +59,17 @@ type Session struct {
 }
 
 type APIKey struct {
-	ID         string
-	UserID     string
-	Name       string
-	TokenHash  string
-	Prefix     string
-	CreatedAt  time.Time
-	LastUsedAt *time.Time
+	ID            string
+	UserID        string
+	Name          string
+	TokenHash     string
+	Prefix        string
+	Scopes        []string
+	AllowedMeters []string
+	ExpiresAt     *time.Time
+	RevokedAt     *time.Time
+	CreatedAt     time.Time
+	LastUsedAt    *time.Time
 }
 
 type CreateUserCommand struct {
@@ -79,8 +83,11 @@ type LoginCommand struct {
 }
 
 type CreateAPIKeyCommand struct {
-	UserID string
-	Name   string
+	UserID        string
+	Name          string
+	Scopes        []string
+	AllowedMeters []string
+	ExpiresAt     *time.Time
 }
 
 type UserResult struct {
@@ -90,11 +97,15 @@ type UserResult struct {
 }
 
 type APIKeyResult struct {
-	ID         string
-	Name       string
-	Prefix     string
-	CreatedAt  time.Time
-	LastUsedAt *time.Time
+	ID            string
+	Name          string
+	Prefix        string
+	Scopes        []string
+	AllowedMeters []string
+	ExpiresAt     *time.Time
+	RevokedAt     *time.Time
+	CreatedAt     time.Time
+	LastUsedAt    *time.Time
 }
 
 type CreateAPIKeyResult struct {
@@ -174,6 +185,15 @@ func (s Service) CreateAPIKey(ctx context.Context, cmd CreateAPIKeyCommand) (Cre
 	if name == "" {
 		return CreateAPIKeyResult{}, errors.Join(domain.ErrInvalidInput, errors.New("name is required"))
 	}
+	scopes, err := normalizeAPIKeyScopes(cmd.Scopes)
+	if err != nil {
+		return CreateAPIKeyResult{}, err
+	}
+	allowedMeters := normalizeAllowedMeters(cmd.AllowedMeters)
+	expiresAt := cmd.ExpiresAt
+	if expiresAt != nil && !expiresAt.After(s.now().UTC()) {
+		return CreateAPIKeyResult{}, errors.Join(domain.ErrInvalidInput, errors.New("expires_at must be in the future"))
+	}
 
 	token, err := newSessionToken(apiKeyPrefix, s.tokenBytes)
 	if err != nil {
@@ -181,12 +201,15 @@ func (s Service) CreateAPIKey(ctx context.Context, cmd CreateAPIKeyCommand) (Cre
 	}
 
 	key, err := s.repo.SaveAPIKey(ctx, APIKey{
-		ID:        uuid.NewString(),
-		UserID:    userID,
-		Name:      name,
-		TokenHash: HashToken(token),
-		Prefix:    tokenPrefix(token),
-		CreatedAt: s.now().UTC(),
+		ID:            uuid.NewString(),
+		UserID:        userID,
+		Name:          name,
+		TokenHash:     HashToken(token),
+		Prefix:        tokenPrefix(token),
+		Scopes:        scopes,
+		AllowedMeters: allowedMeters,
+		ExpiresAt:     expiresAt,
+		CreatedAt:     s.now().UTC(),
 	})
 	if err != nil {
 		return CreateAPIKeyResult{}, err
@@ -282,33 +305,69 @@ func (s Service) AuthenticateSession(ctx context.Context, token string) (UserRes
 }
 
 func (s Service) AuthenticateAPIKey(ctx context.Context, token string) (UserResult, error) {
+	principal, err := s.AuthenticateAPIKeyPrincipal(ctx, token)
+	if err != nil {
+		return UserResult{}, err
+	}
+	return principal.User, nil
+}
+
+func (s Service) AuthenticateSessionPrincipal(ctx context.Context, token string) (Principal, error) {
+	user, err := s.AuthenticateSession(ctx, token)
+	if err != nil {
+		return Principal{}, err
+	}
+	return Principal{
+		Kind: PrincipalKindSession,
+		ID:   user.ID,
+		User: user,
+	}, nil
+}
+
+func (s Service) AuthenticateAPIKeyPrincipal(ctx context.Context, token string) (Principal, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
-		return UserResult{}, unauthorized()
+		return Principal{}, unauthorized()
 	}
 
 	key, err := s.repo.FindAPIKeyByTokenHash(ctx, HashToken(token))
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
-			return UserResult{}, unauthorized()
+			return Principal{}, unauthorized()
 		}
-		return UserResult{}, err
+		return Principal{}, err
 	}
 
 	now := s.now().UTC()
+	if key.RevokedAt != nil {
+		return Principal{}, unauthorized()
+	}
+	if key.ExpiresAt != nil && !key.ExpiresAt.After(now) {
+		return Principal{}, unauthorized()
+	}
 	if err := s.repo.UpdateAPIKeyLastUsed(ctx, key.ID, now); err != nil {
-		return UserResult{}, err
+		return Principal{}, err
 	}
 
 	user, err := s.repo.FindUserByID(ctx, key.UserID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
-			return UserResult{}, unauthorized()
+			return Principal{}, unauthorized()
 		}
-		return UserResult{}, err
+		return Principal{}, err
 	}
 
-	return userResult(user), nil
+	result := userResult(user)
+	return Principal{
+		Kind:          PrincipalKindAPIKey,
+		ID:            key.ID,
+		User:          result,
+		APIKeyID:      key.ID,
+		Scopes:        append([]string(nil), key.Scopes...),
+		AllowedMeters: append([]string(nil), key.AllowedMeters...),
+		ExpiresAt:     key.ExpiresAt,
+		RevokedAt:     key.RevokedAt,
+	}, nil
 }
 
 func (s Service) RefreshSession(ctx context.Context, token string) (RefreshResult, error) {
@@ -470,10 +529,14 @@ func userResult(user User) UserResult {
 
 func apiKeyResult(key APIKey) APIKeyResult {
 	return APIKeyResult{
-		ID:         key.ID,
-		Name:       key.Name,
-		Prefix:     key.Prefix,
-		CreatedAt:  key.CreatedAt,
-		LastUsedAt: key.LastUsedAt,
+		ID:            key.ID,
+		Name:          key.Name,
+		Prefix:        key.Prefix,
+		Scopes:        append([]string(nil), key.Scopes...),
+		AllowedMeters: append([]string(nil), key.AllowedMeters...),
+		ExpiresAt:     key.ExpiresAt,
+		RevokedAt:     key.RevokedAt,
+		CreatedAt:     key.CreatedAt,
+		LastUsedAt:    key.LastUsedAt,
 	}
 }

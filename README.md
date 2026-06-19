@@ -33,7 +33,7 @@ Read the hosted docs at [ssubedir.github.io/open-spanner/docs](https://ssubedir.
 - Bucketed usage queries with filters, breakdowns, dimensions, and pagination.
 - Direct CSV exports for focused requests and queued export jobs for larger files.
 - Alert rules that watch usage windows and deliver webhook notifications.
-- Dashboard auth with HttpOnly cookies and API keys for service clients.
+- Dashboard auth with HttpOnly cookies and scoped API keys for service clients.
 - SQLite and Postgres storage, including Postgres JSONB metadata filtering.
 - Embedded React dashboard and Swagger UI.
 - Generated REST SDKs for Go, TypeScript, Python, and C#.
@@ -138,7 +138,7 @@ task run:alert-worker:postgres
 
 ## First Usage Flow
 
-Create a dashboard user, then create an API key from the API Keys page. Copy the key when it is created; the full key is not shown again.
+Create a dashboard user, then create an API key from the API Keys page. Give the key `meters:write`, `meters:read`, `usage:write`, and `usage:read` for this flow. Copy the key when it is created; the full key is not shown again.
 
 ```sh
 API_KEY="osp_..."
@@ -278,7 +278,7 @@ Recommended production shape:
 | Alert worker | Run separately from the API when alert rules are enabled. |
 | TLS | Terminate TLS at your ingress, load balancer, or reverse proxy. |
 | gRPC | Expose only to trusted backend services that emit usage. |
-| Secrets | Protect Postgres credentials, API keys, and webhook signing secrets. |
+| Secrets | Protect Postgres credentials, scoped API keys, and webhook signing secrets. |
 
 See [Production Deployment](docs/content/docs/configuration/deployment.mdx) for the checklist.
 

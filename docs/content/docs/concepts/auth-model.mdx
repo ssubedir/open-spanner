@@ -13,6 +13,18 @@ Authorization: Bearer <api_key>
 
 Create API keys from the dashboard. Copy them when they are created; the full key is not shown again.
 
-## Current Scope
+## Scopes And Meter Access
 
-API keys authenticate service clients. They are not scoped to a specific meter or operation yet, so treat them like production secrets.
+API keys can be limited by operation and by meter name. Use scopes to decide what a backend service can do, then optionally set an allowed meter list when the key should only work for specific meters.
+
+Common scopes:
+
+- `usage:write` records usage events through REST or gRPC.
+- `usage:read` queries usage buckets, dimensions, breakdowns, and raw events.
+- `meters:read` reads meter definitions.
+- `meters:write` creates or edits meter definitions.
+- `alerts:read` and `alerts:write` manage alert rules and destinations.
+- `exports:read` and `exports:write` download or queue usage exports.
+- `system:read` reads operational stats.
+
+Leave the allowed meter list empty when a trusted backend service should work across all meters. Add meter names when a key belongs to one service or pipeline.

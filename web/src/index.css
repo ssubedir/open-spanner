@@ -1005,6 +1005,19 @@ svg {
   text-overflow: ellipsis;
 }
 
+.api-key-name-block {
+  display: grid;
+  gap: 3px;
+  max-width: 420px;
+}
+
+.api-key-name-block small {
+  color: var(--muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .api-key-prefix {
   max-width: 150px;
 }
@@ -2243,6 +2256,13 @@ label {
 
 .checkbox-row input {
   width: auto;
+}
+
+.checkbox-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  margin-top: 8px;
 }
 
 input,

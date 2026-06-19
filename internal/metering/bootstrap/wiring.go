@@ -31,6 +31,7 @@ type App struct {
 	UsageService      appusage.Service
 	AlertService      appalert.Service
 	AuthService       appauth.Service
+	Authorizer        appauth.Authorizer
 	meterService      appmeter.Service
 	savedQueryService appsavedquery.Service
 	subjectService    appsubject.Service
@@ -75,6 +76,10 @@ func NewApp(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 
 	authService := appauth.NewService(repos.auth)
+	authorizer, err := appauth.NewCasbinAuthorizer()
+	if err != nil {
+		return nil, err
+	}
 	meterService := appmeter.NewService(repos.meter, repos.usage)
 	savedQueryService := appsavedquery.NewService(repos.savedQuery)
 	subjectService := appsubject.NewService(repos.usage)
@@ -86,6 +91,7 @@ func NewApp(ctx context.Context, cfg config.Config) (*App, error) {
 		UsageService:      usageService,
 		AlertService:      alertService,
 		AuthService:       authService,
+		Authorizer:        authorizer,
 		meterService:      meterService,
 		savedQueryService: savedQueryService,
 		subjectService:    subjectService,
@@ -106,15 +112,18 @@ func RegisterRoutes(ctx context.Context, router chi.Router, cfg config.Config) (
 		authHandler.RegisterRoutes(r)
 		r.Group(func(dashboard chi.Router) {
 			dashboard.Use(authHandler.RequireSession)
-			httpsavedquery.NewHandler(app.savedQueryService).RegisterRoutes(dashboard)
+			httpsavedquery.NewHandler(app.savedQueryService).RegisterSessionRoutes(dashboard)
 		})
 		r.Group(func(protected chi.Router) {
 			protected.Use(authHandler.RequireAuth)
-			httpalert.NewHandler(app.AlertService).RegisterRoutes(protected)
-			httpmeter.NewHandler(app.meterService).RegisterRoutes(protected)
-			httpsubject.NewHandler(app.subjectService).RegisterRoutes(protected)
-			httpusage.NewHandlerWithAlerts(app.UsageService, app.AlertService, cfg.ExportStoragePath).RegisterRoutes(protected)
-			httpsystem.NewHandler(app.systemService).RegisterRoutes(protected)
+			httpalert.NewHandler(app.AlertService).RegisterRoutes(protected, app.Authorizer)
+			httpmeter.NewHandler(app.meterService).RegisterRoutes(protected, app.Authorizer)
+			httpsubject.NewHandler(app.subjectService).RegisterRoutes(protected, app.Authorizer)
+			httpusage.NewHandler(app.UsageService, httpusage.HandlerOptions{
+				Alerts:            app.AlertService,
+				ExportStoragePath: cfg.ExportStoragePath,
+			}).RegisterRoutes(protected, app.Authorizer)
+			httpsystem.NewHandler(app.systemService).RegisterRoutes(protected, app.Authorizer)
 		})
 	})
 

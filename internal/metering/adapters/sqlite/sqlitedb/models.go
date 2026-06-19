@@ -57,16 +57,6 @@ type AlertState struct {
 	UpdatedAt   string
 }
 
-type AuthApiKey struct {
-	ID         string
-	UserID     string
-	Name       string
-	TokenHash  string
-	Prefix     string
-	CreatedAt  string
-	LastUsedAt sql.NullString
-}
-
 type AuthUser struct {
 	ID           string
 	Email        string

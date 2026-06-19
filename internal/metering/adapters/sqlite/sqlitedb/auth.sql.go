@@ -51,20 +51,38 @@ func (q *Queries) DeleteSessionByTokenHash(ctx context.Context, tokenHash string
 }
 
 const findAPIKeyByTokenHash = `-- name: FindAPIKeyByTokenHash :one
-SELECT id, user_id, name, token_hash, prefix, created_at, last_used_at
+SELECT id, user_id, name, token_hash, prefix, scopes, allowed_meters, expires_at, revoked_at, created_at, last_used_at
 FROM auth_api_keys
 WHERE token_hash = ?
 `
 
-func (q *Queries) FindAPIKeyByTokenHash(ctx context.Context, tokenHash string) (AuthApiKey, error) {
+type FindAPIKeyByTokenHashRow struct {
+	ID            string
+	UserID        string
+	Name          string
+	TokenHash     string
+	Prefix        string
+	Scopes        string
+	AllowedMeters string
+	ExpiresAt     sql.NullString
+	RevokedAt     sql.NullString
+	CreatedAt     string
+	LastUsedAt    sql.NullString
+}
+
+func (q *Queries) FindAPIKeyByTokenHash(ctx context.Context, tokenHash string) (FindAPIKeyByTokenHashRow, error) {
 	row := q.db.QueryRowContext(ctx, findAPIKeyByTokenHash, tokenHash)
-	var i AuthApiKey
+	var i FindAPIKeyByTokenHashRow
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
 		&i.Name,
 		&i.TokenHash,
 		&i.Prefix,
+		&i.Scopes,
+		&i.AllowedMeters,
+		&i.ExpiresAt,
+		&i.RevokedAt,
 		&i.CreatedAt,
 		&i.LastUsedAt,
 	)
@@ -143,27 +161,45 @@ func (q *Queries) FindUserByID(ctx context.Context, id string) (AuthUser, error)
 }
 
 const listAPIKeys = `-- name: ListAPIKeys :many
-SELECT id, user_id, name, token_hash, prefix, created_at, last_used_at
+SELECT id, user_id, name, token_hash, prefix, scopes, allowed_meters, expires_at, revoked_at, created_at, last_used_at
 FROM auth_api_keys
 WHERE user_id = ?
 ORDER BY created_at DESC, id DESC
 `
 
-func (q *Queries) ListAPIKeys(ctx context.Context, userID string) ([]AuthApiKey, error) {
+type ListAPIKeysRow struct {
+	ID            string
+	UserID        string
+	Name          string
+	TokenHash     string
+	Prefix        string
+	Scopes        string
+	AllowedMeters string
+	ExpiresAt     sql.NullString
+	RevokedAt     sql.NullString
+	CreatedAt     string
+	LastUsedAt    sql.NullString
+}
+
+func (q *Queries) ListAPIKeys(ctx context.Context, userID string) ([]ListAPIKeysRow, error) {
 	rows, err := q.db.QueryContext(ctx, listAPIKeys, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []AuthApiKey{}
+	items := []ListAPIKeysRow{}
 	for rows.Next() {
-		var i AuthApiKey
+		var i ListAPIKeysRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.UserID,
 			&i.Name,
 			&i.TokenHash,
 			&i.Prefix,
+			&i.Scopes,
+			&i.AllowedMeters,
+			&i.ExpiresAt,
+			&i.RevokedAt,
 			&i.CreatedAt,
 			&i.LastUsedAt,
 		); err != nil {
@@ -181,18 +217,22 @@ func (q *Queries) ListAPIKeys(ctx context.Context, userID string) ([]AuthApiKey,
 }
 
 const saveAPIKey = `-- name: SaveAPIKey :exec
-INSERT INTO auth_api_keys (id, user_id, name, token_hash, prefix, created_at, last_used_at)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO auth_api_keys (id, user_id, name, token_hash, prefix, scopes, allowed_meters, expires_at, revoked_at, created_at, last_used_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type SaveAPIKeyParams struct {
-	ID         string
-	UserID     string
-	Name       string
-	TokenHash  string
-	Prefix     string
-	CreatedAt  string
-	LastUsedAt sql.NullString
+	ID            string
+	UserID        string
+	Name          string
+	TokenHash     string
+	Prefix        string
+	Scopes        string
+	AllowedMeters string
+	ExpiresAt     sql.NullString
+	RevokedAt     sql.NullString
+	CreatedAt     string
+	LastUsedAt    sql.NullString
 }
 
 func (q *Queries) SaveAPIKey(ctx context.Context, arg SaveAPIKeyParams) error {
@@ -202,6 +242,10 @@ func (q *Queries) SaveAPIKey(ctx context.Context, arg SaveAPIKeyParams) error {
 		arg.Name,
 		arg.TokenHash,
 		arg.Prefix,
+		arg.Scopes,
+		arg.AllowedMeters,
+		arg.ExpiresAt,
+		arg.RevokedAt,
 		arg.CreatedAt,
 		arg.LastUsedAt,
 	)

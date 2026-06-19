@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -86,13 +87,17 @@ func (r *AuthRepository) DeleteSessionByTokenHash(ctx context.Context, tokenHash
 
 func (r *AuthRepository) SaveAPIKey(ctx context.Context, key appauth.APIKey) (appauth.APIKey, error) {
 	err := queriesFor(ctx, r.queries).SaveAPIKey(ctx, sqlitedb.SaveAPIKeyParams{
-		ID:         key.ID,
-		UserID:     key.UserID,
-		Name:       key.Name,
-		TokenHash:  key.TokenHash,
-		Prefix:     key.Prefix,
-		CreatedAt:  formatTime(key.CreatedAt),
-		LastUsedAt: formatOptionalTime(key.LastUsedAt),
+		ID:            key.ID,
+		UserID:        key.UserID,
+		Name:          key.Name,
+		TokenHash:     key.TokenHash,
+		Prefix:        key.Prefix,
+		Scopes:        formatStringArray(key.Scopes),
+		AllowedMeters: formatStringArray(key.AllowedMeters),
+		ExpiresAt:     formatOptionalTime(key.ExpiresAt),
+		RevokedAt:     formatOptionalTime(key.RevokedAt),
+		CreatedAt:     formatTime(key.CreatedAt),
+		LastUsedAt:    formatOptionalTime(key.LastUsedAt),
 	})
 	if err != nil {
 		if isUniqueConstraint(err) {
@@ -111,7 +116,7 @@ func (r *AuthRepository) ListAPIKeys(ctx context.Context, userID string) ([]appa
 
 	keys := make([]appauth.APIKey, 0, len(rows))
 	for _, row := range rows {
-		key, err := apiKeyFromFields(row.ID, row.UserID, row.Name, row.TokenHash, row.Prefix, row.CreatedAt, row.LastUsedAt, nil)
+		key, err := apiKeyFromFields(row.ID, row.UserID, row.Name, row.TokenHash, row.Prefix, row.Scopes, row.AllowedMeters, row.ExpiresAt, row.RevokedAt, row.CreatedAt, row.LastUsedAt, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -122,7 +127,7 @@ func (r *AuthRepository) ListAPIKeys(ctx context.Context, userID string) ([]appa
 
 func (r *AuthRepository) FindAPIKeyByTokenHash(ctx context.Context, tokenHash string) (appauth.APIKey, error) {
 	key, err := queriesFor(ctx, r.queries).FindAPIKeyByTokenHash(ctx, tokenHash)
-	return apiKeyFromFields(key.ID, key.UserID, key.Name, key.TokenHash, key.Prefix, key.CreatedAt, key.LastUsedAt, err)
+	return apiKeyFromFields(key.ID, key.UserID, key.Name, key.TokenHash, key.Prefix, key.Scopes, key.AllowedMeters, key.ExpiresAt, key.RevokedAt, key.CreatedAt, key.LastUsedAt, err)
 }
 
 func (r *AuthRepository) UpdateAPIKeyLastUsed(ctx context.Context, id string, lastUsedAt time.Time) error {
@@ -158,7 +163,7 @@ func userFromFields(id string, email string, passwordHash string, createdAt stri
 	return appauth.User{ID: id, Email: email, PasswordHash: passwordHash, CreatedAt: parsedCreatedAt}, nil
 }
 
-func apiKeyFromFields(id string, userID string, name string, tokenHash string, prefix string, createdAt string, lastUsedAt sql.NullString, err error) (appauth.APIKey, error) {
+func apiKeyFromFields(id string, userID string, name string, tokenHash string, prefix string, scopesJSON string, allowedMetersJSON string, expiresAt sql.NullString, revokedAt sql.NullString, createdAt string, lastUsedAt sql.NullString, err error) (appauth.APIKey, error) {
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return appauth.APIKey{}, domain.ErrNotFound
@@ -173,18 +178,36 @@ func apiKeyFromFields(id string, userID string, name string, tokenHash string, p
 		TokenHash: tokenHash,
 		Prefix:    prefix,
 	}
+	scopes, err := parseStringArray(scopesJSON)
+	if err != nil {
+		return appauth.APIKey{}, err
+	}
+	key.Scopes = scopes
+	allowedMeters, err := parseStringArray(allowedMetersJSON)
+	if err != nil {
+		return appauth.APIKey{}, err
+	}
+	key.AllowedMeters = allowedMeters
+	parsedExpiresAt, err := parseOptionalTime(expiresAt)
+	if err != nil {
+		return appauth.APIKey{}, err
+	}
+	key.ExpiresAt = parsedExpiresAt
+	parsedRevokedAt, err := parseOptionalTime(revokedAt)
+	if err != nil {
+		return appauth.APIKey{}, err
+	}
+	key.RevokedAt = parsedRevokedAt
 	parsedCreatedAt, err := time.Parse(time.RFC3339Nano, createdAt)
 	if err != nil {
 		return appauth.APIKey{}, err
 	}
 	key.CreatedAt = parsedCreatedAt
-	if lastUsedAt.Valid {
-		parsedLastUsedAt, err := time.Parse(time.RFC3339Nano, lastUsedAt.String)
-		if err != nil {
-			return appauth.APIKey{}, err
-		}
-		key.LastUsedAt = &parsedLastUsedAt
+	parsedLastUsedAt, err := parseOptionalTime(lastUsedAt)
+	if err != nil {
+		return appauth.APIKey{}, err
 	}
+	key.LastUsedAt = parsedLastUsedAt
 	return key, nil
 }
 
@@ -219,4 +242,31 @@ func formatOptionalTime(value *time.Time) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: formatTime(*value), Valid: true}
+}
+
+func parseOptionalTime(value sql.NullString) (*time.Time, error) {
+	if !value.Valid || value.String == "" {
+		return nil, nil
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, value.String)
+	if err != nil {
+		return nil, err
+	}
+	return &parsed, nil
+}
+
+func formatStringArray(values []string) string {
+	data, _ := json.Marshal(values)
+	return string(data)
+}
+
+func parseStringArray(value string) ([]string, error) {
+	if value == "" {
+		return nil, nil
+	}
+	var values []string
+	if err := json.Unmarshal([]byte(value), &values); err != nil {
+		return nil, err
+	}
+	return values, nil
 }

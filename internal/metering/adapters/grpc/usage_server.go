@@ -7,6 +7,7 @@ import (
 	"log"
 	"time"
 
+	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/grpc/pb"
 	appalert "github.com/ssubedir/open-spanner/internal/metering/app/alert"
 	appusage "github.com/ssubedir/open-spanner/internal/metering/app/usage"
@@ -23,17 +24,21 @@ type alertEnqueuer interface {
 type UsageServer struct {
 	pb.UnimplementedUsageServiceServer
 
-	service appusage.Service
-	alerts  alertEnqueuer
+	service    appusage.Service
+	alerts     alertEnqueuer
+	authorizer appauth.Authorizer
 }
 
-func NewUsageServer(service appusage.Service, alerts alertEnqueuer) *UsageServer {
-	return &UsageServer{service: service, alerts: alerts}
+func NewUsageServer(service appusage.Service, alerts alertEnqueuer, authorizer appauth.Authorizer) *UsageServer {
+	return &UsageServer{service: service, alerts: alerts, authorizer: authorizer}
 }
 
 func (s *UsageServer) CreateUsage(ctx context.Context, req *pb.CreateUsageRequest) (*pb.CreateUsageResponse, error) {
 	cmd, err := commandFromProto(req.GetEvent(), 0)
 	if err != nil {
+		return nil, serviceError(err)
+	}
+	if err := s.authorizeUsageCommands(ctx, []appusage.CreateCommand{cmd}); err != nil {
 		return nil, serviceError(err)
 	}
 
@@ -56,6 +61,9 @@ func (s *UsageServer) CreateUsage(ctx context.Context, req *pb.CreateUsageReques
 func (s *UsageServer) CreateUsageBulk(ctx context.Context, req *pb.CreateUsageBulkRequest) (*pb.CreateUsageBulkResponse, error) {
 	commands, err := commandsFromProto(req.GetEvents())
 	if err != nil {
+		return nil, serviceError(err)
+	}
+	if err := s.authorizeUsageCommands(ctx, commands); err != nil {
 		return nil, serviceError(err)
 	}
 
@@ -97,6 +105,10 @@ func (s *UsageServer) StreamUsage(stream grpc.ClientStreamingServer[pb.StreamUsa
 }
 
 func (s *UsageServer) closeUsageStream(stream grpc.ClientStreamingServer[pb.StreamUsageRequest, pb.StreamUsageResponse], commands []appusage.CreateCommand) error {
+	if err := s.authorizeUsageCommands(stream.Context(), commands); err != nil {
+		return serviceError(err)
+	}
+
 	result, err := s.service.CreateBulk(stream.Context(), idempotencyKeyFromMetadata(stream.Context()), commands)
 	if err != nil {
 		return serviceError(err)
@@ -142,6 +154,32 @@ func (s *UsageServer) enqueueAlerts(ctx context.Context, events []appusage.Resul
 	if err := s.alerts.EnqueueForUsageEvents(ctx, alertEvents); err != nil {
 		log.Printf("alert enqueue failed: %v", err)
 	}
+}
+
+func (s *UsageServer) authorizeUsageCommands(ctx context.Context, commands []appusage.CreateCommand) error {
+	if s.authorizer == nil {
+		return nil
+	}
+	principal, ok := PrincipalFromContext(ctx)
+	if !ok {
+		return domain.ErrUnauthorized
+	}
+	checked := map[string]struct{}{}
+	for _, command := range commands {
+		key := command.MeterName + "\x00" + command.Subject
+		if _, ok := checked[key]; ok {
+			continue
+		}
+		checked[key] = struct{}{}
+		if err := s.authorizer.Can(ctx, principal, appauth.ActionUsageWrite, appauth.Resource{
+			Type:    appauth.ResourceUsage,
+			Meter:   command.MeterName,
+			Subject: command.Subject,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func commandsFromProto(events []*pb.UsageEventInput) ([]appusage.CreateCommand, error) {

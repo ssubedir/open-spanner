@@ -30,17 +30,17 @@ DELETE FROM auth_sessions
 WHERE token_hash = $1;
 
 -- name: SaveAPIKey :exec
-INSERT INTO auth_api_keys (id, user_id, name, token_hash, prefix, created_at, last_used_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7);
+INSERT INTO auth_api_keys (id, user_id, name, token_hash, prefix, scopes, allowed_meters, expires_at, revoked_at, created_at, last_used_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
 
 -- name: ListAPIKeys :many
-SELECT id, user_id, name, token_hash, prefix, created_at, last_used_at
+SELECT id, user_id, name, token_hash, prefix, scopes, allowed_meters, expires_at, revoked_at, created_at, last_used_at
 FROM auth_api_keys
 WHERE user_id = $1
 ORDER BY created_at DESC, id DESC;
 
 -- name: FindAPIKeyByTokenHash :one
-SELECT id, user_id, name, token_hash, prefix, created_at, last_used_at
+SELECT id, user_id, name, token_hash, prefix, scopes, allowed_meters, expires_at, revoked_at, created_at, last_used_at
 FROM auth_api_keys
 WHERE token_hash = $1;
 

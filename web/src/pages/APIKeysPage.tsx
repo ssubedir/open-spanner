@@ -10,6 +10,20 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { formatDate } from '../lib/format'
 import { useInitialLoad } from '../lib/hooks'
 
+const apiKeyScopes = [
+  { value: 'usage:write', label: 'Write usage' },
+  { value: 'usage:read', label: 'Read usage' },
+  { value: 'meters:read', label: 'Read meters' },
+  { value: 'meters:write', label: 'Write meters' },
+  { value: 'alerts:read', label: 'Read alerts' },
+  { value: 'alerts:write', label: 'Write alerts' },
+  { value: 'exports:read', label: 'Read exports' },
+  { value: 'exports:write', label: 'Write exports' },
+  { value: 'system:read', label: 'Read system' },
+]
+
+const defaultAPIKeyScopes = new Set(['usage:write', 'usage:read', 'meters:read', 'meters:write'])
+
 export function APIKeysPage() {
   const { creating, createdKey, deleting, error, items, saving } = useSelector(appStore, (state) => state.apiKeys)
   const load = useCallback(() => appStoreActions.loadAPIKeys(), [])
@@ -22,7 +36,13 @@ export function APIKeysPage() {
     const form = new FormData(formElement)
 
     try {
-      await appStoreActions.createAPIKey({ name: String(form.get('name') || '') })
+      const expiresAt = String(form.get('expires_at') || '').trim()
+      await appStoreActions.createAPIKey({
+        allowed_meters: splitList(String(form.get('allowed_meters') || '')),
+        expires_at: expiresAt ? new Date(expiresAt).toISOString() : undefined,
+        name: String(form.get('name') || ''),
+        scopes: form.getAll('scopes').map(String),
+      })
       formElement.reset()
       appStoreActions.setAPIKeyCreating(false)
     } catch {
@@ -94,7 +114,11 @@ export function APIKeysPage() {
             emptyLabel="No API keys yet"
             headers={['Name', 'Prefix', 'Created', 'Last Used', 'Actions']}
             rows={items.map((key) => [
-              <strong className="api-key-name">{key.name}</strong>,
+              <span className="api-key-name-block">
+                <strong className="api-key-name">{key.name}</strong>
+                <small>{key.scopes.join(', ')}</small>
+                {key.allowed_meters.length > 0 ? <small>meters: {key.allowed_meters.join(', ')}</small> : null}
+              </span>,
               <Badge className="api-key-prefix" variant="muted">
                 <span className="mono">{key.prefix}</span>
               </Badge>,
@@ -116,6 +140,25 @@ export function APIKeysPage() {
             <label>
               Name
               <input name="name" placeholder="server-billing-sync" required />
+            </label>
+            <label>
+              Scopes
+              <span className="checkbox-grid">
+                {apiKeyScopes.map((scope) => (
+                  <span className="checkbox-row" key={scope.value}>
+                    <input defaultChecked={defaultAPIKeyScopes.has(scope.value)} name="scopes" type="checkbox" value={scope.value} />
+                    {scope.label}
+                  </span>
+                ))}
+              </span>
+            </label>
+            <label>
+              Allowed meters
+              <textarea name="allowed_meters" placeholder="Leave blank for all meters&#10;api_requests&#10;storage_bytes" rows={3} />
+            </label>
+            <label>
+              Expires at
+              <input name="expires_at" type="datetime-local" />
             </label>
             <div className="modal-actions">
               <Button onClick={() => appStoreActions.setAPIKeyCreating(false)} type="button" variant="outline">Cancel</Button>
@@ -156,4 +199,11 @@ async function copyText(value: string) {
     document.execCommand('copy')
     textarea.remove()
   }
+}
+
+function splitList(value: string) {
+  return value
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
 }
