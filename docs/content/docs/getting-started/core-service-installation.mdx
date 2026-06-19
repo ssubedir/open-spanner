@@ -12,18 +12,19 @@ Use Docker Run when you want the smallest local instance. Use Docker Compose whe
 This starts one Open Spanner container using SQLite storage persisted in a Docker volume.
 
 ```sh
-git clone https://github.com/ssubedir/open-spanner.git
-cd open-spanner
-docker build -t open-spanner:local .
+IMAGE=ssubedir/open-spanner:latest
 docker volume create open-spanner-data
 docker run --detach \
   --name open-spanner \
   --publish 18081:18081 \
+  --publish 18090:18090 \
   --volume open-spanner-data:/data \
-  open-spanner:local
+  "$IMAGE"
 ```
 
 Open the dashboard at `http://localhost:18081/register`.
+
+Use `latest` for a quick trial. For production, pin a release tag such as `ssubedir/open-spanner:0.1.8`.
 
 Queued export jobs and alerts use worker processes. Start workers against the same Docker volume when you want dashboard export jobs to produce downloadable files or alert rules to evaluate outside the API process:
 
@@ -32,13 +33,13 @@ docker run --detach \
   --name open-spanner-export-worker \
   --volume open-spanner-data:/data \
   --entrypoint /usr/local/bin/open-spanner-export-worker \
-  open-spanner:local
+  "$IMAGE"
 
 docker run --detach \
   --name open-spanner-alert-worker \
   --volume open-spanner-data:/data \
   --entrypoint /usr/local/bin/open-spanner-alert-worker \
-  open-spanner:local
+  "$IMAGE"
 ```
 
 Stop and remove the container:
@@ -62,6 +63,8 @@ docker compose -f docker-compose.app.yml up -d --build
 ```
 
 Open the dashboard at `http://localhost:18081/register`.
+
+The checked-in Compose file is a complete single-host Postgres stack and builds the image from the checkout. For a production deployment using published images and managed Postgres, see [Production Deployment](/docs/configuration/deployment).
 
 To change the published app port or database password, create a `.env` file next to `docker-compose.app.yml`:
 
@@ -153,35 +156,311 @@ After registering a dashboard user, open `/api-keys`, create a key for your serv
 API_KEY="osp_..."
 ```
 
+The snippets below show the client setup and API calls directly. Full project versions are also available in `examples/rest/basic` when you want to run the same flow from a checkout.
+
+## Configure A Client
+
+Use the API key from your dashboard to configure a trusted backend client. Do this once when your service starts, then reuse the client for meter and usage calls.
+
+<Tabs items={["cURL", "Go", "TypeScript", "Python", "C#"]}>
+<Tab value="cURL">
+
+  ```sh
+  BASE_URL="http://localhost:18081"
+  API_KEY="osp_..."
+  ```
+
+</Tab>
+<Tab value="Go">
+
+  ```go
+  import (
+    "os"
+
+    httptransport "github.com/go-openapi/runtime/client"
+    "github.com/go-openapi/strfmt"
+
+    "github.com/ssubedir/open-spanner/sdk/go/client"
+    "github.com/ssubedir/open-spanner/sdk/go/client/meters"
+    "github.com/ssubedir/open-spanner/sdk/go/client/usages"
+    "github.com/ssubedir/open-spanner/sdk/go/models"
+  )
+
+  // Configure once at service startup.
+  transport := httptransport.New("localhost:18081", client.DefaultBasePath, []string{"http"})
+  transport.DefaultAuthentication = httptransport.BearerToken(os.Getenv("OPEN_SPANNER_API_KEY"))
+  api := client.New(transport, strfmt.Default)
+  ```
+
+</Tab>
+<Tab value="TypeScript">
+
+  ```ts
+  import { client, createMeter, createUsage } from "@ssubedir/open-spanner";
+
+  // Configure once at service startup.
+  client.setConfig({
+    baseUrl: process.env.OPEN_SPANNER_BASE_URL ?? "http://localhost:18081",
+    headers: {
+      Authorization: `Bearer ${process.env.OPEN_SPANNER_API_KEY}`,
+    },
+  });
+  ```
+
+</Tab>
+<Tab value="Python">
+
+  ```python
+  import os
+
+  from open_spanner_client import AuthenticatedClient
+  from open_spanner_client.api.meters import create_meter
+  from open_spanner_client.api.usages import create_usage
+  from open_spanner_client.models.meter_create_request import MeterCreateRequest
+  from open_spanner_client.models.usage_create_request import UsageCreateRequest
+  from open_spanner_client.models.usage_create_request_metadata import UsageCreateRequestMetadata
+
+  # Configure once at service startup.
+  client = AuthenticatedClient(
+      base_url=os.environ.get("OPEN_SPANNER_BASE_URL", "http://localhost:18081"),
+      token=os.environ["OPEN_SPANNER_API_KEY"],
+      raise_on_unexpected_status=True,
+  )
+  ```
+
+</Tab>
+<Tab value="C#">
+
+  ```csharp
+  using Microsoft.Kiota.Abstractions.Authentication;
+  using Microsoft.Kiota.Http.HttpClientLibrary;
+  using OpenSpanner;
+  using OpenSpanner.Models;
+
+  // Configure once at service startup.
+  var authProvider = new BaseBearerTokenAuthenticationProvider(
+      new ApiKeyProvider(Environment.GetEnvironmentVariable("OPEN_SPANNER_API_KEY")!)
+  );
+  var adapter = new HttpClientRequestAdapter(authProvider)
+  {
+      BaseUrl = Environment.GetEnvironmentVariable("OPEN_SPANNER_BASE_URL") ?? "http://localhost:18081",
+  };
+  var client = new OpenSpannerClient(adapter);
+
+  sealed class ApiKeyProvider(string apiKey) : IAccessTokenProvider
+  {
+      public AllowedHostsValidator AllowedHostsValidator { get; } = new();
+
+      public Task<string> GetAuthorizationTokenAsync(
+          Uri uri,
+          Dictionary<string, object>? additionalAuthenticationContext = null,
+          CancellationToken cancellationToken = default)
+      {
+          return Task.FromResult(apiKey);
+      }
+  }
+  ```
+
+</Tab>
+</Tabs>
+
 ## Create A Meter
 
-```sh
-curl -X POST http://localhost:18081/v1/meters \
-  -H "Authorization: Bearer $API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "api_requests",
-    "description": "API requests served",
-    "unit": "request",
-    "aggregation": "sum",
-    "event_retention_days": 90
-  }'
-```
+<Tabs items={["cURL", "Go", "TypeScript", "Python", "C#"]}>
+<Tab value="cURL">
+
+  ```sh
+  curl -X POST "$BASE_URL/v1/meters" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "name": "api_requests",
+      "description": "API requests served",
+      "unit": "request",
+      "aggregation": "sum",
+      "event_retention_days": 90
+    }'
+  ```
+
+</Tab>
+<Tab value="Go">
+
+  ```go
+  meterRes, err := api.Meters.CreateMeter(
+    meters.NewCreateMeterParams().WithRequest(&models.MeterCreateRequest{
+      Name:               "api_requests",
+      Description:        "API requests served",
+      Unit:               "request",
+      Aggregation:        "sum",
+      EventRetentionDays: 90,
+    }),
+  )
+  if err != nil {
+    panic(err)
+  }
+  fmt.Println(meterRes.Payload.Name)
+  ```
+
+</Tab>
+<Tab value="TypeScript">
+
+  ```ts
+  const { data: meter } = await createMeter({
+    body: {
+      name: "api_requests",
+      description: "API requests served",
+      unit: "request",
+      aggregation: "sum",
+      event_retention_days: 90,
+    },
+    throwOnError: true,
+  });
+
+  console.log(meter?.name);
+  ```
+
+</Tab>
+<Tab value="Python">
+
+  ```python
+  meter = create_meter.sync(
+      client=client,
+      body=MeterCreateRequest(
+          name="api_requests",
+          description="API requests served",
+          unit="request",
+          aggregation="sum",
+          event_retention_days=90,
+      ),
+  )
+
+  print(meter.name)
+  ```
+
+</Tab>
+<Tab value="C#">
+
+  ```csharp
+  var meter = await client.V1.Meters.PostAsync(new MeterCreateRequest
+  {
+      Name = "api_requests",
+      Description = "API requests served",
+      Unit = "request",
+      Aggregation = "sum",
+      EventRetentionDays = 90,
+  });
+
+  Console.WriteLine(meter?.Name);
+  ```
+
+</Tab>
+</Tabs>
 
 ## Send Usage
 
-```sh
-curl -X POST http://localhost:18081/v1/usages \
-  -H "Authorization: Bearer $API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "subject": "org_123",
-    "meter": "api_requests",
-    "quantity": 1,
-    "idempotency_key": "usage_001",
-    "metadata": {
-      "region": "us-east",
-      "plan": "pro"
-    }
-  }'
-```
+<Tabs items={["cURL", "Go", "TypeScript", "Python", "C#"]}>
+<Tab value="cURL">
+
+  ```sh
+  curl -X POST "$BASE_URL/v1/usages" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "subject": "org_123",
+      "meter": "api_requests",
+      "quantity": 1,
+      "idempotency_key": "usage_001",
+      "metadata": {
+        "region": "us-east",
+        "plan": "pro"
+      }
+    }'
+  ```
+
+</Tab>
+<Tab value="Go">
+
+  ```go
+  usageRes, err := api.Usages.CreateUsage(
+    usages.NewCreateUsageParams().WithRequest(&models.UsageCreateRequest{
+      IdempotencyKey: "usage_001",
+      Subject:        "org_123",
+      Meter:          "api_requests",
+      Quantity:       1,
+      Metadata: map[string]any{
+        "region": "us-east",
+        "plan":   "pro",
+      },
+    }),
+  )
+  if err != nil {
+    panic(err)
+  }
+  fmt.Println(usageRes.Payload.ID)
+  ```
+
+</Tab>
+<Tab value="TypeScript">
+
+  ```ts
+  const { data: usage } = await createUsage({
+    body: {
+      idempotency_key: "usage_001",
+      subject: "org_123",
+      meter: "api_requests",
+      quantity: 1,
+      metadata: {
+        region: "us-east",
+        plan: "pro",
+      },
+    },
+    throwOnError: true,
+  });
+
+  console.log(usage?.id);
+  ```
+
+</Tab>
+<Tab value="Python">
+
+  ```python
+  metadata = UsageCreateRequestMetadata()
+  metadata["region"] = "us-east"
+  metadata["plan"] = "pro"
+
+  usage = create_usage.sync(
+      client=client,
+      body=UsageCreateRequest(
+          idempotency_key="usage_001",
+          subject="org_123",
+          meter="api_requests",
+          quantity=1,
+          metadata=metadata,
+      ),
+  )
+
+  print(usage.id)
+  ```
+
+</Tab>
+<Tab value="C#">
+
+  ```csharp
+  var metadata = new UsageCreateRequest_metadata();
+  metadata.AdditionalData["region"] = "us-east";
+  metadata.AdditionalData["plan"] = "pro";
+
+  var usage = await client.V1.Usages.PostAsync(new UsageCreateRequest
+  {
+      IdempotencyKey = "usage_001",
+      Subject = "org_123",
+      Meter = "api_requests",
+      Quantity = 1,
+      Metadata = metadata,
+  });
+
+  Console.WriteLine(usage?.Id);
+  ```
+
+</Tab>
+</Tabs>

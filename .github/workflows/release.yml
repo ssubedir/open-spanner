@@ -48,14 +48,67 @@ jobs:
             exit 1
           fi
 
+          VERSION="${TAG#v}"
+
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout release tag
+        run: git checkout --detach "refs/tags/${{ steps.release.outputs.tag }}"
+
+      - name: Verify Docker Hub secrets
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -z "$DOCKERHUB_USERNAME" ]; then
+            echo "::error title=Missing DOCKERHUB_USERNAME::Set DOCKERHUB_USERNAME to the Docker Hub namespace that should receive the image."
+            exit 1
+          fi
+
+          if [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo "::error title=Missing DOCKERHUB_TOKEN::Set DOCKERHUB_TOKEN to a Docker Hub access token with permission to push the image."
+            exit 1
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Docker image metadata
+        id: docker
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/open-spanner
+          tags: |
+            type=raw,value=${{ steps.release.outputs.tag }}
+            type=raw,value=${{ steps.release.outputs.version }}
+            type=raw,value=latest
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.docker.outputs.tags }}
+          labels: ${{ steps.docker.outputs.labels }}
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.release.outputs.tag }}
         run: |
-          gh release create "$TAG" \
-            --verify-tag \
-            --title "$TAG" \
-            --generate-notes
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "GitHub Release ${TAG} already exists."
+          else
+            gh release create "$TAG" \
+              --verify-tag \
+              --title "$TAG" \
+              --generate-notes
+          fi

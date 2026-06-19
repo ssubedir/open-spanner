@@ -43,167 +43,219 @@ tasks:
   test:examples:
     desc: Verify local SDK examples compile and build without calling the API
     cmds:
-      - task: test:examples:basic
-      - task: test:examples:advance
+      - task: test:examples:rest
+      - task: test:examples:stream
 
-  test:examples:basic:
-    desc: Verify all basic SDK examples
+  test:sdk:
+    desc: Run SDK integration tests against a local Open Spanner service
     cmds:
-      - task: test:examples:basic:go
-      - task: test:examples:basic:csharp
-      - task: test:examples:basic:python
-      - task: test:examples:basic:typescript
+      - cd sdk-test/go; go test ./... -count=1
 
-  test:examples:basic:go:
-    desc: Verify the basic Go example
+  test:examples:rest:
+    desc: Verify all REST SDK examples
     cmds:
-      - task: _test:example:go
-        vars:
-          DIR: examples/basic/go
+      - task: test:examples:rest:basic
+      - task: test:examples:rest:advance
 
-  test:examples:basic:csharp:
-    desc: Verify the basic C# example
+  test:examples:stream:
+    desc: Verify all streaming SDK examples
     cmds:
-      - task: _test:example:csharp
-        vars:
-          PROJECT: examples/basic/csharp/OpenSpanner.Example.csproj
+      - task: test:examples:stream:basic:go
+      - task: test:examples:stream:advance
 
-  test:examples:basic:python:
-    desc: Verify the basic Python example
+  test:examples:rest:basic:
+    desc: Verify all basic REST SDK examples
     cmds:
-      - task: _test:example:python
-        vars:
-          FILE: examples/basic/python/basic.py
+      - task: test:examples:rest:basic:go
+      - task: test:examples:rest:basic:csharp
+      - task: test:examples:rest:basic:python
+      - task: test:examples:rest:basic:typescript
 
-  test:examples:basic:typescript:
-    desc: Verify the basic TypeScript example
-    cmds:
-      - task: _test:example:typescript
-        vars:
-          CONFIG: examples/basic/typescript/tsconfig.json
-
-  test:examples:advance:
-    desc: Verify all advanced scenario examples
-    cmds:
-      - task: test:examples:advance:active-users
-      - task: test:examples:advance:ai-tokens
-      - task: test:examples:advance:api-requests
-      - task: test:examples:advance:background-jobs
-      - task: test:examples:advance:feature-usage
-      - task: test:examples:advance:historical-backfill
-      - task: test:examples:advance:storage-usage
-
-  test:examples:advance:active-users:
-    desc: Verify the active users advanced example
+  test:examples:rest:basic:go:
+    desc: Verify the basic REST Go example
     cmds:
       - task: _test:example:go
         vars:
-          DIR: examples/advance/active-users
-      - task: _test:example:csharp
-        vars:
-          PROJECT: examples/advance/active-users/OpenSpanner.ActiveUsers.csproj
-      - task: _test:example:python
-        vars:
-          FILE: examples/advance/active-users/python.py
-      - task: _test:example:typescript
-        vars:
-          CONFIG: examples/advance/active-users/tsconfig.json
+          DIR: examples/rest/basic/go
 
-  test:examples:advance:ai-tokens:
-    desc: Verify the AI tokens advanced example
+  test:examples:stream:basic:go:
+    desc: Verify the basic Go gRPC stream example
     cmds:
       - task: _test:example:go
         vars:
-          DIR: examples/advance/ai-tokens
-      - task: _test:example:csharp
-        vars:
-          PROJECT: examples/advance/ai-tokens/OpenSpanner.AiTokens.csproj
-      - task: _test:example:python
-        vars:
-          FILE: examples/advance/ai-tokens/python.py
-      - task: _test:example:typescript
-        vars:
-          CONFIG: examples/advance/ai-tokens/tsconfig.json
+          DIR: examples/stream/basic/go
 
-  test:examples:advance:api-requests:
-    desc: Verify the API requests advanced example
+  test:examples:stream:advance:
+    desc: Verify all advanced Go gRPC stream examples
+    cmds:
+      - task: test:examples:stream:advance:device-telemetry
+      - task: test:examples:stream:advance:websocket-sessions
+      - task: test:examples:stream:advance:queue-consumer
+
+  test:examples:stream:advance:device-telemetry:
+    desc: Verify the device telemetry advanced Go gRPC stream example
     cmds:
       - task: _test:example:go
         vars:
-          DIR: examples/advance/api-requests
-      - task: _test:example:csharp
-        vars:
-          PROJECT: examples/advance/api-requests/OpenSpanner.ApiRequests.csproj
-      - task: _test:example:python
-        vars:
-          FILE: examples/advance/api-requests/python.py
-      - task: _test:example:typescript
-        vars:
-          CONFIG: examples/advance/api-requests/tsconfig.json
+          DIR: examples/stream/advance/device-telemetry
 
-  test:examples:advance:background-jobs:
-    desc: Verify the background jobs advanced example
+  test:examples:stream:advance:websocket-sessions:
+    desc: Verify the WebSocket sessions advanced Go gRPC stream example
     cmds:
       - task: _test:example:go
         vars:
-          DIR: examples/advance/background-jobs
-      - task: _test:example:csharp
-        vars:
-          PROJECT: examples/advance/background-jobs/OpenSpanner.BackgroundJobs.csproj
-      - task: _test:example:python
-        vars:
-          FILE: examples/advance/background-jobs/python.py
-      - task: _test:example:typescript
-        vars:
-          CONFIG: examples/advance/background-jobs/tsconfig.json
+          DIR: examples/stream/advance/websocket-sessions
 
-  test:examples:advance:feature-usage:
-    desc: Verify the feature usage advanced example
+  test:examples:stream:advance:queue-consumer:
+    desc: Verify the queue consumer advanced Go gRPC stream example
     cmds:
       - task: _test:example:go
         vars:
-          DIR: examples/advance/feature-usage
+          DIR: examples/stream/advance/queue-consumer
+
+  test:examples:rest:basic:csharp:
+    desc: Verify the basic REST C# example
+    cmds:
       - task: _test:example:csharp
         vars:
-          PROJECT: examples/advance/feature-usage/OpenSpanner.FeatureUsage.csproj
+          PROJECT: examples/rest/basic/csharp/OpenSpanner.Example.csproj
+
+  test:examples:rest:basic:python:
+    desc: Verify the basic REST Python example
+    cmds:
       - task: _test:example:python
         vars:
-          FILE: examples/advance/feature-usage/python.py
+          FILE: examples/rest/basic/python/basic.py
+
+  test:examples:rest:basic:typescript:
+    desc: Verify the basic REST TypeScript example
+    cmds:
       - task: _test:example:typescript
         vars:
-          CONFIG: examples/advance/feature-usage/tsconfig.json
+          CONFIG: examples/rest/basic/typescript/tsconfig.json
 
-  test:examples:advance:historical-backfill:
-    desc: Verify the historical backfill advanced example
+  test:examples:rest:advance:
+    desc: Verify all advanced REST scenario examples
+    cmds:
+      - task: test:examples:rest:advance:active-users
+      - task: test:examples:rest:advance:ai-tokens
+      - task: test:examples:rest:advance:api-requests
+      - task: test:examples:rest:advance:background-jobs
+      - task: test:examples:rest:advance:feature-usage
+      - task: test:examples:rest:advance:historical-backfill
+      - task: test:examples:rest:advance:storage-usage
+
+  test:examples:rest:advance:active-users:
+    desc: Verify the active users advanced REST example
     cmds:
       - task: _test:example:go
         vars:
-          DIR: examples/advance/historical-backfill
+          DIR: examples/rest/advance/active-users
       - task: _test:example:csharp
         vars:
-          PROJECT: examples/advance/historical-backfill/OpenSpanner.HistoricalBackfill.csproj
+          PROJECT: examples/rest/advance/active-users/OpenSpanner.ActiveUsers.csproj
       - task: _test:example:python
         vars:
-          FILE: examples/advance/historical-backfill/python.py
+          FILE: examples/rest/advance/active-users/python.py
       - task: _test:example:typescript
         vars:
-          CONFIG: examples/advance/historical-backfill/tsconfig.json
+          CONFIG: examples/rest/advance/active-users/tsconfig.json
 
-  test:examples:advance:storage-usage:
-    desc: Verify the storage usage advanced example
+  test:examples:rest:advance:ai-tokens:
+    desc: Verify the AI tokens advanced REST example
     cmds:
       - task: _test:example:go
         vars:
-          DIR: examples/advance/storage-usage
+          DIR: examples/rest/advance/ai-tokens
       - task: _test:example:csharp
         vars:
-          PROJECT: examples/advance/storage-usage/OpenSpanner.StorageUsage.csproj
+          PROJECT: examples/rest/advance/ai-tokens/OpenSpanner.AiTokens.csproj
       - task: _test:example:python
         vars:
-          FILE: examples/advance/storage-usage/python.py
+          FILE: examples/rest/advance/ai-tokens/python.py
       - task: _test:example:typescript
         vars:
-          CONFIG: examples/advance/storage-usage/tsconfig.json
+          CONFIG: examples/rest/advance/ai-tokens/tsconfig.json
+
+  test:examples:rest:advance:api-requests:
+    desc: Verify the API requests advanced REST example
+    cmds:
+      - task: _test:example:go
+        vars:
+          DIR: examples/rest/advance/api-requests
+      - task: _test:example:csharp
+        vars:
+          PROJECT: examples/rest/advance/api-requests/OpenSpanner.ApiRequests.csproj
+      - task: _test:example:python
+        vars:
+          FILE: examples/rest/advance/api-requests/python.py
+      - task: _test:example:typescript
+        vars:
+          CONFIG: examples/rest/advance/api-requests/tsconfig.json
+
+  test:examples:rest:advance:background-jobs:
+    desc: Verify the background jobs advanced REST example
+    cmds:
+      - task: _test:example:go
+        vars:
+          DIR: examples/rest/advance/background-jobs
+      - task: _test:example:csharp
+        vars:
+          PROJECT: examples/rest/advance/background-jobs/OpenSpanner.BackgroundJobs.csproj
+      - task: _test:example:python
+        vars:
+          FILE: examples/rest/advance/background-jobs/python.py
+      - task: _test:example:typescript
+        vars:
+          CONFIG: examples/rest/advance/background-jobs/tsconfig.json
+
+  test:examples:rest:advance:feature-usage:
+    desc: Verify the feature usage advanced REST example
+    cmds:
+      - task: _test:example:go
+        vars:
+          DIR: examples/rest/advance/feature-usage
+      - task: _test:example:csharp
+        vars:
+          PROJECT: examples/rest/advance/feature-usage/OpenSpanner.FeatureUsage.csproj
+      - task: _test:example:python
+        vars:
+          FILE: examples/rest/advance/feature-usage/python.py
+      - task: _test:example:typescript
+        vars:
+          CONFIG: examples/rest/advance/feature-usage/tsconfig.json
+
+  test:examples:rest:advance:historical-backfill:
+    desc: Verify the historical backfill advanced REST example
+    cmds:
+      - task: _test:example:go
+        vars:
+          DIR: examples/rest/advance/historical-backfill
+      - task: _test:example:csharp
+        vars:
+          PROJECT: examples/rest/advance/historical-backfill/OpenSpanner.HistoricalBackfill.csproj
+      - task: _test:example:python
+        vars:
+          FILE: examples/rest/advance/historical-backfill/python.py
+      - task: _test:example:typescript
+        vars:
+          CONFIG: examples/rest/advance/historical-backfill/tsconfig.json
+
+  test:examples:rest:advance:storage-usage:
+    desc: Verify the storage usage advanced REST example
+    cmds:
+      - task: _test:example:go
+        vars:
+          DIR: examples/rest/advance/storage-usage
+      - task: _test:example:csharp
+        vars:
+          PROJECT: examples/rest/advance/storage-usage/OpenSpanner.StorageUsage.csproj
+      - task: _test:example:python
+        vars:
+          FILE: examples/rest/advance/storage-usage/python.py
+      - task: _test:example:typescript
+        vars:
+          CONFIG: examples/rest/advance/storage-usage/tsconfig.json
 
   vet:
     desc: Run Go vet

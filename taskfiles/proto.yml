@@ -1,0 +1,19 @@
+version: '3'
+
+tasks:
+  proto:
+    desc: Generate protobuf and gRPC code
+    cmds:
+      - go run github.com/bufbuild/buf/cmd/buf@v1.65.0 generate
+
+  proto:lint:
+    desc: Lint protobuf schemas with Buf
+    cmds:
+      - go run github.com/bufbuild/buf/cmd/buf@v1.65.0 lint
+
+  proto:check:
+    desc: Verify generated protobuf and gRPC code is up to date
+    cmds:
+      - task: proto:lint
+      - task: proto
+      - git diff --exit-code proto internal/metering/adapters/grpc/pb sdk/go/grpc/pb buf.yaml buf.gen.yaml

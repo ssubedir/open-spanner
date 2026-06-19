@@ -37,12 +37,13 @@ COPY --from=api-build /out/open-spanner-export-worker /usr/local/bin/open-spanne
 COPY --from=api-build /out/open-spanner-alert-worker /usr/local/bin/open-spanner-alert-worker
 
 ENV OPEN_SPANNER_HTTP_ADDR=:18081
+ENV OPEN_SPANNER_GRPC_ADDR=:18090
 ENV OPEN_SPANNER_DB_DRIVER=sqlite
 ENV OPEN_SPANNER_SQLITE_PATH=/data/open-spanner.db
 ENV OPEN_SPANNER_EXPORT_STORAGE_PATH=/data/exports
 
 USER open-spanner
 VOLUME ["/data"]
-EXPOSE 18081
+EXPOSE 18081 18090
 
 ENTRYPOINT ["/usr/local/bin/open-spanner"]

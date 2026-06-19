@@ -5,18 +5,210 @@ description: Query bucketed usage for a meter.
 
 Usage queries return buckets. A bucket is a time window with a meter aggregation applied.
 
-This query returns daily `api_requests` usage across every subject:
+## Configure A Client
 
-```sh
-curl "http://localhost:18081/v1/usages?meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z&bucket_size=day" \
-  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY"
-```
+Use an API key from the dashboard. Configure the client once, then reuse it for usage queries.
 
-Add `subject=org_123` when you want one subject instead of the full meter:
+<Tabs items={["cURL", "Go", "TypeScript", "Python", "C#"]}>
+<Tab value="cURL">
 
-```sh
-curl "http://localhost:18081/v1/usages?subject=org_123&meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z&bucket_size=day" \
-  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY"
-```
+  ```sh
+  BASE_URL="http://localhost:18081"
+  OPEN_SPANNER_API_KEY="osp_..."
+  ```
+
+</Tab>
+<Tab value="Go">
+
+  ```go
+  import (
+    "os"
+
+    httptransport "github.com/go-openapi/runtime/client"
+    "github.com/go-openapi/strfmt"
+
+    "github.com/ssubedir/open-spanner/sdk/go/client"
+    "github.com/ssubedir/open-spanner/sdk/go/client/usages"
+    "github.com/ssubedir/open-spanner/sdk/go/models"
+  )
+
+  // Configure once at service startup.
+  transport := httptransport.New("localhost:18081", client.DefaultBasePath, []string{"http"})
+  transport.DefaultAuthentication = httptransport.BearerToken(os.Getenv("OPEN_SPANNER_API_KEY"))
+  api := client.New(transport, strfmt.Default)
+  ```
+
+</Tab>
+<Tab value="TypeScript">
+
+  ```ts
+  import { client, searchUsageBuckets } from "@ssubedir/open-spanner";
+
+  // Configure once at service startup.
+  client.setConfig({
+    baseUrl: process.env.OPEN_SPANNER_BASE_URL ?? "http://localhost:18081",
+    headers: {
+      Authorization: `Bearer ${process.env.OPEN_SPANNER_API_KEY}`,
+    },
+  });
+  ```
+
+</Tab>
+<Tab value="Python">
+
+  ```python
+  import os
+
+  from open_spanner_client import AuthenticatedClient
+  from open_spanner_client.api.usages import search_usage_buckets
+  from open_spanner_client.models.internal_metering_adapters_http_usage_search_request import (
+      InternalMeteringAdaptersHttpUsageSearchRequest,
+  )
+
+  # Configure once at service startup.
+  client = AuthenticatedClient(
+      base_url=os.environ.get("OPEN_SPANNER_BASE_URL", "http://localhost:18081"),
+      token=os.environ["OPEN_SPANNER_API_KEY"],
+      raise_on_unexpected_status=True,
+  )
+  ```
+
+</Tab>
+<Tab value="C#">
+
+  ```csharp
+  using Microsoft.Kiota.Abstractions.Authentication;
+  using Microsoft.Kiota.Http.HttpClientLibrary;
+  using OpenSpanner;
+  using OpenSpanner.Models;
+
+  // Configure once at service startup.
+  var authProvider = new BaseBearerTokenAuthenticationProvider(
+      new ApiKeyProvider(Environment.GetEnvironmentVariable("OPEN_SPANNER_API_KEY")!)
+  );
+  var adapter = new HttpClientRequestAdapter(authProvider)
+  {
+      BaseUrl = Environment.GetEnvironmentVariable("OPEN_SPANNER_BASE_URL") ?? "http://localhost:18081",
+  };
+  var client = new OpenSpannerClient(adapter);
+
+  sealed class ApiKeyProvider(string apiKey) : IAccessTokenProvider
+  {
+      public AllowedHostsValidator AllowedHostsValidator { get; } = new();
+
+      public Task<string> GetAuthorizationTokenAsync(
+          Uri uri,
+          Dictionary<string, object>? additionalAuthenticationContext = null,
+          CancellationToken cancellationToken = default)
+      {
+          return Task.FromResult(apiKey);
+      }
+  }
+  ```
+
+</Tab>
+</Tabs>
+
+## Query Usage
+
+This query returns daily `api_requests` usage for one subject:
+
+<Tabs items={["cURL", "Go", "TypeScript", "Python", "C#"]}>
+<Tab value="cURL">
+
+  ```sh
+  curl "$BASE_URL/v1/usages?subject=org_123&meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z&bucket_size=day" \
+    -H "Authorization: Bearer $OPEN_SPANNER_API_KEY"
+  ```
+
+</Tab>
+<Tab value="Go">
+
+  ```go
+  buckets, err := api.Usages.SearchUsageBuckets(
+    usages.NewSearchUsageBucketsParams().WithRequest(&models.InternalMeteringAdaptersHTTPUsageSearchRequest{
+      Subject:    "org_123",
+      Meter:      "api_requests",
+      From:       "2026-06-01T00:00:00Z",
+      To:         "2026-06-10T00:00:00Z",
+      BucketSize: "day",
+      Limit:      100,
+    }),
+  )
+  if err != nil {
+    panic(err)
+  }
+
+  for _, bucket := range buckets.Payload {
+    fmt.Println(bucket.BucketStart, bucket.Quantity)
+  }
+  ```
+
+</Tab>
+<Tab value="TypeScript">
+
+  ```ts
+  const { data: buckets } = await searchUsageBuckets({
+    body: {
+      subject: "org_123",
+      meter: "api_requests",
+      from: "2026-06-01T00:00:00Z",
+      to: "2026-06-10T00:00:00Z",
+      bucket_size: "day",
+      limit: 100,
+    },
+    throwOnError: true,
+  });
+
+  for (const bucket of buckets ?? []) {
+    console.log(bucket.bucket_start, bucket.quantity);
+  }
+  ```
+
+</Tab>
+<Tab value="Python">
+
+  ```python
+  buckets = search_usage_buckets.sync(
+      client=client,
+      body=InternalMeteringAdaptersHttpUsageSearchRequest(
+          subject="org_123",
+          meter="api_requests",
+          from_="2026-06-01T00:00:00Z",
+          to="2026-06-10T00:00:00Z",
+          bucket_size="day",
+          limit=100,
+      ),
+  )
+
+  for bucket in buckets or []:
+      print(bucket.bucket_start, bucket.quantity)
+  ```
+
+</Tab>
+<Tab value="C#">
+
+  ```csharp
+  var buckets = await client.V1.Usages.Search.PostAsync(new SearchRequest
+  {
+      Subject = "org_123",
+      Meter = "api_requests",
+      From = "2026-06-01T00:00:00Z",
+      To = "2026-06-10T00:00:00Z",
+      BucketSize = "day",
+      Limit = 100,
+  });
+
+  if (buckets is not null)
+  {
+      foreach (var bucket in buckets)
+      {
+          Console.WriteLine($"{bucket.BucketStart} {bucket.Quantity}");
+      }
+  }
+  ```
+
+</Tab>
+</Tabs>
 
 Use `group_by=subject` when you want one bucket row per subject in the same response. For richer filters or grouping, use `POST /v1/usages/search` or the dashboard usage page.

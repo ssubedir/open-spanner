@@ -21,7 +21,7 @@ No. Open Spanner records and aggregates usage. Billing, invoicing, entitlements,
 
 ## Does Open Spanner support gRPC or streaming?
 
-Not today. The current public client surface is REST plus generated SDK packages.
+Yes, for trusted backend usage ingestion. Use REST and the generated SDK clients for setup, querying, exports, and meter management; use the gRPC stream client when a backend service needs to continuously emit usage.
 
 ## Which database should I use?
 

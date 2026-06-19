@@ -13,16 +13,106 @@ Open Spanner SDKs are for backend services that need to create meters, report us
 | C# | `OpenSpanner` | `dotnet add package OpenSpanner` |
 | Java | Coming soon | Coming soon |
 
-## Runnable Examples
+## Quick Example
 
-The canonical SDK examples live in the repository under `/examples`:
+These snippets assume `OPEN_SPANNER_API_KEY` contains an API key created from the dashboard.
 
-| Language | Example |
-| --- | --- |
-| Go | [`examples/basic/go`](https://github.com/ssubedir/open-spanner/tree/main/examples/basic/go) |
-| TypeScript | [`examples/basic/typescript`](https://github.com/ssubedir/open-spanner/tree/main/examples/basic/typescript) |
-| Python | [`examples/basic/python`](https://github.com/ssubedir/open-spanner/tree/main/examples/basic/python) |
-| C# | [`examples/basic/csharp`](https://github.com/ssubedir/open-spanner/tree/main/examples/basic/csharp) |
+<Tabs items={["Go", "TypeScript", "Python", "C#"]}>
+<Tab value="Go">
+
+  ```go
+  transport := httptransport.New("localhost:18081", client.DefaultBasePath, []string{"http"})
+  transport.DefaultAuthentication = httptransport.BearerToken(os.Getenv("OPEN_SPANNER_API_KEY"))
+  api := client.New(transport, strfmt.Default)
+
+  _, err := api.Usages.CreateUsage(
+    usages.NewCreateUsageParams().WithRequest(&models.UsageCreateRequest{
+      IdempotencyKey: "usage_001",
+      Subject:        "org_123",
+      Meter:          "api_requests",
+      Quantity:       1,
+      Metadata: map[string]any{
+        "endpoint": "/v1/orders",
+        "region":   "us-east",
+      },
+    }),
+  )
+  ```
+
+</Tab>
+<Tab value="TypeScript">
+
+  ```ts
+  client.setConfig({
+    baseUrl: process.env.OPEN_SPANNER_BASE_URL ?? "http://localhost:18081",
+    headers: {
+      Authorization: `Bearer ${process.env.OPEN_SPANNER_API_KEY}`,
+    },
+  });
+
+  await createUsage({
+    body: {
+      idempotency_key: "usage_001",
+      subject: "org_123",
+      meter: "api_requests",
+      quantity: 1,
+      metadata: {
+        endpoint: "/v1/orders",
+        region: "us-east",
+      },
+    },
+    throwOnError: true,
+  });
+  ```
+
+</Tab>
+<Tab value="Python">
+
+  ```python
+  client = AuthenticatedClient(
+      base_url=os.environ.get("OPEN_SPANNER_BASE_URL", "http://localhost:18081"),
+      token=os.environ["OPEN_SPANNER_API_KEY"],
+      raise_on_unexpected_status=True,
+  )
+
+  metadata = UsageCreateRequestMetadata()
+  metadata["endpoint"] = "/v1/orders"
+  metadata["region"] = "us-east"
+
+  create_usage.sync(
+      client=client,
+      body=UsageCreateRequest(
+          idempotency_key="usage_001",
+          subject="org_123",
+          meter="api_requests",
+          quantity=1,
+          metadata=metadata,
+      ),
+  )
+  ```
+
+</Tab>
+<Tab value="C#">
+
+  ```csharp
+  var metadata = new UsageCreateRequest_metadata();
+  metadata.AdditionalData["endpoint"] = "/v1/orders";
+  metadata.AdditionalData["region"] = "us-east";
+
+  await client.V1.Usages.PostAsync(new UsageCreateRequest
+  {
+      IdempotencyKey = "usage_001",
+      Subject = "org_123",
+      Meter = "api_requests",
+      Quantity = 1,
+      Metadata = metadata,
+  });
+  ```
+
+</Tab>
+</Tabs>
+
+The full runnable projects are still available in the repository under `examples/rest/basic` and `examples/stream/basic`.
 
 ## Included Operations
 

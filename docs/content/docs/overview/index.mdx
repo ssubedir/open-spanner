@@ -26,4 +26,4 @@ The dashboard helps people set up and inspect the system. API keys and SDKs conn
 
 Open Spanner is not a payment processor, invoice generator, entitlement system, or customer identity provider. It gives those systems clean usage data to work with.
 
-It also does not expose gRPC or streaming ingestion today. The current public client surface is HTTP plus generated SDK packages.
+The main control-plane surface is HTTP plus generated SDK packages. gRPC is scoped to trusted backend usage ingestion.

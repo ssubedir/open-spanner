@@ -43,6 +43,23 @@ Alert destinations hold the webhook URL and signing secret. Rules reference a de
 
 For webhook destinations, the alert worker sends an HTTP `POST` when a rule creates a `triggered` or `resolved` event. The dashboard shows the signing secret only when a destination is created or rotated.
 
+Webhook requests include:
+
+| Header | Value |
+| --- | --- |
+| `Content-Type` | `application/json` |
+| `User-Agent` | `open-spanner-alert-worker` |
+| `X-Open-Spanner-Timestamp` | Unix timestamp used for signing. |
+| `X-Open-Spanner-Signature` | `v1=<hex-encoded-hmac-sha256>` when the destination has a signing secret. |
+
+The signature is computed over:
+
+```text
+<timestamp>.<raw_request_body>
+```
+
+Use the destination signing secret to verify the HMAC before trusting the webhook payload.
+
 The webhook payload includes the rule, current state, and event:
 
 ```json

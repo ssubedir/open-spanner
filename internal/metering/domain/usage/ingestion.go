@@ -13,6 +13,7 @@ type IngestionKind string
 const (
 	IngestionSingle IngestionKind = "single"
 	IngestionBulk   IngestionKind = "bulk"
+	IngestionStream IngestionKind = "stream"
 )
 
 type IngestionRun struct {
@@ -29,7 +30,7 @@ func NewIngestionRun(id string, kind IngestionKind, accepted int, duplicates int
 	if id == "" {
 		return IngestionRun{}, fmt.Errorf("%w: ingestion id is required", domain.ErrInvalidInput)
 	}
-	if kind != IngestionSingle && kind != IngestionBulk {
+	if kind != IngestionSingle && kind != IngestionBulk && kind != IngestionStream {
 		return IngestionRun{}, fmt.Errorf("%w: ingestion kind is invalid", domain.ErrInvalidInput)
 	}
 	if accepted < 0 || duplicates < 0 || failed < 0 {
