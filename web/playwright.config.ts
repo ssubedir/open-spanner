@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 const apiPort = Number(process.env.OPEN_SPANNER_E2E_API_PORT || 19183)
 const dbDriver = (process.env.OPEN_SPANNER_E2E_DB_DRIVER || 'sqlite').toLowerCase()
 const exportStoragePath = process.env.OPEN_SPANNER_E2E_EXPORT_STORAGE_PATH || resolve(import.meta.dirname, '../.tmp/e2e-exports')
+const grpcPort = Number(process.env.OPEN_SPANNER_E2E_GRPC_PORT || 19190)
 const postgresDSN = process.env.OPEN_SPANNER_E2E_POSTGRES_DSN || 'postgres://postgres:postgres@localhost:5432/open_spanner_e2e?sslmode=disable'
 const sqlitePath = process.env.OPEN_SPANNER_E2E_SQLITE_PATH || '.tmp/e2e-open-spanner.db'
 const webPort = Number(process.env.OPEN_SPANNER_E2E_WEB_PORT || 19173)
@@ -11,11 +12,13 @@ const webPort = Number(process.env.OPEN_SPANNER_E2E_WEB_PORT || 19173)
 const apiEnv = dbDriver === 'postgres'
   ? {
       OPEN_SPANNER_DB_DRIVER: 'postgres',
+      OPEN_SPANNER_GRPC_ADDR: `127.0.0.1:${grpcPort}`,
       OPEN_SPANNER_HTTP_ADDR: `127.0.0.1:${apiPort}`,
       OPEN_SPANNER_POSTGRES_DSN: postgresDSN,
     }
   : {
       OPEN_SPANNER_DB_DRIVER: 'sqlite',
+      OPEN_SPANNER_GRPC_ADDR: `127.0.0.1:${grpcPort}`,
       OPEN_SPANNER_HTTP_ADDR: `127.0.0.1:${apiPort}`,
       OPEN_SPANNER_SQLITE_PATH: sqlitePath,
     }

@@ -93,4 +93,19 @@ test.describe('Feature: Dashboard usage exploration', () => {
     const exportJob = await When.theServiceQueuesUsageExportJob(page, apiKey, scenario)
     await Then.queuedExportJobCompletesAndDownloads(page, apiKey, exportJob, scenario)
   })
+
+  test('Scenario: a user creates a scoped API key for one meter', async ({ page }) => {
+    const account = await Given.aDashboardAccount(page)
+    const meterName = `api_requests_scoped_key_${Date.now()}`
+
+    await When.theUserSignsIn(page, account)
+    await Then.theDashboardIsAvailable(page, account)
+
+    await When.theUserCreatesAnAPIRequestMeter(page, meterName)
+    const scopedKey = await When.theUserCreatesAScopedUsageWriteAPIKey(page, meterName)
+
+    await When.theScopedAPIKeyWritesAllowedUsage(page, scopedKey)
+    await When.theScopedAPIKeyAttemptsDeniedUsage(page, scopedKey)
+    await Then.scopedAPIKeyUsageWriteWasRecorded(page, scopedKey)
+  })
 })

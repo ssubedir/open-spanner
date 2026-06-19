@@ -20,6 +20,14 @@ export type UsageScenario = {
   to: string
 }
 
+export type ScopedAPIKeyScenario = {
+  allowedMeter: string
+  deniedMeter: string
+  key: string
+  name: string
+  subject: string
+}
+
 export type CSVDownload = {
   filename: string
   text: string
@@ -70,7 +78,10 @@ export const Given = {
 
   async anAPIKeyExists(page: Page): Promise<string> {
     const response = await page.request.post('/v1/auth/api-keys', {
-      data: { name: `e2e-export-${uniqueID()}` },
+      data: {
+        name: `e2e-export-${uniqueID()}`,
+        scopes: ['usage:read', 'exports:read', 'exports:write'],
+      },
     })
     expect(response.status()).toBe(201)
 
@@ -333,6 +344,90 @@ export const When = {
       return response.json() as Promise<ExportJobResponse>
     })
   },
+
+  async theUserCreatesAScopedUsageWriteAPIKey(page: Page, allowedMeter: string): Promise<ScopedAPIKeyScenario> {
+    const id = uniqueID()
+    const scenario = {
+      allowedMeter,
+      deniedMeter: `denied_api_requests_${id}`,
+      key: '',
+      name: `usage-writer-${id}`,
+      subject: `org_scoped_key_${id}`,
+    }
+
+    await page.goto('/api-keys')
+    await expect(page.getByRole('heading', { name: 'SDK access' })).toBeVisible()
+    await page.getByRole('button', { name: 'New key' }).click()
+    await expect(page.getByRole('dialog', { name: 'Create API Key' })).toBeVisible()
+
+    await page.locator('input[name="name"]').fill(scenario.name)
+    await setScope(page, 'usage:write', true)
+    await setScope(page, 'usage:read', false)
+    await setScope(page, 'meters:read', false)
+    await setScope(page, 'meters:write', false)
+    await page.locator('textarea[name="allowed_meters"]').fill(allowedMeter)
+    await page.getByRole('button', { name: 'Create key' }).click()
+
+    const secretPanel = page.locator('section[aria-label="Created API key"]')
+    await expect(secretPanel).toBeVisible()
+    await expect(secretPanel).toContainText(scenario.name)
+    const key = (await secretPanel.locator('code').textContent())?.trim()
+    expect(key).toBeTruthy()
+    scenario.key = key || ''
+
+    const table = page.locator('.api-key-table-card')
+    await expect(table).toContainText(scenario.name)
+    await expect(table).toContainText('usage:write')
+    await expect(table).toContainText(`meters: ${allowedMeter}`)
+
+    return scenario
+  },
+
+  async theScopedAPIKeyWritesAllowedUsage(page: Page, scenario: ScopedAPIKeyScenario) {
+    await withAPIKeyContext(page, scenario.key, async (api) => {
+      const response = await api.post('/v1/usages', {
+        data: {
+          idempotency_key: `scoped-key-allowed-${uniqueID()}`,
+          metadata: {
+            'region-name': 'us-east-1',
+            service: { tier: 'gold' },
+            status_code: '200',
+          },
+          meter: scenario.allowedMeter,
+          quantity: 1,
+          subject: scenario.subject,
+          timestamp: new Date().toISOString(),
+        },
+      })
+      expect(response.status()).toBe(201)
+    })
+  },
+
+  async theScopedAPIKeyAttemptsDeniedUsage(page: Page, scenario: ScopedAPIKeyScenario) {
+    await withAPIKeyContext(page, scenario.key, async (api) => {
+      const writeResponse = await api.post('/v1/usages', {
+        data: {
+          idempotency_key: `scoped-key-denied-${uniqueID()}`,
+          metadata: { endpoint: '/denied' },
+          meter: scenario.deniedMeter,
+          quantity: 1,
+          subject: scenario.subject,
+          timestamp: new Date().toISOString(),
+        },
+      })
+      expect(writeResponse.status()).toBe(403)
+
+      const readQuery = new URLSearchParams({
+        bucket_size: 'day',
+        from: new Date(Date.now() - 60 * 60_000).toISOString(),
+        limit: '100',
+        meter: scenario.allowedMeter,
+        to: new Date(Date.now() + 60 * 60_000).toISOString(),
+      })
+      const readResponse = await api.get(`/v1/usages?${readQuery.toString()}`)
+      expect(readResponse.status()).toBe(403)
+    })
+  },
 }
 
 export const Then = {
@@ -549,6 +644,30 @@ export const Then = {
     expect(response.text).toContain(',12,')
     expect(response.text).not.toContain('silver')
   },
+
+  async scopedAPIKeyUsageWriteWasRecorded(page: Page, scenario: ScopedAPIKeyScenario) {
+    await page.goto('/usage')
+    await expect(page.getByRole('heading', { name: 'Usage buckets' })).toBeVisible()
+    await selectMeterFilter(page, scenario.allowedMeter)
+    await setUsageDateRange(page, {
+      from: toLocalDateTime(new Date(Date.now() - 60 * 60_000)),
+      meterName: scenario.allowedMeter,
+      primarySubject: scenario.subject,
+      timestamp: new Date().toISOString(),
+      to: toLocalDateTime(new Date(Date.now() + 60 * 60_000)),
+    })
+    await page.getByRole('button', { name: 'Run Query' }).click()
+
+    const results = page.locator('.usage-results-card')
+    await expect(results).toContainText(scenario.allowedMeter)
+    await expect(results).toContainText('1')
+
+    await page.getByRole('button', { name: 'View Events' }).click()
+    const events = page.locator('.usage-events-card')
+    await expect(events).toContainText(scenario.allowedMeter)
+    await expect(events).toContainText(scenario.subject)
+    await expect(events).toContainText('1')
+  },
 }
 
 async function fillDimension(
@@ -600,6 +719,15 @@ async function setRuleValue(row: ReturnType<Page['locator']>, value: string) {
     return
   }
   await valueControl.fill(value)
+}
+
+async function setScope(page: Page, scope: string, enabled: boolean) {
+  const checkbox = page.locator(`input[name="scopes"][value="${scope}"]`)
+  if (enabled) {
+    await checkbox.check()
+    return
+  }
+  await checkbox.uncheck()
 }
 
 async function queryRulePairs(page: Page) {
