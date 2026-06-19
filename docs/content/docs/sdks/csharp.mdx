@@ -9,16 +9,68 @@ Install:
 dotnet add package OpenSpanner
 ```
 
-## Runnable Example
+## Example
 
-Use the repository example as the canonical C# sample:
+Create a meter and record usage from a trusted .NET service:
 
-- Example project: [`examples/basic/csharp`](https://github.com/ssubedir/open-spanner/tree/main/examples/basic/csharp)
-- Source file: [`examples/basic/csharp/Program.cs`](https://github.com/ssubedir/open-spanner/blob/main/examples/basic/csharp/Program.cs)
+```csharp
+using Microsoft.Kiota.Abstractions.Authentication;
+using Microsoft.Kiota.Http.HttpClientLibrary;
+using OpenSpanner;
+using OpenSpanner.Models;
 
-```sh
-cd examples/basic/csharp
-dotnet run --project OpenSpanner.Example.csproj
+var authProvider = new BaseBearerTokenAuthenticationProvider(
+    new ApiKeyProvider(Environment.GetEnvironmentVariable("OPEN_SPANNER_API_KEY")!)
+);
+var adapter = new HttpClientRequestAdapter(authProvider)
+{
+    BaseUrl = Environment.GetEnvironmentVariable("OPEN_SPANNER_BASE_URL") ?? "http://localhost:18081",
+};
+var client = new OpenSpannerClient(adapter);
+
+var meterName = "api_requests";
+
+await client.V1.Meters.PostAsync(new MeterCreateRequest
+{
+    Name = meterName,
+    Description = "API requests served",
+    Unit = "request",
+    Aggregation = "sum",
+    EventRetentionDays = 90,
+});
+
+var metadata = new UsageCreateRequest_metadata();
+metadata.AdditionalData["endpoint"] = "/v1/orders";
+metadata.AdditionalData["region"] = "us-east";
+
+await client.V1.Usages.PostAsync(new UsageCreateRequest
+{
+    IdempotencyKey = Guid.NewGuid().ToString(),
+    Subject = "org_123",
+    Meter = meterName,
+    Quantity = 1,
+    Metadata = metadata,
+});
+
+sealed class ApiKeyProvider(string apiKey) : IAccessTokenProvider
+{
+    public AllowedHostsValidator AllowedHostsValidator { get; } = new();
+
+    public Task<string> GetAuthorizationTokenAsync(
+        Uri uri,
+        Dictionary<string, object>? additionalAuthenticationContext = null,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(apiKey);
+    }
+}
 ```
 
-Create an API key in the dashboard first, then replace the `osp_...` placeholder in `Program.cs`. Set `OPEN_SPANNER_BASE_URL` when your service is not running at `http://localhost:18081`.
+Create an API key in the dashboard first and expose it to your backend process as `OPEN_SPANNER_API_KEY`.
+
+## Run The Full Example
+
+```sh
+cd examples/rest/basic/csharp
+dotnet run --project OpenSpanner.Example.csproj
+```

@@ -1,0 +1,23 @@
+version: v2
+
+plugins:
+  - remote: buf.build/protocolbuffers/go:v1.36.11
+    out: .
+    opt:
+      - module=github.com/ssubedir/open-spanner
+  - remote: buf.build/grpc/go:v1.5.1
+    out: .
+    opt:
+      - module=github.com/ssubedir/open-spanner
+      - require_unimplemented_servers=false
+  - remote: buf.build/protocolbuffers/go:v1.36.11
+    out: sdk/go
+    opt:
+      - module=github.com/ssubedir/open-spanner/sdk/go
+      - Mopen_spanner/v1/usage.proto=github.com/ssubedir/open-spanner/sdk/go/grpc/pb
+  - remote: buf.build/grpc/go:v1.5.1
+    out: sdk/go
+    opt:
+      - module=github.com/ssubedir/open-spanner/sdk/go
+      - require_unimplemented_servers=false
+      - Mopen_spanner/v1/usage.proto=github.com/ssubedir/open-spanner/sdk/go/grpc/pb

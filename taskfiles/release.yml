@@ -13,9 +13,10 @@ tasks:
     cmds:
       - task: test
       - task: test:examples
+      - task: test:sdk
       - task: sqlc:check
       - task: sdk:go:check
       - task: sdk:typescript:check
       - task: sdk:python:pack
       - task: sdk:csharp:pack
-      - git diff --exit-code openapi sdk/go sdk/typescript sdk/python sdk/python-client.yml sdk/csharp examples dotnet-tools.json
+      - git diff --exit-code openapi sdk/go sdk/typescript sdk/python sdk/python-client.yml sdk/csharp sdk-test examples dotnet-tools.json

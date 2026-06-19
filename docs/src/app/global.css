@@ -2,8 +2,71 @@
 @import 'fumadocs-ui/css/neutral.css';
 @import 'fumadocs-ui/css/preset.css';
 
+@theme {
+  --color-fd-background: hsl(190, 45%, 98%);
+  --color-fd-foreground: hsl(217, 36%, 13%);
+  --color-fd-primary: hsl(174, 72%, 32%);
+  --color-fd-primary-foreground: hsl(180, 60%, 98%);
+  --color-fd-ring: hsl(174, 72%, 38%);
+  --color-fd-accent: hsl(207, 88%, 95%);
+  --color-fd-accent-foreground: hsl(215, 54%, 24%);
+  --color-fd-muted: hsl(190, 38%, 94%);
+  --color-fd-muted-foreground: hsl(215, 19%, 42%);
+  --color-fd-secondary: hsl(178, 38%, 91%);
+  --color-fd-secondary-foreground: hsl(180, 54%, 18%);
+  --color-fd-border: hsla(204, 42%, 72%, 0.55);
+  --color-fd-card: hsl(0, 0%, 100%);
+  --color-fd-card-foreground: hsl(217, 36%, 13%);
+  --color-fd-popover: hsl(0, 0%, 100%);
+  --color-fd-popover-foreground: hsl(217, 36%, 13%);
+}
+
+.dark {
+  --color-fd-background: hsl(218, 42%, 8%);
+  --color-fd-foreground: hsl(190, 36%, 93%);
+  --color-fd-primary: hsl(174, 70%, 56%);
+  --color-fd-primary-foreground: hsl(218, 44%, 8%);
+  --color-fd-ring: hsl(174, 70%, 56%);
+  --color-fd-accent: hsl(213, 42%, 18%);
+  --color-fd-accent-foreground: hsl(188, 55%, 88%);
+  --color-fd-muted: hsl(218, 34%, 13%);
+  --color-fd-muted-foreground: hsl(209, 23%, 68%);
+  --color-fd-secondary: hsl(215, 36%, 17%);
+  --color-fd-secondary-foreground: hsl(190, 36%, 93%);
+  --color-fd-border: hsla(190, 35%, 42%, 0.32);
+  --color-fd-card: hsl(218, 38%, 10%);
+  --color-fd-card-foreground: hsl(190, 36%, 93%);
+  --color-fd-popover: hsl(218, 38%, 10%);
+  --color-fd-popover-foreground: hsl(190, 36%, 93%);
+}
+
 html {
   scrollbar-gutter: stable;
+}
+
+body {
+  background-image:
+    linear-gradient(180deg, hsla(174, 72%, 32%, 0.08), transparent 20rem),
+    linear-gradient(90deg, hsla(207, 88%, 62%, 0.06), transparent 42rem);
+  background-repeat: no-repeat;
+}
+
+.dark body {
+  background-image:
+    linear-gradient(180deg, hsla(174, 70%, 56%, 0.12), transparent 22rem),
+    linear-gradient(90deg, hsla(222, 70%, 58%, 0.08), transparent 42rem);
+}
+
+::selection {
+  background: hsla(174, 72%, 32%, 0.22);
+}
+
+#nd-sidebar {
+  background: color-mix(in oklab, var(--color-fd-background) 88%, transparent);
+}
+
+#nd-toc {
+  color: var(--color-fd-muted-foreground);
 }
 
 html > body[data-scroll-locked] {

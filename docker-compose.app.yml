@@ -6,6 +6,7 @@ services:
       dockerfile: Dockerfile
     environment:
       OPEN_SPANNER_HTTP_ADDR: :18081
+      OPEN_SPANNER_GRPC_ADDR: :18090
       OPEN_SPANNER_DB_DRIVER: postgres
       OPEN_SPANNER_POSTGRES_DSN: postgres://open_spanner:${OPEN_SPANNER_POSTGRES_PASSWORD:-open_spanner}@postgres:5432/open_spanner?sslmode=disable
       OPEN_SPANNER_EXPORT_STORAGE_PATH: /data/exports
@@ -23,6 +24,7 @@ services:
       start_period: 5s
     ports:
       - "${OPEN_SPANNER_HTTP_PORT:-18081}:18081"
+      - "${OPEN_SPANNER_GRPC_PORT:-18090}:18090"
     restart: unless-stopped
 
   export-worker:

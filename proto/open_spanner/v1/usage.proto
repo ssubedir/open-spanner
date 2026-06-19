@@ -1,0 +1,77 @@
+syntax = "proto3";
+
+package open_spanner.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/ssubedir/open-spanner/internal/metering/adapters/grpc/pb;pb";
+
+service UsageService {
+  rpc CreateUsage(CreateUsageRequest) returns (CreateUsageResponse);
+
+  rpc CreateUsageBulk(CreateUsageBulkRequest) returns (CreateUsageBulkResponse);
+
+  rpc StreamUsage(stream StreamUsageRequest) returns (StreamUsageResponse);
+}
+
+message UsageEventInput {
+  string idempotency_key = 1;
+  string subject = 2;
+  string meter = 3;
+  double quantity = 4;
+  google.protobuf.Timestamp timestamp = 5;
+  map<string, google.protobuf.Value> metadata = 6;
+}
+
+message UsageEvent {
+  string id = 1;
+  string idempotency_key = 2;
+  string subject = 3;
+  string meter = 4;
+  double quantity = 5;
+  google.protobuf.Timestamp timestamp = 6;
+  google.protobuf.Timestamp received_at = 7;
+  map<string, google.protobuf.Value> metadata = 8;
+}
+
+message BulkFailure {
+  int32 index = 1;
+  string code = 2;
+  string message = 3;
+}
+
+message CreateUsageRequest {
+  UsageEventInput event = 1;
+}
+
+message CreateUsageResponse {
+  UsageEvent event = 1;
+}
+
+message CreateUsageBulkRequest {
+  string idempotency_key = 1;
+  repeated UsageEventInput events = 2;
+}
+
+message CreateUsageBulkResponse {
+  int32 accepted_count = 1;
+  int32 duplicate_count = 2;
+  int32 failed_count = 3;
+  repeated UsageEvent accepted = 4;
+  repeated UsageEvent duplicates = 5;
+  repeated BulkFailure failed = 6;
+}
+
+message StreamUsageRequest {
+  UsageEventInput event = 1;
+}
+
+message StreamUsageResponse {
+  int32 accepted_count = 1;
+  int32 duplicate_count = 2;
+  int32 failed_count = 3;
+  repeated UsageEvent accepted = 4;
+  repeated UsageEvent duplicates = 5;
+  repeated BulkFailure failed = 6;
+}

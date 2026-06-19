@@ -30,7 +30,7 @@ import (
 type App struct {
 	UsageService      appusage.Service
 	AlertService      appalert.Service
-	authService       appauth.Service
+	AuthService       appauth.Service
 	meterService      appmeter.Service
 	savedQueryService appsavedquery.Service
 	subjectService    appsubject.Service
@@ -85,7 +85,7 @@ func NewApp(ctx context.Context, cfg config.Config) (*App, error) {
 	return &App{
 		UsageService:      usageService,
 		AlertService:      alertService,
-		authService:       authService,
+		AuthService:       authService,
 		meterService:      meterService,
 		savedQueryService: savedQueryService,
 		subjectService:    subjectService,
@@ -102,7 +102,7 @@ func RegisterRoutes(ctx context.Context, router chi.Router, cfg config.Config) (
 	}
 
 	router.Route("/v1", func(r chi.Router) {
-		authHandler := httpauth.NewHandler(app.authService)
+		authHandler := httpauth.NewHandler(app.AuthService)
 		authHandler.RegisterRoutes(r)
 		r.Group(func(dashboard chi.Router) {
 			dashboard.Use(authHandler.RequireSession)

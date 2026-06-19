@@ -9,16 +9,110 @@ Install:
 go get github.com/ssubedir/open-spanner/sdk/go@latest
 ```
 
-## Runnable Example
+## REST Example
 
-Use the repository example as the canonical Go sample:
+Create a meter and record usage from a trusted Go service:
 
-- Example project: [`examples/basic/go`](https://github.com/ssubedir/open-spanner/tree/main/examples/basic/go)
-- Source file: [`examples/basic/go/main.go`](https://github.com/ssubedir/open-spanner/blob/main/examples/basic/go/main.go)
+```go
+package main
 
-```sh
-cd examples/basic/go
-go run main.go
+import (
+	"os"
+
+	httptransport "github.com/go-openapi/runtime/client"
+	"github.com/go-openapi/strfmt"
+
+	"github.com/ssubedir/open-spanner/sdk/go/client"
+	"github.com/ssubedir/open-spanner/sdk/go/client/meters"
+	"github.com/ssubedir/open-spanner/sdk/go/client/usages"
+	"github.com/ssubedir/open-spanner/sdk/go/models"
+)
+
+func main() {
+	transport := httptransport.New("localhost:18081", client.DefaultBasePath, []string{"http"})
+	transport.DefaultAuthentication = httptransport.BearerToken(os.Getenv("OPEN_SPANNER_API_KEY"))
+	api := client.New(transport, strfmt.Default)
+
+	meterName := "api_requests"
+
+	if _, err := api.Meters.CreateMeter(
+		meters.NewCreateMeterParams().WithRequest(&models.MeterCreateRequest{
+			Name:               meterName,
+			Description:        "API requests served",
+			Unit:               "request",
+			Aggregation:        "sum",
+			EventRetentionDays: 90,
+		}),
+	); err != nil {
+		panic(err)
+	}
+
+	if _, err := api.Usages.CreateUsage(
+		usages.NewCreateUsageParams().WithRequest(&models.UsageCreateRequest{
+			IdempotencyKey: "usage_001",
+			Subject:        "org_123",
+			Meter:          meterName,
+			Quantity:       1,
+			Metadata: map[string]any{
+				"endpoint": "/v1/orders",
+				"region":   "us-east",
+			},
+		}),
+	); err != nil {
+		panic(err)
+	}
+}
 ```
 
-Create an API key in the dashboard first, then replace the `osp_...` placeholder in `main.go`. Set `OPEN_SPANNER_BASE_URL` when your service is not running at `http://localhost:18081`.
+Create an API key in the dashboard first and expose it to your backend process as `OPEN_SPANNER_API_KEY`.
+
+## gRPC Stream Example
+
+Use the stream client when a backend service continuously emits usage:
+
+```go
+package main
+
+import (
+	"context"
+	"os"
+	"time"
+
+	"github.com/ssubedir/open-spanner/sdk/go/stream"
+)
+
+func main() {
+	ctx := context.Background()
+
+	client, err := stream.NewClient("localhost:18090", os.Getenv("OPEN_SPANNER_API_KEY"))
+	if err != nil {
+		panic(err)
+	}
+	defer client.Close()
+
+	_, err = client.Track(ctx, stream.Event{
+		IdempotencyKey: "stream_usage_001",
+		Subject:        "org_123",
+		Meter:          "api_requests",
+		Quantity:       1,
+		Timestamp:      time.Now().UTC(),
+		Metadata: map[string]any{
+			"endpoint": "/v1/orders",
+			"region":   "us-east",
+		},
+	})
+	if err != nil {
+		panic(err)
+	}
+}
+```
+
+## Run The Full Examples
+
+```sh
+cd examples/rest/basic/go
+go run main.go
+
+cd examples/stream/basic/go
+go run main.go
+```

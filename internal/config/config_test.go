@@ -20,6 +20,9 @@ func TestLoadDefaultsToSQLite(t *testing.T) {
 	if cfg.SQLitePath != "open-spanner.db" {
 		t.Fatalf("sqlite path = %q, want open-spanner.db", cfg.SQLitePath)
 	}
+	if cfg.GRPCAddr != ":18090" {
+		t.Fatalf("grpc addr = %q, want :18090", cfg.GRPCAddr)
+	}
 	if cfg.RetentionPruneInterval != time.Hour {
 		t.Fatalf("retention interval = %s, want 1h", cfg.RetentionPruneInterval)
 	}
@@ -103,6 +106,7 @@ func clearEnv(t *testing.T) {
 
 	for _, key := range []string{
 		"OPEN_SPANNER_HTTP_ADDR",
+		"OPEN_SPANNER_GRPC_ADDR",
 		"OPEN_SPANNER_DB_DRIVER",
 		"OPEN_SPANNER_SQLITE_PATH",
 		"OPEN_SPANNER_POSTGRES_DSN",

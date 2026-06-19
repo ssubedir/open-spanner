@@ -9,17 +9,54 @@ Install:
 npm install @ssubedir/open-spanner
 ```
 
-## Runnable Example
+## Example
 
-Use the repository example as the canonical TypeScript sample:
+Create a meter and record usage from a trusted Node.js service:
 
-- Example project: [`examples/basic/typescript`](https://github.com/ssubedir/open-spanner/tree/main/examples/basic/typescript)
-- Source file: [`examples/basic/typescript/basic.ts`](https://github.com/ssubedir/open-spanner/blob/main/examples/basic/typescript/basic.ts)
+```ts
+import { client, createMeter, createUsage } from "@ssubedir/open-spanner";
+
+client.setConfig({
+  baseUrl: process.env.OPEN_SPANNER_BASE_URL ?? "http://localhost:18081",
+  headers: {
+    Authorization: `Bearer ${process.env.OPEN_SPANNER_API_KEY}`,
+  },
+});
+
+const meterName = "api_requests";
+
+await createMeter({
+  body: {
+    name: meterName,
+    description: "API requests served",
+    unit: "request",
+    aggregation: "sum",
+    event_retention_days: 90,
+  },
+  throwOnError: true,
+});
+
+await createUsage({
+  body: {
+    idempotency_key: crypto.randomUUID(),
+    subject: "org_123",
+    meter: meterName,
+    quantity: 1,
+    metadata: {
+      endpoint: "/v1/orders",
+      region: "us-east",
+    },
+  },
+  throwOnError: true,
+});
+```
+
+Create an API key in the dashboard first and expose it to your backend process as `OPEN_SPANNER_API_KEY`.
+
+## Run The Full Example
 
 ```sh
-cd examples/basic/typescript
+cd examples/rest/basic/typescript
 npm install
 npm run start
 ```
-
-Create an API key in the dashboard first, then replace the `osp_...` placeholder in `basic.ts`. Set `OPEN_SPANNER_BASE_URL` when your service is not running at `http://localhost:18081`.

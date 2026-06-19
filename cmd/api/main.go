@@ -2,18 +2,22 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
+	"net"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/ssubedir/open-spanner/internal/config"
+	grpcadapter "github.com/ssubedir/open-spanner/internal/metering/adapters/grpc"
 	"github.com/ssubedir/open-spanner/internal/metering/bootstrap"
 	"github.com/ssubedir/open-spanner/internal/metering/workers/retention"
 	serverhttp "github.com/ssubedir/open-spanner/internal/server/http"
 	"github.com/ssubedir/open-spanner/internal/ui"
 	swaggerdocs "github.com/ssubedir/open-spanner/openapi"
+	"google.golang.org/grpc"
 )
 
 // @title Open Spanner API
@@ -43,6 +47,18 @@ func main() {
 		log.Printf("sqlite path: %s", cfg.SQLitePath)
 	}
 
+	grpcListener, err := net.Listen("tcp", cfg.GRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to listen for grpc: %v", err)
+	}
+	grpcServer := grpcadapter.NewServer(app.UsageService, app.AlertService, app.AuthService)
+	go func() {
+		log.Printf("grpc listening on %s", cfg.GRPCAddr)
+		if err := grpcServer.Serve(grpcListener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
+			log.Printf("grpc server stopped: %v", err)
+		}
+	}()
+
 	stopRetention := func() {}
 	if cfg.RetentionPruneEnabled {
 		log.Printf("retention prune worker enabled: interval=%s timeout=%s", cfg.RetentionPruneInterval, cfg.RetentionPruneTimeout)
@@ -50,6 +66,7 @@ func main() {
 	}
 
 	cleanup := func() error {
+		grpcServer.GracefulStop()
 		stopRetention()
 		return app.Cleanup()
 	}
