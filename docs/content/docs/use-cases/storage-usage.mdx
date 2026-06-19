@@ -35,4 +35,43 @@ This lets you answer:
 
 ## Example
 
-See [`examples/rest/advance/storage-usage`](https://github.com/ssubedir/open-spanner/tree/main/examples/rest/advance/storage-usage) for Go, TypeScript, Python, and C# examples.
+Create a storage meter. Use `last` for snapshots or `sum` for deltas:
+
+```sh
+curl -X POST "$OPEN_SPANNER_BASE_URL/v1/meters" \
+  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "storage_gb",
+    "description": "Observed storage capacity",
+    "unit": "gb",
+    "aggregation": "last",
+    "event_retention_days": 365,
+    "dimensions": [
+      { "name": "tier", "type": "string" },
+      { "name": "region", "type": "string" },
+      { "name": "resource_type", "type": "string" },
+      { "name": "storage_class", "type": "string" }
+    ]
+  }'
+```
+
+Record a capacity snapshot:
+
+```sh
+curl -X POST "$OPEN_SPANNER_BASE_URL/v1/usages" \
+  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "idempotency_key": "storage_org_123_2026_06_19",
+    "subject": "org_123",
+    "meter": "storage_gb",
+    "quantity": 482.7,
+    "metadata": {
+      "tier": "enterprise",
+      "region": "us-east",
+      "resource_type": "object",
+      "storage_class": "hot"
+    }
+  }'
+```

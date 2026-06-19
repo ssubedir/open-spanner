@@ -35,4 +35,43 @@ This lets you answer:
 
 ## Example
 
-See [`examples/rest/advance/active-users`](https://github.com/ssubedir/open-spanner/tree/main/examples/rest/advance/active-users) for Go, TypeScript, Python, and C# examples.
+Create a meter for activity events:
+
+```sh
+curl -X POST "$OPEN_SPANNER_BASE_URL/v1/meters" \
+  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "active_users",
+    "description": "Meaningful user activity",
+    "unit": "user",
+    "aggregation": "sum",
+    "event_retention_days": 180,
+    "dimensions": [
+      { "name": "plan", "type": "string" },
+      { "name": "workspace", "type": "string" },
+      { "name": "role", "type": "string" },
+      { "name": "source", "type": "string" }
+    ]
+  }'
+```
+
+Record one active-user event when a user performs a billable or reportable action:
+
+```sh
+curl -X POST "$OPEN_SPANNER_BASE_URL/v1/usages" \
+  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "idempotency_key": "active_org_123_user_456_2026_06_19",
+    "subject": "org_123",
+    "meter": "active_users",
+    "quantity": 1,
+    "metadata": {
+      "plan": "enterprise",
+      "workspace": "workspace_456",
+      "role": "admin",
+      "source": "dashboard"
+    }
+  }'
+```

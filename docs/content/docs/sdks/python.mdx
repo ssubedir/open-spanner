@@ -9,16 +9,61 @@ Install:
 pip install open-spanner
 ```
 
-## Runnable Example
+## Example
 
-Use the repository example as the canonical Python sample:
+Create a meter and record usage from a trusted Python service or job:
 
-- Example project: [`examples/rest/basic/python`](https://github.com/ssubedir/open-spanner/tree/main/examples/rest/basic/python)
-- Source file: [`examples/rest/basic/python/basic.py`](https://github.com/ssubedir/open-spanner/blob/main/examples/rest/basic/python/basic.py)
+```python
+import os
+import uuid
+
+from open_spanner_client import AuthenticatedClient
+from open_spanner_client.api.meters import create_meter
+from open_spanner_client.api.usages import create_usage
+from open_spanner_client.models.meter_create_request import MeterCreateRequest
+from open_spanner_client.models.usage_create_request import UsageCreateRequest
+from open_spanner_client.models.usage_create_request_metadata import UsageCreateRequestMetadata
+
+client = AuthenticatedClient(
+    base_url=os.environ.get("OPEN_SPANNER_BASE_URL", "http://localhost:18081"),
+    token=os.environ["OPEN_SPANNER_API_KEY"],
+    raise_on_unexpected_status=True,
+)
+
+meter_name = "api_requests"
+
+create_meter.sync(
+    client=client,
+    body=MeterCreateRequest(
+        name=meter_name,
+        description="API requests served",
+        unit="request",
+        aggregation="sum",
+        event_retention_days=90,
+    ),
+)
+
+metadata = UsageCreateRequestMetadata()
+metadata["endpoint"] = "/v1/orders"
+metadata["region"] = "us-east"
+
+create_usage.sync(
+    client=client,
+    body=UsageCreateRequest(
+        idempotency_key=str(uuid.uuid4()),
+        subject="org_123",
+        meter=meter_name,
+        quantity=1,
+        metadata=metadata,
+    ),
+)
+```
+
+Create an API key in the dashboard first and expose it to your backend process as `OPEN_SPANNER_API_KEY`.
+
+## Run The Full Example
 
 ```sh
 cd examples/rest/basic/python
 uv run python basic.py
 ```
-
-Create an API key in the dashboard first, then replace the `osp_...` placeholder in `basic.py`. Set `OPEN_SPANNER_BASE_URL` when your service is not running at `http://localhost:18081`.

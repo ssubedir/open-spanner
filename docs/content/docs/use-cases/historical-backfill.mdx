@@ -29,4 +29,46 @@ This lets you:
 
 ## Example
 
-See [`examples/rest/advance/historical-backfill`](https://github.com/ssubedir/open-spanner/tree/main/examples/rest/advance/historical-backfill) for Go, TypeScript, Python, and C# examples.
+Create or reuse the same meter you will use for live traffic:
+
+```sh
+curl -X POST "$OPEN_SPANNER_BASE_URL/v1/meters" \
+  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "api_requests",
+    "description": "Accepted API requests",
+    "unit": "request",
+    "aggregation": "sum",
+    "event_retention_days": 365,
+    "dimensions": [
+      { "name": "source", "type": "string" },
+      { "name": "import_batch", "type": "string" },
+      { "name": "region", "type": "string" },
+      { "name": "plan", "type": "string" }
+    ]
+  }'
+```
+
+Backfill events with original timestamps and deterministic idempotency keys:
+
+```sh
+curl -X POST "$OPEN_SPANNER_BASE_URL/v1/usages" \
+  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "idempotency_key": "legacy_billing:org_123:api_requests:row_98765",
+    "subject": "org_123",
+    "meter": "api_requests",
+    "quantity": 42,
+    "timestamp": "2026-01-15T12:00:00Z",
+    "metadata": {
+      "source": "legacy_billing",
+      "import_batch": "2026_q1_backfill",
+      "region": "us-east",
+      "plan": "enterprise"
+    }
+  }'
+```
+
+For larger imports, use bulk ingestion with a stable batch-level `Idempotency-Key` header and stable per-event `idempotency_key` values.

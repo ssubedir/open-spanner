@@ -36,24 +36,24 @@ Open Spanner is useful whenever your product needs a trusted record of usage: bi
   </Card>
 </Cards>
 
-## Example Projects
+## In-Doc Examples
 
-Each advanced example is an isolated project with Go, TypeScript, Python, and C# implementations. Start with the use-case docs, then open the matching folder in [`examples/rest/advance`](https://github.com/ssubedir/open-spanner/tree/main/examples/rest/advance).
+Each use-case guide includes the meter definition, usage payload, and the dimensions that matter for that scenario.
 
 | Use case | Example |
 | --- | --- |
-| API request metering | [`examples/rest/advance/api-requests`](https://github.com/ssubedir/open-spanner/tree/main/examples/rest/advance/api-requests) |
-| Active users | [`examples/rest/advance/active-users`](https://github.com/ssubedir/open-spanner/tree/main/examples/rest/advance/active-users) |
-| AI token usage | [`examples/rest/advance/ai-tokens`](https://github.com/ssubedir/open-spanner/tree/main/examples/rest/advance/ai-tokens) |
-| Storage usage | [`examples/rest/advance/storage-usage`](https://github.com/ssubedir/open-spanner/tree/main/examples/rest/advance/storage-usage) |
-| Background jobs | [`examples/rest/advance/background-jobs`](https://github.com/ssubedir/open-spanner/tree/main/examples/rest/advance/background-jobs) |
-| Feature usage | [`examples/rest/advance/feature-usage`](https://github.com/ssubedir/open-spanner/tree/main/examples/rest/advance/feature-usage) |
-| Historical backfill | [`examples/rest/advance/historical-backfill`](https://github.com/ssubedir/open-spanner/tree/main/examples/rest/advance/historical-backfill) |
+| API request metering | [Create an API request meter and record request usage](/docs/use-cases/api-requests#example) |
+| Active users | [Record active user activity or seat snapshots](/docs/use-cases/active-users#example) |
+| AI token usage | [Meter model/provider token consumption](/docs/use-cases/ai-tokens#example) |
+| Storage usage | [Record storage capacity snapshots](/docs/use-cases/storage-usage#example) |
+| Background jobs | [Track queue throughput and job outcomes](/docs/use-cases/background-jobs#example) |
+| Feature usage | [Track product feature adoption](/docs/use-cases/feature-usage#example) |
+| Historical backfill | [Import historical events safely](/docs/use-cases/historical-backfill#example) |
 
 For backend services that continuously emit usage over gRPC, start with stream-native examples:
 
-| Stream use case | Example |
+| Stream use case | What it records |
 | --- | --- |
-| Device telemetry | [`examples/stream/advance/device-telemetry`](https://github.com/ssubedir/open-spanner/tree/main/examples/stream/advance/device-telemetry) |
-| WebSocket sessions | [`examples/stream/advance/websocket-sessions`](https://github.com/ssubedir/open-spanner/tree/main/examples/stream/advance/websocket-sessions) |
-| Queue consumer throughput | [`examples/stream/advance/queue-consumer`](https://github.com/ssubedir/open-spanner/tree/main/examples/stream/advance/queue-consumer) |
+| Device telemetry | High-frequency device readings grouped by device, fleet, and region. |
+| WebSocket sessions | Session duration or connection counts emitted as sessions open and close. |
+| Queue consumer throughput | Message handling volume grouped by queue, outcome, and worker region. |

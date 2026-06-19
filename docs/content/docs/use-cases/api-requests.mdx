@@ -54,4 +54,52 @@ Queries still refer to the path by its dimension name, such as `metadata.service
 
 ## Example
 
-See [`examples/rest/advance/api-requests`](https://github.com/ssubedir/open-spanner/tree/main/examples/rest/advance/api-requests) for Go, TypeScript, Python, and C# examples.
+Create a request meter with the dimensions you want to group by:
+
+```sh
+curl -X POST "$OPEN_SPANNER_BASE_URL/v1/meters" \
+  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "api_requests",
+    "description": "Accepted API requests",
+    "unit": "request",
+    "aggregation": "sum",
+    "event_retention_days": 90,
+    "dimensions": [
+      { "name": "endpoint", "type": "string", "required": true },
+      { "name": "method", "type": "string", "required": true },
+      { "name": "status_code", "type": "number", "required": true },
+      { "name": "region-name", "type": "string" },
+      { "name": "service.tier", "type": "string" }
+    ]
+  }'
+```
+
+Record usage after a request is accepted or completed:
+
+```sh
+curl -X POST "$OPEN_SPANNER_BASE_URL/v1/usages" \
+  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "idempotency_key": "req_01J0POSTORDERS",
+    "subject": "org_123",
+    "meter": "api_requests",
+    "quantity": 1,
+    "metadata": {
+      "endpoint": "/v1/orders",
+      "method": "POST",
+      "status_code": 201,
+      "region-name": "us-east",
+      "service": { "tier": "gold" }
+    }
+  }'
+```
+
+Query daily request totals by endpoint:
+
+```sh
+curl "$OPEN_SPANNER_BASE_URL/v1/usages?meter=api_requests&subject=org_123&from=2026-06-01T00:00:00Z&to=2026-07-01T00:00:00Z&bucket_size=day&group_by=endpoint" \
+  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY"
+```

@@ -35,4 +35,43 @@ This lets you answer:
 
 ## Example
 
-See [`examples/rest/advance/background-jobs`](https://github.com/ssubedir/open-spanner/tree/main/examples/rest/advance/background-jobs) for Go, TypeScript, Python, and C# examples.
+Create a job meter:
+
+```sh
+curl -X POST "$OPEN_SPANNER_BASE_URL/v1/meters" \
+  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "background_jobs",
+    "description": "Background jobs attempted or completed",
+    "unit": "job",
+    "aggregation": "sum",
+    "event_retention_days": 90,
+    "dimensions": [
+      { "name": "queue", "type": "string" },
+      { "name": "status", "type": "string" },
+      { "name": "job_type", "type": "string" },
+      { "name": "worker_region", "type": "string" }
+    ]
+  }'
+```
+
+Record the job after it reaches the state you care about:
+
+```sh
+curl -X POST "$OPEN_SPANNER_BASE_URL/v1/usages" \
+  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "idempotency_key": "job_export_789_completed",
+    "subject": "org_123",
+    "meter": "background_jobs",
+    "quantity": 1,
+    "metadata": {
+      "queue": "exports",
+      "status": "completed",
+      "job_type": "usage_export",
+      "worker_region": "us-east"
+    }
+  }'
+```

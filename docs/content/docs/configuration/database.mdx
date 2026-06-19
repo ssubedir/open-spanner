@@ -45,11 +45,14 @@ The app Compose file runs Open Spanner with Postgres and keeps the database on t
 Use Postgres when:
 
 - Open Spanner runs outside a local machine.
+- You want more than one API or worker process.
 - You need managed backups and database observability.
 - You want to tune connection pooling.
 - You expect higher write or query volume.
 
 Usage metadata is stored as `jsonb` in Postgres. Open Spanner keeps a GIN index on that metadata so exact dimension filters from usage search requests can stay flexible without requiring a schema migration for every new dimension. If a small set of dimensions becomes especially hot, you can still add dedicated Postgres expression indexes later without changing how events are written.
+
+Open Spanner runs database migrations when the storage adapter starts. Back up Postgres before upgrading production deployments.
 
 ## Connection Pooling
 

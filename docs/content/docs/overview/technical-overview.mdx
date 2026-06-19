@@ -3,12 +3,17 @@ title: Technical Overview
 description: How Open Spanner receives, stores, and queries usage.
 ---
 
-Open Spanner runs as a Go API process with an embedded React dashboard. It stores metering data in SQLite or Postgres and exposes a REST API for services and SDKs.
+Open Spanner runs as a Go API process with an embedded React dashboard. It stores metering data in SQLite or Postgres, exposes REST for the dashboard and SDK control-plane operations, and exposes gRPC for trusted backend usage ingestion.
+
+Queued work is handled by separate worker binaries:
+
+- The export worker claims queued CSV export jobs and writes export artifacts.
+- The alert worker claims alert evaluation jobs and delivers webhook notifications.
 
 ## Request Flow
 
 1. A service sends an API key with the request.
-2. The HTTP layer authenticates the key or dashboard cookie.
+2. The HTTP or gRPC layer authenticates the key or dashboard cookie.
 3. Metering handlers validate request shape and pass commands into the application layer.
 4. The domain layer applies meter, usage, query, and retention rules.
 5. A storage adapter writes to or reads from SQLite or Postgres.
@@ -24,4 +29,5 @@ Postgres and SQLite share the same domain behavior but use database-specific SQL
 - Dashboard routes use cookie sessions.
 - Service routes accept API keys.
 - SDKs expose meters and usage operations.
+- gRPC stream ingestion accepts API keys from backend services.
 - Swagger UI exposes the full REST reference.

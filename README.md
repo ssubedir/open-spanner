@@ -63,6 +63,12 @@ Queued export jobs are processed by the export worker. Start it in a second term
 task run:export-worker
 ```
 
+Alert rules are processed by the alert worker. Start it in another terminal when you want thresholds evaluated and webhooks delivered:
+
+```sh
+task run:alert-worker
+```
+
 Open:
 
 ```text
@@ -72,6 +78,20 @@ gRPC:      localhost:18090
 Health:    http://localhost:18081/health
 Ready:     http://localhost:18081/ready
 ```
+
+## Deploying
+
+Release images are published to Docker Hub:
+
+```sh
+docker pull ssubedir/open-spanner:latest
+```
+
+Use `latest` for trials and pin a version tag for production, such as `ssubedir/open-spanner:0.1.8`.
+
+For production, run Open Spanner with Postgres and separate API, export worker, and alert worker processes. The API and workers must share the same database. Queued exports also need shared export storage so workers can write files and the API can serve downloads.
+
+See [Production Deployment](docs/content/docs/configuration/deployment.mdx) for the deployment checklist.
 
 ## Basic Flow
 
@@ -183,6 +203,7 @@ task sdk:csharp
 | Variable | Default | Description |
 | --- | --- | --- |
 | `OPEN_SPANNER_HTTP_ADDR` | `:18081` | API listen address |
+| `OPEN_SPANNER_GRPC_ADDR` | `:18090` | gRPC listen address for backend usage ingestion |
 | `OPEN_SPANNER_DB_DRIVER` | `sqlite` | Storage driver: `sqlite` or `postgres` |
 | `OPEN_SPANNER_SQLITE_PATH` | `open-spanner.db` | SQLite database path |
 | `OPEN_SPANNER_POSTGRES_DSN` | | Postgres connection string when `OPEN_SPANNER_DB_DRIVER=postgres` |
@@ -195,6 +216,12 @@ task sdk:csharp
 | `OPEN_SPANNER_EXPORT_WORKER_LOCK_TTL` | `5m` | Lease duration for a claimed export job |
 | `OPEN_SPANNER_EXPORT_WORKER_TIMEOUT` | `10m` | Maximum processing time for one export job |
 | `OPEN_SPANNER_EXPORT_WORKER_MAX_ATTEMPTS` | `3` | Maximum claim attempts before expired running jobs stop being retried |
+| `OPEN_SPANNER_ALERT_WORKER_INTERVAL` | `5s` | How often the alert worker checks for queued alert evaluations |
+| `OPEN_SPANNER_ALERT_WORKER_LOCK_TTL` | `5m` | Lease duration for a claimed alert evaluation job |
+| `OPEN_SPANNER_ALERT_WORKER_TIMEOUT` | `1m` | Maximum processing time for one alert evaluation job |
+| `OPEN_SPANNER_ALERT_WORKER_RETRY_AFTER` | `30s` | How long to wait before a failed alert evaluation can be claimed again |
+| `OPEN_SPANNER_ALERT_WORKER_MAX_ATTEMPTS` | `3` | Maximum claim attempts before expired running alert jobs stop being retried |
+| `OPEN_SPANNER_ALERT_WORKER_BATCH_SIZE` | `100` | Maximum alert jobs claimed in one worker polling cycle |
 | `OPEN_SPANNER_RETENTION_PRUNE_ENABLED` | `false` | Enable automatic retention pruning |
 | `OPEN_SPANNER_RETENTION_PRUNE_INTERVAL` | `1h` | Background prune interval |
 | `OPEN_SPANNER_RETENTION_PRUNE_TIMEOUT` | `30m` | Maximum duration for one background prune run |
@@ -205,11 +232,12 @@ Run with Postgres storage:
 task postgres:up
 task run:postgres
 task run:export-worker:postgres
+task run:alert-worker:postgres
 ```
 
-Run the API and export worker in separate terminals so both processes stay active.
+Run the API, export worker, and alert worker in separate terminals so each process stays active.
 
-For a containerized Postgres deployment, `docker-compose.app.yml` starts the API, export worker, Postgres, and a shared export volume together.
+For a containerized Postgres deployment, `docker-compose.app.yml` starts the API, export worker, alert worker, Postgres, and a shared export volume together.
 
 Run Postgres integration tests:
 
@@ -240,6 +268,7 @@ task admin:dev
 ```text
 cmd/api                 API entrypoint
 cmd/export-worker       Queued export worker entrypoint
+cmd/alert-worker        Alert evaluation worker entrypoint
 internal/config         Environment configuration
 internal/server/http    HTTP server wiring
 internal/ui             Embedded dashboard routes/assets

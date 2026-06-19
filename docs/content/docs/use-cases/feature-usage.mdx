@@ -35,4 +35,43 @@ This lets you answer:
 
 ## Example
 
-See [`examples/rest/advance/feature-usage`](https://github.com/ssubedir/open-spanner/tree/main/examples/rest/advance/feature-usage) for Go, TypeScript, Python, and C# examples.
+Create a feature meter:
+
+```sh
+curl -X POST "$OPEN_SPANNER_BASE_URL/v1/meters" \
+  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "feature_usage",
+    "description": "Product feature usage",
+    "unit": "event",
+    "aggregation": "sum",
+    "event_retention_days": 180,
+    "dimensions": [
+      { "name": "feature", "type": "string", "required": true },
+      { "name": "plan", "type": "string" },
+      { "name": "source", "type": "string" },
+      { "name": "environment", "type": "string" }
+    ]
+  }'
+```
+
+Record a feature action after it succeeds:
+
+```sh
+curl -X POST "$OPEN_SPANNER_BASE_URL/v1/usages" \
+  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "idempotency_key": "feature_org_123_bulk_export_001",
+    "subject": "org_123",
+    "meter": "feature_usage",
+    "quantity": 1,
+    "metadata": {
+      "feature": "bulk_export",
+      "plan": "enterprise",
+      "source": "dashboard",
+      "environment": "production"
+    }
+  }'
+```

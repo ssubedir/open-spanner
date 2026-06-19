@@ -35,4 +35,43 @@ This lets you answer:
 
 ## Example
 
-See [`examples/rest/advance/ai-tokens`](https://github.com/ssubedir/open-spanner/tree/main/examples/rest/advance/ai-tokens) for Go, TypeScript, Python, and C# examples.
+Create a token meter:
+
+```sh
+curl -X POST "$OPEN_SPANNER_BASE_URL/v1/meters" \
+  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "ai_tokens",
+    "description": "AI provider tokens consumed",
+    "unit": "token",
+    "aggregation": "sum",
+    "event_retention_days": 180,
+    "dimensions": [
+      { "name": "model", "type": "string", "required": true },
+      { "name": "provider", "type": "string", "required": true },
+      { "name": "operation", "type": "string" },
+      { "name": "cached", "type": "boolean" }
+    ]
+  }'
+```
+
+Record the token count after the provider returns final usage:
+
+```sh
+curl -X POST "$OPEN_SPANNER_BASE_URL/v1/usages" \
+  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "idempotency_key": "chatcmpl_abc123_tokens",
+    "subject": "org_123",
+    "meter": "ai_tokens",
+    "quantity": 1842,
+    "metadata": {
+      "model": "gpt-4.1",
+      "provider": "openai",
+      "operation": "chat_completion",
+      "cached": false
+    }
+  }'
+```
