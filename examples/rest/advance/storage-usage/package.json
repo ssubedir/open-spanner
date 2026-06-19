@@ -1,0 +1,15 @@
+{
+  "name": "open-spanner-example-storage-usage",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx typescript.ts"
+  },
+  "dependencies": {
+    "@ssubedir/open-spanner": "file:../../../../sdk/typescript"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0"
+  }
+}

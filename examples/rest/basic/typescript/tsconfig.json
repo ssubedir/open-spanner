@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "paths": {
+      "@ssubedir/open-spanner": ["../../../../sdk/typescript/src/index.ts"]
+    },
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "ES2022",
+    "typeRoots": ["../../../../sdk/typescript/node_modules/@types"],
+    "types": ["node"]
+  },
+  "include": ["basic.ts"]
+}

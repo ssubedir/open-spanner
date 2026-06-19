@@ -19,6 +19,9 @@ includes:
   sql:
     taskfile: ./taskfiles/sql.yml
     flatten: true
+  proto:
+    taskfile: ./taskfiles/proto.yml
+    flatten: true
   release:
     taskfile: ./taskfiles/release.yml
     flatten: true

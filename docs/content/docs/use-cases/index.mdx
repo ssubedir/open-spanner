@@ -38,14 +38,22 @@ Open Spanner is useful whenever your product needs a trusted record of usage: bi
 
 ## Example Projects
 
-Each advanced example is an isolated project with Go, TypeScript, Python, and C# implementations. Start with the use-case docs, then open the matching folder in [`examples/advance`](https://github.com/ssubedir/open-spanner/tree/main/examples/advance).
+Each advanced example is an isolated project with Go, TypeScript, Python, and C# implementations. Start with the use-case docs, then open the matching folder in [`examples/rest/advance`](https://github.com/ssubedir/open-spanner/tree/main/examples/rest/advance).
 
 | Use case | Example |
 | --- | --- |
-| API request metering | [`examples/advance/api-requests`](https://github.com/ssubedir/open-spanner/tree/main/examples/advance/api-requests) |
-| Active users | [`examples/advance/active-users`](https://github.com/ssubedir/open-spanner/tree/main/examples/advance/active-users) |
-| AI token usage | [`examples/advance/ai-tokens`](https://github.com/ssubedir/open-spanner/tree/main/examples/advance/ai-tokens) |
-| Storage usage | [`examples/advance/storage-usage`](https://github.com/ssubedir/open-spanner/tree/main/examples/advance/storage-usage) |
-| Background jobs | [`examples/advance/background-jobs`](https://github.com/ssubedir/open-spanner/tree/main/examples/advance/background-jobs) |
-| Feature usage | [`examples/advance/feature-usage`](https://github.com/ssubedir/open-spanner/tree/main/examples/advance/feature-usage) |
-| Historical backfill | [`examples/advance/historical-backfill`](https://github.com/ssubedir/open-spanner/tree/main/examples/advance/historical-backfill) |
+| API request metering | [`examples/rest/advance/api-requests`](https://github.com/ssubedir/open-spanner/tree/main/examples/rest/advance/api-requests) |
+| Active users | [`examples/rest/advance/active-users`](https://github.com/ssubedir/open-spanner/tree/main/examples/rest/advance/active-users) |
+| AI token usage | [`examples/rest/advance/ai-tokens`](https://github.com/ssubedir/open-spanner/tree/main/examples/rest/advance/ai-tokens) |
+| Storage usage | [`examples/rest/advance/storage-usage`](https://github.com/ssubedir/open-spanner/tree/main/examples/rest/advance/storage-usage) |
+| Background jobs | [`examples/rest/advance/background-jobs`](https://github.com/ssubedir/open-spanner/tree/main/examples/rest/advance/background-jobs) |
+| Feature usage | [`examples/rest/advance/feature-usage`](https://github.com/ssubedir/open-spanner/tree/main/examples/rest/advance/feature-usage) |
+| Historical backfill | [`examples/rest/advance/historical-backfill`](https://github.com/ssubedir/open-spanner/tree/main/examples/rest/advance/historical-backfill) |
+
+For backend services that continuously emit usage over gRPC, start with stream-native examples:
+
+| Stream use case | Example |
+| --- | --- |
+| Device telemetry | [`examples/stream/advance/device-telemetry`](https://github.com/ssubedir/open-spanner/tree/main/examples/stream/advance/device-telemetry) |
+| WebSocket sessions | [`examples/stream/advance/websocket-sessions`](https://github.com/ssubedir/open-spanner/tree/main/examples/stream/advance/websocket-sessions) |
+| Queue consumer throughput | [`examples/stream/advance/queue-consumer`](https://github.com/ssubedir/open-spanner/tree/main/examples/stream/advance/queue-consumer) |

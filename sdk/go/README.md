@@ -52,3 +52,46 @@ func main() {
 ```
 
 Types and clients are generated from `../../openapi/sdk-swagger.json` with `go-swagger`.
+
+## gRPC Ingestion
+
+The SDK also includes a small gRPC ingestion client for backend services that continuously emit usage:
+
+Runnable example: [`examples/stream/basic/go`](../../examples/stream/basic/go).
+
+```go
+package main
+
+import (
+	"context"
+	"time"
+
+	"github.com/ssubedir/open-spanner/sdk/go/stream"
+)
+
+func main() {
+	client, err := stream.NewClient("localhost:18090", "osp_...")
+	if err != nil {
+		panic(err)
+	}
+	defer client.Close()
+
+	result, err := client.TrackBulk(context.Background(), "batch-1", []stream.Event{
+		{
+			IdempotencyKey: "usage-1",
+			Subject:        "org_123",
+			Meter:          "api_requests",
+			Quantity:       1,
+			Timestamp:      time.Now().UTC(),
+			Metadata:       map[string]any{"endpoint": "/v1/orders", "status": 200},
+		},
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	_ = result.AcceptedCount
+}
+```
+
+Use `stream.WithTransportCredentials(...)` when connecting to a TLS-enabled gRPC endpoint.

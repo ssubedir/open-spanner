@@ -12,6 +12,7 @@ import (
 
 type Config struct {
 	HTTPAddr                string
+	GRPCAddr                string
 	DBDriver                string
 	SQLitePath              string
 	PostgresDSN             string
@@ -101,6 +102,7 @@ func Load() (Config, error) {
 
 	cfg := Config{
 		HTTPAddr:                env("OPEN_SPANNER_HTTP_ADDR", ":18081"),
+		GRPCAddr:                env("OPEN_SPANNER_GRPC_ADDR", ":18090"),
 		DBDriver:                strings.ToLower(env("OPEN_SPANNER_DB_DRIVER", "sqlite")),
 		SQLitePath:              env("OPEN_SPANNER_SQLITE_PATH", "open-spanner.db"),
 		PostgresDSN:             env("OPEN_SPANNER_POSTGRES_DSN", ""),
@@ -131,6 +133,9 @@ func Load() (Config, error) {
 func (cfg Config) Validate() error {
 	if strings.TrimSpace(cfg.HTTPAddr) == "" {
 		return fmt.Errorf("OPEN_SPANNER_HTTP_ADDR is required")
+	}
+	if strings.TrimSpace(cfg.GRPCAddr) == "" {
+		return fmt.Errorf("OPEN_SPANNER_GRPC_ADDR is required")
 	}
 
 	switch cfg.DBDriver {

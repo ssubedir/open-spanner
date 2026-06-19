@@ -3,6 +3,8 @@ title: REST API Specification
 description: Where to find the full Open Spanner API reference.
 ---
 
+## REST
+
 The running service serves Swagger UI at:
 
 ```text
@@ -42,4 +44,16 @@ Alert rules are available in the full REST API and dashboard:
 - `DELETE /v1/alerts/{id}`
 - `POST /v1/alerts/{id}/evaluate`
 
-Open Spanner does not expose a gRPC API today.
+## gRPC
+
+Open Spanner also exposes a gRPC usage ingestion service on `OPEN_SPANNER_GRPC_ADDR`.
+
+The first gRPC surface is intentionally scoped to trusted backend ingestion:
+
+- `CreateUsage`
+- `CreateUsageBulk`
+- `StreamUsage`
+
+gRPC clients authenticate with the same API keys used by the REST API. Send the key in request metadata with `authorization: Bearer <key>`, `x-open-spanner-api-key`, or `x-api-key`.
+
+The protobuf schema lives in `proto/open_spanner/v1/usage.proto`.

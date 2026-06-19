@@ -6,6 +6,7 @@ description: Runtime configuration for the Open Spanner service.
 | Variable | Default | Description |
 | --- | --- | --- |
 | `OPEN_SPANNER_HTTP_ADDR` | `:18081` | API listen address. |
+| `OPEN_SPANNER_GRPC_ADDR` | `:18090` | gRPC listen address for backend usage ingestion. |
 | `OPEN_SPANNER_DB_DRIVER` | `sqlite` | Storage driver: `sqlite` or `postgres`. |
 | `OPEN_SPANNER_SQLITE_PATH` | `open-spanner.db` | SQLite database path. |
 | `OPEN_SPANNER_POSTGRES_DSN` | | Postgres connection string when `OPEN_SPANNER_DB_DRIVER=postgres`. |
@@ -29,6 +30,7 @@ These variables are read by `docker-compose.app.yml` before the Open Spanner con
 | Variable | Default | Description |
 | --- | --- | --- |
 | `OPEN_SPANNER_HTTP_PORT` | `18081` | Host port published for the app container. |
+| `OPEN_SPANNER_GRPC_PORT` | `18090` | Host port published for the app container's gRPC listener. |
 | `OPEN_SPANNER_POSTGRES_PASSWORD` | `open_spanner` | Password for the bundled Postgres service and the app connection string. |
 | `OPEN_SPANNER_EXPORT_WORKER_INTERVAL` | `5s` | Passed through to the export worker container. |
 | `OPEN_SPANNER_EXPORT_WORKER_LOCK_TTL` | `5m` | Passed through to the export worker container. |

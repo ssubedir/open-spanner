@@ -21,3 +21,19 @@ task sdk:go:check
 ```
 
 Use the language-specific task when you only changed one generator or README template.
+
+## Protobuf
+
+gRPC code is generated from the protobuf schema in `proto/open_spanner/v1`.
+
+```sh
+task proto
+```
+
+Check protobuf linting and generated Go stubs:
+
+```sh
+task proto:check
+```
+
+Open Spanner uses Buf remote plugins so contributors do not need a local `protoc` or `protoc-gen-go` install.

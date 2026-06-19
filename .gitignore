@@ -1,5 +1,6 @@
 open-spanner.db*
 open-spanner-exports/
+.codex-*.log
 .env
 .env.*
 !.env.example

@@ -13,12 +13,14 @@ go get github.com/ssubedir/open-spanner/sdk/go@latest
 
 Use the repository example as the canonical Go sample:
 
-- Example project: [`examples/basic/go`](https://github.com/ssubedir/open-spanner/tree/main/examples/basic/go)
-- Source file: [`examples/basic/go/main.go`](https://github.com/ssubedir/open-spanner/blob/main/examples/basic/go/main.go)
+- Example project: [`examples/rest/basic/go`](https://github.com/ssubedir/open-spanner/tree/main/examples/rest/basic/go)
+- Source file: [`examples/rest/basic/go/main.go`](https://github.com/ssubedir/open-spanner/blob/main/examples/rest/basic/go/main.go)
 
 ```sh
-cd examples/basic/go
+cd examples/rest/basic/go
 go run main.go
 ```
 
 Create an API key in the dashboard first, then replace the `osp_...` placeholder in `main.go`. Set `OPEN_SPANNER_BASE_URL` when your service is not running at `http://localhost:18081`.
+
+For gRPC usage ingestion, see [`examples/stream/basic/go`](https://github.com/ssubedir/open-spanner/tree/main/examples/stream/basic/go) and the advanced stream scenarios under [`examples/stream/advance`](https://github.com/ssubedir/open-spanner/tree/main/examples/stream/advance).

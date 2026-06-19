@@ -1,0 +1,10 @@
+[project]
+name = "open-spanner-example-active-users"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "open-spanner",
+]
+
+[tool.uv.sources]
+open-spanner = { path = "../../../../sdk/python" }
