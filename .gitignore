@@ -13,6 +13,8 @@ internal/ui/static/**
 .tmp/
 sdk/csharp/bin/
 sdk/csharp/obj/
+sdk-test/**/bin/
+sdk-test/**/obj/
 examples/**/bin/
 examples/**/obj/
 examples/**/node_modules/

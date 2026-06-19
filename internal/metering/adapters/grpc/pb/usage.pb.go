@@ -682,7 +682,7 @@ const file_open_spanner_v1_usage_proto_rawDesc = "" +
 	"\fUsageService\x12X\n" +
 	"\vCreateUsage\x12#.open_spanner.v1.CreateUsageRequest\x1a$.open_spanner.v1.CreateUsageResponse\x12d\n" +
 	"\x0fCreateUsageBulk\x12'.open_spanner.v1.CreateUsageBulkRequest\x1a(.open_spanner.v1.CreateUsageBulkResponse\x12Z\n" +
-	"\vStreamUsage\x12#.open_spanner.v1.StreamUsageRequest\x1a$.open_spanner.v1.StreamUsageResponse(\x01BHZFgithub.com/ssubedir/open-spanner/internal/metering/adapters/grpc/pb;pbb\x06proto3"
+	"\vStreamUsage\x12#.open_spanner.v1.StreamUsageRequest\x1a$.open_spanner.v1.StreamUsageResponse(\x01B^ZFgithub.com/ssubedir/open-spanner/internal/metering/adapters/grpc/pb;pb\xaa\x02\x13OpenSpanner.Grpc.V1b\x06proto3"
 
 var (
 	file_open_spanner_v1_usage_proto_rawDescOnce sync.Once

@@ -35,3 +35,7 @@ plugins:
     out: sdk/python/open_spanner_client/grpc/pb
   - remote: buf.build/grpc/python:v1.76.0
     out: sdk/python/open_spanner_client/grpc/pb
+  - remote: buf.build/protocolbuffers/csharp:v33.1
+    out: sdk/csharp/grpc/pb
+  - remote: buf.build/grpc/csharp:v1.76.0
+    out: sdk/csharp/grpc/pb

@@ -6,7 +6,7 @@
     <PackageId>OpenSpanner</PackageId>
     <Version>0.1.8</Version>
     <Authors>ssubedir</Authors>
-    <Description>Generated C# client for the Open Spanner API.</Description>
+    <Description>C# client for the Open Spanner REST API and gRPC usage streaming.</Description>
     <PackageProjectUrl>https://github.com/ssubedir/open-spanner</PackageProjectUrl>
     <RepositoryUrl>https://github.com/ssubedir/open-spanner</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
@@ -17,6 +17,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Google.Protobuf" Version="3.33.1" />
+    <PackageReference Include="Grpc.Net.Client" Version="2.71.0" />
     <PackageReference Include="Microsoft.Kiota.Bundle" Version="2.0.0" />
   </ItemGroup>
 
