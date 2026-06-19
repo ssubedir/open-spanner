@@ -11,7 +11,7 @@ import { formatDate } from '../lib/format'
 import { useInitialLoad } from '../lib/hooks'
 
 export function APIKeysPage() {
-  const { createdKey, deleting, error, items, saving } = useSelector(appStore, (state) => state.apiKeys)
+  const { creating, createdKey, deleting, error, items, saving } = useSelector(appStore, (state) => state.apiKeys)
   const load = useCallback(() => appStoreActions.loadAPIKeys(), [])
 
   useInitialLoad(load)
@@ -24,6 +24,7 @@ export function APIKeysPage() {
     try {
       await appStoreActions.createAPIKey({ name: String(form.get('name') || '') })
       formElement.reset()
+      appStoreActions.setAPIKeyCreating(false)
     } catch {
       // Store owns the visible API key error state.
     }
@@ -74,57 +75,58 @@ export function APIKeysPage() {
         </section>
       ) : null}
 
-      <section className="api-key-grid">
-        <Card className="api-key-create-card">
-          <CardHeader className="api-key-card-header">
-            <div>
-              <CardTitle>Create Key</CardTitle>
-              <CardDescription>Name the backend service or integration that will use this key.</CardDescription>
-            </div>
-          </CardHeader>
-          <CardContent className="form-card api-key-create-content">
-            <form className="form-grid api-key-create-form" onSubmit={(event) => void submitCreate(event)}>
-              <label className="wide">
-                Name
-                <input name="name" placeholder="server-billing-sync" required />
-              </label>
-              <Button className="api-key-submit-button" disabled={saving} type="submit">
-                {saving ? <Loader2 className="spin" aria-hidden="true" /> : <Plus aria-hidden="true" />}
-                Create
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-
-        <Card className="api-key-table-card">
-          <CardHeader className="api-key-card-header">
-            <div>
-              <CardTitle>Keys</CardTitle>
-              <CardDescription>Active keys for SDK clients.</CardDescription>
-            </div>
+      <Card className="api-key-table-card">
+        <CardHeader className="api-key-card-header">
+          <div>
+            <CardTitle>Keys</CardTitle>
+            <CardDescription>Active keys for SDK clients.</CardDescription>
+          </div>
+          <div className="card-header-actions">
             <Badge variant={items.length > 0 ? 'success' : 'muted'}>{items.length} rows</Badge>
-          </CardHeader>
-          <CardContent>
-            <DataTable
-              emptyLabel="No API keys yet"
-              headers={['Name', 'Prefix', 'Created', 'Last Used', 'Actions']}
-              rows={items.map((key) => [
-                <strong className="api-key-name">{key.name}</strong>,
-                <Badge className="api-key-prefix" variant="muted">
-                  <span className="mono">{key.prefix}</span>
-                </Badge>,
-                formatDate(key.created_at),
-                key.last_used_at ? formatDate(key.last_used_at) : <span className="muted">Never</span>,
-                <span className="table-actions">
-                  <Button aria-label={`Delete ${key.name}`} disabled={saving} onClick={() => appStoreActions.setAPIKeyDeleting(key)} size="icon" type="button" variant="ghost">
-                    <Trash2 aria-hidden="true" />
-                  </Button>
-                </span>,
-              ])}
-            />
-          </CardContent>
-        </Card>
-      </section>
+            <Button disabled={saving} onClick={() => appStoreActions.setAPIKeyCreating(true)} type="button">
+              <Plus aria-hidden="true" />
+              New key
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            emptyLabel="No API keys yet"
+            headers={['Name', 'Prefix', 'Created', 'Last Used', 'Actions']}
+            rows={items.map((key) => [
+              <strong className="api-key-name">{key.name}</strong>,
+              <Badge className="api-key-prefix" variant="muted">
+                <span className="mono">{key.prefix}</span>
+              </Badge>,
+              formatDate(key.created_at),
+              key.last_used_at ? formatDate(key.last_used_at) : <span className="muted">Never</span>,
+              <span className="table-actions">
+                <Button aria-label={`Delete ${key.name}`} disabled={saving} onClick={() => appStoreActions.setAPIKeyDeleting(key)} size="icon" type="button" variant="ghost">
+                  <Trash2 aria-hidden="true" />
+                </Button>
+              </span>,
+            ])}
+          />
+        </CardContent>
+      </Card>
+
+      {creating ? (
+        <Modal title="Create API Key" onClose={() => appStoreActions.setAPIKeyCreating(false)}>
+          <form className="modal-form" onSubmit={(event) => void submitCreate(event)}>
+            <label>
+              Name
+              <input name="name" placeholder="server-billing-sync" required />
+            </label>
+            <div className="modal-actions">
+              <Button onClick={() => appStoreActions.setAPIKeyCreating(false)} type="button" variant="outline">Cancel</Button>
+              <Button disabled={saving} type="submit">
+                {saving ? <Loader2 className="spin" aria-hidden="true" /> : <Plus aria-hidden="true" />}
+                Create key
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
 
       {deleting ? (
         <Modal title="Delete API Key" onClose={() => appStoreActions.setAPIKeyDeleting(null)}>

@@ -21,7 +21,7 @@ const comparators = [
 ] as const
 
 export function AlertsPage() {
-  const { deleting, destinationCreating, destinationDeleting, destinationEditing, destinations, editing, error, events, items, meters, saving, selectedEvent, signingSecret } = useSelector(appStore, (state) => state.alerts)
+  const { creating, deleting, destinationCreating, destinationDeleting, destinationEditing, destinations, editing, error, events, items, meters, saving, selectedEvent, signingSecret } = useSelector(appStore, (state) => state.alerts)
   const load = useCallback(() => appStoreActions.loadAlerts(), [])
   const pollEvents = useCallback(() => appStoreActions.loadAlertEvents({ quiet: true }), [])
   const selectedEventRule = selectedEvent ? ruleForEvent(items, selectedEvent) : null
@@ -42,6 +42,7 @@ export function AlertsPage() {
     try {
       await appStoreActions.createAlert(alertRequestFromForm(new FormData(event.currentTarget)))
       event.currentTarget.reset()
+      appStoreActions.setAlertCreating(false)
     } catch {
       // Store owns the visible alerts error state.
     }
@@ -167,123 +168,46 @@ export function AlertsPage() {
         </CardContent>
       </Card>
 
-      <section className="api-key-grid">
-        <Card className="api-key-create-card">
-          <CardHeader className="api-key-card-header">
-            <div>
-              <CardTitle>Create Rule</CardTitle>
-              <CardDescription>Evaluate a meter over a rolling window and record state changes.</CardDescription>
-            </div>
-          </CardHeader>
-          <CardContent className="form-card">
-            <form className="form-grid alert-rule-create-form" onSubmit={(event) => void submitCreate(event)}>
-              <label className="wide">
-                Name
-                <input name="name" placeholder="High API traffic" required />
-              </label>
-              <label>
-                Meter
-                <select name="meter" required>
-                  <option value="">Select meter</option>
-                  {meters.map((meter) => <option key={meter.id} value={meter.name}>{meter.name}</option>)}
-                </select>
-              </label>
-              <label>
-                Threshold
-                <input name="threshold" placeholder="1000" required step="any" type="number" />
-              </label>
-              <label>
-                Comparator
-                <select name="comparator" defaultValue="gte">
-                  {comparators.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                </select>
-              </label>
-              <label>
-                Window
-                <select name="window_seconds" defaultValue="3600">
-                  <option value="300">5 minutes</option>
-                  <option value="900">15 minutes</option>
-                  <option value="3600">1 hour</option>
-                  <option value="86400">1 day</option>
-                </select>
-              </label>
-              <label>
-                Evaluate Every
-                <select name="evaluation_interval_seconds" defaultValue="60">
-                  <option value="30">30 seconds</option>
-                  <option value="60">1 minute</option>
-                  <option value="300">5 minutes</option>
-                  <option value="900">15 minutes</option>
-                </select>
-              </label>
-              <label>
-                Evaluate Per
-                <select name="group_by" defaultValue="">
-                  {groupByOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                </select>
-              </label>
-              <label>
-                Destination
-                <select name="destination_id" required>
-                  <option value="">Select destination</option>
-                  {destinations.map((destination) => <option key={destination.id} value={destination.id}>{destination.name}</option>)}
-                </select>
-              </label>
-              <label>
-                Subject
-                <input name="subject" placeholder="Optional subject" />
-              </label>
-              <label>
-                Metadata Filters
-                <textarea name="metadata" placeholder={'region=us-east\nplan=enterprise'} rows={3} />
-              </label>
-              <label className="checkbox-row wide">
-                <input defaultChecked name="enabled" type="checkbox" />
-                Enabled
-              </label>
-              <Button disabled={saving} type="submit">
-                {saving ? <Loader2 className="spin" aria-hidden="true" /> : <Plus aria-hidden="true" />}
-                Create
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-
-        <Card className="api-key-table-card">
-          <CardHeader className="api-key-card-header">
-            <div>
-              <CardTitle>Rules</CardTitle>
-              <CardDescription>Active and inactive threshold definitions.</CardDescription>
-            </div>
+      <Card className="api-key-table-card alert-rules-card">
+        <CardHeader className="api-key-card-header">
+          <div>
+            <CardTitle>Rules</CardTitle>
+            <CardDescription>Active and inactive threshold definitions.</CardDescription>
+          </div>
+          <div className="card-header-actions">
             <Badge variant={items.length > 0 ? 'success' : 'muted'}>{items.length} rows</Badge>
-          </CardHeader>
-          <CardContent>
-            <DataTable
-              emptyLabel="No alert rules yet"
-              headers={['Rule', 'Meter', 'Destination', 'Condition', 'Window', 'State', 'Actions']}
-              rows={items.map((rule) => [
-                <RuleName rule={rule} />,
-                <span className="mono">{rule.meter}</span>,
-                <RuleDestination rule={rule} />,
-                <span>{comparatorLabel(rule.comparator)} {formatNumber(rule.threshold)}</span>,
-                <span>{durationLabel(rule.window_seconds)}</span>,
-                <RuleState rule={rule} />,
-                <span className="table-actions">
-                  <Button aria-label={`Evaluate ${rule.name}`} disabled={saving} onClick={() => void appStoreActions.evaluateAlert(rule)} size="icon" type="button" variant="ghost">
-                    <Play aria-hidden="true" />
-                  </Button>
-                  <Button aria-label={`Edit ${rule.name}`} disabled={saving} onClick={() => appStoreActions.setAlertEditing(rule)} size="icon" type="button" variant="ghost">
-                    <Pencil aria-hidden="true" />
-                  </Button>
-                  <Button aria-label={`Delete ${rule.name}`} disabled={saving} onClick={() => appStoreActions.setAlertDeleting(rule)} size="icon" type="button" variant="ghost">
-                    <Trash2 aria-hidden="true" />
-                  </Button>
-                </span>,
-              ])}
-            />
-          </CardContent>
-        </Card>
-      </section>
+            <Button disabled={saving} onClick={() => appStoreActions.setAlertCreating(true)} type="button">
+              <Plus aria-hidden="true" />
+              New rule
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            emptyLabel="No alert rules yet"
+            headers={['Rule', 'Meter', 'Destination', 'Condition', 'Window', 'State', 'Actions']}
+            rows={items.map((rule) => [
+              <RuleName rule={rule} />,
+              <span className="mono">{rule.meter}</span>,
+              <RuleDestination rule={rule} />,
+              <span>{comparatorLabel(rule.comparator)} {formatNumber(rule.threshold)}</span>,
+              <span>{durationLabel(rule.window_seconds)}</span>,
+              <RuleState rule={rule} />,
+              <span className="table-actions">
+                <Button aria-label={`Evaluate ${rule.name}`} disabled={saving} onClick={() => void appStoreActions.evaluateAlert(rule)} size="icon" type="button" variant="ghost">
+                  <Play aria-hidden="true" />
+                </Button>
+                <Button aria-label={`Edit ${rule.name}`} disabled={saving} onClick={() => appStoreActions.setAlertEditing(rule)} size="icon" type="button" variant="ghost">
+                  <Pencil aria-hidden="true" />
+                </Button>
+                <Button aria-label={`Delete ${rule.name}`} disabled={saving} onClick={() => appStoreActions.setAlertDeleting(rule)} size="icon" type="button" variant="ghost">
+                  <Trash2 aria-hidden="true" />
+                </Button>
+              </span>,
+            ])}
+          />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="api-key-card-header">
@@ -315,6 +239,84 @@ export function AlertsPage() {
           />
         </CardContent>
       </Card>
+
+      {creating ? (
+        <Modal className="alert-rule-modal" title="Create Alert Rule" onClose={() => appStoreActions.setAlertCreating(false)}>
+          <form className="form-grid alert-rule-modal-form" onSubmit={(event) => void submitCreate(event)}>
+            <label className="wide">
+              Name
+              <input name="name" placeholder="High API traffic" required />
+            </label>
+            <label>
+              Meter
+              <select name="meter" required>
+                <option value="">Select meter</option>
+                {meters.map((meter) => <option key={meter.id} value={meter.name}>{meter.name}</option>)}
+              </select>
+            </label>
+            <label>
+              Threshold
+              <input name="threshold" placeholder="1000" required step="any" type="number" />
+            </label>
+            <label>
+              Comparator
+              <select name="comparator" defaultValue="gte">
+                {comparators.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </label>
+            <label>
+              Window
+              <select name="window_seconds" defaultValue="3600">
+                <option value="300">5 minutes</option>
+                <option value="900">15 minutes</option>
+                <option value="3600">1 hour</option>
+                <option value="86400">1 day</option>
+              </select>
+            </label>
+            <label>
+              Evaluate Every
+              <select name="evaluation_interval_seconds" defaultValue="60">
+                <option value="30">30 seconds</option>
+                <option value="60">1 minute</option>
+                <option value="300">5 minutes</option>
+                <option value="900">15 minutes</option>
+              </select>
+            </label>
+            <label>
+              Evaluate Per
+              <select name="group_by" defaultValue="">
+                {groupByOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </label>
+            <label>
+              Destination
+              <select name="destination_id" required>
+                <option value="">Select destination</option>
+                {destinations.map((destination) => <option key={destination.id} value={destination.id}>{destination.name}</option>)}
+              </select>
+            </label>
+            <label>
+              Subject
+              <input name="subject" placeholder="Optional subject" />
+            </label>
+            <label>
+              Metadata Filters
+              <textarea name="metadata" placeholder={'region=us-east\nplan=enterprise'} rows={3} />
+            </label>
+            <label className="checkbox-row wide">
+              <input defaultChecked name="enabled" type="checkbox" />
+              Enabled
+            </label>
+            <div className="modal-actions wide">
+              <Button onClick={() => appStoreActions.setAlertCreating(false)} type="button" variant="outline">Cancel</Button>
+              <Button disabled={saving} type="submit">
+                {saving ? <Loader2 className="spin" aria-hidden="true" /> : <Plus aria-hidden="true" />}
+                Create rule
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
 
       {editing ? (
         <Modal className="alert-rule-modal" title="Edit Alert Rule" onClose={() => appStoreActions.setAlertEditing(null)}>

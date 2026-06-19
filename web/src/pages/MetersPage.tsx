@@ -17,7 +17,7 @@ const aggregations = ['sum', 'count', 'avg', 'min', 'max', 'first', 'last', 'rat
 const metadataTypes = ['string', 'number', 'boolean']
 
 export function MetersPage() {
-  const { createDimensions, deleting, editDimensions, editing, error, items: meters, saving, stats } = useSelector(appStore, (state) => state.meters)
+  const { creating, createDimensions, deleting, editDimensions, editing, error, items: meters, saving, stats } = useSelector(appStore, (state) => state.meters)
   const load = useCallback(() => appStoreActions.loadMeters(), [])
 
   useInitialLoad(load)
@@ -48,6 +48,7 @@ export function MetersPage() {
       })
       formElement.reset()
       appStoreActions.resetMeterCreateDimensions()
+      appStoreActions.setMeterCreating(false)
     } catch {
       // Store owns the visible meters error state.
     }
@@ -108,114 +109,115 @@ export function MetersPage() {
 
       {error ? <div className="error-banner">{error}</div> : null}
 
-      <section className="meters-grid">
-        <Card className="meter-create-card">
-          <CardHeader className="meter-card-header">
-            <div>
-              <CardTitle>Create Meter</CardTitle>
-              <CardDescription>Define a signal, its unit, aggregation, and metadata contract.</CardDescription>
-            </div>
-          </CardHeader>
-          <CardContent className="form-card meter-create-content">
-            <form className="form-grid meter-create-form" onSubmit={(event) => void submitCreate(event)}>
-              <label>
-                Name
-                <input id="meter-name" name="name" placeholder="api_calls" required />
-              </label>
-              <label>
-                Unit
-                <input id="meter-unit" name="unit" placeholder="request" required />
-              </label>
-              <label>
-                Aggregation
-                <select name="aggregation" required>
-                  {aggregations.map((item) => <option key={item} value={item}>{item}</option>)}
-                </select>
-              </label>
-              <label>
-                Retention Days
-                <input defaultValue="90" max="3650" min="1" name="event_retention_days" required type="number" />
-              </label>
-              <label className="wide">
-                Description
-                <input id="meter-description" name="description" placeholder="API requests accepted by the platform" />
-              </label>
-              <DimensionSchemaEditor
-                rows={createDimensions}
-                onAdd={() => appStoreActions.addMeterCreateDimension()}
-                onRemove={(id) => appStoreActions.removeMeterCreateDimension(id)}
-                onUpdate={(id, update) => appStoreActions.updateMeterCreateDimension(id, update)}
-                showDeprecated={false}
-              />
-              <Button className="meter-submit-button" disabled={saving} type="submit">
-                {saving ? <Loader2 className="spin" aria-hidden="true" /> : <Plus aria-hidden="true" />}
-                Create
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-
-        <Card className="meter-table-card">
-          <CardHeader className="meter-card-header">
-            <div>
-              <CardTitle>Meters</CardTitle>
-              <CardDescription>Configured meter definitions and current activity.</CardDescription>
-            </div>
+      <Card className="meter-table-card">
+        <CardHeader className="meter-card-header">
+          <div>
+            <CardTitle>Meters</CardTitle>
+            <CardDescription>Configured meter definitions and current activity.</CardDescription>
+          </div>
+          <div className="card-header-actions">
             <Badge variant={meters.length > 0 ? 'success' : 'muted'}>{meters.length} rows</Badge>
-          </CardHeader>
-          <CardContent>
-            <div className="table-wrap">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Aggregation</TableHead>
-                    <TableHead>Unit</TableHead>
-                    <TableHead>Retention</TableHead>
-                    <TableHead>Events</TableHead>
-                    <TableHead>Last Event</TableHead>
-                    <TableHead>Schema</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {meters.length === 0 ? (
-                    <EmptyRow colSpan={8} label="No meters yet" />
-                  ) : meters.map((meter) => {
-                    const stat = stats[meter.name]
-                    return (
-                      <TableRow key={meter.id}>
-                        <TableCell>
-                          <div className="stack-cell">
-                            <strong>{meter.name}</strong>
-                            <small>{meter.description || 'No description'}</small>
-                          </div>
-                        </TableCell>
-                        <TableCell><Badge variant="muted">{meter.aggregation}</Badge></TableCell>
-                        <TableCell>{meter.unit}</TableCell>
-                        <TableCell>{meter.event_retention_days} days</TableCell>
-                        <TableCell>{formatNumber(stat?.usage_events ?? 0)}</TableCell>
-                        <TableCell>{stat?.last_event_at ? formatDate(stat.last_event_at) : 'Never'}</TableCell>
-                        <TableCell><DimensionChips meter={meter} /></TableCell>
-                        <TableCell>
-                          <div className="table-actions">
-                            <Button aria-label={`Edit ${meter.name}`} onClick={() => appStoreActions.setMeterEditing(meter)} size="icon" type="button" variant="ghost">
-                              <Pencil aria-hidden="true" />
-                            </Button>
-                            <Button aria-label={`Delete ${meter.name}`} onClick={() => appStoreActions.setMeterDeleting(meter)} size="icon" type="button" variant="ghost">
-                              <Trash2 aria-hidden="true" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
+            <Button disabled={saving} onClick={() => appStoreActions.setMeterCreating(true)} type="button">
+              <Plus aria-hidden="true" />
+              New meter
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="table-wrap">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Aggregation</TableHead>
+                  <TableHead>Unit</TableHead>
+                  <TableHead>Retention</TableHead>
+                  <TableHead>Events</TableHead>
+                  <TableHead>Last Event</TableHead>
+                  <TableHead>Schema</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {meters.length === 0 ? (
+                  <EmptyRow colSpan={8} label="No meters yet" />
+                ) : meters.map((meter) => {
+                  const stat = stats[meter.name]
+                  return (
+                    <TableRow key={meter.id}>
+                      <TableCell>
+                        <div className="stack-cell">
+                          <strong>{meter.name}</strong>
+                          <small>{meter.description || 'No description'}</small>
+                        </div>
+                      </TableCell>
+                      <TableCell><Badge variant="muted">{meter.aggregation}</Badge></TableCell>
+                      <TableCell>{meter.unit}</TableCell>
+                      <TableCell>{meter.event_retention_days} days</TableCell>
+                      <TableCell>{formatNumber(stat?.usage_events ?? 0)}</TableCell>
+                      <TableCell>{stat?.last_event_at ? formatDate(stat.last_event_at) : 'Never'}</TableCell>
+                      <TableCell><DimensionChips meter={meter} /></TableCell>
+                      <TableCell>
+                        <div className="table-actions">
+                          <Button aria-label={`Edit ${meter.name}`} onClick={() => appStoreActions.setMeterEditing(meter)} size="icon" type="button" variant="ghost">
+                            <Pencil aria-hidden="true" />
+                          </Button>
+                          <Button aria-label={`Delete ${meter.name}`} onClick={() => appStoreActions.setMeterDeleting(meter)} size="icon" type="button" variant="ghost">
+                            <Trash2 aria-hidden="true" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {creating ? (
+        <Modal className="meter-modal" title="Create Meter" onClose={() => appStoreActions.setMeterCreating(false)}>
+          <form className="form-grid meter-create-form meter-modal-form" onSubmit={(event) => void submitCreate(event)}>
+            <label>
+              Name
+              <input id="meter-name" name="name" placeholder="api_calls" required />
+            </label>
+            <label>
+              Unit
+              <input id="meter-unit" name="unit" placeholder="request" required />
+            </label>
+            <label>
+              Aggregation
+              <select name="aggregation" required>
+                {aggregations.map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
+            </label>
+            <label>
+              Retention Days
+              <input defaultValue="90" max="3650" min="1" name="event_retention_days" required type="number" />
+            </label>
+            <label className="wide">
+              Description
+              <input id="meter-description" name="description" placeholder="API requests accepted by the platform" />
+            </label>
+            <DimensionSchemaEditor
+              rows={createDimensions}
+              onAdd={() => appStoreActions.addMeterCreateDimension()}
+              onRemove={(id) => appStoreActions.removeMeterCreateDimension(id)}
+              onUpdate={(id, update) => appStoreActions.updateMeterCreateDimension(id, update)}
+              showDeprecated={false}
+            />
+            <div className="modal-actions wide">
+              <Button onClick={() => appStoreActions.setMeterCreating(false)} type="button" variant="outline">Cancel</Button>
+              <Button disabled={saving} type="submit">
+                {saving ? <Loader2 className="spin" aria-hidden="true" /> : <Plus aria-hidden="true" />}
+                Create meter
+              </Button>
             </div>
-          </CardContent>
-        </Card>
-      </section>
+          </form>
+        </Modal>
+      ) : null}
 
       {editing ? (
         <Modal title="Edit Meter" onClose={() => appStoreActions.setMeterEditing(null)}>

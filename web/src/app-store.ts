@@ -133,6 +133,7 @@ type AppState = {
     session: AuthSession | null
   }
   apiKeys: {
+    creating: boolean
     createdKey: APIKeyCreateResponse | null
     deleting: APIKey | null
     error: string
@@ -141,6 +142,7 @@ type AppState = {
     status: LoadState
   }
   alerts: {
+    creating: boolean
     destinationCreating: boolean
     destinationDeleting: AlertDestination | null
     destinationEditing: AlertDestination | null
@@ -158,6 +160,7 @@ type AppState = {
     status: LoadState
   }
   meters: {
+    creating: boolean
     createDimensions: MeterDimensionDraft[]
     deleting: Meter | null
     editDimensions: MeterDimensionDraft[]
@@ -234,6 +237,7 @@ export const appStore = createStore<AppState>({
     session: null,
   },
   apiKeys: {
+    creating: false,
     createdKey: null,
     deleting: null,
     error: '',
@@ -242,6 +246,7 @@ export const appStore = createStore<AppState>({
     status: 'idle',
   },
   alerts: {
+    creating: false,
     destinationCreating: false,
     destinationDeleting: null,
     destinationEditing: null,
@@ -259,6 +264,7 @@ export const appStore = createStore<AppState>({
     status: 'idle',
   },
   meters: {
+    creating: false,
     createDimensions: [newMeterDimensionDraft()],
     deleting: null,
     editDimensions: [],
@@ -336,6 +342,7 @@ export const appStoreActions = {
       const createdKey = await createAPIKeyRequest(input)
       setAPIKeysState({ createdKey })
       await appStoreActions.loadAPIKeys()
+      setAPIKeysState({ creating: false })
       return createdKey
     } catch (err) {
       setAPIKeysState({ error: errorMessage(err, 'Unable to create API key') })
@@ -349,6 +356,7 @@ export const appStoreActions = {
     try {
       await createMeterRequest(input)
       await appStoreActions.loadMeters()
+      setMetersState({ creating: false })
     } catch (err) {
       setMetersState({ error: errorMessage(err, 'Unable to create meter') })
       throw err
@@ -446,6 +454,7 @@ export const appStoreActions = {
     try {
       await createAlertRule(input)
       await appStoreActions.loadAlerts()
+      setAlertsState({ creating: false })
     } catch (err) {
       setAlertsState({ error: errorMessage(err, 'Unable to create alert') })
       throw err
@@ -937,17 +946,26 @@ export const appStoreActions = {
   setMetersError(error: string) {
     setMetersState({ error })
   },
+  setMeterCreating(creating: boolean) {
+    setMetersState({ creating })
+  },
   setSubjectSearchQuery(searchQuery: string) {
     setSubjectsState({ searchQuery })
   },
   setMeterDeleting(deleting: Meter | null) {
     setMetersState({ deleting })
   },
+  setAPIKeyCreating(creating: boolean) {
+    setAPIKeysState({ creating })
+  },
   setAPIKeyDeleting(deleting: APIKey | null) {
     setAPIKeysState({ deleting })
   },
   setAlertDeleting(deleting: AlertRule | null) {
     setAlertsState({ deleting })
+  },
+  setAlertCreating(creating: boolean) {
+    setAlertsState({ creating })
   },
   setAlertDestinationDeleting(destinationDeleting: AlertDestination | null) {
     setAlertsState({ destinationDeleting })

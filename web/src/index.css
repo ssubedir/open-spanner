@@ -868,24 +868,25 @@ svg {
   gap: 16px;
 }
 
-.meters-grid {
-  display: grid;
-  grid-template-columns: minmax(340px, 0.42fr) minmax(0, 1fr);
-  gap: 12px;
-  align-items: start;
-}
-
 .meter-card-header {
   padding: 13px 14px 11px;
 }
 
-.meter-create-content {
-  padding: 12px;
+.modal-panel.meter-modal {
+  width: min(760px, 100%);
+  max-height: calc(100vh - 36px);
+  overflow: hidden;
 }
 
 .meter-create-form {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+
+.meter-modal-form {
+  max-height: calc(100vh - 140px);
+  overflow: auto;
+  padding: 16px;
 }
 
 .meter-create-form .schema-builder {
@@ -931,12 +932,6 @@ svg {
   min-height: 32px;
 }
 
-.meter-submit-button {
-  grid-column: 1 / -1;
-  justify-self: end;
-  min-width: 130px;
-}
-
 .meter-table-card .table {
   min-width: 880px;
   font-size: 12px;
@@ -965,13 +960,6 @@ svg {
   padding: 5px 6px;
 }
 
-.api-key-grid {
-  display: grid;
-  grid-template-columns: minmax(300px, 0.36fr) minmax(0, 1fr);
-  gap: 12px;
-  align-items: start;
-}
-
 .api-key-card-header {
   padding: 13px 14px 11px;
 }
@@ -982,19 +970,6 @@ svg {
   justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
-}
-
-.api-key-create-content {
-  padding: 12px;
-}
-
-.api-key-create-form {
-  grid-template-columns: 1fr;
-  gap: 10px;
-}
-
-.api-key-submit-button {
-  width: 100%;
 }
 
 .api-key-table-card .table {
@@ -1019,6 +994,10 @@ svg {
   margin-bottom: 12px;
 }
 
+.alert-rules-card {
+  margin-bottom: 12px;
+}
+
 .api-key-name {
   display: block;
   max-width: 260px;
@@ -1033,23 +1012,6 @@ svg {
 .api-key-prefix .mono {
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.alert-rule-create-form {
-  grid-template-columns: 1fr;
-  gap: 10px;
-}
-
-.alert-rule-create-form label {
-  gap: 5px;
-}
-
-.alert-rule-create-form textarea {
-  min-height: 86px;
-}
-
-.alert-rule-create-form .button {
-  width: 100%;
 }
 
 .alert-destination-url {
@@ -2739,10 +2701,6 @@ select:disabled,
     grid-template-columns: 1fr;
   }
 
-  .meters-grid {
-    grid-template-columns: 1fr;
-  }
-
   .meter-create-form .schema-row {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 36px;
   }
@@ -2768,10 +2726,6 @@ select:disabled,
 
   .meter-create-form .schema-description {
     grid-column: 1 / -1;
-  }
-
-  .api-key-grid {
-    grid-template-columns: 1fr;
   }
 
   .subject-grid {
