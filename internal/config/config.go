@@ -13,6 +13,8 @@ import (
 type Config struct {
 	HTTPAddr                string
 	GRPCAddr                string
+	GitHubOAuth             GitHubOAuthConfig
+	GoogleOAuth             GoogleOAuthConfig
 	DBDriver                string
 	SQLitePath              string
 	PostgresDSN             string
@@ -31,6 +33,20 @@ type Config struct {
 	RetentionPruneEnabled   bool
 	RetentionPruneInterval  time.Duration
 	RetentionPruneTimeout   time.Duration
+}
+
+type GitHubOAuthConfig struct {
+	ClientID     string
+	ClientSecret string
+	Enabled      bool
+	RedirectURL  string
+}
+
+type GoogleOAuthConfig struct {
+	ClientID     string
+	ClientSecret string
+	Enabled      bool
+	RedirectURL  string
 }
 
 type DBPoolConfig struct {
@@ -100,9 +116,30 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	gitHubOAuthEnabled, err := envBool("OPEN_SPANNER_GITHUB_OAUTH_ENABLED", true)
+	if err != nil {
+		return Config{}, err
+	}
+	googleOAuthEnabled, err := envBool("OPEN_SPANNER_GOOGLE_OAUTH_ENABLED", true)
+	if err != nil {
+		return Config{}, err
+	}
+
 	cfg := Config{
-		HTTPAddr:                env("OPEN_SPANNER_HTTP_ADDR", ":18081"),
-		GRPCAddr:                env("OPEN_SPANNER_GRPC_ADDR", ":18090"),
+		HTTPAddr: env("OPEN_SPANNER_HTTP_ADDR", ":18081"),
+		GRPCAddr: env("OPEN_SPANNER_GRPC_ADDR", ":18090"),
+		GitHubOAuth: GitHubOAuthConfig{
+			ClientID:     env("OPEN_SPANNER_GITHUB_OAUTH_CLIENT_ID", ""),
+			ClientSecret: env("OPEN_SPANNER_GITHUB_OAUTH_CLIENT_SECRET", ""),
+			Enabled:      gitHubOAuthEnabled,
+			RedirectURL:  env("OPEN_SPANNER_GITHUB_OAUTH_REDIRECT_URL", ""),
+		},
+		GoogleOAuth: GoogleOAuthConfig{
+			ClientID:     env("OPEN_SPANNER_GOOGLE_OAUTH_CLIENT_ID", ""),
+			ClientSecret: env("OPEN_SPANNER_GOOGLE_OAUTH_CLIENT_SECRET", ""),
+			Enabled:      googleOAuthEnabled,
+			RedirectURL:  env("OPEN_SPANNER_GOOGLE_OAUTH_REDIRECT_URL", ""),
+		},
 		DBDriver:                strings.ToLower(env("OPEN_SPANNER_DB_DRIVER", "sqlite")),
 		SQLitePath:              env("OPEN_SPANNER_SQLITE_PATH", "open-spanner.db"),
 		PostgresDSN:             env("OPEN_SPANNER_POSTGRES_DSN", ""),

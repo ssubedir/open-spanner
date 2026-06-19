@@ -290,6 +290,16 @@ export type AuthSession = {
   user: AuthUser
 }
 
+export type OAuthProvider = {
+  enabled: boolean
+  id: string
+  name: string
+}
+
+export type OAuthProviderList = {
+  items: OAuthProvider[]
+}
+
 export type APIKey = {
   id: string
   name: string
@@ -315,6 +325,19 @@ export type APIKeyCreateRequest = {
   scopes?: string[]
   allowed_meters?: string[]
   expires_at?: string
+}
+
+type APIKeyPayload = Omit<APIKey, 'allowed_meters' | 'scopes'> & {
+  allowed_meters?: string[] | null
+  scopes?: string[] | null
+}
+
+type APIKeyListPayload = {
+  items?: APIKeyPayload[] | null
+}
+
+type APIKeyCreatePayload = APIKeyPayload & {
+  key: string
 }
 
 export type AlertState = {
@@ -527,6 +550,10 @@ export async function createAuthSession(input: { email: string; password: string
   })
 }
 
+export async function listOAuthProviders() {
+  return request<OAuthProviderList>('/v1/auth/providers')
+}
+
 async function apiError(response: Response) {
   const payload = await response.json().catch(() => ({ error: { code: '', message: response.statusText } }))
   const message = typeof payload.error === 'string' ? payload.error : payload.error?.message
@@ -542,14 +569,21 @@ export async function deleteAuthSession() {
 }
 
 export async function listAPIKeys() {
-  return request<APIKeyList>('/v1/auth/api-keys')
+  const response = await request<APIKeyListPayload>('/v1/auth/api-keys')
+  return {
+    items: (response.items || []).map(normalizeAPIKey),
+  }
 }
 
 export async function createAPIKey(input: APIKeyCreateRequest) {
-  return request<APIKeyCreateResponse>('/v1/auth/api-keys', {
+  const response = await request<APIKeyCreatePayload>('/v1/auth/api-keys', {
     body: JSON.stringify(input),
     method: 'POST',
   })
+  return {
+    ...normalizeAPIKey(response),
+    key: response.key,
+  }
 }
 
 export async function deleteAPIKey(id: string) {
@@ -818,4 +852,12 @@ export async function deleteSavedUsageQuery(id: string) {
   return request<void>(`/v1/usage/saved-queries/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   })
+}
+
+function normalizeAPIKey(key: APIKeyPayload): APIKey {
+  return {
+    ...key,
+    allowed_meters: Array.isArray(key.allowed_meters) ? key.allowed_meters : [],
+    scopes: Array.isArray(key.scopes) ? key.scopes : [],
+  }
 }

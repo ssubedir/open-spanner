@@ -30,6 +30,7 @@ import {
   listIngestions,
   listMeterStats,
   listMeters,
+  listOAuthProviders,
   listSavedUsageQueries,
   listSubjectEvents,
   listSubjects,
@@ -60,6 +61,7 @@ import {
   type MeterCreateRequest,
   type MeterStats,
   type MeterUpdateRequest,
+  type OAuthProvider,
   type SavedUsageQuery,
   type UsageBucket,
   type UsageBucketExportQuery,
@@ -129,6 +131,7 @@ type AppState = {
     checked: boolean
     loading: boolean
     loginError: string
+    providers: OAuthProvider[]
     registerError: string
     session: AuthSession | null
   }
@@ -233,6 +236,7 @@ export const appStore = createStore<AppState>({
     checked: false,
     loading: false,
     loginError: '',
+    providers: [],
     registerError: '',
     session: null,
   },
@@ -602,8 +606,8 @@ export const appStoreActions = {
 
     setAuthState({ loading: true, loginError: '' })
     try {
-      const session = await refreshAuthSession()
-      setAuthState({ checked: true, loading: false, session })
+      const [session, providers] = await Promise.all([refreshAuthSession(), listOAuthProviders()])
+      setAuthState({ checked: true, loading: false, providers: providers.items, session })
       return session?.user ?? null
     } catch {
       setAuthState({ checked: true, loading: false, session: null })

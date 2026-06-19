@@ -89,6 +89,33 @@ func (q *Queries) FindAPIKeyByTokenHash(ctx context.Context, tokenHash string) (
 	return i, err
 }
 
+const findIdentityByProviderSubject = `-- name: FindIdentityByProviderSubject :one
+SELECT id, user_id, provider, subject, email, email_verified, created_at, updated_at
+FROM auth_identities
+WHERE provider = $1 AND subject = $2
+`
+
+type FindIdentityByProviderSubjectParams struct {
+	Provider string
+	Subject  string
+}
+
+func (q *Queries) FindIdentityByProviderSubject(ctx context.Context, arg FindIdentityByProviderSubjectParams) (AuthIdentity, error) {
+	row := q.db.QueryRowContext(ctx, findIdentityByProviderSubject, arg.Provider, arg.Subject)
+	var i AuthIdentity
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Provider,
+		&i.Subject,
+		&i.Email,
+		&i.EmailVerified,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const findSessionByTokenHash = `-- name: FindSessionByTokenHash :one
 SELECT id, user_id, token_hash, kind, expires_at, created_at
 FROM auth_sessions
@@ -248,6 +275,36 @@ func (q *Queries) SaveAPIKey(ctx context.Context, arg SaveAPIKeyParams) error {
 		arg.RevokedAt,
 		arg.CreatedAt,
 		arg.LastUsedAt,
+	)
+	return err
+}
+
+const saveIdentity = `-- name: SaveIdentity :exec
+INSERT INTO auth_identities (id, user_id, provider, subject, email, email_verified, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+`
+
+type SaveIdentityParams struct {
+	ID            string
+	UserID        string
+	Provider      string
+	Subject       string
+	Email         string
+	EmailVerified bool
+	CreatedAt     string
+	UpdatedAt     string
+}
+
+func (q *Queries) SaveIdentity(ctx context.Context, arg SaveIdentityParams) error {
+	_, err := q.db.ExecContext(ctx, saveIdentity,
+		arg.ID,
+		arg.UserID,
+		arg.Provider,
+		arg.Subject,
+		arg.Email,
+		arg.EmailVerified,
+		arg.CreatedAt,
+		arg.UpdatedAt,
 	)
 	return err
 }

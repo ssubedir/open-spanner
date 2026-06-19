@@ -443,6 +443,39 @@ svg {
   margin-top: 4px;
 }
 
+.auth-divider {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  height: 1px;
+  background: var(--border);
+  content: "";
+}
+
+.auth-oauth-button {
+  width: 100%;
+  text-decoration: none;
+}
+
+.auth-oauth-list {
+  display: grid;
+  gap: 10px;
+}
+
+.provider-mark {
+  width: 18px;
+  height: 18px;
+}
+
 .auth-switch {
   border-top: 1px solid var(--border);
   padding-top: 14px;

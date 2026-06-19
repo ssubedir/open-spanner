@@ -54,6 +54,34 @@ func (r *AuthRepository) FindUserByEmail(ctx context.Context, email string) (app
 	return userFromFields(user.ID, user.Email, user.PasswordHash, user.CreatedAt, err)
 }
 
+func (r *AuthRepository) SaveIdentity(ctx context.Context, identity appauth.Identity) (appauth.Identity, error) {
+	err := queriesFor(ctx, r.queries).SaveIdentity(ctx, postgresdb.SaveIdentityParams{
+		ID:            identity.ID,
+		UserID:        identity.UserID,
+		Provider:      identity.Provider,
+		Subject:       identity.Subject,
+		Email:         identity.Email,
+		EmailVerified: identity.EmailVerified,
+		CreatedAt:     formatTime(identity.CreatedAt),
+		UpdatedAt:     formatTime(identity.UpdatedAt),
+	})
+	if err != nil {
+		if isUniqueConstraint(err) {
+			return appauth.Identity{}, errors.Join(domain.ErrConflict, err)
+		}
+		return appauth.Identity{}, err
+	}
+	return identity, nil
+}
+
+func (r *AuthRepository) FindIdentityByProviderSubject(ctx context.Context, provider string, subject string) (appauth.Identity, error) {
+	identity, err := queriesFor(ctx, r.queries).FindIdentityByProviderSubject(ctx, postgresdb.FindIdentityByProviderSubjectParams{
+		Provider: provider,
+		Subject:  subject,
+	})
+	return identityFromFields(identity.ID, identity.UserID, identity.Provider, identity.Subject, identity.Email, identity.EmailVerified, identity.CreatedAt, identity.UpdatedAt, err)
+}
+
 func (r *AuthRepository) SaveSession(ctx context.Context, session appauth.Session) (appauth.Session, error) {
 	err := queriesFor(ctx, r.queries).SaveSession(ctx, postgresdb.SaveSessionParams{
 		ID:        session.ID,
@@ -161,6 +189,34 @@ func userFromFields(id string, email string, passwordHash string, createdAt stri
 		return appauth.User{}, err
 	}
 	return appauth.User{ID: id, Email: email, PasswordHash: passwordHash, CreatedAt: parsedCreatedAt}, nil
+}
+
+func identityFromFields(id string, userID string, provider string, subject string, email string, emailVerified bool, createdAt string, updatedAt string, err error) (appauth.Identity, error) {
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return appauth.Identity{}, domain.ErrNotFound
+		}
+		return appauth.Identity{}, err
+	}
+
+	parsedCreatedAt, err := time.Parse(time.RFC3339Nano, createdAt)
+	if err != nil {
+		return appauth.Identity{}, err
+	}
+	parsedUpdatedAt, err := time.Parse(time.RFC3339Nano, updatedAt)
+	if err != nil {
+		return appauth.Identity{}, err
+	}
+	return appauth.Identity{
+		ID:            id,
+		UserID:        userID,
+		Provider:      provider,
+		Subject:       subject,
+		Email:         email,
+		EmailVerified: emailVerified,
+		CreatedAt:     parsedCreatedAt,
+		UpdatedAt:     parsedUpdatedAt,
+	}, nil
 }
 
 func apiKeyFromFields(id string, userID string, name string, tokenHash string, prefix string, scopesJSON string, allowedMetersJSON string, expiresAt sql.NullString, revokedAt sql.NullString, createdAt string, lastUsedAt sql.NullString, err error) (appauth.APIKey, error) {

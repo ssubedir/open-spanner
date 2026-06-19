@@ -37,6 +37,16 @@ type SessionResponse struct {
 	User UserResponse `json:"user"`
 }
 
+type OAuthProviderResponse struct {
+	Enabled bool   `json:"enabled"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+}
+
+type OAuthProviderListResponse struct {
+	Items []OAuthProviderResponse `json:"items"`
+}
+
 type APIKeyResponse struct {
 	ID            string   `json:"id"`
 	Name          string   `json:"name"`

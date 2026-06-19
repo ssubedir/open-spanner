@@ -11,6 +11,9 @@ func (h *Handler) RegisterRoutes(router chi.Router) {
 }
 
 func (h *Handler) RegisterPublicRoutes(router chi.Router) {
+	router.Get("/auth/oauth/{provider}", h.StartOAuth)
+	router.Get("/auth/oauth/{provider}/callback", h.CompleteOAuth)
+	router.Get("/auth/providers", h.ListOAuthProviders)
 	router.Post("/auth/users", h.CreateUser)
 	router.Delete("/auth/session", h.DeleteSession)
 	router.Post("/auth/session/refresh", h.RefreshSession)

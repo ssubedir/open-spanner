@@ -32,6 +32,8 @@ type Repository interface {
 	SaveUser(ctx context.Context, user User) (User, error)
 	FindUserByID(ctx context.Context, id string) (User, error)
 	FindUserByEmail(ctx context.Context, email string) (User, error)
+	SaveIdentity(ctx context.Context, identity Identity) (Identity, error)
+	FindIdentityByProviderSubject(ctx context.Context, provider string, subject string) (Identity, error)
 	SaveSession(ctx context.Context, session Session) (Session, error)
 	FindSessionByTokenHash(ctx context.Context, tokenHash string, kind string, now time.Time) (Session, error)
 	DeleteSessionByTokenHash(ctx context.Context, tokenHash string) error
@@ -47,6 +49,17 @@ type User struct {
 	Email        string
 	PasswordHash string
 	CreatedAt    time.Time
+}
+
+type Identity struct {
+	ID            string
+	UserID        string
+	Provider      string
+	Subject       string
+	Email         string
+	EmailVerified bool
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 type Session struct {
@@ -80,6 +93,13 @@ type CreateUserCommand struct {
 type LoginCommand struct {
 	Email    string
 	Password string
+}
+
+type ExternalIdentityLoginCommand struct {
+	Provider      string
+	Subject       string
+	Email         string
+	EmailVerified bool
 }
 
 type CreateAPIKeyCommand struct {
@@ -257,6 +277,72 @@ func (s Service) Login(ctx context.Context, cmd LoginCommand) (LoginResult, erro
 		return LoginResult{}, unauthorized()
 	}
 
+	return s.createLoginResult(ctx, user)
+}
+
+func (s Service) LoginWithExternalIdentity(ctx context.Context, cmd ExternalIdentityLoginCommand) (LoginResult, error) {
+	provider := strings.ToLower(strings.TrimSpace(cmd.Provider))
+	subject := strings.TrimSpace(cmd.Subject)
+	if provider == "" || subject == "" {
+		return LoginResult{}, unauthorized()
+	}
+
+	identity, err := s.repo.FindIdentityByProviderSubject(ctx, provider, subject)
+	if err == nil {
+		user, err := s.repo.FindUserByID(ctx, identity.UserID)
+		if err != nil {
+			if errors.Is(err, domain.ErrNotFound) {
+				return LoginResult{}, unauthorized()
+			}
+			return LoginResult{}, err
+		}
+		return s.createLoginResult(ctx, user)
+	}
+	if !errors.Is(err, domain.ErrNotFound) {
+		return LoginResult{}, err
+	}
+	if !cmd.EmailVerified {
+		return LoginResult{}, unauthorized()
+	}
+	email, err := normalizeEmail(cmd.Email)
+	if err != nil {
+		return LoginResult{}, unauthorized()
+	}
+
+	user, err := s.repo.FindUserByEmail(ctx, email)
+	if err != nil {
+		if !errors.Is(err, domain.ErrNotFound) {
+			return LoginResult{}, err
+		}
+		user, err = s.repo.SaveUser(ctx, User{
+			ID:           uuid.NewString(),
+			Email:        email,
+			PasswordHash: "",
+			CreatedAt:    s.now().UTC(),
+		})
+		if err != nil {
+			return LoginResult{}, err
+		}
+	}
+
+	now := s.now().UTC()
+	if _, err := s.repo.SaveIdentity(ctx, Identity{
+		ID:            uuid.NewString(),
+		UserID:        user.ID,
+		Provider:      provider,
+		Subject:       subject,
+		Email:         email,
+		EmailVerified: true,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}); err != nil {
+		return LoginResult{}, err
+	}
+
+	return s.createLoginResult(ctx, user)
+}
+
+func (s Service) createLoginResult(ctx context.Context, user User) (LoginResult, error) {
 	accessToken, err := newSessionToken(accessTokenPrefix, s.tokenBytes)
 	if err != nil {
 		return LoginResult{}, err

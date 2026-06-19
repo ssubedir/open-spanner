@@ -108,7 +108,10 @@ func RegisterRoutes(ctx context.Context, router chi.Router, cfg config.Config) (
 	}
 
 	router.Route("/v1", func(r chi.Router) {
-		authHandler := httpauth.NewHandler(app.AuthService)
+		authHandler := httpauth.NewHandler(app.AuthService, httpauth.HandlerOptions{
+			GitHubOAuth: cfg.GitHubOAuth,
+			GoogleOAuth: cfg.GoogleOAuth,
+		})
 		authHandler.RegisterRoutes(r)
 		r.Group(func(dashboard chi.Router) {
 			dashboard.Use(authHandler.RequireSession)

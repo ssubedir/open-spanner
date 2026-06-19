@@ -113,6 +113,77 @@ func TestLoginRejectsInvalidCredentials(t *testing.T) {
 	}
 }
 
+func TestLoginWithExternalIdentityCreatesAndReusesUser(t *testing.T) {
+	ctx := context.Background()
+	repo := newFakeRepository()
+	service := NewService(repo)
+	service.now = func() time.Time { return time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC) }
+
+	login, err := service.LoginWithExternalIdentity(ctx, ExternalIdentityLoginCommand{
+		Provider:      "google",
+		Subject:       "google-subject",
+		Email:         " Admin@Example.COM ",
+		EmailVerified: true,
+	})
+	if err != nil {
+		t.Fatalf("external login: %v", err)
+	}
+	if login.User.ID == "" || login.User.Email != "admin@example.com" || login.AccessToken == "" || login.RefreshToken == "" {
+		t.Fatalf("login = %#v", login)
+	}
+
+	second, err := service.LoginWithExternalIdentity(ctx, ExternalIdentityLoginCommand{
+		Provider: "google",
+		Subject:  "google-subject",
+	})
+	if err != nil {
+		t.Fatalf("second external login: %v", err)
+	}
+	if second.User.ID != login.User.ID {
+		t.Fatalf("second user = %#v, want %s", second.User, login.User.ID)
+	}
+}
+
+func TestLoginWithExternalIdentityLinksVerifiedEmail(t *testing.T) {
+	ctx := context.Background()
+	repo := newFakeRepository()
+	service := NewService(repo)
+
+	user, err := service.CreateUser(ctx, CreateUserCommand{Email: "admin@example.com", Password: "strong-password"})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	login, err := service.LoginWithExternalIdentity(ctx, ExternalIdentityLoginCommand{
+		Provider:      "google",
+		Subject:       "google-subject",
+		Email:         "admin@example.com",
+		EmailVerified: true,
+	})
+	if err != nil {
+		t.Fatalf("external login: %v", err)
+	}
+	if login.User.ID != user.ID {
+		t.Fatalf("linked user = %#v, want %s", login.User, user.ID)
+	}
+}
+
+func TestLoginWithExternalIdentityRejectsUnverifiedEmail(t *testing.T) {
+	ctx := context.Background()
+	repo := newFakeRepository()
+	service := NewService(repo)
+
+	_, err := service.LoginWithExternalIdentity(ctx, ExternalIdentityLoginCommand{
+		Provider:      "google",
+		Subject:       "google-subject",
+		Email:         "admin@example.com",
+		EmailVerified: false,
+	})
+	if !errors.Is(err, domain.ErrUnauthorized) {
+		t.Fatalf("external login error = %v, want ErrUnauthorized", err)
+	}
+}
+
 func TestAPIKeyFlow(t *testing.T) {
 	ctx := context.Background()
 	repo := newFakeRepository()
@@ -229,6 +300,7 @@ func TestCasbinAuthorizerEnforcesScopesAndMeters(t *testing.T) {
 type fakeRepository struct {
 	usersByID        map[string]User
 	userIDByEmail    map[string]string
+	identitiesByKey  map[string]Identity
 	sessionsByHash   map[string]Session
 	apiKeysByID      map[string]APIKey
 	apiKeyIDByHash   map[string]string
@@ -237,11 +309,12 @@ type fakeRepository struct {
 
 func newFakeRepository() *fakeRepository {
 	return &fakeRepository{
-		usersByID:      map[string]User{},
-		userIDByEmail:  map[string]string{},
-		sessionsByHash: map[string]Session{},
-		apiKeysByID:    map[string]APIKey{},
-		apiKeyIDByHash: map[string]string{},
+		usersByID:       map[string]User{},
+		userIDByEmail:   map[string]string{},
+		identitiesByKey: map[string]Identity{},
+		sessionsByHash:  map[string]Session{},
+		apiKeysByID:     map[string]APIKey{},
+		apiKeyIDByHash:  map[string]string{},
 	}
 }
 
@@ -265,6 +338,19 @@ func (r *fakeRepository) FindUserByEmail(_ context.Context, email string) (User,
 		return User{}, domain.ErrNotFound
 	}
 	return r.usersByID[id], nil
+}
+
+func (r *fakeRepository) SaveIdentity(_ context.Context, identity Identity) (Identity, error) {
+	r.identitiesByKey[identity.Provider+"|"+identity.Subject] = identity
+	return identity, nil
+}
+
+func (r *fakeRepository) FindIdentityByProviderSubject(_ context.Context, provider string, subject string) (Identity, error) {
+	identity, ok := r.identitiesByKey[provider+"|"+subject]
+	if !ok {
+		return Identity{}, domain.ErrNotFound
+	}
+	return identity, nil
 }
 
 func (r *fakeRepository) SaveSession(_ context.Context, session Session) (Session, error) {

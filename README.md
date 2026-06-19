@@ -290,6 +290,14 @@ Common runtime variables:
 | --- | --- | --- |
 | `OPEN_SPANNER_HTTP_ADDR` | `:18081` | HTTP dashboard, REST API, Swagger UI, and health endpoints. |
 | `OPEN_SPANNER_GRPC_ADDR` | `:18090` | gRPC usage ingestion listen address. |
+| `OPEN_SPANNER_GITHUB_OAUTH_ENABLED` | `true` | Enables GitHub sign-in when credentials are configured. |
+| `OPEN_SPANNER_GITHUB_OAUTH_CLIENT_ID` | | Enables GitHub sign-in when set with `OPEN_SPANNER_GITHUB_OAUTH_CLIENT_SECRET`. |
+| `OPEN_SPANNER_GITHUB_OAUTH_CLIENT_SECRET` | | GitHub OAuth client secret. |
+| `OPEN_SPANNER_GITHUB_OAUTH_REDIRECT_URL` | | Optional callback URL; defaults to the request host plus `/v1/auth/oauth/github/callback`. |
+| `OPEN_SPANNER_GOOGLE_OAUTH_ENABLED` | `true` | Enables Google sign-in when credentials are configured. |
+| `OPEN_SPANNER_GOOGLE_OAUTH_CLIENT_ID` | | Enables Google sign-in when set with `OPEN_SPANNER_GOOGLE_OAUTH_CLIENT_SECRET`. |
+| `OPEN_SPANNER_GOOGLE_OAUTH_CLIENT_SECRET` | | Google OAuth client secret. |
+| `OPEN_SPANNER_GOOGLE_OAUTH_REDIRECT_URL` | | Optional callback URL; defaults to the request host plus `/v1/auth/oauth/google/callback`. |
 | `OPEN_SPANNER_DB_DRIVER` | `sqlite` | Storage driver: `sqlite` or `postgres`. |
 | `OPEN_SPANNER_SQLITE_PATH` | `open-spanner.db` | SQLite database path. |
 | `OPEN_SPANNER_POSTGRES_DSN` | | Postgres connection string. |
@@ -299,6 +307,31 @@ Common runtime variables:
 | `OPEN_SPANNER_RETENTION_PRUNE_ENABLED` | `false` | Enables automatic retention pruning. |
 
 See [Environment Variables](docs/content/docs/configuration/environment-variables.mdx) for the full list.
+
+### Social Login
+
+Dashboard users can sign in with email/password, Google, or GitHub. Social providers are shown only when enabled and configured with credentials.
+
+Local callback URLs:
+
+```text
+http://localhost:18081/v1/auth/oauth/google/callback
+http://localhost:18081/v1/auth/oauth/github/callback
+```
+
+For Vite dashboard development, also allow:
+
+```text
+http://localhost:5173/v1/auth/oauth/google/callback
+http://localhost:5173/v1/auth/oauth/github/callback
+```
+
+Disable a configured provider without removing credentials:
+
+```sh
+OPEN_SPANNER_GOOGLE_OAUTH_ENABLED=false
+OPEN_SPANNER_GITHUB_OAUTH_ENABLED=true
+```
 
 ## Examples And Tests
 

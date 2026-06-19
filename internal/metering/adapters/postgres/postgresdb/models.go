@@ -58,6 +58,17 @@ type AlertState struct {
 	UpdatedAt   string
 }
 
+type AuthIdentity struct {
+	ID            string
+	UserID        string
+	Provider      string
+	Subject       string
+	Email         string
+	EmailVerified bool
+	CreatedAt     string
+	UpdatedAt     string
+}
+
 type AuthUser struct {
 	ID           string
 	Email        string

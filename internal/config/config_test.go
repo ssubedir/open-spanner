@@ -35,6 +35,12 @@ func TestLoadDefaultsToSQLite(t *testing.T) {
 	if cfg.AlertWorkerTimeout != time.Minute {
 		t.Fatalf("alert worker timeout = %s, want 1m", cfg.AlertWorkerTimeout)
 	}
+	if cfg.GitHubOAuth.ClientID != "" || cfg.GitHubOAuth.ClientSecret != "" || !cfg.GitHubOAuth.Enabled || cfg.GitHubOAuth.RedirectURL != "" {
+		t.Fatalf("github oauth config = %#v, want empty defaults", cfg.GitHubOAuth)
+	}
+	if cfg.GoogleOAuth.ClientID != "" || cfg.GoogleOAuth.ClientSecret != "" || !cfg.GoogleOAuth.Enabled || cfg.GoogleOAuth.RedirectURL != "" {
+		t.Fatalf("google oauth config = %#v, want empty defaults", cfg.GoogleOAuth)
+	}
 }
 
 func TestLoadPostgresRequiresDSN(t *testing.T) {
@@ -107,6 +113,14 @@ func clearEnv(t *testing.T) {
 	for _, key := range []string{
 		"OPEN_SPANNER_HTTP_ADDR",
 		"OPEN_SPANNER_GRPC_ADDR",
+		"OPEN_SPANNER_GITHUB_OAUTH_ENABLED",
+		"OPEN_SPANNER_GITHUB_OAUTH_CLIENT_ID",
+		"OPEN_SPANNER_GITHUB_OAUTH_CLIENT_SECRET",
+		"OPEN_SPANNER_GITHUB_OAUTH_REDIRECT_URL",
+		"OPEN_SPANNER_GOOGLE_OAUTH_ENABLED",
+		"OPEN_SPANNER_GOOGLE_OAUTH_CLIENT_ID",
+		"OPEN_SPANNER_GOOGLE_OAUTH_CLIENT_SECRET",
+		"OPEN_SPANNER_GOOGLE_OAUTH_REDIRECT_URL",
 		"OPEN_SPANNER_DB_DRIVER",
 		"OPEN_SPANNER_SQLITE_PATH",
 		"OPEN_SPANNER_POSTGRES_DSN",

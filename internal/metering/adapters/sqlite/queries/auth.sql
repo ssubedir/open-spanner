@@ -16,6 +16,15 @@ SELECT id, email, password_hash, created_at
 FROM auth_users
 WHERE email = ?;
 
+-- name: SaveIdentity :exec
+INSERT INTO auth_identities (id, user_id, provider, subject, email, email_verified, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: FindIdentityByProviderSubject :one
+SELECT id, user_id, provider, subject, email, email_verified, created_at, updated_at
+FROM auth_identities
+WHERE provider = ? AND subject = ?;
+
 -- name: SaveSession :exec
 INSERT INTO auth_sessions (id, user_id, token_hash, kind, expires_at, created_at)
 VALUES (?, ?, ?, ?, ?, ?);
