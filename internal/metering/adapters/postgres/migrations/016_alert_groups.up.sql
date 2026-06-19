@@ -1,9 +1,0 @@
-ALTER TABLE alert_rules ADD COLUMN IF NOT EXISTS group_by TEXT NOT NULL DEFAULT '';
-
-ALTER TABLE alert_states ADD COLUMN IF NOT EXISTS group_key TEXT NOT NULL DEFAULT '';
-ALTER TABLE alert_states ADD COLUMN IF NOT EXISTS group_value TEXT NOT NULL DEFAULT '';
-ALTER TABLE alert_states DROP CONSTRAINT IF EXISTS alert_states_pkey;
-ALTER TABLE alert_states ADD PRIMARY KEY (rule_id, group_key, group_value);
-
-ALTER TABLE alert_events ADD COLUMN IF NOT EXISTS group_key TEXT NOT NULL DEFAULT '';
-ALTER TABLE alert_events ADD COLUMN IF NOT EXISTS group_value TEXT NOT NULL DEFAULT '';

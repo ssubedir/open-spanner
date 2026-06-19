@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -173,11 +174,11 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 	runIntegrationDimensionNameValidationFlow(t, router, authHeaders, suffix)
 
 	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
-		"name":            meterName,
-		"description":     "API calls",
-		"unit":            "call",
-		"aggregation":     "sum",
-		"metadata_schema": map[string]string{"endpoint": "string", "status": "number"},
+		"name":        meterName,
+		"description": "API calls",
+		"unit":        "call",
+		"aggregation": "sum",
+		"dimensions":  meterDimensionsFromSchema(map[string]string{"endpoint": "string", "status": "number"}),
 	}, authHeaders, nil)
 	if createMeter.Code != http.StatusCreated {
 		t.Fatalf("create meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
@@ -659,11 +660,11 @@ func runIntegrationDimensionNameValidationFlow(t *testing.T, router http.Handler
 
 	for _, dimensionName := range []string{"region name", "subject"} {
 		createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
-			"name":            "invalid_dimension_" + suffix + "_" + strings.ReplaceAll(dimensionName, " ", "_"),
-			"description":     "Invalid dimension",
-			"unit":            "event",
-			"aggregation":     "sum",
-			"metadata_schema": map[string]string{dimensionName: "string"},
+			"name":        "invalid_dimension_" + suffix + "_" + strings.ReplaceAll(dimensionName, " ", "_"),
+			"description": "Invalid dimension",
+			"unit":        "event",
+			"aggregation": "sum",
+			"dimensions":  meterDimensionsFromSchema(map[string]string{dimensionName: "string"}),
 		}, authHeaders, nil)
 		if createMeter.Code != http.StatusBadRequest {
 			t.Fatalf("create invalid dimension %q meter status = %d, want %d: %s", dimensionName, createMeter.Code, http.StatusBadRequest, createMeter.Body.String())
@@ -679,11 +680,11 @@ func runIntegrationHyphenatedDimensionFlow(t *testing.T, router http.Handler, au
 	subject := "org_hyphen_" + suffix
 
 	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
-		"name":            meterName,
-		"description":     "Hyphenated dimension keys",
-		"unit":            "event",
-		"aggregation":     "sum",
-		"metadata_schema": map[string]string{dimensionField: "string"},
+		"name":        meterName,
+		"description": "Hyphenated dimension keys",
+		"unit":        "event",
+		"aggregation": "sum",
+		"dimensions":  meterDimensionsFromSchema(map[string]string{dimensionField: "string"}),
 	}, authHeaders, nil)
 	if createMeter.Code != http.StatusCreated {
 		t.Fatalf("create hyphen-dimension meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
@@ -809,11 +810,11 @@ func runIntegrationDottedDimensionParityFlow(t *testing.T, router http.Handler, 
 		"description": "Dotted and hyphenated dimension parity",
 		"unit":        "event",
 		"aggregation": "sum",
-		"metadata_schema": map[string]string{
+		"dimensions": meterDimensionsFromSchema(map[string]string{
 			tierField:   "string",
 			regionField: "string",
 			statusField: "number",
-		},
+		}),
 	}, authHeaders, nil)
 	if createMeter.Code != http.StatusCreated {
 		t.Fatalf("create dimension parity meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
@@ -1055,11 +1056,11 @@ func runIntegrationFirstAggregationFlow(t *testing.T, router http.Handler, authH
 	subject := "org_first_" + suffix
 
 	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
-		"name":            meterName,
-		"description":     "First value aggregation",
-		"unit":            "event",
-		"aggregation":     "first",
-		"metadata_schema": map[string]string{"endpoint": "string"},
+		"name":        meterName,
+		"description": "First value aggregation",
+		"unit":        "event",
+		"aggregation": "first",
+		"dimensions":  meterDimensionsFromSchema(map[string]string{"endpoint": "string"}),
 	}, authHeaders, nil)
 	if createMeter.Code != http.StatusCreated {
 		t.Fatalf("create first-aggregation meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
@@ -1129,11 +1130,11 @@ func runIntegrationLastAggregationFlow(t *testing.T, router http.Handler, authHe
 	subject := "org_last_" + suffix
 
 	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
-		"name":            meterName,
-		"description":     "Last value aggregation",
-		"unit":            "event",
-		"aggregation":     "last",
-		"metadata_schema": map[string]string{"endpoint": "string"},
+		"name":        meterName,
+		"description": "Last value aggregation",
+		"unit":        "event",
+		"aggregation": "last",
+		"dimensions":  meterDimensionsFromSchema(map[string]string{"endpoint": "string"}),
 	}, authHeaders, nil)
 	if createMeter.Code != http.StatusCreated {
 		t.Fatalf("create last-aggregation meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
@@ -1203,11 +1204,11 @@ func runIntegrationRateAggregationFlow(t *testing.T, router http.Handler, authHe
 	subject := "org_rate_" + suffix
 
 	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
-		"name":            meterName,
-		"description":     "Rate aggregation",
-		"unit":            "event",
-		"aggregation":     "rate",
-		"metadata_schema": map[string]string{"endpoint": "string"},
+		"name":        meterName,
+		"description": "Rate aggregation",
+		"unit":        "event",
+		"aggregation": "rate",
+		"dimensions":  meterDimensionsFromSchema(map[string]string{"endpoint": "string"}),
 	}, authHeaders, nil)
 	if createMeter.Code != http.StatusCreated {
 		t.Fatalf("create rate-aggregation meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
@@ -1315,11 +1316,11 @@ func runIntegrationSummaryAggregationFlow(t *testing.T, router http.Handler, aut
 			subject := "org_" + tc.aggregation + "_" + suffix
 
 			createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
-				"name":            meterName,
-				"description":     tc.aggregation + " aggregation",
-				"unit":            "event",
-				"aggregation":     tc.aggregation,
-				"metadata_schema": map[string]string{"endpoint": "string"},
+				"name":        meterName,
+				"description": tc.aggregation + " aggregation",
+				"unit":        "event",
+				"aggregation": tc.aggregation,
+				"dimensions":  meterDimensionsFromSchema(map[string]string{"endpoint": "string"}),
 			}, authHeaders, nil)
 			if createMeter.Code != http.StatusCreated {
 				t.Fatalf("create %s-aggregation meter status = %d, want %d: %s", tc.aggregation, createMeter.Code, http.StatusCreated, createMeter.Body.String())
@@ -1393,11 +1394,11 @@ func runIntegrationFilterOperatorFlow(t *testing.T, router http.Handler, authHea
 	subject := "org_filter_" + suffix
 
 	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
-		"name":            meterName,
-		"description":     "Filter operator coverage",
-		"unit":            "event",
-		"aggregation":     "sum",
-		"metadata_schema": map[string]string{"endpoint": "string", "retry": "boolean"},
+		"name":        meterName,
+		"description": "Filter operator coverage",
+		"unit":        "event",
+		"aggregation": "sum",
+		"dimensions":  meterDimensionsFromSchema(map[string]string{"endpoint": "string", "retry": "boolean"}),
 	}, authHeaders, nil)
 	if createMeter.Code != http.StatusCreated {
 		t.Fatalf("create filter-operator meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
@@ -2097,6 +2098,23 @@ type alertEventResponse struct {
 type alertEventListResponse struct {
 	Items      []alertEventResponse `json:"items"`
 	NextCursor string               `json:"next_cursor"`
+}
+
+func meterDimensionsFromSchema(schema map[string]string) []map[string]any {
+	dimensions := make([]map[string]any, 0, len(schema))
+	names := make([]string, 0, len(schema))
+	for name := range schema {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		dimensions = append(dimensions, map[string]any{
+			"name":     name,
+			"type":     schema[name],
+			"required": true,
+		})
+	}
+	return dimensions
 }
 
 type alertWebhookPayload struct {

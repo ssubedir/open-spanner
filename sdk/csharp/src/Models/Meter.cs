@@ -56,14 +56,6 @@ namespace OpenSpanner.Models
 #else
         public string Id { get; set; }
 #endif
-        /// <summary>The metadata_schema property</summary>
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
-#nullable enable
-        public global::OpenSpanner.Models.Meter_metadata_schema? MetadataSchema { get; set; }
-#nullable restore
-#else
-        public global::OpenSpanner.Models.Meter_metadata_schema MetadataSchema { get; set; }
-#endif
         /// <summary>The name property</summary>
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
 #nullable enable
@@ -111,7 +103,6 @@ namespace OpenSpanner.Models
                 { "dimensions", n => { Dimensions = n.GetCollectionOfObjectValues<global::OpenSpanner.Models.MeterDimension>(global::OpenSpanner.Models.MeterDimension.CreateFromDiscriminatorValue)?.AsList(); } },
                 { "event_retention_days", n => { EventRetentionDays = n.GetIntValue(); } },
                 { "id", n => { Id = n.GetStringValue(); } },
-                { "metadata_schema", n => { MetadataSchema = n.GetObjectValue<global::OpenSpanner.Models.Meter_metadata_schema>(global::OpenSpanner.Models.Meter_metadata_schema.CreateFromDiscriminatorValue); } },
                 { "name", n => { Name = n.GetStringValue(); } },
                 { "unit", n => { Unit = n.GetStringValue(); } },
             };
@@ -129,7 +120,6 @@ namespace OpenSpanner.Models
             writer.WriteCollectionOfObjectValues<global::OpenSpanner.Models.MeterDimension>("dimensions", Dimensions);
             writer.WriteIntValue("event_retention_days", EventRetentionDays);
             writer.WriteStringValue("id", Id);
-            writer.WriteObjectValue<global::OpenSpanner.Models.Meter_metadata_schema>("metadata_schema", MetadataSchema);
             writer.WriteStringValue("name", Name);
             writer.WriteStringValue("unit", Unit);
             writer.WriteAdditionalData(AdditionalData);

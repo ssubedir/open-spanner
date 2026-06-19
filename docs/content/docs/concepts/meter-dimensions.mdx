@@ -1,9 +1,9 @@
 ---
 title: Meter Dimensions
-description: Use metadata schema to filter and group usage events.
+description: Use meter dimensions to filter and group usage events.
 ---
 
-Meter dimensions are the contextual fields attached to usage events. In Open Spanner, dimensions are represented by the meter's `metadata_schema` and the event's `metadata` object.
+Meter dimensions are the contextual fields attached to usage events. In Open Spanner, dimensions are defined on the meter and values are sent in each usage event's `metadata` object.
 
 Use dimensions to answer questions such as:
 
@@ -14,19 +14,19 @@ Use dimensions to answer questions such as:
 
 ## Define Dimensions On The Meter
 
-Open Spanner validates event metadata against the meter's `metadata_schema`.
+Open Spanner validates event metadata against the meter's `dimensions`.
 
 ```json
 {
   "name": "api_requests",
   "unit": "request",
   "aggregation": "sum",
-  "metadata_schema": {
-    "region-name": "string",
-    "service.tier": "string",
-    "status_code": "number",
-    "cache_hit": "boolean"
-  }
+  "dimensions": [
+    { "name": "region-name", "type": "string", "required": true },
+    { "name": "service.tier", "type": "string", "required": true },
+    { "name": "status_code", "type": "number", "required": true },
+    { "name": "cache_hit", "type": "boolean", "required": false }
+  ]
 }
 ```
 
@@ -38,7 +38,7 @@ Supported dimension types are:
 
 ## Send Dimension Values With Usage
 
-Every usage event for a meter must match that meter's metadata schema.
+Every usage event for a meter must match that meter's dimensions.
 
 ```json
 {
@@ -173,7 +173,7 @@ The search endpoint accepts the same grouping as an array:
 
 The dashboard usage page uses the same dimension fields for filtering and grouping. Grouping by several fields returns one bucket per unique dimension combination.
 
-`subject` is built in, not part of `metadata_schema`, but it can be used with `group_by`:
+`subject` is built in, not part of `dimensions`, but it can be used with `group_by`:
 
 ```sh
 curl "http://localhost:18081/v1/usages?meter=api_requests&from=2026-06-01T00:00:00Z&to=2026-06-10T00:00:00Z&bucket_size=day&group_by=subject&group_by=service.tier" \
@@ -198,7 +198,7 @@ Choose names that are stable, short, and meaningful across services:
 
 Dimension names can use letters, numbers, underscores, hyphens, and dots. Dots are useful for nested metadata paths such as `service.tier` or `request.region`. Avoid spaces, slashes, leading dots, trailing dots, and empty dot segments.
 
-`subject` is reserved for the built-in subject field. You can group and filter by subject without adding it to `metadata_schema`.
+`subject` is reserved for the built-in subject field. You can group and filter by subject without adding it to `dimensions`.
 
 Avoid putting high-cardinality values in dimensions unless you really need to query by them. Request IDs, trace IDs, and raw payload values are usually better left out of dimensions.
 

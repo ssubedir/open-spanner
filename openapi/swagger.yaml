@@ -352,10 +352,6 @@ definitions:
         type: array
       event_retention_days:
         type: integer
-      metadata_schema:
-        additionalProperties:
-          type: string
-        type: object
       name:
         type: string
       unit:
@@ -416,10 +412,6 @@ definitions:
         type: integer
       id:
         type: string
-      metadata_schema:
-        additionalProperties:
-          type: string
-        type: object
       name:
         type: string
       unit:
@@ -457,10 +449,6 @@ definitions:
         type: array
       event_retention_days:
         type: integer
-      metadata_schema:
-        additionalProperties:
-          type: string
-        type: object
       unit:
         type: string
     type: object

@@ -341,7 +341,7 @@ func postgresAlertDestination(row postgresdb.AlertDestination) (appalert.Destina
 	}, nil
 }
 
-func postgresAlertRule(row postgresdb.ListAlertRulesRow) (appalert.Rule, error) {
+func postgresAlertRule(row postgresdb.AlertRule) (appalert.Rule, error) {
 	metadata := map[string]string{}
 	if len(row.Metadata) > 0 {
 		if err := json.Unmarshal(row.Metadata, &metadata); err != nil {
@@ -380,11 +380,11 @@ func postgresAlertRule(row postgresdb.ListAlertRulesRow) (appalert.Rule, error) 
 	}, nil
 }
 
-func postgresAlertStateFromFind(row postgresdb.FindAlertStateRow) (appalert.State, error) {
+func postgresAlertStateFromFind(row postgresdb.AlertState) (appalert.State, error) {
 	return postgresAlertState(row.RuleID, row.GroupKey, row.GroupValue, row.Status, row.Value, row.Message, row.EvaluatedAt, row.UpdatedAt)
 }
 
-func postgresAlertStateFromList(row postgresdb.ListAlertStatesRow) (appalert.State, error) {
+func postgresAlertStateFromList(row postgresdb.AlertState) (appalert.State, error) {
 	return postgresAlertState(row.RuleID, row.GroupKey, row.GroupValue, row.Status, row.Value, row.Message, row.EvaluatedAt, row.UpdatedAt)
 }
 

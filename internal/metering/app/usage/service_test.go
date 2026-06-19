@@ -363,13 +363,13 @@ func TestServicePruneEventsUsesMeterRetention(t *testing.T) {
 	ctx := context.Background()
 	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
 
-	meter, err := domainmeter.New(
+	meter, err := domainmeter.NewWithDimensions(
 		"meter-1",
 		"api_calls",
 		"API calls",
 		"call",
 		domainmeter.AggregationSum,
-		map[string]domainmeter.MetadataType{},
+		nil,
 		1,
 		time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC),
 	)
@@ -449,13 +449,13 @@ func TestServiceListUsesMeterAggregation(t *testing.T) {
 	ctx := context.Background()
 	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
 
-	meter, err := domainmeter.New(
+	meter, err := domainmeter.NewWithDimensions(
 		"meter-1",
 		"latency_ms",
 		"Request latency",
 		"ms",
 		domainmeter.AggregationAverage,
-		map[string]domainmeter.MetadataType{},
+		nil,
 		0,
 		time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC),
 	)
@@ -516,13 +516,13 @@ func TestServiceCreateNormalizesDottedDimensionMetadata(t *testing.T) {
 	ctx := context.Background()
 	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
 
-	meter, err := domainmeter.New(
+	meter, err := domainmeter.NewWithDimensions(
 		"meter-1",
 		"api_calls",
 		"API calls",
 		"call",
 		domainmeter.AggregationSum,
-		map[string]domainmeter.MetadataType{"service.tier": domainmeter.MetadataString},
+		[]domainmeter.Dimension{mustDimension(t, "service.tier", domainmeter.MetadataString)},
 		0,
 		time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC),
 	)
@@ -697,15 +697,15 @@ func TestServiceCreateAcceptsMetadataMatchingMeterSchema(t *testing.T) {
 	ctx := context.Background()
 	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
 
-	meter, err := domainmeter.New(
+	meter, err := domainmeter.NewWithDimensions(
 		"meter-1",
 		"api_calls",
 		"API calls",
 		"call",
 		domainmeter.AggregationSum,
-		map[string]domainmeter.MetadataType{
-			"region": domainmeter.MetadataString,
-			"retry":  domainmeter.MetadataBoolean,
+		[]domainmeter.Dimension{
+			mustDimension(t, "region", domainmeter.MetadataString),
+			mustDimension(t, "retry", domainmeter.MetadataBoolean),
 		},
 		0,
 		time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC),
@@ -736,15 +736,15 @@ func TestServiceListGroupsByMultipleMetadataFields(t *testing.T) {
 	ctx := context.Background()
 	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
 
-	meter, err := domainmeter.New(
+	meter, err := domainmeter.NewWithDimensions(
 		"meter-1",
 		"api_calls",
 		"API calls",
 		"call",
 		domainmeter.AggregationSum,
-		map[string]domainmeter.MetadataType{
-			"region": domainmeter.MetadataString,
-			"plan":   domainmeter.MetadataString,
+		[]domainmeter.Dimension{
+			mustDimension(t, "region", domainmeter.MetadataString),
+			mustDimension(t, "plan", domainmeter.MetadataString),
 		},
 		0,
 		time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC),
@@ -841,15 +841,13 @@ func TestServiceListDimensionValues(t *testing.T) {
 	ctx := context.Background()
 	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
 
-	meter, err := domainmeter.New(
+	meter, err := domainmeter.NewWithDimensions(
 		"meter-1",
 		"api_calls",
 		"API calls",
 		"call",
 		domainmeter.AggregationSum,
-		map[string]domainmeter.MetadataType{
-			"region": domainmeter.MetadataString,
-		},
+		[]domainmeter.Dimension{mustDimension(t, "region", domainmeter.MetadataString)},
 		0,
 		time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC),
 	)
@@ -898,15 +896,13 @@ func TestServiceListBreakdown(t *testing.T) {
 	ctx := context.Background()
 	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
 
-	meter, err := domainmeter.New(
+	meter, err := domainmeter.NewWithDimensions(
 		"meter-1",
 		"api_calls",
 		"API calls",
 		"call",
 		domainmeter.AggregationSum,
-		map[string]domainmeter.MetadataType{
-			"endpoint": domainmeter.MetadataString,
-		},
+		[]domainmeter.Dimension{mustDimension(t, "endpoint", domainmeter.MetadataString)},
 		0,
 		time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC),
 	)
@@ -1047,13 +1043,13 @@ func newTestService(t *testing.T, ctx context.Context) Service {
 
 	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
 
-	meter, err := domainmeter.New(
+	meter, err := domainmeter.NewWithDimensions(
 		"meter-1",
 		"api_calls",
 		"API calls",
 		"call",
 		domainmeter.AggregationSum,
-		map[string]domainmeter.MetadataType{},
+		nil,
 		0,
 		time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC),
 	)
@@ -1065,6 +1061,16 @@ func newTestService(t *testing.T, ctx context.Context) Service {
 	}
 
 	return NewService(meterRepo, usageRepo, store)
+}
+
+func mustDimension(t *testing.T, name string, typ domainmeter.MetadataType) domainmeter.Dimension {
+	t.Helper()
+
+	dimension, err := domainmeter.NewDimension(name, typ, "", "", true)
+	if err != nil {
+		t.Fatalf("new dimension: %v", err)
+	}
+	return dimension
 }
 
 func newTestRepositories(t *testing.T, ctx context.Context) (*sqlite.Store, *sqlite.MeterRepository, *sqlite.UsageRepository) {

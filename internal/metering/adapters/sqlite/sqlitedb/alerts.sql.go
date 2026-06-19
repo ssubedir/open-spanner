@@ -348,25 +348,7 @@ type ListAlertRulesParams struct {
 	Limit         int64
 }
 
-type ListAlertRulesRow struct {
-	ID                        string
-	Name                      string
-	MeterName                 string
-	Enabled                   int64
-	Subject                   string
-	Metadata                  string
-	WindowSeconds             int64
-	Comparator                string
-	Threshold                 float64
-	EvaluationIntervalSeconds int64
-	GroupBy                   string
-	DestinationID             string
-	NextEvaluateAt            string
-	CreatedAt                 string
-	UpdatedAt                 string
-}
-
-func (q *Queries) ListAlertRules(ctx context.Context, arg ListAlertRulesParams) ([]ListAlertRulesRow, error) {
+func (q *Queries) ListAlertRules(ctx context.Context, arg ListAlertRulesParams) ([]AlertRule, error) {
 	rows, err := q.db.QueryContext(ctx, listAlertRules,
 		arg.ID,
 		arg.MeterName,
@@ -378,9 +360,9 @@ func (q *Queries) ListAlertRules(ctx context.Context, arg ListAlertRulesParams) 
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListAlertRulesRow{}
+	items := []AlertRule{}
 	for rows.Next() {
-		var i ListAlertRulesRow
+		var i AlertRule
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,

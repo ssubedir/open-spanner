@@ -30,9 +30,6 @@ type MeterCreateRequest struct {
 	// event retention days
 	EventRetentionDays int64 `json:"event_retention_days,omitempty"`
 
-	// metadata schema
-	MetadataSchema map[string]string `json:"metadata_schema,omitempty"`
-
 	// name
 	Name string `json:"name,omitempty"`
 

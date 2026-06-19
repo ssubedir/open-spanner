@@ -22,10 +22,6 @@ func NewMeterRepository(store *Store) *MeterRepository {
 }
 
 func (r *MeterRepository) Save(ctx context.Context, meter domainmeter.Meter) (domainmeter.Meter, error) {
-	metadataSchema, err := marshalMetadataSchema(meter.MetadataSchema())
-	if err != nil {
-		return domainmeter.Meter{}, err
-	}
 	dimensions, err := marshalDimensions(meter.Dimensions())
 	if err != nil {
 		return domainmeter.Meter{}, err
@@ -37,7 +33,6 @@ func (r *MeterRepository) Save(ctx context.Context, meter domainmeter.Meter) (do
 		Description:        meter.Description(),
 		Unit:               meter.Unit(),
 		Aggregation:        string(meter.Aggregation()),
-		MetadataSchema:     metadataSchema,
 		Dimensions:         dimensions,
 		EventRetentionDays: int32(meter.EventRetentionDays()),
 		CreatedAt:          formatTime(meter.CreatedAt()),
@@ -71,7 +66,6 @@ func (r *MeterRepository) Find(ctx context.Context, query domainmeter.Query) ([]
 			row.Description,
 			row.Unit,
 			row.Aggregation,
-			row.MetadataSchema,
 			row.Dimensions,
 			int(row.EventRetentionDays),
 			row.CreatedAt,
@@ -122,31 +116,26 @@ func scanMeter(scanner interface {
 	var description string
 	var unit string
 	var aggregation string
-	var metadataSchemaText string
 	var dimensionsText string
 	var eventRetentionDays int
 	var createdAtText string
 
-	if err := scanner.Scan(&id, &name, &description, &unit, &aggregation, &metadataSchemaText, &dimensionsText, &eventRetentionDays, &createdAtText); err != nil {
+	if err := scanner.Scan(&id, &name, &description, &unit, &aggregation, &dimensionsText, &eventRetentionDays, &createdAtText); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return domainmeter.Meter{}, domain.ErrNotFound
 		}
 		return domainmeter.Meter{}, err
 	}
 
-	return meterFromFields(id, name, description, unit, aggregation, metadataSchemaText, dimensionsText, eventRetentionDays, createdAtText)
+	return meterFromFields(id, name, description, unit, aggregation, dimensionsText, eventRetentionDays, createdAtText)
 }
 
-func meterFromFields(id string, name string, description string, unit string, aggregation string, metadataSchemaText string, dimensionsText string, eventRetentionDays int, createdAtText string) (domainmeter.Meter, error) {
+func meterFromFields(id string, name string, description string, unit string, aggregation string, dimensionsText string, eventRetentionDays int, createdAtText string) (domainmeter.Meter, error) {
 	createdAt, err := time.Parse(time.RFC3339Nano, createdAtText)
 	if err != nil {
 		return domainmeter.Meter{}, err
 	}
-	metadataSchema, err := unmarshalMetadataSchema(metadataSchemaText)
-	if err != nil {
-		return domainmeter.Meter{}, err
-	}
-	dimensions, err := unmarshalDimensions(dimensionsText, metadataSchema)
+	dimensions, err := unmarshalDimensions(dimensionsText)
 	if err != nil {
 		return domainmeter.Meter{}, err
 	}
@@ -159,33 +148,6 @@ func optionalString(value string) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: value, Valid: true}
-}
-
-func marshalMetadataSchema(schema map[string]domainmeter.MetadataType) (string, error) {
-	payload := map[string]string{}
-	for key, value := range schema {
-		payload[key] = string(value)
-	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
-}
-
-func unmarshalMetadataSchema(payload string) (map[string]domainmeter.MetadataType, error) {
-	if payload == "" {
-		payload = "{}"
-	}
-	values := map[string]string{}
-	if err := json.Unmarshal([]byte(payload), &values); err != nil {
-		return nil, err
-	}
-	schema := map[string]domainmeter.MetadataType{}
-	for key, value := range values {
-		schema[key] = domainmeter.MetadataType(value)
-	}
-	return schema, nil
 }
 
 type dimensionPayload struct {
@@ -216,16 +178,13 @@ func marshalDimensions(dimensions []domainmeter.Dimension) (string, error) {
 	return string(data), nil
 }
 
-func unmarshalDimensions(payload string, fallbackSchema map[string]domainmeter.MetadataType) ([]domainmeter.Dimension, error) {
+func unmarshalDimensions(payload string) ([]domainmeter.Dimension, error) {
 	if payload == "" {
 		payload = "[]"
 	}
 	values := []dimensionPayload{}
 	if err := json.Unmarshal([]byte(payload), &values); err != nil {
 		return nil, err
-	}
-	if len(values) == 0 {
-		return domainmeter.DimensionsFromMetadataSchema(fallbackSchema)
 	}
 
 	dimensions := make([]domainmeter.Dimension, 0, len(values))

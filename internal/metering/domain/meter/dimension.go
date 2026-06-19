@@ -3,7 +3,6 @@ package meter
 import (
 	"fmt"
 	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
@@ -53,21 +52,6 @@ func NewDimension(name string, metadataType MetadataType, displayName string, de
 		required:     required,
 		deprecated:   isDeprecated,
 	}, nil
-}
-
-func DimensionsFromMetadataSchema(schema map[string]MetadataType) ([]Dimension, error) {
-	dimensions := make([]Dimension, 0, len(schema))
-	for key, metadataType := range schema {
-		dimension, err := NewDimension(key, metadataType, "", "", true)
-		if err != nil {
-			return nil, err
-		}
-		dimensions = append(dimensions, dimension)
-	}
-	sort.Slice(dimensions, func(i, j int) bool {
-		return dimensions[i].Name() < dimensions[j].Name()
-	})
-	return dimensions, nil
 }
 
 func normalizeDimensions(dimensions []Dimension) ([]Dimension, map[string]MetadataType, error) {

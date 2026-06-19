@@ -9,7 +9,6 @@ from attrs import field as _attrs_field
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
-    from ..models.meter_create_request_metadata_schema import MeterCreateRequestMetadataSchema
     from ..models.meter_dimension_request import MeterDimensionRequest
 
 
@@ -24,7 +23,6 @@ class MeterCreateRequest:
         description (str | Unset):
         dimensions (list[MeterDimensionRequest] | Unset):
         event_retention_days (int | Unset):
-        metadata_schema (MeterCreateRequestMetadataSchema | Unset):
         name (str | Unset):
         unit (str | Unset):
     """
@@ -33,7 +31,6 @@ class MeterCreateRequest:
     description: str | Unset = UNSET
     dimensions: list[MeterDimensionRequest] | Unset = UNSET
     event_retention_days: int | Unset = UNSET
-    metadata_schema: MeterCreateRequestMetadataSchema | Unset = UNSET
     name: str | Unset = UNSET
     unit: str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -52,10 +49,6 @@ class MeterCreateRequest:
 
         event_retention_days = self.event_retention_days
 
-        metadata_schema: dict[str, Any] | Unset = UNSET
-        if not isinstance(self.metadata_schema, Unset):
-            metadata_schema = self.metadata_schema.to_dict()
-
         name = self.name
 
         unit = self.unit
@@ -71,8 +64,6 @@ class MeterCreateRequest:
             field_dict["dimensions"] = dimensions
         if event_retention_days is not UNSET:
             field_dict["event_retention_days"] = event_retention_days
-        if metadata_schema is not UNSET:
-            field_dict["metadata_schema"] = metadata_schema
         if name is not UNSET:
             field_dict["name"] = name
         if unit is not UNSET:
@@ -82,7 +73,6 @@ class MeterCreateRequest:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.meter_create_request_metadata_schema import MeterCreateRequestMetadataSchema
         from ..models.meter_dimension_request import MeterDimensionRequest
 
         d = dict(src_dict)
@@ -101,13 +91,6 @@ class MeterCreateRequest:
 
         event_retention_days = d.pop("event_retention_days", UNSET)
 
-        _metadata_schema = d.pop("metadata_schema", UNSET)
-        metadata_schema: MeterCreateRequestMetadataSchema | Unset
-        if isinstance(_metadata_schema, Unset):
-            metadata_schema = UNSET
-        else:
-            metadata_schema = MeterCreateRequestMetadataSchema.from_dict(_metadata_schema)
-
         name = d.pop("name", UNSET)
 
         unit = d.pop("unit", UNSET)
@@ -117,7 +100,6 @@ class MeterCreateRequest:
             description=description,
             dimensions=dimensions,
             event_retention_days=event_retention_days,
-            metadata_schema=metadata_schema,
             name=name,
             unit=unit,
         )

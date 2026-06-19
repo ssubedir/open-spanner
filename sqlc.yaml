@@ -14,15 +14,9 @@ sql:
       - internal/metering/adapters/postgres/migrations/008_usage_metadata_jsonb.up.sql
       - internal/metering/adapters/postgres/migrations/009_usage_saved_queries.up.sql
       - internal/metering/adapters/postgres/migrations/010_usage_saved_query_pins.up.sql
-      - internal/metering/adapters/postgres/migrations/011_meter_dimensions.up.sql
-      - internal/metering/adapters/postgres/migrations/012_usage_export_jobs.up.sql
-      - internal/metering/adapters/postgres/migrations/013_usage_export_job_processing.up.sql
-      - internal/metering/adapters/postgres/migrations/014_alerts.up.sql
-      - internal/metering/adapters/postgres/migrations/015_alert_triggers.up.sql
-      - internal/metering/adapters/postgres/migrations/016_alert_groups.up.sql
-      - internal/metering/adapters/postgres/migrations/017_alert_deliveries.up.sql
-      - internal/metering/adapters/postgres/migrations/018_alert_webhook_signing.up.sql
-      - internal/metering/adapters/postgres/migrations/019_alert_destinations.up.sql
+      - internal/metering/adapters/postgres/migrations/011_usage_export_jobs.up.sql
+      - internal/metering/adapters/postgres/migrations/012_usage_export_job_processing.up.sql
+      - internal/metering/adapters/postgres/migrations/013_alerts.up.sql
     queries: internal/metering/adapters/postgres/queries
     gen:
       go:
@@ -42,15 +36,9 @@ sql:
       - internal/metering/adapters/sqlite/migrations/005_auth_api_keys.up.sql
       - internal/metering/adapters/sqlite/migrations/006_usage_saved_queries.up.sql
       - internal/metering/adapters/sqlite/migrations/007_usage_saved_query_pins.up.sql
-      - internal/metering/adapters/sqlite/migrations/008_meter_dimensions.up.sql
-      - internal/metering/adapters/sqlite/migrations/009_usage_export_jobs.up.sql
-      - internal/metering/adapters/sqlite/migrations/010_usage_export_job_processing.up.sql
-      - internal/metering/adapters/sqlite/migrations/011_alerts.up.sql
-      - internal/metering/adapters/sqlite/migrations/012_alert_triggers.up.sql
-      - internal/metering/adapters/sqlite/migrations/013_alert_groups.up.sql
-      - internal/metering/adapters/sqlite/migrations/014_alert_deliveries.up.sql
-      - internal/metering/adapters/sqlite/migrations/015_alert_webhook_signing.up.sql
-      - internal/metering/adapters/sqlite/migrations/016_alert_destinations.up.sql
+      - internal/metering/adapters/sqlite/migrations/008_usage_export_jobs.up.sql
+      - internal/metering/adapters/sqlite/migrations/009_usage_export_job_processing.up.sql
+      - internal/metering/adapters/sqlite/migrations/010_alerts.up.sql
     queries: internal/metering/adapters/sqlite/queries
     gen:
       go:

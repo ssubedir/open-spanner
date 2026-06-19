@@ -19,10 +19,10 @@ curl -X POST http://localhost:18081/v1/meters \
     "unit": "request",
     "aggregation": "sum",
     "event_retention_days": 90,
-    "metadata_schema": {
-      "route": "string",
-      "region": "string"
-    }
+    "dimensions": [
+      { "name": "route", "type": "string", "required": true },
+      { "name": "region", "type": "string", "required": true }
+    ]
   }'
 ```
 

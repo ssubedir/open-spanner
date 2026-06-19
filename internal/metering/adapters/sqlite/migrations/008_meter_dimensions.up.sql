@@ -1,1 +1,0 @@
-ALTER TABLE meters ADD COLUMN dimensions TEXT NOT NULL DEFAULT '[]';

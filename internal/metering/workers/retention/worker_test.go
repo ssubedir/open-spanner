@@ -29,13 +29,13 @@ func TestWorkerPrunesWithSQLiteRepositories(t *testing.T) {
 
 	meterRepo := sqlite.NewMeterRepository(store)
 	usageRepo := sqlite.NewUsageRepository(store)
-	meter, err := domainmeter.New(
+	meter, err := domainmeter.NewWithDimensions(
 		"meter-1",
 		"api_calls",
 		"API calls",
 		"call",
 		domainmeter.AggregationSum,
-		map[string]domainmeter.MetadataType{},
+		nil,
 		1,
 		time.Now().UTC(),
 	)

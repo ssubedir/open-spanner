@@ -156,20 +156,9 @@ type FindAlertStateParams struct {
 	GroupValue string
 }
 
-type FindAlertStateRow struct {
-	RuleID      string
-	GroupKey    string
-	GroupValue  string
-	Status      string
-	Value       float64
-	Message     string
-	EvaluatedAt sql.NullString
-	UpdatedAt   string
-}
-
-func (q *Queries) FindAlertState(ctx context.Context, arg FindAlertStateParams) (FindAlertStateRow, error) {
+func (q *Queries) FindAlertState(ctx context.Context, arg FindAlertStateParams) (AlertState, error) {
 	row := q.db.QueryRowContext(ctx, findAlertState, arg.RuleID, arg.GroupKey, arg.GroupValue)
-	var i FindAlertStateRow
+	var i AlertState
 	err := row.Scan(
 		&i.RuleID,
 		&i.GroupKey,
@@ -362,25 +351,7 @@ type ListAlertRulesParams struct {
 	Limit         int32
 }
 
-type ListAlertRulesRow struct {
-	ID                        string
-	Name                      string
-	MeterName                 string
-	Enabled                   bool
-	Subject                   string
-	Metadata                  json.RawMessage
-	WindowSeconds             int32
-	Comparator                string
-	Threshold                 float64
-	EvaluationIntervalSeconds int32
-	GroupBy                   string
-	DestinationID             string
-	NextEvaluateAt            string
-	CreatedAt                 string
-	UpdatedAt                 string
-}
-
-func (q *Queries) ListAlertRules(ctx context.Context, arg ListAlertRulesParams) ([]ListAlertRulesRow, error) {
+func (q *Queries) ListAlertRules(ctx context.Context, arg ListAlertRulesParams) ([]AlertRule, error) {
 	rows, err := q.db.QueryContext(ctx, listAlertRules,
 		arg.ID,
 		arg.MeterName,
@@ -392,9 +363,9 @@ func (q *Queries) ListAlertRules(ctx context.Context, arg ListAlertRulesParams) 
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListAlertRulesRow{}
+	items := []AlertRule{}
 	for rows.Next() {
-		var i ListAlertRulesRow
+		var i AlertRule
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
@@ -447,26 +418,15 @@ type ListAlertStatesParams struct {
 	Limit  int32
 }
 
-type ListAlertStatesRow struct {
-	RuleID      string
-	GroupKey    string
-	GroupValue  string
-	Status      string
-	Value       float64
-	Message     string
-	EvaluatedAt sql.NullString
-	UpdatedAt   string
-}
-
-func (q *Queries) ListAlertStates(ctx context.Context, arg ListAlertStatesParams) ([]ListAlertStatesRow, error) {
+func (q *Queries) ListAlertStates(ctx context.Context, arg ListAlertStatesParams) ([]AlertState, error) {
 	rows, err := q.db.QueryContext(ctx, listAlertStates, arg.RuleID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListAlertStatesRow{}
+	items := []AlertState{}
 	for rows.Next() {
-		var i ListAlertStatesRow
+		var i AlertState
 		if err := rows.Scan(
 			&i.RuleID,
 			&i.GroupKey,

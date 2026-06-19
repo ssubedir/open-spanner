@@ -7,7 +7,6 @@ type CreateRequest struct {
 	Unit               string             `json:"unit"`
 	Aggregation        string             `json:"aggregation"`
 	Dimensions         []DimensionRequest `json:"dimensions,omitempty"`
-	MetadataSchema     map[string]string  `json:"metadata_schema"`
 	EventRetentionDays int                `json:"event_retention_days"`
 }
 
@@ -17,7 +16,6 @@ type UpdateRequest struct {
 	Unit               *string             `json:"unit,omitempty"`
 	Aggregation        *string             `json:"aggregation,omitempty"`
 	Dimensions         *[]DimensionRequest `json:"dimensions,omitempty"`
-	MetadataSchema     *map[string]string  `json:"metadata_schema,omitempty"`
 	EventRetentionDays *int                `json:"event_retention_days,omitempty"`
 }
 
@@ -39,7 +37,6 @@ type Response struct {
 	Unit               string              `json:"unit"`
 	Aggregation        string              `json:"aggregation"`
 	Dimensions         []DimensionResponse `json:"dimensions"`
-	MetadataSchema     map[string]string   `json:"metadata_schema"`
 	EventRetentionDays int                 `json:"event_retention_days"`
 	CreatedAt          string              `json:"created_at"`
 }

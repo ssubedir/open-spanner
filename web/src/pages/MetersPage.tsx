@@ -11,7 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
 import { formatDate, formatNumber } from '../lib/format'
 import { useInitialLoad } from '../lib/hooks'
-import { metadataDimensionNameError, metadataSchemaFromDimensions, meterDimensionsFromRows } from '../lib/metadata'
+import { metadataDimensionNameError, meterDimensionsFromRows } from '../lib/metadata'
 
 const aggregations = ['sum', 'count', 'avg', 'min', 'max', 'first', 'last', 'rate']
 const metadataTypes = ['string', 'number', 'boolean']
@@ -34,7 +34,6 @@ export function MetersPage() {
     if (!dimensions) {
       return
     }
-    const metadataSchema = metadataSchemaFromDimensions(dimensions)
 
     try {
       await appStoreActions.createMeter({
@@ -42,7 +41,6 @@ export function MetersPage() {
         description: String(form.get('description') || ''),
         dimensions,
         event_retention_days: Number(form.get('event_retention_days') || 90),
-        metadata_schema: metadataSchema,
         name: String(form.get('name') || ''),
         unit: String(form.get('unit') || ''),
       })
@@ -73,7 +71,6 @@ export function MetersPage() {
     if (!dimensions) {
       return
     }
-    const metadataSchema = metadataSchemaFromDimensions(dimensions)
 
     try {
       await appStoreActions.updateEditingMeter({
@@ -81,7 +78,6 @@ export function MetersPage() {
         description: String(form.get('description') || ''),
         dimensions,
         event_retention_days: Number(form.get('event_retention_days') || editing.event_retention_days),
-        metadata_schema: metadataSchema,
         unit: String(form.get('unit') || ''),
       })
     } catch {
@@ -490,19 +486,7 @@ function DimensionChips({ meter }: { meter: Meter }) {
 }
 
 function normalizedMeterDimensions(meter: Meter): MeterDimension[] {
-  if (meter.dimensions && meter.dimensions.length > 0) {
-    return meter.dimensions
-  }
-  return Object.entries(meter.metadata_schema || {})
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([name, type]) => ({
-      description: '',
-      display_name: humanizeField(name),
-      deprecated: false,
-      name,
-      required: true,
-      type,
-    }))
+  return meter.dimensions || []
 }
 
 function humanizeField(key: string) {

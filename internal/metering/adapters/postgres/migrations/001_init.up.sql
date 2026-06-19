@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS meters (
 	description TEXT NOT NULL DEFAULT '',
 	unit TEXT NOT NULL,
 	aggregation TEXT NOT NULL,
-	metadata_schema TEXT NOT NULL DEFAULT '{}',
+	dimensions TEXT NOT NULL DEFAULT '[]',
 	event_retention_days INTEGER NOT NULL DEFAULT 90,
 	created_at TEXT NOT NULL
 );

@@ -341,7 +341,7 @@ func sqliteAlertDestination(row sqlitedb.AlertDestination) (appalert.Destination
 	}, nil
 }
 
-func sqliteAlertRule(row sqlitedb.ListAlertRulesRow) (appalert.Rule, error) {
+func sqliteAlertRule(row sqlitedb.AlertRule) (appalert.Rule, error) {
 	metadata := map[string]string{}
 	if row.Metadata != "" {
 		if err := json.Unmarshal([]byte(row.Metadata), &metadata); err != nil {

@@ -1,11 +1,3 @@
-export function parseMetadataSchema(value: string) {
-  const parsed: unknown = JSON.parse(value || '{}')
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('Metadata schema must be a JSON object')
-  }
-  return Object.fromEntries(Object.entries(parsed).map(([key, schemaValue]) => [key, String(schemaValue)]))
-}
-
 const metadataNamePattern = /^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$/
 const reservedMetadataNames = new Set(['subject'])
 const metadataTypes = new Set(['string', 'number', 'boolean'])
@@ -22,20 +14,6 @@ export function metadataDimensionNameError(name: string) {
     return '"subject" is reserved for the built-in subject field.'
   }
   return ''
-}
-
-export function metadataSchemaFromRows(rows: Array<{ name: string; type: string }>) {
-  return metadataSchemaFromDimensions(meterDimensionsFromRows(rows))
-}
-
-export function metadataSchemaFromDimensions(dimensions: Array<{ name: string; type: string }>) {
-  const schema: Record<string, string> = {}
-
-  for (const dimension of dimensions) {
-    schema[dimension.name] = dimension.type
-  }
-
-  return schema
 }
 
 export function meterDimensionsFromRows(rows: Array<{

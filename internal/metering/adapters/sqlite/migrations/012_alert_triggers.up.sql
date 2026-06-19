@@ -1,1 +1,0 @@
--- Alert rule delivery is configured through alert destinations.

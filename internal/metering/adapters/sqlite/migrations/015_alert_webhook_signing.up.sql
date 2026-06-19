@@ -1,1 +1,0 @@
--- Alert webhook signing secrets are stored on alert destinations.

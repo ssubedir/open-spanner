@@ -56,7 +56,6 @@ import {
   type APIKeyCreateResponse,
   type AuthSession,
   type Meter,
-  type MeterDimension,
   type MeterCreateRequest,
   type MeterStats,
   type MeterUpdateRequest,
@@ -1569,9 +1568,8 @@ function newMeterDimensionDraft(
 }
 
 function meterDimensionDraftsFromMeter(meter: Meter, lockedByUsage = false) {
-  const dimensions = normalizedMeterDimensions(meter)
-  if (dimensions.length > 0) {
-    return dimensions.map((dimension) => newMeterDimensionDraft(
+  if (meter.dimensions.length > 0) {
+    return meter.dimensions.map((dimension) => newMeterDimensionDraft(
       dimension.name,
       dimension.type,
       dimension.display_name,
@@ -1586,46 +1584,9 @@ function meterDimensionDraftsFromMeter(meter: Meter, lockedByUsage = false) {
       },
     ))
   }
-  return meterDimensionDraftsFromSchema(meter.metadata_schema, lockedByUsage)
-}
-
-function meterDimensionDraftsFromSchema(schema: Record<string, string>, lockedByUsage = false) {
-  const rows = Object.entries(schema || {})
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([name, type]) => newMeterDimensionDraft(name, type, '', '', true, false, {
-      deprecated: false,
-      name,
-      required: true,
-      type,
-    }))
-  return rows.length > 0 ? rows : [newMeterDimensionDraft('', 'string', '', '', !lockedByUsage)]
-}
-
-function normalizedMeterDimensions(meter: Meter): MeterDimension[] {
-  if (meter.dimensions && meter.dimensions.length > 0) {
-    return meter.dimensions
-  }
-  return Object.entries(meter.metadata_schema || {})
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([name, type]) => ({
-      description: '',
-      display_name: humanizeDimensionName(name),
-      deprecated: false,
-      name,
-      required: true,
-      type,
-    }))
+  return [newMeterDimensionDraft('', 'string', '', '', !lockedByUsage)]
 }
 
 function meterHasUsage(meter: Meter | null, stats: Record<string, MeterStats>) {
   return meter ? (stats[meter.name]?.usage_events ?? 0) > 0 : false
-}
-
-function humanizeDimensionName(name: string) {
-  return name
-    .replace(/^metadata\./, '')
-    .split(/[._-]/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ')
 }

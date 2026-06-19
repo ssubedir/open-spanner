@@ -3057,12 +3057,6 @@ const docTemplate = `{
                 "event_retention_days": {
                     "type": "integer"
                 },
-                "metadata_schema": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                },
                 "name": {
                     "type": "string"
                 },
@@ -3155,12 +3149,6 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
-                "metadata_schema": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                },
                 "name": {
                     "type": "string"
                 },
@@ -3217,12 +3205,6 @@ const docTemplate = `{
                 },
                 "event_retention_days": {
                     "type": "integer"
-                },
-                "metadata_schema": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
                 },
                 "unit": {
                     "type": "string"

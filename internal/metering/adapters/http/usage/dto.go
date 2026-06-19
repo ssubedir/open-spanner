@@ -57,7 +57,7 @@ type ExportJobCreateRequest struct {
 	Query  *SearchRequest `json:"query"`
 }
 
-// GroupByRequest accepts a single metadata key or an ordered list of metadata keys.
+// GroupByRequest accepts an ordered list of subject or metadata keys.
 type GroupByRequest []string
 
 func (g *GroupByRequest) UnmarshalJSON(data []byte) error {
@@ -72,13 +72,7 @@ func (g *GroupByRequest) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
-	var value string
-	if err := json.Unmarshal(data, &value); err == nil {
-		*g = GroupByRequest(domainusage.SplitGroupBy(value))
-		return nil
-	}
-
-	return fmt.Errorf("group_by must be a string or array of strings")
+	return fmt.Errorf("group_by must be an array of strings")
 }
 
 func (g GroupByRequest) Fields() []string {

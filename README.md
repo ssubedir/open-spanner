@@ -93,11 +93,11 @@ curl -X POST http://localhost:18081/v1/meters \
     "unit": "request",
     "aggregation": "sum",
     "event_retention_days": 90,
-    "metadata_schema": {
-      "region-name": "string",
-      "service.tier": "string",
-      "status_code": "number"
-    }
+    "dimensions": [
+      { "name": "region-name", "type": "string" },
+      { "name": "service.tier", "type": "string" },
+      { "name": "status_code", "type": "number" }
+    ]
   }'
 ```
 

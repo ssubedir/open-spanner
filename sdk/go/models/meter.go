@@ -36,9 +36,6 @@ type Meter struct {
 	// id
 	ID string `json:"id,omitempty"`
 
-	// metadata schema
-	MetadataSchema map[string]string `json:"metadata_schema,omitempty"`
-
 	// name
 	Name string `json:"name,omitempty"`
 

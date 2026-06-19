@@ -43,7 +43,6 @@ export type Meter = {
   unit: string
   aggregation: string
   dimensions: MeterDimension[]
-  metadata_schema: Record<string, string>
   event_retention_days: number
   created_at: string
 }
@@ -80,7 +79,6 @@ export type MeterCreateRequest = {
   unit: string
   aggregation: string
   dimensions: MeterDimensionRequest[]
-  metadata_schema: Record<string, string>
   event_retention_days: number
 }
 
@@ -89,7 +87,6 @@ export type MeterUpdateRequest = {
   unit: string
   aggregation: string
   dimensions: MeterDimensionRequest[]
-  metadata_schema: Record<string, string>
   event_retention_days: number
 }
 

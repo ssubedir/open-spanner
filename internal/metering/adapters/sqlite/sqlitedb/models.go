@@ -28,6 +28,24 @@ type AlertEvaluationJob struct {
 	UpdatedAt   string
 }
 
+type AlertRule struct {
+	ID                        string
+	Name                      string
+	MeterName                 string
+	Enabled                   int64
+	Subject                   string
+	Metadata                  string
+	WindowSeconds             int64
+	Comparator                string
+	Threshold                 float64
+	EvaluationIntervalSeconds int64
+	GroupBy                   string
+	DestinationID             string
+	NextEvaluateAt            string
+	CreatedAt                 string
+	UpdatedAt                 string
+}
+
 type AlertState struct {
 	RuleID      string
 	GroupKey    string
@@ -54,6 +72,17 @@ type AuthUser struct {
 	Email        string
 	PasswordHash string
 	CreatedAt    string
+}
+
+type Meter struct {
+	ID                 string
+	Name               string
+	Description        string
+	Unit               string
+	Aggregation        string
+	Dimensions         string
+	EventRetentionDays int64
+	CreatedAt          string
 }
 
 type UsageEvent struct {

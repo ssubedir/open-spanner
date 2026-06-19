@@ -6,13 +6,10 @@ from .internal_metering_adapters_http_usage_filter_request import InternalMeteri
 from .internal_metering_adapters_http_usage_search_request import InternalMeteringAdaptersHttpUsageSearchRequest
 from .meter import Meter
 from .meter_create_request import MeterCreateRequest
-from .meter_create_request_metadata_schema import MeterCreateRequestMetadataSchema
 from .meter_dimension import MeterDimension
 from .meter_dimension_request import MeterDimensionRequest
 from .meter_list_response import MeterListResponse
-from .meter_metadata_schema import MeterMetadataSchema
 from .meter_update_request import MeterUpdateRequest
-from .meter_update_request_metadata_schema import MeterUpdateRequestMetadataSchema
 from .usage_breakdown import UsageBreakdown
 from .usage_breakdown_list_response import UsageBreakdownListResponse
 from .usage_breakdown_request import UsageBreakdownRequest
@@ -34,13 +31,10 @@ __all__ = (
     "InternalMeteringAdaptersHttpUsageSearchRequest",
     "Meter",
     "MeterCreateRequest",
-    "MeterCreateRequestMetadataSchema",
     "MeterDimension",
     "MeterDimensionRequest",
     "MeterListResponse",
-    "MeterMetadataSchema",
     "MeterUpdateRequest",
-    "MeterUpdateRequestMetadataSchema",
     "UsageBreakdown",
     "UsageBreakdownListResponse",
     "UsageBreakdownRequest",
