@@ -3,12 +3,17 @@ package bootstrap
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -18,6 +23,8 @@ import (
 
 	"github.com/ssubedir/open-spanner/internal/config"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/fileexport"
+	appalert "github.com/ssubedir/open-spanner/internal/metering/app/alert"
+	alertworker "github.com/ssubedir/open-spanner/internal/metering/workers/alert"
 	exportworker "github.com/ssubedir/open-spanner/internal/metering/workers/export"
 )
 
@@ -167,15 +174,17 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 	runIntegrationDimensionNameValidationFlow(t, router, authHeaders, suffix)
 
 	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
-		"name":            meterName,
-		"description":     "API calls",
-		"unit":            "call",
-		"aggregation":     "sum",
-		"metadata_schema": map[string]string{"endpoint": "string", "status": "number"},
+		"name":        meterName,
+		"description": "API calls",
+		"unit":        "call",
+		"aggregation": "sum",
+		"dimensions":  meterDimensionsFromSchema(map[string]string{"endpoint": "string", "status": "number"}),
 	}, authHeaders, nil)
 	if createMeter.Code != http.StatusCreated {
 		t.Fatalf("create meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
 	}
+
+	runIntegrationAlertEvaluationFlow(t, app, router, authHeaders, meterName, suffix)
 
 	for _, event := range []map[string]any{
 		{
@@ -432,16 +441,230 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 	runIntegrationDynamicSQLParityFlow(t, router, authHeaders, suffix)
 }
 
+func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handler, authHeaders map[string]string, meterName string, suffix string) {
+	t.Helper()
+
+	webhookRequests := make(chan alertWebhookRequest, 1)
+	webhookServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("webhook method = %s, want POST", r.Method)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read webhook payload: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		var payload alertWebhookPayload
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Errorf("decode webhook payload: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		webhookRequests <- alertWebhookRequest{
+			Body:      body,
+			Payload:   payload,
+			Signature: r.Header.Get(appalert.WebhookSignatureHeader),
+			Timestamp: r.Header.Get(appalert.WebhookTimestampHeader),
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer webhookServer.Close()
+
+	createDestination := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/alerts/destinations", map[string]any{
+		"name":        "Primary alert webhook " + suffix,
+		"type":        "webhook",
+		"enabled":     true,
+		"webhook_url": webhookServer.URL,
+	}, authHeaders, nil)
+	if createDestination.Code != http.StatusCreated {
+		t.Fatalf("create alert destination status = %d, want %d: %s", createDestination.Code, http.StatusCreated, createDestination.Body.String())
+	}
+	var destination alertDestinationResponse
+	decodeJSON(t, createDestination, &destination)
+	if destination.ID == "" || destination.WebhookURL != webhookServer.URL || !destination.Enabled {
+		t.Fatalf("created alert destination = %#v", destination)
+	}
+	if !destination.WebhookSigning.Enabled || destination.WebhookSigning.Secret == "" || destination.WebhookSigning.SignatureHeader != appalert.WebhookSignatureHeader || destination.WebhookSigning.TimestampHeader != appalert.WebhookTimestampHeader {
+		t.Fatalf("created destination signing = %#v, want one-time signing secret", destination.WebhookSigning)
+	}
+
+	listDestinations := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/alerts/destinations", nil, authHeaders, nil)
+	if listDestinations.Code != http.StatusOK {
+		t.Fatalf("list alert destinations status = %d, want %d: %s", listDestinations.Code, http.StatusOK, listDestinations.Body.String())
+	}
+	var destinationList alertDestinationListResponse
+	decodeJSON(t, listDestinations, &destinationList)
+	if len(destinationList.Items) != 1 || destinationList.Items[0].ID != destination.ID || destinationList.Items[0].WebhookSigning.Secret != "" {
+		t.Fatalf("listed alert destinations = %#v, want destination without secret", destinationList)
+	}
+
+	rotateDestination := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/alerts/destinations/"+destination.ID+"/webhook-secret/rotate", nil, authHeaders, nil)
+	if rotateDestination.Code != http.StatusOK {
+		t.Fatalf("rotate destination webhook secret status = %d, want %d: %s", rotateDestination.Code, http.StatusOK, rotateDestination.Body.String())
+	}
+	var rotatedDestination alertDestinationResponse
+	decodeJSON(t, rotateDestination, &rotatedDestination)
+	if rotatedDestination.WebhookSigning.Secret == "" || rotatedDestination.WebhookSigning.Secret == destination.WebhookSigning.Secret {
+		t.Fatalf("rotated destination signing = %#v, want a new one-time secret", rotatedDestination.WebhookSigning)
+	}
+	destination = rotatedDestination
+
+	createAlert := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/alerts", map[string]any{
+		"name":                        "High API calls " + suffix,
+		"meter":                       meterName,
+		"metadata":                    map[string]string{"endpoint": "/orders"},
+		"group_by":                    "subject",
+		"window_seconds":              3600,
+		"comparator":                  "gte",
+		"threshold":                   10,
+		"evaluation_interval_seconds": 60,
+		"destination_id":              destination.ID,
+	}, authHeaders, nil)
+	if createAlert.Code != http.StatusCreated {
+		t.Fatalf("create alert status = %d, want %d: %s", createAlert.Code, http.StatusCreated, createAlert.Body.String())
+	}
+	var alertRule alertRuleResponse
+	decodeJSON(t, createAlert, &alertRule)
+	if alertRule.ID == "" || alertRule.Meter != meterName || !alertRule.Enabled {
+		t.Fatalf("created alert rule = %#v", alertRule)
+	}
+	if alertRule.DestinationID != destination.ID || alertRule.Destination == nil || alertRule.Destination.WebhookURL != webhookServer.URL || !alertRule.Destination.WebhookSigning.Enabled || alertRule.Destination.WebhookSigning.Secret != "" {
+		t.Fatalf("created alert destination = %#v, want destination webhook %q without secret", alertRule, webhookServer.URL)
+	}
+	if alertRule.GroupBy != "subject" {
+		t.Fatalf("created alert group_by = %q, want subject", alertRule.GroupBy)
+	}
+
+	deleteUsedDestination := requestJSONWithHeaders(t, router, http.MethodDelete, "/v1/alerts/destinations/"+destination.ID, nil, authHeaders, nil)
+	if deleteUsedDestination.Code != http.StatusConflict {
+		t.Fatalf("delete used alert destination status = %d, want %d: %s", deleteUsedDestination.Code, http.StatusConflict, deleteUsedDestination.Body.String())
+	}
+
+	getFreshAlert := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/alerts/"+alertRule.ID, nil, authHeaders, nil)
+	if getFreshAlert.Code != http.StatusOK {
+		t.Fatalf("get fresh alert status = %d, want %d: %s", getFreshAlert.Code, http.StatusOK, getFreshAlert.Body.String())
+	}
+	var freshAlert alertRuleResponse
+	decodeJSON(t, getFreshAlert, &freshAlert)
+	if freshAlert.Destination == nil || !freshAlert.Destination.WebhookSigning.Enabled || freshAlert.Destination.WebhookSigning.Secret != "" {
+		t.Fatalf("fresh alert destination signing = %#v, want configured signing without secret", freshAlert.Destination)
+	}
+
+	alertSubject := "org_alert_" + suffix
+	createUsage := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages", map[string]any{
+		"idempotency_key": "alert-flow-" + suffix + "-1",
+		"subject":         alertSubject,
+		"meter":           meterName,
+		"quantity":        12,
+		"timestamp":       time.Now().UTC().Add(-time.Minute).Format(time.RFC3339Nano),
+		"metadata":        map[string]any{"endpoint": "/orders", "status": 200},
+	}, authHeaders, nil)
+	if createUsage.Code != http.StatusCreated {
+		t.Fatalf("create alert usage status = %d, want %d: %s", createUsage.Code, http.StatusCreated, createUsage.Body.String())
+	}
+	createLowUsage := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages", map[string]any{
+		"idempotency_key": "alert-flow-" + suffix + "-2",
+		"subject":         "org_alert_low_" + suffix,
+		"meter":           meterName,
+		"quantity":        4,
+		"timestamp":       time.Now().UTC().Add(-time.Minute).Format(time.RFC3339Nano),
+		"metadata":        map[string]any{"endpoint": "/orders", "status": 200},
+	}, authHeaders, nil)
+	if createLowUsage.Code != http.StatusCreated {
+		t.Fatalf("create low alert usage status = %d, want %d: %s", createLowUsage.Code, http.StatusCreated, createLowUsage.Body.String())
+	}
+
+	worker := alertworker.NewWorker(app.AlertService, time.Millisecond, time.Minute, time.Minute, time.Second, 3, 10, t.Logf)
+	var request alertWebhookRequest
+	var payload alertWebhookPayload
+	delivered := false
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		processed, err := worker.ProcessOnce(context.Background())
+		if err != nil {
+			t.Fatalf("process alert job: %v", err)
+		}
+		select {
+		case request = <-webhookRequests:
+			payload = request.Payload
+			delivered = true
+		default:
+		}
+		if delivered {
+			break
+		}
+		if !processed {
+			time.Sleep(25 * time.Millisecond)
+		}
+	}
+	if !delivered {
+		t.Fatal("alert webhook was not delivered")
+	}
+	if payload.Event.Type != "triggered" || payload.Event.Value != 12 || payload.Event.GroupKey != "subject" || payload.Event.GroupValue != alertSubject || payload.Rule.Meter != meterName || payload.Rule.GroupBy != "subject" || payload.Rule.DestinationID != destination.ID || payload.Rule.DestinationName != destination.Name || payload.State.Status != "alerting" || payload.State.GroupValue != alertSubject {
+		t.Fatalf("webhook payload = %#v, want triggered value 12 for grouped subject %s", payload, alertSubject)
+	}
+	if !validAlertWebhookSignature(destination.WebhookSigning.Secret, request.Timestamp, request.Body, request.Signature) {
+		t.Fatalf("webhook signature header = %q timestamp = %q, want valid %s signature", request.Signature, request.Timestamp, appalert.WebhookSignatureAlgorithm)
+	}
+
+	getAlert := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/alerts/"+alertRule.ID, nil, authHeaders, nil)
+	if getAlert.Code != http.StatusOK {
+		t.Fatalf("get alert status = %d, want %d: %s", getAlert.Code, http.StatusOK, getAlert.Body.String())
+	}
+	var evaluated alertRuleResponse
+	decodeJSON(t, getAlert, &evaluated)
+	if evaluated.State == nil || evaluated.State.Status != "alerting" || evaluated.State.Value != 12 || evaluated.State.GroupValue != alertSubject {
+		t.Fatalf("evaluated alert = %#v, want alerting value 12 for subject %s", evaluated, alertSubject)
+	}
+	if evaluated.Destination == nil || !evaluated.Destination.WebhookSigning.Enabled || evaluated.Destination.WebhookSigning.Secret != "" {
+		t.Fatalf("evaluated alert destination signing = %#v, want configured signing without secret", evaluated.Destination)
+	}
+	if len(evaluated.States) < 2 {
+		t.Fatalf("evaluated states = %#v, want grouped states for alerting and ok subjects", evaluated.States)
+	}
+
+	events := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/alerts/events?rule_id="+url.QueryEscape(alertRule.ID)+"&limit=10", nil, authHeaders, nil)
+	if events.Code != http.StatusOK {
+		t.Fatalf("list alert events status = %d, want %d: %s", events.Code, http.StatusOK, events.Body.String())
+	}
+	var alertEvents alertEventListResponse
+	decodeJSON(t, events, &alertEvents)
+	if len(alertEvents.Items) != 1 || alertEvents.Items[0].RuleID != alertRule.ID || alertEvents.Items[0].Type != "triggered" || alertEvents.Items[0].Value != 12 || alertEvents.Items[0].GroupValue != alertSubject {
+		t.Fatalf("alert events = %#v, want one triggered event for subject %s", alertEvents, alertSubject)
+	}
+	if alertEvents.Items[0].Delivery == nil || alertEvents.Items[0].Delivery.Status != "delivered" || alertEvents.Items[0].Delivery.StatusCode != http.StatusNoContent || alertEvents.Items[0].Delivery.TriggerType != "webhook" {
+		t.Fatalf("alert event delivery = %#v, want delivered webhook with status %d", alertEvents.Items[0].Delivery, http.StatusNoContent)
+	}
+}
+
+func validAlertWebhookSignature(secret string, timestamp string, body []byte, signature string) bool {
+	if secret == "" || timestamp == "" || signature == "" {
+		return false
+	}
+	if _, err := strconv.ParseInt(timestamp, 10, 64); err != nil {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(timestamp))
+	mac.Write([]byte("."))
+	mac.Write(body)
+	expected := appalert.WebhookSignatureVersion + "=" + hex.EncodeToString(mac.Sum(nil))
+	return hmac.Equal([]byte(signature), []byte(expected))
+}
+
 func runIntegrationDimensionNameValidationFlow(t *testing.T, router http.Handler, authHeaders map[string]string, suffix string) {
 	t.Helper()
 
 	for _, dimensionName := range []string{"region name", "subject"} {
 		createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
-			"name":            "invalid_dimension_" + suffix + "_" + strings.ReplaceAll(dimensionName, " ", "_"),
-			"description":     "Invalid dimension",
-			"unit":            "event",
-			"aggregation":     "sum",
-			"metadata_schema": map[string]string{dimensionName: "string"},
+			"name":        "invalid_dimension_" + suffix + "_" + strings.ReplaceAll(dimensionName, " ", "_"),
+			"description": "Invalid dimension",
+			"unit":        "event",
+			"aggregation": "sum",
+			"dimensions":  meterDimensionsFromSchema(map[string]string{dimensionName: "string"}),
 		}, authHeaders, nil)
 		if createMeter.Code != http.StatusBadRequest {
 			t.Fatalf("create invalid dimension %q meter status = %d, want %d: %s", dimensionName, createMeter.Code, http.StatusBadRequest, createMeter.Body.String())
@@ -457,11 +680,11 @@ func runIntegrationHyphenatedDimensionFlow(t *testing.T, router http.Handler, au
 	subject := "org_hyphen_" + suffix
 
 	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
-		"name":            meterName,
-		"description":     "Hyphenated dimension keys",
-		"unit":            "event",
-		"aggregation":     "sum",
-		"metadata_schema": map[string]string{dimensionField: "string"},
+		"name":        meterName,
+		"description": "Hyphenated dimension keys",
+		"unit":        "event",
+		"aggregation": "sum",
+		"dimensions":  meterDimensionsFromSchema(map[string]string{dimensionField: "string"}),
 	}, authHeaders, nil)
 	if createMeter.Code != http.StatusCreated {
 		t.Fatalf("create hyphen-dimension meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
@@ -587,11 +810,11 @@ func runIntegrationDottedDimensionParityFlow(t *testing.T, router http.Handler, 
 		"description": "Dotted and hyphenated dimension parity",
 		"unit":        "event",
 		"aggregation": "sum",
-		"metadata_schema": map[string]string{
+		"dimensions": meterDimensionsFromSchema(map[string]string{
 			tierField:   "string",
 			regionField: "string",
 			statusField: "number",
-		},
+		}),
 	}, authHeaders, nil)
 	if createMeter.Code != http.StatusCreated {
 		t.Fatalf("create dimension parity meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
@@ -833,11 +1056,11 @@ func runIntegrationFirstAggregationFlow(t *testing.T, router http.Handler, authH
 	subject := "org_first_" + suffix
 
 	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
-		"name":            meterName,
-		"description":     "First value aggregation",
-		"unit":            "event",
-		"aggregation":     "first",
-		"metadata_schema": map[string]string{"endpoint": "string"},
+		"name":        meterName,
+		"description": "First value aggregation",
+		"unit":        "event",
+		"aggregation": "first",
+		"dimensions":  meterDimensionsFromSchema(map[string]string{"endpoint": "string"}),
 	}, authHeaders, nil)
 	if createMeter.Code != http.StatusCreated {
 		t.Fatalf("create first-aggregation meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
@@ -907,11 +1130,11 @@ func runIntegrationLastAggregationFlow(t *testing.T, router http.Handler, authHe
 	subject := "org_last_" + suffix
 
 	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
-		"name":            meterName,
-		"description":     "Last value aggregation",
-		"unit":            "event",
-		"aggregation":     "last",
-		"metadata_schema": map[string]string{"endpoint": "string"},
+		"name":        meterName,
+		"description": "Last value aggregation",
+		"unit":        "event",
+		"aggregation": "last",
+		"dimensions":  meterDimensionsFromSchema(map[string]string{"endpoint": "string"}),
 	}, authHeaders, nil)
 	if createMeter.Code != http.StatusCreated {
 		t.Fatalf("create last-aggregation meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
@@ -981,11 +1204,11 @@ func runIntegrationRateAggregationFlow(t *testing.T, router http.Handler, authHe
 	subject := "org_rate_" + suffix
 
 	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
-		"name":            meterName,
-		"description":     "Rate aggregation",
-		"unit":            "event",
-		"aggregation":     "rate",
-		"metadata_schema": map[string]string{"endpoint": "string"},
+		"name":        meterName,
+		"description": "Rate aggregation",
+		"unit":        "event",
+		"aggregation": "rate",
+		"dimensions":  meterDimensionsFromSchema(map[string]string{"endpoint": "string"}),
 	}, authHeaders, nil)
 	if createMeter.Code != http.StatusCreated {
 		t.Fatalf("create rate-aggregation meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
@@ -1093,11 +1316,11 @@ func runIntegrationSummaryAggregationFlow(t *testing.T, router http.Handler, aut
 			subject := "org_" + tc.aggregation + "_" + suffix
 
 			createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
-				"name":            meterName,
-				"description":     tc.aggregation + " aggregation",
-				"unit":            "event",
-				"aggregation":     tc.aggregation,
-				"metadata_schema": map[string]string{"endpoint": "string"},
+				"name":        meterName,
+				"description": tc.aggregation + " aggregation",
+				"unit":        "event",
+				"aggregation": tc.aggregation,
+				"dimensions":  meterDimensionsFromSchema(map[string]string{"endpoint": "string"}),
 			}, authHeaders, nil)
 			if createMeter.Code != http.StatusCreated {
 				t.Fatalf("create %s-aggregation meter status = %d, want %d: %s", tc.aggregation, createMeter.Code, http.StatusCreated, createMeter.Body.String())
@@ -1171,11 +1394,11 @@ func runIntegrationFilterOperatorFlow(t *testing.T, router http.Handler, authHea
 	subject := "org_filter_" + suffix
 
 	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
-		"name":            meterName,
-		"description":     "Filter operator coverage",
-		"unit":            "event",
-		"aggregation":     "sum",
-		"metadata_schema": map[string]string{"endpoint": "string", "retry": "boolean"},
+		"name":        meterName,
+		"description": "Filter operator coverage",
+		"unit":        "event",
+		"aggregation": "sum",
+		"dimensions":  meterDimensionsFromSchema(map[string]string{"endpoint": "string", "retry": "boolean"}),
 	}, authHeaders, nil)
 	if createMeter.Code != http.StatusCreated {
 		t.Fatalf("create filter-operator meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
@@ -1792,4 +2015,130 @@ type usageExportJobResponse struct {
 	CreatedAt    string         `json:"created_at"`
 	UpdatedAt    string         `json:"updated_at"`
 	CompletedAt  string         `json:"completed_at"`
+}
+
+type alertRuleResponse struct {
+	ID                        string               `json:"id"`
+	Name                      string               `json:"name"`
+	Meter                     string               `json:"meter"`
+	Enabled                   bool                 `json:"enabled"`
+	Subject                   string               `json:"subject"`
+	Metadata                  map[string]string    `json:"metadata"`
+	WindowSeconds             int                  `json:"window_seconds"`
+	Comparator                string               `json:"comparator"`
+	Threshold                 float64              `json:"threshold"`
+	EvaluationIntervalSeconds int                  `json:"evaluation_interval_seconds"`
+	GroupBy                   string               `json:"group_by"`
+	DestinationID             string               `json:"destination_id"`
+	Destination               *alertDestination    `json:"destination"`
+	NextEvaluateAt            string               `json:"next_evaluate_at"`
+	CreatedAt                 string               `json:"created_at"`
+	UpdatedAt                 string               `json:"updated_at"`
+	State                     *alertStateResponse  `json:"state"`
+	States                    []alertStateResponse `json:"states"`
+}
+
+type alertDestinationResponse = alertDestination
+
+type alertDestination struct {
+	ID             string               `json:"id"`
+	Name           string               `json:"name"`
+	Type           string               `json:"type"`
+	Enabled        bool                 `json:"enabled"`
+	WebhookURL     string               `json:"webhook_url"`
+	WebhookSigning alertSigningResponse `json:"webhook_signing"`
+	CreatedAt      string               `json:"created_at"`
+	UpdatedAt      string               `json:"updated_at"`
+}
+
+type alertDestinationListResponse struct {
+	Items []alertDestinationResponse `json:"items"`
+}
+
+type alertSigningResponse struct {
+	Enabled         bool   `json:"enabled"`
+	Algorithm       string `json:"algorithm"`
+	SignatureHeader string `json:"signature_header"`
+	TimestampHeader string `json:"timestamp_header"`
+	Secret          string `json:"secret"`
+}
+
+type alertStateResponse struct {
+	Status      string  `json:"status"`
+	GroupKey    string  `json:"group_key"`
+	GroupValue  string  `json:"group_value"`
+	Value       float64 `json:"value"`
+	Message     string  `json:"message"`
+	EvaluatedAt string  `json:"evaluated_at"`
+	UpdatedAt   string  `json:"updated_at"`
+}
+
+type alertEventResponse struct {
+	ID         string  `json:"id"`
+	RuleID     string  `json:"rule_id"`
+	GroupKey   string  `json:"group_key"`
+	GroupValue string  `json:"group_value"`
+	Type       string  `json:"type"`
+	Value      float64 `json:"value"`
+	Message    string  `json:"message"`
+	CreatedAt  string  `json:"created_at"`
+	Delivery   *struct {
+		ID          string `json:"id"`
+		EventID     string `json:"event_id"`
+		TriggerType string `json:"trigger_type"`
+		Status      string `json:"status"`
+		StatusCode  int    `json:"status_code"`
+		Error       string `json:"error"`
+		DurationMs  int    `json:"duration_ms"`
+		AttemptedAt string `json:"attempted_at"`
+		CreatedAt   string `json:"created_at"`
+	} `json:"delivery"`
+}
+
+type alertEventListResponse struct {
+	Items      []alertEventResponse `json:"items"`
+	NextCursor string               `json:"next_cursor"`
+}
+
+func meterDimensionsFromSchema(schema map[string]string) []map[string]any {
+	dimensions := make([]map[string]any, 0, len(schema))
+	names := make([]string, 0, len(schema))
+	for name := range schema {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		dimensions = append(dimensions, map[string]any{
+			"name":     name,
+			"type":     schema[name],
+			"required": true,
+		})
+	}
+	return dimensions
+}
+
+type alertWebhookPayload struct {
+	Event struct {
+		Type       string  `json:"type"`
+		GroupKey   string  `json:"group_key"`
+		GroupValue string  `json:"group_value"`
+		Value      float64 `json:"value"`
+	} `json:"event"`
+	Rule struct {
+		Meter           string `json:"meter"`
+		GroupBy         string `json:"group_by"`
+		DestinationID   string `json:"destination_id"`
+		DestinationName string `json:"destination_name"`
+	} `json:"rule"`
+	State struct {
+		Status     string `json:"status"`
+		GroupValue string `json:"group_value"`
+	} `json:"state"`
+}
+
+type alertWebhookRequest struct {
+	Body      []byte
+	Payload   alertWebhookPayload
+	Signature string
+	Timestamp string
 }

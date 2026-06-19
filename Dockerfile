@@ -22,6 +22,7 @@ ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/open-spanner ./cmd/api
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/open-spanner-export-worker ./cmd/export-worker
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/open-spanner-alert-worker ./cmd/alert-worker
 
 FROM alpine:3.22
 
@@ -33,6 +34,7 @@ RUN apk add --no-cache ca-certificates \
 
 COPY --from=api-build /out/open-spanner /usr/local/bin/open-spanner
 COPY --from=api-build /out/open-spanner-export-worker /usr/local/bin/open-spanner-export-worker
+COPY --from=api-build /out/open-spanner-alert-worker /usr/local/bin/open-spanner-alert-worker
 
 ENV OPEN_SPANNER_HTTP_ADDR=:18081
 ENV OPEN_SPANNER_DB_DRIVER=sqlite

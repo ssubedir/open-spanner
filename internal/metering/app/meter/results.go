@@ -13,7 +13,6 @@ type Result struct {
 	Unit               string
 	Aggregation        string
 	Dimensions         []DimensionResult
-	MetadataSchema     map[string]string
 	EventRetentionDays int
 	CreatedAt          time.Time
 }
@@ -45,10 +44,6 @@ type StatsListResult struct {
 }
 
 func resultFromDomain(meter domainmeter.Meter) Result {
-	metadataSchema := map[string]string{}
-	for key, value := range meter.MetadataSchema() {
-		metadataSchema[key] = string(value)
-	}
 	dimensions := make([]DimensionResult, 0, len(meter.Dimensions()))
 	for _, dimension := range meter.Dimensions() {
 		dimensions = append(dimensions, DimensionResult{
@@ -68,7 +63,6 @@ func resultFromDomain(meter domainmeter.Meter) Result {
 		Unit:               meter.Unit(),
 		Aggregation:        string(meter.Aggregation()),
 		Dimensions:         dimensions,
-		MetadataSchema:     metadataSchema,
 		EventRetentionDays: meter.EventRetentionDays(),
 		CreatedAt:          meter.CreatedAt(),
 	}

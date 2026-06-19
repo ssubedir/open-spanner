@@ -31,9 +31,6 @@ export type MeterCreateRequest = {
     description?: string;
     dimensions?: Array<MeterDimensionRequest>;
     event_retention_days?: number;
-    metadata_schema?: {
-        [key: string]: string;
-    };
     name?: string;
     unit?: string;
 };
@@ -80,9 +77,6 @@ export type Meter = {
     dimensions?: Array<MeterDimension>;
     event_retention_days?: number;
     id?: string;
-    metadata_schema?: {
-        [key: string]: string;
-    };
     name?: string;
     unit?: string;
 };
@@ -95,9 +89,6 @@ export type MeterUpdateRequest = {
     description?: string;
     dimensions?: Array<MeterDimensionRequest>;
     event_retention_days?: number;
-    metadata_schema?: {
-        [key: string]: string;
-    };
     unit?: string;
 };
 

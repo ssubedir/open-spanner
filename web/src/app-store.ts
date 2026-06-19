@@ -2,6 +2,8 @@ import { createStore } from '@tanstack/react-store'
 import type { RuleGroupType } from 'react-querybuilder'
 
 import {
+  createAlertDestination as createAlertDestinationRequest,
+  createAlertRule,
   APIError,
   cancelUsageExportJob,
   createAPIKey as createAPIKeyRequest,
@@ -10,6 +12,8 @@ import {
   createMeter as createMeterRequest,
   createSavedUsageQuery,
   createUsageExportJob,
+  deleteAlertRule,
+  deleteAlertDestination as deleteAlertDestinationRequest,
   deleteAPIKey as deleteAPIKeyRequest,
   deleteAuthSession,
   deleteMeter as deleteMeterRequest,
@@ -17,7 +21,11 @@ import {
   downloadUsageExportJob,
   exportUsageBuckets,
   exportUsageEvents,
+  evaluateAlertRule,
   getSystemStats,
+  listAlertEvents,
+  listAlertDestinations,
+  listAlertRules,
   listAPIKeys,
   listIngestions,
   listMeterStats,
@@ -31,14 +39,23 @@ import {
   listUsageEvents,
   listUsageExportJobs,
   refreshAuthSession,
+  rotateAlertDestinationSecret as rotateAlertDestinationSecretRequest,
   retryUsageExportJob,
+  updateAlertDestination as updateAlertDestinationRequest,
+  updateAlertRule,
   updateMeter as updateMeterRequest,
   updateSavedUsageQuery,
+  type AlertDestination,
+  type AlertDestinationRequest,
+  type AlertDestinationUpdateRequest,
+  type AlertEvent,
+  type AlertRule,
+  type AlertRuleRequest,
+  type AlertRuleUpdateRequest,
   type APIKey,
   type APIKeyCreateResponse,
   type AuthSession,
   type Meter,
-  type MeterDimension,
   type MeterCreateRequest,
   type MeterStats,
   type MeterUpdateRequest,
@@ -73,6 +90,15 @@ import type { LoadState } from './types'
 
 type UsageExportKind = '' | 'buckets' | 'events' | 'job'
 
+type AlertWebhookSecret = {
+  algorithm: string
+  ownerID: string
+  ownerName: string
+  secret: string
+  signatureHeader: string
+  timestampHeader: string
+}
+
 export type MeterDimensionDraft = {
   deprecated: boolean
   description: string
@@ -106,6 +132,7 @@ type AppState = {
     session: AuthSession | null
   }
   apiKeys: {
+    creating: boolean
     createdKey: APIKeyCreateResponse | null
     deleting: APIKey | null
     error: string
@@ -113,7 +140,26 @@ type AppState = {
     saving: boolean
     status: LoadState
   }
+  alerts: {
+    creating: boolean
+    destinationCreating: boolean
+    destinationDeleting: AlertDestination | null
+    destinationEditing: AlertDestination | null
+    destinations: AlertDestination[]
+    deleting: AlertRule | null
+    editing: AlertRule | null
+    error: string
+    events: AlertEvent[]
+    eventStatus: LoadState
+    items: AlertRule[]
+    meters: Meter[]
+    saving: boolean
+    selectedEvent: AlertEvent | null
+    signingSecret: AlertWebhookSecret | null
+    status: LoadState
+  }
   meters: {
+    creating: boolean
     createDimensions: MeterDimensionDraft[]
     deleting: Meter | null
     editDimensions: MeterDimensionDraft[]
@@ -190,6 +236,7 @@ export const appStore = createStore<AppState>({
     session: null,
   },
   apiKeys: {
+    creating: false,
     createdKey: null,
     deleting: null,
     error: '',
@@ -197,7 +244,26 @@ export const appStore = createStore<AppState>({
     saving: false,
     status: 'idle',
   },
+  alerts: {
+    creating: false,
+    destinationCreating: false,
+    destinationDeleting: null,
+    destinationEditing: null,
+    destinations: [],
+    deleting: null,
+    editing: null,
+    error: '',
+    events: [],
+    eventStatus: 'idle',
+    items: [],
+    meters: [],
+    saving: false,
+    selectedEvent: null,
+    signingSecret: null,
+    status: 'idle',
+  },
   meters: {
+    creating: false,
     createDimensions: [newMeterDimensionDraft()],
     deleting: null,
     editDimensions: [],
@@ -266,12 +332,16 @@ export const appStoreActions = {
   clearCreatedAPIKey() {
     setAPIKeysState({ createdKey: null })
   },
+  clearAlertSigningSecret() {
+    setAlertsState({ signingSecret: null })
+  },
   async createAPIKey(input: { name: string }) {
     setAPIKeysState({ createdKey: null, error: '', saving: true })
     try {
       const createdKey = await createAPIKeyRequest(input)
       setAPIKeysState({ createdKey })
       await appStoreActions.loadAPIKeys()
+      setAPIKeysState({ creating: false })
       return createdKey
     } catch (err) {
       setAPIKeysState({ error: errorMessage(err, 'Unable to create API key') })
@@ -285,6 +355,7 @@ export const appStoreActions = {
     try {
       await createMeterRequest(input)
       await appStoreActions.loadMeters()
+      setMetersState({ creating: false })
     } catch (err) {
       setMetersState({ error: errorMessage(err, 'Unable to create meter') })
       throw err
@@ -329,6 +400,197 @@ export const appStoreActions = {
       throw err
     } finally {
       setAPIKeysState({ saving: false })
+    }
+  },
+  async loadAlerts() {
+    setAlertsState({ error: '', eventStatus: 'loading', status: 'loading' })
+    try {
+      const meters = await listMeters()
+      setAlertsState({ meters: meters.items })
+
+      const [rules, events, destinations] = await Promise.all([
+        listAlertRules(),
+        listAlertEvents(),
+        listAlertDestinations(),
+      ])
+      setAlertsState((state) => ({
+        destinations: destinations.items,
+        events: events.items,
+        eventStatus: 'ready',
+        items: rules.items,
+        selectedEvent: state.selectedEvent ? events.items.find((event) => event.id === state.selectedEvent?.id) ?? null : null,
+        status: 'ready',
+      }))
+    } catch (err) {
+      setAlertsState({
+        error: errorMessage(err, 'Unable to load alerts'),
+        eventStatus: 'error',
+        status: 'error',
+      })
+    }
+  },
+  async loadAlertEvents(options: { quiet?: boolean } = {}) {
+    if (!options.quiet) {
+      setAlertsState({ error: '', eventStatus: 'loading' })
+    }
+
+    try {
+      const events = await listAlertEvents()
+      setAlertsState((state) => ({
+        events: events.items,
+        eventStatus: 'ready',
+        selectedEvent: state.selectedEvent ? events.items.find((event) => event.id === state.selectedEvent?.id) ?? state.selectedEvent : null,
+      }))
+    } catch (err) {
+      setAlertsState({
+        error: errorMessage(err, 'Unable to load alert events'),
+        eventStatus: 'error',
+      })
+    }
+  },
+  async createAlert(input: AlertRuleRequest) {
+    setAlertsState({ error: '', saving: true })
+    try {
+      await createAlertRule(input)
+      await appStoreActions.loadAlerts()
+      setAlertsState({ creating: false })
+    } catch (err) {
+      setAlertsState({ error: errorMessage(err, 'Unable to create alert') })
+      throw err
+    } finally {
+      setAlertsState({ saving: false })
+    }
+  },
+  async createAlertDestination(input: AlertDestinationRequest) {
+    setAlertsState({ error: '', saving: true })
+    try {
+      const created = await createAlertDestinationRequest(input)
+      const signingSecret = alertWebhookSecretFromDestination(created)
+      setAlertsState((state) => ({
+        destinationCreating: false,
+        destinations: [...state.destinations, created],
+        signingSecret: signingSecret ?? state.signingSecret,
+      }))
+    } catch (err) {
+      setAlertsState({ error: errorMessage(err, 'Unable to create alert destination') })
+      throw err
+    } finally {
+      setAlertsState({ saving: false })
+    }
+  },
+  async rotateAlertDestinationSecret(destination: AlertDestination) {
+    setAlertsState({ error: '', saving: true })
+    try {
+      const updated = await rotateAlertDestinationSecretRequest(destination.id)
+      const signingSecret = alertWebhookSecretFromDestination(updated)
+      setAlertsState((state) => ({
+        destinations: state.destinations.map((item) => item.id === updated.id ? updated : item),
+        items: state.items.map((item) => item.destination_id === updated.id ? { ...item, destination: updated } : item),
+        signingSecret: signingSecret ?? state.signingSecret,
+      }))
+    } catch (err) {
+      setAlertsState({ error: errorMessage(err, 'Unable to rotate destination signing secret') })
+      throw err
+    } finally {
+      setAlertsState({ saving: false })
+    }
+  },
+  async updateEditingAlert(input: AlertRuleUpdateRequest) {
+    const editing = appStore.state.alerts.editing
+    if (!editing) {
+      return
+    }
+
+    setAlertsState({ error: '', saving: true })
+    try {
+      await updateAlertRule(editing.id, input)
+      setAlertsState({ editing: null })
+      await appStoreActions.loadAlerts()
+    } catch (err) {
+      setAlertsState({ error: errorMessage(err, 'Unable to update alert') })
+      throw err
+    } finally {
+      setAlertsState({ saving: false })
+    }
+  },
+  async updateEditingAlertDestination(input: AlertDestinationUpdateRequest) {
+    const editing = appStore.state.alerts.destinationEditing
+    if (!editing) {
+      return
+    }
+
+    setAlertsState({ error: '', saving: true })
+    try {
+      const updated = await updateAlertDestinationRequest(editing.id, input)
+      setAlertsState((state) => ({
+        destinationEditing: null,
+        destinations: state.destinations.map((item) => item.id === updated.id ? updated : item),
+        items: state.items.map((item) => item.destination_id === updated.id ? { ...item, destination: updated } : item),
+      }))
+    } catch (err) {
+      setAlertsState({ error: errorMessage(err, 'Unable to update alert destination') })
+      throw err
+    } finally {
+      setAlertsState({ saving: false })
+    }
+  },
+  async deleteSelectedAlert() {
+    const deleting = appStore.state.alerts.deleting
+    if (!deleting) {
+      return
+    }
+
+    setAlertsState({ error: '', saving: true })
+    try {
+      await deleteAlertRule(deleting.id)
+      setAlertsState((state) => ({
+        deleting: null,
+        events: state.events.filter((event) => event.rule_id !== deleting.id),
+        items: state.items.filter((item) => item.id !== deleting.id),
+        selectedEvent: state.selectedEvent?.rule_id === deleting.id ? null : state.selectedEvent,
+        signingSecret: state.signingSecret?.ownerID === deleting.id ? null : state.signingSecret,
+      }))
+    } catch (err) {
+      setAlertsState({ error: errorMessage(err, 'Unable to delete alert') })
+      throw err
+    } finally {
+      setAlertsState({ saving: false })
+    }
+  },
+  async deleteSelectedAlertDestination() {
+    const deleting = appStore.state.alerts.destinationDeleting
+    if (!deleting) {
+      return
+    }
+
+    setAlertsState({ error: '', saving: true })
+    try {
+      await deleteAlertDestinationRequest(deleting.id)
+      setAlertsState((state) => ({
+        destinationDeleting: null,
+        destinations: state.destinations.filter((item) => item.id !== deleting.id),
+        signingSecret: state.signingSecret?.ownerID === deleting.id ? null : state.signingSecret,
+      }))
+    } catch (err) {
+      setAlertsState({ error: errorMessage(err, 'Unable to delete alert destination') })
+      throw err
+    } finally {
+      setAlertsState({ saving: false })
+    }
+  },
+  async evaluateAlert(rule: AlertRule) {
+    setAlertsState({ error: '', saving: true })
+    try {
+      const result = await evaluateAlertRule(rule.id)
+      setAlertsState((state) => ({
+        events: mergeAlertEvents(result.events?.length ? result.events : result.event ? [result.event] : [], state.events),
+        items: state.items.map((item) => item.id === rule.id ? result.rule : item),
+      }))
+    } catch (err) {
+      setAlertsState({ error: errorMessage(err, 'Unable to evaluate alert') })
+      throw err
+    } finally {
+      setAlertsState({ saving: false })
     }
   },
   async ensureAuthUser() {
@@ -683,14 +945,41 @@ export const appStoreActions = {
   setMetersError(error: string) {
     setMetersState({ error })
   },
+  setMeterCreating(creating: boolean) {
+    setMetersState({ creating })
+  },
   setSubjectSearchQuery(searchQuery: string) {
     setSubjectsState({ searchQuery })
   },
   setMeterDeleting(deleting: Meter | null) {
     setMetersState({ deleting })
   },
+  setAPIKeyCreating(creating: boolean) {
+    setAPIKeysState({ creating })
+  },
   setAPIKeyDeleting(deleting: APIKey | null) {
     setAPIKeysState({ deleting })
+  },
+  setAlertDeleting(deleting: AlertRule | null) {
+    setAlertsState({ deleting })
+  },
+  setAlertCreating(creating: boolean) {
+    setAlertsState({ creating })
+  },
+  setAlertDestinationDeleting(destinationDeleting: AlertDestination | null) {
+    setAlertsState({ destinationDeleting })
+  },
+  setAlertDestinationCreating(destinationCreating: boolean) {
+    setAlertsState({ destinationCreating })
+  },
+  setAlertDestinationEditing(destinationEditing: AlertDestination | null) {
+    setAlertsState({ destinationEditing })
+  },
+  setAlertEditing(editing: AlertRule | null) {
+    setAlertsState({ editing })
+  },
+  setAlertSelectedEvent(selectedEvent: AlertEvent | null) {
+    setAlertsState({ selectedEvent })
   },
   setMeterEditing(editing: Meter | null) {
     const stats = appStore.state.meters.stats
@@ -1056,6 +1345,39 @@ function setAPIKeysState(update: Partial<AppState['apiKeys']> | ((state: AppStat
   }))
 }
 
+function setAlertsState(update: Partial<AppState['alerts']> | ((state: AppState['alerts']) => Partial<AppState['alerts']>)) {
+  appStore.setState((state) => ({
+    ...state,
+    alerts: {
+      ...state.alerts,
+      ...(typeof update === 'function' ? update(state.alerts) : update),
+    },
+  }))
+}
+
+function mergeAlertEvents(next: AlertEvent[], current: AlertEvent[]) {
+  if (next.length === 0) {
+    return current
+  }
+  const nextIDs = new Set(next.map((event) => event.id))
+  return [...next, ...current.filter((event) => !nextIDs.has(event.id))].slice(0, 25)
+}
+
+function alertWebhookSecretFromDestination(destination: AlertDestination): AlertWebhookSecret | null {
+  const secret = destination.webhook_signing?.secret
+  if (!secret) {
+    return null
+  }
+  return {
+    algorithm: destination.webhook_signing.algorithm,
+    ownerID: destination.id,
+    ownerName: destination.name,
+    secret,
+    signatureHeader: destination.webhook_signing.signature_header,
+    timestampHeader: destination.webhook_signing.timestamp_header,
+  }
+}
+
 function setMetersState(update: Partial<AppState['meters']> | ((state: AppState['meters']) => Partial<AppState['meters']>)) {
   appStore.setState((state) => ({
     ...state,
@@ -1246,9 +1568,8 @@ function newMeterDimensionDraft(
 }
 
 function meterDimensionDraftsFromMeter(meter: Meter, lockedByUsage = false) {
-  const dimensions = normalizedMeterDimensions(meter)
-  if (dimensions.length > 0) {
-    return dimensions.map((dimension) => newMeterDimensionDraft(
+  if (meter.dimensions.length > 0) {
+    return meter.dimensions.map((dimension) => newMeterDimensionDraft(
       dimension.name,
       dimension.type,
       dimension.display_name,
@@ -1263,46 +1584,9 @@ function meterDimensionDraftsFromMeter(meter: Meter, lockedByUsage = false) {
       },
     ))
   }
-  return meterDimensionDraftsFromSchema(meter.metadata_schema, lockedByUsage)
-}
-
-function meterDimensionDraftsFromSchema(schema: Record<string, string>, lockedByUsage = false) {
-  const rows = Object.entries(schema || {})
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([name, type]) => newMeterDimensionDraft(name, type, '', '', true, false, {
-      deprecated: false,
-      name,
-      required: true,
-      type,
-    }))
-  return rows.length > 0 ? rows : [newMeterDimensionDraft('', 'string', '', '', !lockedByUsage)]
-}
-
-function normalizedMeterDimensions(meter: Meter): MeterDimension[] {
-  if (meter.dimensions && meter.dimensions.length > 0) {
-    return meter.dimensions
-  }
-  return Object.entries(meter.metadata_schema || {})
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([name, type]) => ({
-      description: '',
-      display_name: humanizeDimensionName(name),
-      deprecated: false,
-      name,
-      required: true,
-      type,
-    }))
+  return [newMeterDimensionDraft('', 'string', '', '', !lockedByUsage)]
 }
 
 function meterHasUsage(meter: Meter | null, stats: Record<string, MeterStats>) {
   return meter ? (stats[meter.name]?.usage_events ?? 0) > 0 : false
-}
-
-function humanizeDimensionName(name: string) {
-  return name
-    .replace(/^metadata\./, '')
-    .split(/[._-]/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ')
 }

@@ -45,7 +45,7 @@ func (q *Queries) DeleteMeter(ctx context.Context, id string) error {
 }
 
 const listMeters = `-- name: ListMeters :many
-SELECT id, name, description, unit, aggregation, metadata_schema, dimensions, event_retention_days, created_at
+SELECT id, name, description, unit, aggregation, dimensions, event_retention_days, created_at
 FROM meters
 WHERE (?1 IS NULL OR id = ?1)
 	AND (?2 IS NULL OR name = ?2)
@@ -61,19 +61,7 @@ type ListMetersParams struct {
 	Limit  int64
 }
 
-type ListMetersRow struct {
-	ID                 string
-	Name               string
-	Description        string
-	Unit               string
-	Aggregation        string
-	MetadataSchema     string
-	Dimensions         string
-	EventRetentionDays int64
-	CreatedAt          string
-}
-
-func (q *Queries) ListMeters(ctx context.Context, arg ListMetersParams) ([]ListMetersRow, error) {
+func (q *Queries) ListMeters(ctx context.Context, arg ListMetersParams) ([]Meter, error) {
 	rows, err := q.db.QueryContext(ctx, listMeters,
 		arg.ID,
 		arg.Name,
@@ -84,16 +72,15 @@ func (q *Queries) ListMeters(ctx context.Context, arg ListMetersParams) ([]ListM
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListMetersRow{}
+	items := []Meter{}
 	for rows.Next() {
-		var i ListMetersRow
+		var i Meter
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
 			&i.Description,
 			&i.Unit,
 			&i.Aggregation,
-			&i.MetadataSchema,
 			&i.Dimensions,
 			&i.EventRetentionDays,
 			&i.CreatedAt,
@@ -112,13 +99,12 @@ func (q *Queries) ListMeters(ctx context.Context, arg ListMetersParams) ([]ListM
 }
 
 const saveMeter = `-- name: SaveMeter :exec
-INSERT INTO meters (id, name, description, unit, aggregation, metadata_schema, dimensions, event_retention_days, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO meters (id, name, description, unit, aggregation, dimensions, event_retention_days, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	description = excluded.description,
 	unit = excluded.unit,
 	aggregation = excluded.aggregation,
-	metadata_schema = excluded.metadata_schema,
 	dimensions = excluded.dimensions,
 	event_retention_days = excluded.event_retention_days
 `
@@ -129,7 +115,6 @@ type SaveMeterParams struct {
 	Description        string
 	Unit               string
 	Aggregation        string
-	MetadataSchema     string
 	Dimensions         string
 	EventRetentionDays int64
 	CreatedAt          string
@@ -142,7 +127,6 @@ func (q *Queries) SaveMeter(ctx context.Context, arg SaveMeterParams) error {
 		arg.Description,
 		arg.Unit,
 		arg.Aggregation,
-		arg.MetadataSchema,
 		arg.Dimensions,
 		arg.EventRetentionDays,
 		arg.CreatedAt,

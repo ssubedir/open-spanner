@@ -10,7 +10,6 @@ from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
     from ..models.meter_dimension import MeterDimension
-    from ..models.meter_metadata_schema import MeterMetadataSchema
 
 
 T = TypeVar("T", bound="Meter")
@@ -26,7 +25,6 @@ class Meter:
         dimensions (list[MeterDimension] | Unset):
         event_retention_days (int | Unset):
         id (str | Unset):
-        metadata_schema (MeterMetadataSchema | Unset):
         name (str | Unset):
         unit (str | Unset):
     """
@@ -37,7 +35,6 @@ class Meter:
     dimensions: list[MeterDimension] | Unset = UNSET
     event_retention_days: int | Unset = UNSET
     id: str | Unset = UNSET
-    metadata_schema: MeterMetadataSchema | Unset = UNSET
     name: str | Unset = UNSET
     unit: str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -60,10 +57,6 @@ class Meter:
 
         id = self.id
 
-        metadata_schema: dict[str, Any] | Unset = UNSET
-        if not isinstance(self.metadata_schema, Unset):
-            metadata_schema = self.metadata_schema.to_dict()
-
         name = self.name
 
         unit = self.unit
@@ -83,8 +76,6 @@ class Meter:
             field_dict["event_retention_days"] = event_retention_days
         if id is not UNSET:
             field_dict["id"] = id
-        if metadata_schema is not UNSET:
-            field_dict["metadata_schema"] = metadata_schema
         if name is not UNSET:
             field_dict["name"] = name
         if unit is not UNSET:
@@ -95,7 +86,6 @@ class Meter:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.meter_dimension import MeterDimension
-        from ..models.meter_metadata_schema import MeterMetadataSchema
 
         d = dict(src_dict)
         aggregation = d.pop("aggregation", UNSET)
@@ -117,13 +107,6 @@ class Meter:
 
         id = d.pop("id", UNSET)
 
-        _metadata_schema = d.pop("metadata_schema", UNSET)
-        metadata_schema: MeterMetadataSchema | Unset
-        if isinstance(_metadata_schema, Unset):
-            metadata_schema = UNSET
-        else:
-            metadata_schema = MeterMetadataSchema.from_dict(_metadata_schema)
-
         name = d.pop("name", UNSET)
 
         unit = d.pop("unit", UNSET)
@@ -135,7 +118,6 @@ class Meter:
             dimensions=dimensions,
             event_retention_days=event_retention_days,
             id=id,
-            metadata_schema=metadata_schema,
             name=name,
             unit=unit,
         )

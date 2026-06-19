@@ -8,6 +8,55 @@ import (
 	"database/sql"
 )
 
+type AlertDestination struct {
+	ID            string
+	Name          string
+	Type          string
+	Enabled       int64
+	WebhookUrl    string
+	WebhookSecret string
+	CreatedAt     string
+	UpdatedAt     string
+}
+
+type AlertEvaluationJob struct {
+	RuleID      string
+	RunAfter    string
+	LockedUntil sql.NullString
+	Attempts    int64
+	CreatedAt   string
+	UpdatedAt   string
+}
+
+type AlertRule struct {
+	ID                        string
+	Name                      string
+	MeterName                 string
+	Enabled                   int64
+	Subject                   string
+	Metadata                  string
+	WindowSeconds             int64
+	Comparator                string
+	Threshold                 float64
+	EvaluationIntervalSeconds int64
+	GroupBy                   string
+	DestinationID             string
+	NextEvaluateAt            string
+	CreatedAt                 string
+	UpdatedAt                 string
+}
+
+type AlertState struct {
+	RuleID      string
+	GroupKey    string
+	GroupValue  string
+	Status      string
+	Value       float64
+	Message     string
+	EvaluatedAt sql.NullString
+	UpdatedAt   string
+}
+
 type AuthApiKey struct {
 	ID         string
 	UserID     string
@@ -23,6 +72,17 @@ type AuthUser struct {
 	Email        string
 	PasswordHash string
 	CreatedAt    string
+}
+
+type Meter struct {
+	ID                 string
+	Name               string
+	Description        string
+	Unit               string
+	Aggregation        string
+	Dimensions         string
+	EventRetentionDays int64
+	CreatedAt          string
 }
 
 type UsageEvent struct {

@@ -40,18 +40,10 @@ type Meter struct {
 	description        string
 	unit               string
 	aggregation        Aggregation
-	metadataSchema     map[string]MetadataType
+	dimensionTypes     map[string]MetadataType
 	dimensions         []Dimension
 	eventRetentionDays int
 	createdAt          time.Time
-}
-
-func New(id, name, description, unit string, aggregation Aggregation, metadataSchema map[string]MetadataType, eventRetentionDays int, createdAt time.Time) (Meter, error) {
-	dimensions, err := DimensionsFromMetadataSchema(metadataSchema)
-	if err != nil {
-		return Meter{}, err
-	}
-	return NewWithDimensions(id, name, description, unit, aggregation, dimensions, eventRetentionDays, createdAt)
 }
 
 func NewWithDimensions(id, name, description, unit string, aggregation Aggregation, dimensions []Dimension, eventRetentionDays int, createdAt time.Time) (Meter, error) {
@@ -74,7 +66,7 @@ func NewWithDimensions(id, name, description, unit string, aggregation Aggregati
 	if !IsSupportedAggregation(aggregation) {
 		return Meter{}, fmt.Errorf("%w: unsupported aggregation %q", domain.ErrInvalidInput, aggregation)
 	}
-	dimensions, metadataSchema, err := normalizeDimensions(dimensions)
+	dimensions, dimensionTypes, err := normalizeDimensions(dimensions)
 	if err != nil {
 		return Meter{}, err
 	}
@@ -92,7 +84,7 @@ func NewWithDimensions(id, name, description, unit string, aggregation Aggregati
 		description:        description,
 		unit:               unit,
 		aggregation:        aggregation,
-		metadataSchema:     metadataSchema,
+		dimensionTypes:     dimensionTypes,
 		dimensions:         dimensions,
 		eventRetentionDays: eventRetentionDays,
 		createdAt:          createdAt.UTC(),
@@ -113,21 +105,6 @@ func IsSupportedAggregation(aggregation Aggregation) bool {
 	default:
 		return false
 	}
-}
-
-func normalizeMetadataSchema(schema map[string]MetadataType) (map[string]MetadataType, error) {
-	normalized := map[string]MetadataType{}
-	for key, value := range schema {
-		key = strings.TrimSpace(key)
-		if key == "" {
-			return nil, fmt.Errorf("%w: metadata schema key is required", domain.ErrInvalidInput)
-		}
-		if !isSupportedMetadataType(value) {
-			return nil, fmt.Errorf("%w: unsupported metadata type %q", domain.ErrInvalidInput, value)
-		}
-		normalized[key] = value
-	}
-	return normalized, nil
 }
 
 func isSupportedMetadataType(value MetadataType) bool {
@@ -172,9 +149,9 @@ func (m Meter) Aggregation() Aggregation {
 	return m.aggregation
 }
 
-func (m Meter) MetadataSchema() map[string]MetadataType {
-	schema := make(map[string]MetadataType, len(m.metadataSchema))
-	for key, value := range m.metadataSchema {
+func (m Meter) DimensionTypes() map[string]MetadataType {
+	schema := make(map[string]MetadataType, len(m.dimensionTypes))
+	for key, value := range m.dimensionTypes {
 		schema[key] = value
 	}
 	return schema

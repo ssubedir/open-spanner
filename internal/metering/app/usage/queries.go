@@ -139,7 +139,7 @@ func (s *service) List(ctx context.Context, input ListQuery) ([]ListItemResult, 
 		if domainusage.IsSubjectGroupBy(field) {
 			continue
 		}
-		if _, exists := meter.MetadataSchema()[field]; !exists {
+		if _, exists := meter.DimensionTypes()[field]; !exists {
 			return nil, domain.ErrInvalidInput
 		}
 	}
@@ -184,7 +184,7 @@ func (s *service) ListDimensionValues(ctx context.Context, input DimensionValueL
 	meter := meters[0]
 
 	field := strings.TrimPrefix(strings.TrimSpace(input.Field), "metadata.")
-	if _, exists := meter.MetadataSchema()[field]; !exists {
+	if _, exists := meter.DimensionTypes()[field]; !exists {
 		return DimensionValueListResult{}, domain.ErrInvalidInput
 	}
 
@@ -225,7 +225,7 @@ func (s *service) ListBreakdown(ctx context.Context, input BreakdownListQuery) (
 
 	field := strings.TrimPrefix(strings.TrimSpace(input.Field), "metadata.")
 	if !domainusage.IsSubjectGroupBy(field) {
-		if _, exists := meter.MetadataSchema()[field]; !exists {
+		if _, exists := meter.DimensionTypes()[field]; !exists {
 			return BreakdownListResult{}, domain.ErrInvalidInput
 		}
 	}

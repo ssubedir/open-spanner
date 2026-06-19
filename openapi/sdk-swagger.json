@@ -808,12 +808,6 @@
         "event_retention_days": {
           "type": "integer"
         },
-        "metadata_schema": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          }
-        },
         "name": {
           "type": "string"
         },
@@ -910,12 +904,6 @@
         "id": {
           "type": "string"
         },
-        "metadata_schema": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          }
-        },
         "name": {
           "type": "string"
         },
@@ -942,12 +930,6 @@
         },
         "event_retention_days": {
           "type": "integer"
-        },
-        "metadata_schema": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          }
         },
         "unit": {
           "type": "string"

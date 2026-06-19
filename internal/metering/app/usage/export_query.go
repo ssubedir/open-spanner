@@ -42,13 +42,7 @@ func (g *ExportGroupBy) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
-	var value string
-	if err := json.Unmarshal(data, &value); err == nil {
-		*g = ExportGroupBy(domainusage.SplitGroupBy(value))
-		return nil
-	}
-
-	return fmt.Errorf("%w: group_by must be a string or array of strings", domain.ErrInvalidInput)
+	return fmt.Errorf("%w: group_by must be an array of strings", domain.ErrInvalidInput)
 }
 
 func ParseExportListQueryJSON(payload string) (ListQuery, error) {

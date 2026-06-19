@@ -1,16 +1,15 @@
 -- name: SaveMeter :exec
-INSERT INTO meters (id, name, description, unit, aggregation, metadata_schema, dimensions, event_retention_days, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO meters (id, name, description, unit, aggregation, dimensions, event_retention_days, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	description = excluded.description,
 	unit = excluded.unit,
 	aggregation = excluded.aggregation,
-	metadata_schema = excluded.metadata_schema,
 	dimensions = excluded.dimensions,
 	event_retention_days = excluded.event_retention_days;
 
 -- name: ListMeters :many
-SELECT id, name, description, unit, aggregation, metadata_schema, dimensions, event_retention_days, created_at
+SELECT id, name, description, unit, aggregation, dimensions, event_retention_days, created_at
 FROM meters
 WHERE (sqlc.narg('id') IS NULL OR id = sqlc.narg('id'))
 	AND (sqlc.narg('name') IS NULL OR name = sqlc.narg('name'))

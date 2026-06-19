@@ -32,9 +32,6 @@ func TestServiceCreateListAndGet(t *testing.T) {
 	if created.ID == "" {
 		t.Fatal("created meter id is empty")
 	}
-	if created.MetadataSchema["region"] != "string" {
-		t.Fatalf("metadata schema = %#v", created.MetadataSchema)
-	}
 	if len(created.Dimensions) != 1 || created.Dimensions[0].DisplayName != "Region" || created.Dimensions[0].Description != "Deployment region" || !created.Dimensions[0].Required {
 		t.Fatalf("dimensions = %#v", created.Dimensions)
 	}
@@ -142,8 +139,8 @@ func TestServiceUpdateDefinitionSettings(t *testing.T) {
 		Unit:               "call",
 		Aggregation:        domainmeter.AggregationSum,
 		EventRetentionDays: 30,
-		MetadataSchema: map[string]domainmeter.MetadataType{
-			"region": domainmeter.MetadataString,
+		Dimensions: []domainmeter.Dimension{
+			mustDimension(t, "region", domainmeter.MetadataString, "Region", "", true),
 		},
 	})
 	if err != nil {
@@ -154,8 +151,8 @@ func TestServiceUpdateDefinitionSettings(t *testing.T) {
 	unit := "request"
 	aggregation := domainmeter.AggregationCount
 	retention := 365
-	metadataSchema := map[string]domainmeter.MetadataType{
-		"plan": domainmeter.MetadataString,
+	dimensions := []domainmeter.Dimension{
+		mustDimension(t, "plan", domainmeter.MetadataString, "Plan", "", true),
 	}
 	updated, err := service.Update(ctx, UpdateCommand{
 		ID:                 created.ID,
@@ -163,7 +160,7 @@ func TestServiceUpdateDefinitionSettings(t *testing.T) {
 		Unit:               &unit,
 		Aggregation:        &aggregation,
 		EventRetentionDays: &retention,
-		MetadataSchema:     &metadataSchema,
+		Dimensions:         &dimensions,
 	})
 	if err != nil {
 		t.Fatalf("update meter: %v", err)
@@ -174,8 +171,8 @@ func TestServiceUpdateDefinitionSettings(t *testing.T) {
 	if updated.Description != description || updated.Unit != unit || updated.Aggregation != string(aggregation) || updated.EventRetentionDays != retention {
 		t.Fatalf("updated meter = %#v", updated)
 	}
-	if updated.MetadataSchema["plan"] != string(domainmeter.MetadataString) || updated.MetadataSchema["region"] != "" {
-		t.Fatalf("updated metadata schema = %#v", updated.MetadataSchema)
+	if len(updated.Dimensions) != 1 || updated.Dimensions[0].Name != "plan" || updated.Dimensions[0].Type != string(domainmeter.MetadataString) {
+		t.Fatalf("updated dimensions = %#v", updated.Dimensions)
 	}
 }
 
@@ -206,9 +203,6 @@ func TestServiceUpdateDimensions(t *testing.T) {
 	}
 	if len(updated.Dimensions) != 1 || updated.Dimensions[0].Name != "status" || updated.Dimensions[0].Type != "number" || updated.Dimensions[0].Required {
 		t.Fatalf("updated dimensions = %#v", updated.Dimensions)
-	}
-	if updated.MetadataSchema["status"] != "number" || updated.MetadataSchema["region"] != "" {
-		t.Fatalf("updated metadata schema = %#v", updated.MetadataSchema)
 	}
 }
 
@@ -247,9 +241,6 @@ func TestServiceUpdateDimensionsAllowsSafeChangesWithUsage(t *testing.T) {
 	}
 	if !updated.Dimensions[2].Deprecated {
 		t.Fatalf("deprecated dimension not preserved: %#v", updated.Dimensions)
-	}
-	if updated.MetadataSchema["plan"] != "string" {
-		t.Fatalf("updated metadata schema = %#v", updated.MetadataSchema)
 	}
 }
 
@@ -329,16 +320,17 @@ func TestServiceCreateInvalidMeterReturnsInvalidInput(t *testing.T) {
 	}
 }
 
-func TestServiceCreateInvalidMetadataSchemaReturnsInvalidInput(t *testing.T) {
+func TestServiceCreateDuplicateDimensionReturnsInvalidInput(t *testing.T) {
 	_, err := newTestService().Create(context.Background(), CreateCommand{
 		Name: "api_calls",
 		Unit: "call",
-		MetadataSchema: map[string]domainmeter.MetadataType{
-			"region": domainmeter.MetadataType("object"),
+		Dimensions: []domainmeter.Dimension{
+			mustDimension(t, "region", domainmeter.MetadataString, "Region", "", true),
+			mustDimension(t, "region", domainmeter.MetadataString, "Region", "", true),
 		},
 	})
 	if !errors.Is(err, domain.ErrInvalidInput) {
-		t.Fatalf("create invalid metadata schema error = %v, want ErrInvalidInput", err)
+		t.Fatalf("create invalid dimension error = %v, want ErrInvalidInput", err)
 	}
 }
 

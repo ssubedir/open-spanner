@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -210,8 +211,8 @@ func TestMeterAPIContract(t *testing.T) {
 	if created.ID == "" || created.Name != "api_calls" || created.EventRetentionDays != 30 {
 		t.Fatalf("created meter = %#v", created)
 	}
-	if created.MetadataSchema["region"] != "string" || len(created.Dimensions) != 1 || created.Dimensions[0].DisplayName != "Region" || !created.Dimensions[0].Deprecated {
-		t.Fatalf("created meter dimensions = %#v metadata=%#v", created.Dimensions, created.MetadataSchema)
+	if len(created.Dimensions) != 1 || created.Dimensions[0].DisplayName != "Region" || !created.Dimensions[0].Deprecated {
+		t.Fatalf("created meter dimensions = %#v", created.Dimensions)
 	}
 
 	list := requestJSON(t, router, http.MethodGet, "/v1/meters", nil)
@@ -257,7 +258,7 @@ func TestMeterAPIContract(t *testing.T) {
 	}
 	var updated meterResponse
 	decodeJSON(t, update, &updated)
-	if updated.Description != "Updated API calls" || updated.Name != created.Name || updated.Unit != "request" || updated.Aggregation != "count" || updated.EventRetentionDays != 365 || updated.MetadataSchema["plan"] != "string" || len(updated.Dimensions) != 1 || updated.Dimensions[0].DisplayName != "Plan" || updated.Dimensions[0].Required || !updated.Dimensions[0].Deprecated {
+	if updated.Description != "Updated API calls" || updated.Name != created.Name || updated.Unit != "request" || updated.Aggregation != "count" || updated.EventRetentionDays != 365 || len(updated.Dimensions) != 1 || updated.Dimensions[0].DisplayName != "Plan" || updated.Dimensions[0].Required || !updated.Dimensions[0].Deprecated {
 		t.Fatalf("updated meter = %#v", updated)
 	}
 
@@ -448,11 +449,11 @@ func TestUsageAPIContract(t *testing.T) {
 	router := newTestRouter()
 
 	createMeter := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
-		"name":            "tokens",
-		"description":     "Tokens",
-		"unit":            "token",
-		"aggregation":     "sum",
-		"metadata_schema": map[string]string{"region": "string"},
+		"name":        "tokens",
+		"description": "Tokens",
+		"unit":        "token",
+		"aggregation": "sum",
+		"dimensions":  meterDimensionsFromSchema(map[string]string{"region": "string"}),
 	})
 	if createMeter.Code != http.StatusCreated {
 		t.Fatalf("create meter status = %d: %s", createMeter.Code, createMeter.Body.String())
@@ -651,11 +652,11 @@ func TestUsageDimensionValuesAPIContract(t *testing.T) {
 	router := newTestRouter()
 
 	createMeter := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
-		"name":            "requests",
-		"description":     "Requests",
-		"unit":            "request",
-		"aggregation":     "sum",
-		"metadata_schema": map[string]string{"region": "string"},
+		"name":        "requests",
+		"description": "Requests",
+		"unit":        "request",
+		"aggregation": "sum",
+		"dimensions":  meterDimensionsFromSchema(map[string]string{"region": "string"}),
 	})
 	if createMeter.Code != http.StatusCreated {
 		t.Fatalf("create meter status = %d: %s", createMeter.Code, createMeter.Body.String())
@@ -728,11 +729,11 @@ func TestUsageBreakdownAPIContract(t *testing.T) {
 	router := newTestRouter()
 
 	createMeter := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
-		"name":            "requests",
-		"description":     "Requests",
-		"unit":            "request",
-		"aggregation":     "sum",
-		"metadata_schema": map[string]string{"endpoint": "string"},
+		"name":        "requests",
+		"description": "Requests",
+		"unit":        "request",
+		"aggregation": "sum",
+		"dimensions":  meterDimensionsFromSchema(map[string]string{"endpoint": "string"}),
 	})
 	if createMeter.Code != http.StatusCreated {
 		t.Fatalf("create meter status = %d: %s", createMeter.Code, createMeter.Body.String())
@@ -934,11 +935,11 @@ func TestUsageBulkAPIContract(t *testing.T) {
 	router := newTestRouter()
 
 	createMeter := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
-		"name":            "api_calls",
-		"description":     "API calls",
-		"unit":            "call",
-		"aggregation":     "sum",
-		"metadata_schema": map[string]string{"region": "string"},
+		"name":        "api_calls",
+		"description": "API calls",
+		"unit":        "call",
+		"aggregation": "sum",
+		"dimensions":  meterDimensionsFromSchema(map[string]string{"region": "string"}),
 	})
 	if createMeter.Code != http.StatusCreated {
 		t.Fatalf("create meter status = %d: %s", createMeter.Code, createMeter.Body.String())
@@ -1069,11 +1070,11 @@ func TestUsageBulkAPIPartialSuccess(t *testing.T) {
 	router := newTestRouter()
 
 	createMeter := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
-		"name":            "api_calls",
-		"description":     "API Calls",
-		"unit":            "call",
-		"aggregation":     "sum",
-		"metadata_schema": map[string]string{"region": "string"},
+		"name":        "api_calls",
+		"description": "API Calls",
+		"unit":        "call",
+		"aggregation": "sum",
+		"dimensions":  meterDimensionsFromSchema(map[string]string{"region": "string"}),
 	})
 	if createMeter.Code != http.StatusCreated {
 		t.Fatalf("create meter status = %d: %s", createMeter.Code, createMeter.Body.String())
@@ -1241,11 +1242,11 @@ func TestUsageEventExportAPIContract(t *testing.T) {
 	router := newTestRouter()
 
 	createMeter := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
-		"name":            "api_calls",
-		"description":     "API calls",
-		"unit":            "call",
-		"aggregation":     "sum",
-		"metadata_schema": map[string]string{"region": "string"},
+		"name":        "api_calls",
+		"description": "API calls",
+		"unit":        "call",
+		"aggregation": "sum",
+		"dimensions":  meterDimensionsFromSchema(map[string]string{"region": "string"}),
 	})
 	if createMeter.Code != http.StatusCreated {
 		t.Fatalf("create meter status = %d: %s", createMeter.Code, createMeter.Body.String())
@@ -1351,11 +1352,11 @@ func TestUsageAPIGroupByMetadata(t *testing.T) {
 	router := newTestRouter()
 
 	createMeter := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
-		"name":            "api_calls",
-		"description":     "API calls",
-		"unit":            "call",
-		"aggregation":     "sum",
-		"metadata_schema": map[string]string{"plan": "string", "region": "string"},
+		"name":        "api_calls",
+		"description": "API calls",
+		"unit":        "call",
+		"aggregation": "sum",
+		"dimensions":  meterDimensionsFromSchema(map[string]string{"plan": "string", "region": "string"}),
 	})
 	if createMeter.Code != http.StatusCreated {
 		t.Fatalf("create meter status = %d: %s", createMeter.Code, createMeter.Body.String())
@@ -1400,15 +1401,27 @@ func TestUsageAPIGroupByMetadata(t *testing.T) {
 		"from":        "2026-06-08T00:00:00Z",
 		"to":          "2026-06-09T00:00:00Z",
 		"bucket_size": "day",
-		"group_by":    "region",
+		"group_by":    []string{"region"},
 	})
 	if search.Code != http.StatusOK {
 		t.Fatalf("search usages status = %d, want %d: %s", search.Code, http.StatusOK, search.Body.String())
 	}
-	var legacyBuckets []usageListItemResponse
-	decodeJSON(t, search, &legacyBuckets)
-	if len(legacyBuckets) != 2 || legacyBuckets[0].Group["region"] != "us-east-1" || legacyBuckets[0].Quantity != 12 || legacyBuckets[1].Group["region"] != "us-west-2" || legacyBuckets[1].Quantity != 5 {
-		t.Fatalf("legacy grouped buckets = %#v", legacyBuckets)
+	var regionBuckets []usageListItemResponse
+	decodeJSON(t, search, &regionBuckets)
+	if len(regionBuckets) != 2 || regionBuckets[0].Group["region"] != "us-east-1" || regionBuckets[0].Quantity != 12 || regionBuckets[1].Group["region"] != "us-west-2" || regionBuckets[1].Quantity != 5 {
+		t.Fatalf("region grouped buckets = %#v", regionBuckets)
+	}
+
+	stringSearch := requestJSON(t, router, http.MethodPost, "/v1/usages/search", map[string]any{
+		"subject":     "org_123",
+		"meter":       "api_calls",
+		"from":        "2026-06-08T00:00:00Z",
+		"to":          "2026-06-09T00:00:00Z",
+		"bucket_size": "day",
+		"group_by":    "region",
+	})
+	if stringSearch.Code != http.StatusBadRequest {
+		t.Fatalf("string group_by status = %d, want %d: %s", stringSearch.Code, http.StatusBadRequest, stringSearch.Body.String())
 	}
 
 	arraySearch := requestJSON(t, router, http.MethodPost, "/v1/usages/search", map[string]any{
@@ -1479,7 +1492,7 @@ func TestUsageAPIAggregatesAcrossSubjects(t *testing.T) {
 		"from":        "2026-06-08T00:00:00Z",
 		"to":          "2026-06-09T00:00:00Z",
 		"bucket_size": "day",
-		"group_by":    "subject",
+		"group_by":    []string{"subject"},
 	})
 	if search.Code != http.StatusOK {
 		t.Fatalf("search usages status = %d, want %d: %s", search.Code, http.StatusOK, search.Body.String())
@@ -1603,11 +1616,11 @@ func TestUsageAPIAcceptsExtraMetadataOutsideMeterDimensions(t *testing.T) {
 	router := newTestRouter()
 
 	createMeter := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
-		"name":            "api_calls",
-		"description":     "API calls",
-		"unit":            "call",
-		"aggregation":     "sum",
-		"metadata_schema": map[string]string{"region": "string"},
+		"name":        "api_calls",
+		"description": "API calls",
+		"unit":        "call",
+		"aggregation": "sum",
+		"dimensions":  meterDimensionsFromSchema(map[string]string{"region": "string"}),
 	})
 	if createMeter.Code != http.StatusCreated {
 		t.Fatalf("create meter status = %d: %s", createMeter.Code, createMeter.Body.String())
@@ -1637,11 +1650,11 @@ func TestUsageAPIRejectsInvalidDimensions(t *testing.T) {
 	router := newTestRouter()
 
 	createMeter := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
-		"name":            "api_calls",
-		"description":     "API calls",
-		"unit":            "call",
-		"aggregation":     "sum",
-		"metadata_schema": map[string]string{"region": "string"},
+		"name":        "api_calls",
+		"description": "API calls",
+		"unit":        "call",
+		"aggregation": "sum",
+		"dimensions":  meterDimensionsFromSchema(map[string]string{"region": "string"}),
 	})
 	if createMeter.Code != http.StatusCreated {
 		t.Fatalf("create meter status = %d: %s", createMeter.Code, createMeter.Body.String())
@@ -2079,7 +2092,6 @@ type meterResponse struct {
 	Unit               string                   `json:"unit"`
 	Aggregation        string                   `json:"aggregation"`
 	Dimensions         []meterDimensionResponse `json:"dimensions"`
-	MetadataSchema     map[string]string        `json:"metadata_schema"`
 	EventRetentionDays int                      `json:"event_retention_days"`
 	CreatedAt          string                   `json:"created_at"`
 }
@@ -2091,6 +2103,23 @@ type meterDimensionResponse struct {
 	Type        string `json:"type"`
 	Required    bool   `json:"required"`
 	Deprecated  bool   `json:"deprecated"`
+}
+
+func meterDimensionsFromSchema(schema map[string]string) []map[string]any {
+	dimensions := make([]map[string]any, 0, len(schema))
+	names := make([]string, 0, len(schema))
+	for name := range schema {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		dimensions = append(dimensions, map[string]any{
+			"name":     name,
+			"type":     schema[name],
+			"required": true,
+		})
+	}
+	return dimensions
 }
 
 type meterListResponse struct {

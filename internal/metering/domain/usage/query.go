@@ -40,6 +40,16 @@ type Query struct {
 	filter      Filter
 }
 
+type AggregateQuery struct {
+	subject     string
+	meterName   string
+	from        time.Time
+	to          time.Time
+	aggregation domainmeter.Aggregation
+	metadata    map[string]string
+	filter      Filter
+}
+
 type EventQuery struct {
 	subject   string
 	meterName string
@@ -115,6 +125,11 @@ type DimensionValue struct {
 type BreakdownItem struct {
 	field       string
 	value       string
+	quantity    float64
+	usageEvents int
+}
+
+type Aggregate struct {
 	quantity    float64
 	usageEvents int
 }
@@ -255,6 +270,51 @@ func NewBreakdownItem(field string, value string, quantity float64, usageEvents 
 		quantity:    quantity,
 		usageEvents: usageEvents,
 	}
+}
+
+func NewAggregateQuery(subject, meterName string, from, to time.Time, aggregation domainmeter.Aggregation, metadata map[string]string, filter Filter) (AggregateQuery, error) {
+	subject = strings.TrimSpace(subject)
+	meterName = strings.TrimSpace(meterName)
+
+	if meterName == "" {
+		return AggregateQuery{}, fmt.Errorf("%w: meter is required", domain.ErrInvalidInput)
+	}
+	if from.IsZero() || to.IsZero() || !from.Before(to) {
+		return AggregateQuery{}, fmt.Errorf("%w: valid from and to range is required", domain.ErrInvalidInput)
+	}
+	if aggregation == "" {
+		aggregation = domainmeter.AggregationSum
+	}
+	if !domainmeter.IsSupportedAggregation(aggregation) {
+		return AggregateQuery{}, fmt.Errorf("%w: unsupported aggregation %q", domain.ErrInvalidInput, aggregation)
+	}
+
+	metadataFilters := map[string]string{}
+	for key, value := range metadata {
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key == "" {
+			return AggregateQuery{}, fmt.Errorf("%w: metadata filter key is required", domain.ErrInvalidInput)
+		}
+		if value == "" {
+			return AggregateQuery{}, fmt.Errorf("%w: metadata filter value is required", domain.ErrInvalidInput)
+		}
+		metadataFilters[key] = value
+	}
+
+	return AggregateQuery{
+		subject:     subject,
+		meterName:   meterName,
+		from:        from.UTC(),
+		to:          to.UTC(),
+		aggregation: aggregation,
+		metadata:    metadataFilters,
+		filter:      filter,
+	}, nil
+}
+
+func NewAggregate(quantity float64, usageEvents int) Aggregate {
+	return Aggregate{quantity: quantity, usageEvents: usageEvents}
 }
 
 func NewSubjectStatsQuery(limit int, lastEventAt time.Time, subject string) SubjectStatsQuery {
@@ -563,6 +623,38 @@ func (q BreakdownQuery) Filter() Filter {
 	return q.filter
 }
 
+func (q AggregateQuery) Subject() string {
+	return q.subject
+}
+
+func (q AggregateQuery) MeterName() string {
+	return q.meterName
+}
+
+func (q AggregateQuery) From() time.Time {
+	return q.from
+}
+
+func (q AggregateQuery) To() time.Time {
+	return q.to
+}
+
+func (q AggregateQuery) Aggregation() domainmeter.Aggregation {
+	return q.aggregation
+}
+
+func (q AggregateQuery) Metadata() map[string]string {
+	metadata := make(map[string]string, len(q.metadata))
+	for key, value := range q.metadata {
+		metadata[key] = value
+	}
+	return metadata
+}
+
+func (q AggregateQuery) Filter() Filter {
+	return q.filter
+}
+
 func (c EventCursor) EventTime() time.Time {
 	return c.eventTime
 }
@@ -692,4 +784,12 @@ func (b BreakdownItem) Quantity() float64 {
 
 func (b BreakdownItem) UsageEvents() int {
 	return b.usageEvents
+}
+
+func (a Aggregate) Quantity() float64 {
+	return a.quantity
+}
+
+func (a Aggregate) UsageEvents() int {
+	return a.usageEvents
 }

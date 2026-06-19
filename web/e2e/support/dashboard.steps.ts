@@ -140,6 +140,9 @@ export const When = {
     await page.goto('/meters')
     await expect(page.getByRole('heading', { name: 'Meter definitions' })).toBeVisible()
 
+    await page.getByRole('button', { name: 'New meter' }).click()
+    await expect(page.getByRole('dialog', { name: 'Create Meter' })).toBeVisible()
+
     await page.locator('#meter-name').fill(meterName)
     await page.locator('#meter-unit').fill('request')
     await page.locator('#meter-description').fill('E2E API requests')
@@ -166,7 +169,7 @@ export const When = {
       name: 'status_code',
     })
 
-    await page.locator('.meter-create-form').getByRole('button', { name: 'Create' }).click()
+    await page.locator('.meter-create-form').getByRole('button', { name: 'Create meter' }).click()
   },
 
   async theUserQueriesUsageByServiceTier(page: Page, scenario: UsageScenario) {

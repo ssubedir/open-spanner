@@ -23,7 +23,7 @@ If your application sends usage for `api_requests`, Open Spanner looks up the `a
 | `unit` | What the quantity represents. |
 | `aggregation` | How events are summarized. |
 | `event_retention_days` | How long raw events are retained. |
-| `metadata_schema` | Dimension contract for accepted event metadata. |
+| `dimensions` | Dimension contract for accepted event metadata. |
 
 Meters can be created and updated from the dashboard or through the meter API. Keep `name` stable once clients are sending usage, because usage events reference meters by name.
 
@@ -36,11 +36,11 @@ Meters can be created and updated from the dashboard or through the meter API. K
   "unit": "request",
   "aggregation": "sum",
   "event_retention_days": 90,
-  "metadata_schema": {
-    "region": "string",
-    "plan": "string",
-    "cache_hit": "boolean"
-  }
+  "dimensions": [
+    { "name": "region", "type": "string", "required": true },
+    { "name": "plan", "type": "string", "required": true },
+    { "name": "cache_hit", "type": "boolean", "required": false }
+  ]
 }
 ```
 
@@ -84,4 +84,4 @@ Dimension names can use letters, numbers, underscores, hyphens, and dots. `subje
 
 ## What Is Coming Later
 
-Future versions may add richer meter types and dimension workflows. For now, the stable contract is the meter definition plus metadata schema, and that is the surface your services should depend on.
+Future versions may add richer meter types and dimension workflows. For now, the stable contract is the meter definition plus explicit dimensions, and that is the surface your services should depend on.

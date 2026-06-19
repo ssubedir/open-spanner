@@ -43,7 +43,6 @@ export type Meter = {
   unit: string
   aggregation: string
   dimensions: MeterDimension[]
-  metadata_schema: Record<string, string>
   event_retention_days: number
   created_at: string
 }
@@ -80,7 +79,6 @@ export type MeterCreateRequest = {
   unit: string
   aggregation: string
   dimensions: MeterDimensionRequest[]
-  metadata_schema: Record<string, string>
   event_retention_days: number
 }
 
@@ -89,7 +87,6 @@ export type MeterUpdateRequest = {
   unit: string
   aggregation: string
   dimensions: MeterDimensionRequest[]
-  metadata_schema: Record<string, string>
   event_retention_days: number
 }
 
@@ -309,6 +306,120 @@ export type APIKeyCreateResponse = APIKey & {
   key: string
 }
 
+export type AlertState = {
+  status: string
+  group_key?: string
+  group_value?: string
+  value: number
+  message: string
+  evaluated_at?: string
+  updated_at: string
+}
+
+export type AlertDestination = {
+  id: string
+  name: string
+  type: string
+  enabled: boolean
+  webhook_url: string
+  webhook_signing: AlertWebhookSigning
+  created_at: string
+  updated_at: string
+}
+
+export type AlertDestinationList = {
+  items: AlertDestination[]
+}
+
+export type AlertDestinationRequest = {
+  name: string
+  type?: string
+  enabled?: boolean
+  webhook_url: string
+}
+
+export type AlertDestinationUpdateRequest = Partial<AlertDestinationRequest>
+
+export type AlertRule = {
+  id: string
+  name: string
+  meter: string
+  enabled: boolean
+  subject?: string
+  metadata?: Record<string, string>
+  window_seconds: number
+  comparator: string
+  threshold: number
+  evaluation_interval_seconds: number
+  group_by?: string
+  destination_id: string
+  destination?: AlertDestination
+  next_evaluate_at: string
+  created_at: string
+  updated_at: string
+  state?: AlertState
+  states?: AlertState[]
+}
+
+export type AlertWebhookSigning = {
+  enabled: boolean
+  algorithm: string
+  signature_header: string
+  timestamp_header: string
+  secret?: string
+}
+
+export type AlertRuleList = {
+  items: AlertRule[]
+}
+
+export type AlertEvent = {
+  id: string
+  rule_id: string
+  group_key?: string
+  group_value?: string
+  type: string
+  value: number
+  message: string
+  created_at: string
+  delivery?: AlertDelivery
+}
+
+export type AlertDelivery = {
+  id: string
+  event_id: string
+  trigger_type: string
+  status: string
+  status_code?: number
+  error?: string
+  duration_ms: number
+  attempted_at: string
+  created_at: string
+}
+
+export type AlertEventList = {
+  items: AlertEvent[]
+  next_cursor?: string
+}
+
+export type AlertRuleRequest = {
+  name: string
+  meter: string
+  enabled?: boolean
+  subject?: string
+  metadata?: Record<string, string>
+  window_seconds?: number
+  comparator?: string
+  threshold: number
+  evaluation_interval_seconds?: number
+  group_by?: string
+  destination_id: string
+}
+
+export type AlertRuleUpdateRequest = Partial<Omit<AlertRuleRequest, 'threshold'>> & {
+  threshold?: number
+}
+
 export class APIError extends Error {
   code: string
   status: number
@@ -434,6 +545,70 @@ export async function deleteAPIKey(id: string) {
   return request<void>(`/v1/auth/api-keys/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   })
+}
+
+export async function listAlertRules() {
+  return request<AlertRuleList>('/v1/alerts')
+}
+
+export async function listAlertDestinations() {
+  return request<AlertDestinationList>('/v1/alerts/destinations')
+}
+
+export async function createAlertDestination(input: AlertDestinationRequest) {
+  return request<AlertDestination>('/v1/alerts/destinations', {
+    body: JSON.stringify(input),
+    method: 'POST',
+  })
+}
+
+export async function updateAlertDestination(id: string, input: AlertDestinationUpdateRequest) {
+  return request<AlertDestination>(`/v1/alerts/destinations/${encodeURIComponent(id)}`, {
+    body: JSON.stringify(input),
+    method: 'PUT',
+  })
+}
+
+export async function deleteAlertDestination(id: string) {
+  return request<void>(`/v1/alerts/destinations/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function rotateAlertDestinationSecret(id: string) {
+  return request<AlertDestination>(`/v1/alerts/destinations/${encodeURIComponent(id)}/webhook-secret/rotate`, {
+    method: 'POST',
+  })
+}
+
+export async function createAlertRule(input: AlertRuleRequest) {
+  return request<AlertRule>('/v1/alerts', {
+    body: JSON.stringify(input),
+    method: 'POST',
+  })
+}
+
+export async function updateAlertRule(id: string, input: AlertRuleUpdateRequest) {
+  return request<AlertRule>(`/v1/alerts/${encodeURIComponent(id)}`, {
+    body: JSON.stringify(input),
+    method: 'PUT',
+  })
+}
+
+export async function deleteAlertRule(id: string) {
+  return request<void>(`/v1/alerts/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function evaluateAlertRule(id: string) {
+  return request<{ rule: AlertRule; state: AlertState; event?: AlertEvent; events?: AlertEvent[] }>(`/v1/alerts/${encodeURIComponent(id)}/evaluate`, {
+    method: 'POST',
+  })
+}
+
+export async function listAlertEvents(limit = 25) {
+  return request<AlertEventList>(`/v1/alerts/events?limit=${limit}`)
 }
 
 export async function getSystemStats() {

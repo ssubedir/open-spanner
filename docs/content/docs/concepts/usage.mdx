@@ -29,7 +29,7 @@ Send usage from backend services or workers. The dashboard is meant for inspecti
 | `quantity` | Amount of usage recorded. |
 | `idempotency_key` | Unique key used to make retries safe. |
 | `timestamp` | Event time. Defaults depend on the API request if omitted. |
-| `metadata` | Dimension values for filtering and grouping. Must match the meter's `metadata_schema` when one is defined. |
+| `metadata` | Dimension values for filtering and grouping. Must match the meter's configured dimensions when they are defined. |
 
 ## Idempotency
 

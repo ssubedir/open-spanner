@@ -26,6 +26,12 @@ func TestLoadDefaultsToSQLite(t *testing.T) {
 	if cfg.RetentionPruneTimeout != 30*time.Minute {
 		t.Fatalf("retention timeout = %s, want 30m", cfg.RetentionPruneTimeout)
 	}
+	if cfg.AlertWorkerInterval != 5*time.Second {
+		t.Fatalf("alert worker interval = %s, want 5s", cfg.AlertWorkerInterval)
+	}
+	if cfg.AlertWorkerTimeout != time.Minute {
+		t.Fatalf("alert worker timeout = %s, want 1m", cfg.AlertWorkerTimeout)
+	}
 }
 
 func TestLoadPostgresRequiresDSN(t *testing.T) {
@@ -107,6 +113,17 @@ func clearEnv(t *testing.T) {
 		"OPEN_SPANNER_RETENTION_PRUNE_ENABLED",
 		"OPEN_SPANNER_RETENTION_PRUNE_INTERVAL",
 		"OPEN_SPANNER_RETENTION_PRUNE_TIMEOUT",
+		"OPEN_SPANNER_EXPORT_STORAGE_PATH",
+		"OPEN_SPANNER_EXPORT_WORKER_INTERVAL",
+		"OPEN_SPANNER_EXPORT_WORKER_LOCK_TTL",
+		"OPEN_SPANNER_EXPORT_WORKER_TIMEOUT",
+		"OPEN_SPANNER_EXPORT_WORKER_MAX_ATTEMPTS",
+		"OPEN_SPANNER_ALERT_WORKER_INTERVAL",
+		"OPEN_SPANNER_ALERT_WORKER_LOCK_TTL",
+		"OPEN_SPANNER_ALERT_WORKER_TIMEOUT",
+		"OPEN_SPANNER_ALERT_WORKER_RETRY_AFTER",
+		"OPEN_SPANNER_ALERT_WORKER_MAX_ATTEMPTS",
+		"OPEN_SPANNER_ALERT_WORKER_BATCH_SIZE",
 	} {
 		t.Setenv(key, "")
 	}

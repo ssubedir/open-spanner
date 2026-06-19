@@ -276,17 +276,7 @@ function meterDimensions(meter?: Meter) {
   if (!meter) {
     return []
   }
-  if (meter.dimensions && meter.dimensions.length > 0) {
-    return meter.dimensions
-  }
-  return Object.entries(meter.metadata_schema || {}).map(([name, type]) => ({
-    description: '',
-    display_name: humanizeField(name),
-    deprecated: false,
-    name,
-    required: true,
-    type,
-  }))
+  return meter.dimensions || []
 }
 
 function activeMeterDimensions(meter?: Meter) {
