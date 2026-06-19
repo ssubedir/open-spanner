@@ -1,1 +1,1 @@
-ALTER TABLE alert_rules ADD COLUMN webhook_secret TEXT NOT NULL DEFAULT '';
+-- Alert webhook signing secrets are stored on alert destinations.

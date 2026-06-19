@@ -8,6 +8,17 @@ import (
 	"database/sql"
 )
 
+type AlertDestination struct {
+	ID            string
+	Name          string
+	Type          string
+	Enabled       int64
+	WebhookUrl    string
+	WebhookSecret string
+	CreatedAt     string
+	UpdatedAt     string
+}
+
 type AlertEvaluationJob struct {
 	RuleID      string
 	RunAfter    string

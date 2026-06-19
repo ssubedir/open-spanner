@@ -20,6 +20,55 @@ func NewAlertRepository(store *Store) *AlertRepository {
 	return &AlertRepository{queries: postgresdb.New(store)}
 }
 
+func (r *AlertRepository) SaveDestination(ctx context.Context, destination appalert.Destination) (appalert.Destination, error) {
+	err := queriesFor(ctx, r.queries).SaveAlertDestination(ctx, postgresdb.SaveAlertDestinationParams{
+		ID:            destination.ID,
+		Name:          destination.Name,
+		Type:          string(destination.Type),
+		Enabled:       destination.Enabled,
+		WebhookUrl:    destination.WebhookURL,
+		WebhookSecret: destination.WebhookSecret,
+		CreatedAt:     formatTime(destination.CreatedAt),
+		UpdatedAt:     formatTime(destination.UpdatedAt),
+	})
+	if err != nil {
+		return appalert.Destination{}, err
+	}
+	return destination, nil
+}
+
+func (r *AlertRepository) FindDestinations(ctx context.Context, query appalert.DestinationQuery) ([]appalert.Destination, error) {
+	rows, err := queriesFor(ctx, r.queries).ListAlertDestinations(ctx, postgresdb.ListAlertDestinationsParams{
+		ID:      alertStringValue(query.ID),
+		Type:    alertStringValue(query.Type),
+		Enabled: alertBoolValue(query.Enabled),
+		Limit:   int32(query.Limit),
+	})
+	if err != nil {
+		return nil, err
+	}
+	destinations := make([]appalert.Destination, 0, len(rows))
+	for _, row := range rows {
+		destination, err := postgresAlertDestination(row)
+		if err != nil {
+			return nil, err
+		}
+		destinations = append(destinations, destination)
+	}
+	return destinations, nil
+}
+
+func (r *AlertRepository) DeleteDestination(ctx context.Context, id string) error {
+	rows, err := queriesFor(ctx, r.queries).DeleteAlertDestination(ctx, id)
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
 func (r *AlertRepository) SaveRule(ctx context.Context, rule appalert.Rule) (appalert.Rule, error) {
 	metadata, err := json.Marshal(rule.Metadata)
 	if err != nil {
@@ -38,9 +87,7 @@ func (r *AlertRepository) SaveRule(ctx context.Context, rule appalert.Rule) (app
 		Threshold:                 rule.Threshold,
 		EvaluationIntervalSeconds: int32(rule.EvaluationInterval.Seconds()),
 		GroupBy:                   rule.GroupBy,
-		TriggerType:               string(rule.TriggerType),
-		WebhookUrl:                rule.WebhookURL,
-		WebhookSecret:             rule.WebhookSecret,
+		DestinationID:             rule.DestinationID,
 		NextEvaluateAt:            formatTime(rule.NextEvaluateAt),
 		CreatedAt:                 formatTime(rule.CreatedAt),
 		UpdatedAt:                 formatTime(rule.UpdatedAt),
@@ -54,10 +101,11 @@ func (r *AlertRepository) SaveRule(ctx context.Context, rule appalert.Rule) (app
 
 func (r *AlertRepository) FindRules(ctx context.Context, query appalert.RuleQuery) ([]appalert.Rule, error) {
 	rows, err := queriesFor(ctx, r.queries).ListAlertRules(ctx, postgresdb.ListAlertRulesParams{
-		ID:        alertStringValue(query.ID),
-		MeterName: alertStringValue(query.MeterName),
-		Enabled:   alertBoolValue(query.Enabled),
-		Limit:     int32(query.Limit),
+		ID:            alertStringValue(query.ID),
+		MeterName:     alertStringValue(query.MeterName),
+		DestinationID: alertStringValue(query.DestinationID),
+		Enabled:       alertBoolValue(query.Enabled),
+		Limit:         int32(query.Limit),
 	})
 	if err != nil {
 		return nil, err
@@ -272,6 +320,27 @@ func (r *AlertRepository) UpdateRuleNextEvaluation(ctx context.Context, id strin
 	return nil
 }
 
+func postgresAlertDestination(row postgresdb.AlertDestination) (appalert.Destination, error) {
+	createdAt, err := time.Parse(time.RFC3339Nano, row.CreatedAt)
+	if err != nil {
+		return appalert.Destination{}, err
+	}
+	updatedAt, err := time.Parse(time.RFC3339Nano, row.UpdatedAt)
+	if err != nil {
+		return appalert.Destination{}, err
+	}
+	return appalert.Destination{
+		ID:            row.ID,
+		Name:          row.Name,
+		Type:          appalert.DestinationType(row.Type),
+		Enabled:       row.Enabled,
+		WebhookURL:    row.WebhookUrl,
+		WebhookSecret: row.WebhookSecret,
+		CreatedAt:     createdAt,
+		UpdatedAt:     updatedAt,
+	}, nil
+}
+
 func postgresAlertRule(row postgresdb.ListAlertRulesRow) (appalert.Rule, error) {
 	metadata := map[string]string{}
 	if len(row.Metadata) > 0 {
@@ -304,9 +373,7 @@ func postgresAlertRule(row postgresdb.ListAlertRulesRow) (appalert.Rule, error) 
 		Threshold:          row.Threshold,
 		EvaluationInterval: time.Duration(row.EvaluationIntervalSeconds) * time.Second,
 		GroupBy:            row.GroupBy,
-		TriggerType:        appalert.TriggerType(row.TriggerType),
-		WebhookURL:         row.WebhookUrl,
-		WebhookSecret:      row.WebhookSecret,
+		DestinationID:      row.DestinationID,
 		NextEvaluateAt:     nextEvaluateAt,
 		CreatedAt:          createdAt,
 		UpdatedAt:          updatedAt,

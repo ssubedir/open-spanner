@@ -9,7 +9,7 @@ import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { formatDate, formatNumber } from '../lib/format'
 import { useInitialLoad } from '../lib/hooks'
-import type { AlertEvent, AlertRule, AlertRuleRequest, AlertRuleUpdateRequest, Meter } from '../api'
+import type { AlertDestination, AlertDestinationRequest, AlertDestinationUpdateRequest, AlertEvent, AlertRule, AlertRuleRequest, AlertRuleUpdateRequest, Meter } from '../api'
 
 const comparators = [
   ['gte', '>='],
@@ -21,7 +21,7 @@ const comparators = [
 ] as const
 
 export function AlertsPage() {
-  const { deleting, editing, error, events, items, meters, saving, selectedEvent, signingSecret } = useSelector(appStore, (state) => state.alerts)
+  const { deleting, destinationCreating, destinationDeleting, destinationEditing, destinations, editing, error, events, items, meters, saving, selectedEvent, signingSecret } = useSelector(appStore, (state) => state.alerts)
   const load = useCallback(() => appStoreActions.loadAlerts(), [])
   const pollEvents = useCallback(() => appStoreActions.loadAlertEvents({ quiet: true }), [])
   const selectedEventRule = selectedEvent ? ruleForEvent(items, selectedEvent) : null
@@ -56,9 +56,36 @@ export function AlertsPage() {
     }
   }
 
+  async function submitDestinationCreate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    try {
+      await appStoreActions.createAlertDestination(destinationRequestFromForm(new FormData(event.currentTarget)))
+      event.currentTarget.reset()
+    } catch {
+      // Store owns the visible alerts error state.
+    }
+  }
+
+  async function submitDestinationUpdate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    try {
+      await appStoreActions.updateEditingAlertDestination(destinationUpdateFromForm(new FormData(event.currentTarget)))
+    } catch {
+      // Store owns the visible alerts error state.
+    }
+  }
+
   async function confirmDelete() {
     try {
       await appStoreActions.deleteSelectedAlert()
+    } catch {
+      // Store owns the visible alerts error state.
+    }
+  }
+
+  async function confirmDestinationDelete() {
+    try {
+      await appStoreActions.deleteSelectedAlertDestination()
     } catch {
       // Store owns the visible alerts error state.
     }
@@ -87,7 +114,7 @@ export function AlertsPage() {
         <section className="secret-panel" aria-label="Webhook signing secret">
           <div>
             <span>Webhook secret ready</span>
-            <strong>{signingSecret.ruleName}</strong>
+            <strong>{signingSecret.ownerName}</strong>
             <small>Copy this signing secret now. It will not be shown again.</small>
           </div>
           <code title={signingSecret.secret}>{signingSecret.secret}</code>
@@ -100,6 +127,45 @@ export function AlertsPage() {
           </div>
         </section>
       ) : null}
+
+      <Card className="api-key-table-card alert-destinations-card">
+        <CardHeader className="api-key-card-header">
+          <div>
+            <CardTitle>Destinations</CardTitle>
+            <CardDescription>Reusable delivery targets for alert notifications.</CardDescription>
+          </div>
+          <div className="card-header-actions">
+            <Badge variant={destinations.length > 0 ? 'success' : 'muted'}>{destinations.length} rows</Badge>
+            <Button disabled={saving} onClick={() => appStoreActions.setAlertDestinationCreating(true)} type="button">
+              <Plus aria-hidden="true" />
+              New destination
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            emptyLabel="No alert destinations yet"
+            headers={['Destination', 'Webhook URL', 'Signing', 'Updated', 'Actions']}
+            rows={destinations.map((destination) => [
+              <DestinationName destination={destination} />,
+              <span className="mono alert-destination-url" title={destination.webhook_url}>{destination.webhook_url}</span>,
+              <DestinationSigning destination={destination} />,
+              formatDate(destination.updated_at),
+              <span className="table-actions">
+                <Button aria-label={`Rotate signing secret for ${destination.name}`} disabled={saving || !destination.webhook_url} onClick={() => void appStoreActions.rotateAlertDestinationSecret(destination)} size="icon" type="button" variant="ghost">
+                  <KeyRound aria-hidden="true" />
+                </Button>
+                <Button aria-label={`Edit ${destination.name}`} disabled={saving} onClick={() => appStoreActions.setAlertDestinationEditing(destination)} size="icon" type="button" variant="ghost">
+                  <Pencil aria-hidden="true" />
+                </Button>
+                <Button aria-label={`Delete ${destination.name}`} disabled={saving} onClick={() => appStoreActions.setAlertDestinationDeleting(destination)} size="icon" type="button" variant="ghost">
+                  <Trash2 aria-hidden="true" />
+                </Button>
+              </span>,
+            ])}
+          />
+        </CardContent>
+      </Card>
 
       <section className="api-key-grid">
         <Card className="api-key-create-card">
@@ -157,14 +223,11 @@ export function AlertsPage() {
                 </select>
               </label>
               <label>
-                Trigger
-                <select name="trigger_type" defaultValue="webhook">
-                  <option value="webhook">Webhook</option>
+                Destination
+                <select name="destination_id" required>
+                  <option value="">Select destination</option>
+                  {destinations.map((destination) => <option key={destination.id} value={destination.id}>{destination.name}</option>)}
                 </select>
-              </label>
-              <label>
-                Webhook URL
-                <input name="webhook_url" placeholder="https://example.com/open-spanner/alerts" type="url" />
               </label>
               <label>
                 Subject
@@ -197,20 +260,17 @@ export function AlertsPage() {
           <CardContent>
             <DataTable
               emptyLabel="No alert rules yet"
-              headers={['Rule', 'Meter', 'Trigger', 'Condition', 'Window', 'State', 'Actions']}
+              headers={['Rule', 'Meter', 'Destination', 'Condition', 'Window', 'State', 'Actions']}
               rows={items.map((rule) => [
                 <RuleName rule={rule} />,
                 <span className="mono">{rule.meter}</span>,
-                <RuleTrigger rule={rule} />,
+                <RuleDestination rule={rule} />,
                 <span>{comparatorLabel(rule.comparator)} {formatNumber(rule.threshold)}</span>,
                 <span>{durationLabel(rule.window_seconds)}</span>,
                 <RuleState rule={rule} />,
                 <span className="table-actions">
                   <Button aria-label={`Evaluate ${rule.name}`} disabled={saving} onClick={() => void appStoreActions.evaluateAlert(rule)} size="icon" type="button" variant="ghost">
                     <Play aria-hidden="true" />
-                  </Button>
-                  <Button aria-label={`Rotate webhook signing secret for ${rule.name}`} disabled={saving || !rule.webhook_url} onClick={() => void appStoreActions.rotateAlertWebhookSecret(rule)} size="icon" type="button" variant="ghost">
-                    <KeyRound aria-hidden="true" />
                   </Button>
                   <Button aria-label={`Edit ${rule.name}`} disabled={saving} onClick={() => appStoreActions.setAlertEditing(rule)} size="icon" type="button" variant="ghost">
                     <Pencil aria-hidden="true" />
@@ -293,15 +353,12 @@ export function AlertsPage() {
                 {groupByOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
             </label>
-            <label>
-              Trigger
-              <select defaultValue={editing.trigger_type || 'webhook'} name="trigger_type">
-                <option value="webhook">Webhook</option>
-              </select>
-            </label>
             <label className="wide">
-              Webhook URL
-              <input defaultValue={editing.webhook_url || ''} name="webhook_url" placeholder="https://example.com/open-spanner/alerts" type="url" />
+              Destination
+              <select defaultValue={editing.destination_id || ''} name="destination_id" required>
+                <option value="">Select destination</option>
+                {destinations.map((destination) => <option key={destination.id} value={destination.id}>{destination.name}</option>)}
+              </select>
             </label>
             <label className="wide">
               Subject
@@ -320,6 +377,77 @@ export function AlertsPage() {
               <Button disabled={saving} type="submit">Save</Button>
             </div>
           </form>
+        </Modal>
+      ) : null}
+
+      {destinationCreating ? (
+        <Modal className="alert-rule-modal" title="Create Alert Destination" onClose={() => appStoreActions.setAlertDestinationCreating(false)}>
+          <form className="form-grid alert-rule-modal-form" onSubmit={(event) => void submitDestinationCreate(event)}>
+            <label className="wide">
+              Name
+              <input name="name" placeholder="Primary webhook" required />
+            </label>
+            <label>
+              Type
+              <select name="type" defaultValue="webhook">
+                <option value="webhook">Webhook</option>
+              </select>
+            </label>
+            <label className="wide">
+              Webhook URL
+              <input name="webhook_url" placeholder="https://example.com/open-spanner/alerts" required type="url" />
+            </label>
+            <label className="checkbox-row wide">
+              <input defaultChecked name="enabled" type="checkbox" />
+              Enabled
+            </label>
+            <div className="modal-actions wide">
+              <Button onClick={() => appStoreActions.setAlertDestinationCreating(false)} type="button" variant="outline">Cancel</Button>
+              <Button disabled={saving} type="submit">
+                {saving ? <Loader2 className="spin" aria-hidden="true" /> : <Plus aria-hidden="true" />}
+                Create
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+
+      {destinationEditing ? (
+        <Modal className="alert-rule-modal" title="Edit Alert Destination" onClose={() => appStoreActions.setAlertDestinationEditing(null)}>
+          <form className="form-grid alert-rule-modal-form" onSubmit={(event) => void submitDestinationUpdate(event)}>
+            <label className="wide">
+              Name
+              <input defaultValue={destinationEditing.name} name="name" required />
+            </label>
+            <label>
+              Type
+              <select defaultValue={destinationEditing.type || 'webhook'} name="type">
+                <option value="webhook">Webhook</option>
+              </select>
+            </label>
+            <label className="wide">
+              Webhook URL
+              <input defaultValue={destinationEditing.webhook_url} name="webhook_url" required type="url" />
+            </label>
+            <label className="checkbox-row wide">
+              <input defaultChecked={destinationEditing.enabled} name="enabled" type="checkbox" />
+              Enabled
+            </label>
+            <div className="modal-actions wide">
+              <Button onClick={() => appStoreActions.setAlertDestinationEditing(null)} type="button" variant="outline">Cancel</Button>
+              <Button disabled={saving} type="submit">Save</Button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+
+      {destinationDeleting ? (
+        <Modal title="Delete Alert Destination" onClose={() => appStoreActions.setAlertDestinationDeleting(null)}>
+          <div className="modal-copy">Delete <strong>{destinationDeleting.name}</strong>?</div>
+          <div className="modal-actions">
+            <Button onClick={() => appStoreActions.setAlertDestinationDeleting(null)} type="button" variant="outline">Cancel</Button>
+            <Button disabled={saving} onClick={() => void confirmDestinationDelete()} type="button">Delete</Button>
+          </div>
         </Modal>
       ) : null}
 
@@ -342,6 +470,27 @@ export function AlertsPage() {
         </Modal>
       ) : null}
     </>
+  )
+}
+
+function DestinationName({ destination }: { destination: AlertDestination }) {
+  return (
+    <span>
+      <strong>{destination.name}</strong>
+      <small className="muted block">{destination.enabled ? 'Enabled' : 'Disabled'} · {destination.type || 'webhook'}</small>
+    </span>
+  )
+}
+
+function DestinationSigning({ destination }: { destination: AlertDestination }) {
+  if (!destination.webhook_signing?.enabled) {
+    return <Badge variant="muted">Not signed</Badge>
+  }
+  return (
+    <span>
+      <Badge variant="success">Signed</Badge>
+      <small className="muted block">{destination.webhook_signing.signature_header}</small>
+    </span>
   )
 }
 
@@ -368,11 +517,20 @@ function RuleState({ rule }: { rule: AlertRule }) {
   )
 }
 
-function RuleTrigger({ rule }: { rule: AlertRule }) {
+function RuleDestination({ rule }: { rule: AlertRule }) {
+  if (rule.destination) {
+    return (
+      <span>
+        <Badge variant="muted">{rule.destination.type || 'webhook'}</Badge>
+        <small className="muted block">{rule.destination.name}{rule.destination.enabled ? ' · signed' : ' · disabled'}</small>
+      </span>
+    )
+  }
+
   return (
     <span>
-      <Badge variant="muted">{rule.trigger_type || 'webhook'}</Badge>
-      {rule.webhook_url ? <small className="muted block">{rule.webhook_signing?.enabled ? 'Signed webhook' : 'Configured'}</small> : <small className="muted block">No URL</small>}
+      <Badge variant="warning">Missing</Badge>
+      <small className="muted block">{rule.destination_id || 'No destination'}</small>
     </span>
   )
 }
@@ -405,6 +563,7 @@ function EventValue({ event }: { event: AlertEvent }) {
 
 function AlertEventDetail({ event, rule }: { event: AlertEvent; rule: AlertRule | null }) {
   const payload = alertEventJSON(event, rule)
+  const signing = ruleSigning(rule)
   return (
     <div className="alert-event-detail">
       <section className="alert-event-hero">
@@ -424,11 +583,11 @@ function AlertEventDetail({ event, rule }: { event: AlertEvent; rule: AlertRule 
         <DetailItem label="Condition" value={rule ? `${comparatorLabel(rule.comparator)} ${formatNumber(rule.threshold)}` : 'unknown'} />
         <DetailItem label="Group" value={event.group_value ? `${groupLabel(event.group_key)} ${event.group_value}` : rule?.group_by ? `per ${groupLabel(rule.group_by)}` : 'total'} />
         <DetailItem label="Window" value={rule ? durationLabel(rule.window_seconds) : 'unknown'} />
-        <DetailItem label="Trigger" value={rule?.trigger_type || 'unknown'} />
         <DetailItem label="Delivery" value={deliveryDetail(event)} />
-        <DetailItem label="Signature" value={rule?.webhook_signing?.enabled ? `${rule.webhook_signing.signature_header} · ${rule.webhook_signing.algorithm}` : 'not configured'} />
+        <DetailItem label="Signature" value={signing?.enabled ? `${signing.signature_header} · ${signing.algorithm}` : 'not configured'} />
+        <DetailItem label="Destination" value={rule?.destination?.name || rule?.destination_id || 'not configured'} />
         <DetailItem label="Rule ID" value={event.rule_id} mono wide />
-        <DetailItem label="Webhook URL" value={rule?.webhook_url || 'not configured'} mono wide />
+        <DetailItem label="Webhook URL" value={ruleWebhookURL(rule)} mono wide />
         {event.delivery?.error ? <DetailItem label="Delivery Error" value={event.delivery.error} wide /> : null}
       </section>
 
@@ -507,8 +666,13 @@ function alertEventJSON(event: AlertEvent, rule: AlertRule | null) {
       name: rule.name,
       subject: rule.subject || '',
       threshold: rule.threshold,
-      trigger_type: rule.trigger_type || 'webhook',
-      webhook_url: rule.webhook_url || '',
+      destination_id: rule.destination_id || '',
+      destination: rule.destination ? {
+        enabled: rule.destination.enabled,
+        id: rule.destination.id,
+        name: rule.destination.name,
+        type: rule.destination.type,
+      } : null,
       window_seconds: rule.window_seconds,
     } : {
       id: event.rule_id,
@@ -544,14 +708,34 @@ function alertRequestFromForm(form: FormData): AlertRuleRequest {
     name: String(form.get('name') || ''),
     subject: optionalString(form, 'subject'),
     threshold: numberField(form, 'threshold'),
-    trigger_type: String(form.get('trigger_type') || 'webhook'),
-    webhook_url: optionalString(form, 'webhook_url'),
+    destination_id: String(form.get('destination_id') || '').trim(),
     window_seconds: numberField(form, 'window_seconds'),
   }
 }
 
 function alertUpdateFromForm(form: FormData): AlertRuleUpdateRequest {
   return alertRequestFromForm(form)
+}
+
+function destinationRequestFromForm(form: FormData): AlertDestinationRequest {
+  return {
+    enabled: form.get('enabled') === 'on',
+    name: String(form.get('name') || ''),
+    type: String(form.get('type') || 'webhook'),
+    webhook_url: String(form.get('webhook_url') || ''),
+  }
+}
+
+function destinationUpdateFromForm(form: FormData): AlertDestinationUpdateRequest {
+  return destinationRequestFromForm(form)
+}
+
+function ruleSigning(rule: AlertRule | null) {
+  return rule?.destination?.webhook_signing || null
+}
+
+function ruleWebhookURL(rule: AlertRule | null) {
+  return rule?.destination?.webhook_url || 'not configured'
 }
 
 function numberField(form: FormData, name: string) {

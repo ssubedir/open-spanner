@@ -33,6 +33,54 @@ definitions:
       trigger_type:
         type: string
     type: object
+  internal_metering_adapters_http_alert.DestinationListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_alert.DestinationResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_alert.DestinationResponse:
+    properties:
+      created_at:
+        type: string
+      enabled:
+        type: boolean
+      id:
+        type: string
+      name:
+        type: string
+      type:
+        type: string
+      updated_at:
+        type: string
+      webhook_signing:
+        $ref: '#/definitions/internal_metering_adapters_http_alert.WebhookSigning'
+      webhook_url:
+        type: string
+    type: object
+  internal_metering_adapters_http_alert.DestinationSaveRequest:
+    properties:
+      enabled:
+        type: boolean
+      name:
+        type: string
+      type:
+        type: string
+      webhook_url:
+        type: string
+    type: object
+  internal_metering_adapters_http_alert.DestinationUpdateRequest:
+    properties:
+      enabled:
+        type: boolean
+      name:
+        type: string
+      type:
+        type: string
+      webhook_url:
+        type: string
+    type: object
   internal_metering_adapters_http_alert.EvaluationResponse:
     properties:
       event:
@@ -89,6 +137,10 @@ definitions:
         type: string
       created_at:
         type: string
+      destination:
+        $ref: '#/definitions/internal_metering_adapters_http_alert.DestinationResponse'
+      destination_id:
+        type: string
       enabled:
         type: boolean
       evaluation_interval_seconds:
@@ -117,13 +169,7 @@ definitions:
         type: string
       threshold:
         type: number
-      trigger_type:
-        type: string
       updated_at:
-        type: string
-      webhook_signing:
-        $ref: '#/definitions/internal_metering_adapters_http_alert.WebhookSigning'
-      webhook_url:
         type: string
       window_seconds:
         type: integer
@@ -131,6 +177,8 @@ definitions:
   internal_metering_adapters_http_alert.SaveRequest:
     properties:
       comparator:
+        type: string
+      destination_id:
         type: string
       enabled:
         type: boolean
@@ -150,10 +198,6 @@ definitions:
         type: string
       threshold:
         type: number
-      trigger_type:
-        type: string
-      webhook_url:
-        type: string
       window_seconds:
         type: integer
     type: object
@@ -178,6 +222,8 @@ definitions:
     properties:
       comparator:
         type: string
+      destination_id:
+        type: string
       enabled:
         type: boolean
       evaluation_interval_seconds:
@@ -196,10 +242,6 @@ definitions:
         type: string
       threshold:
         type: number
-      trigger_type:
-        type: string
-      webhook_url:
-        type: string
       window_seconds:
         type: integer
     type: object
@@ -998,11 +1040,74 @@ paths:
       summary: Evaluate alert rule
       tags:
       - alerts
-  /v1/alerts/{id}/webhook-secret/rotate:
-    post:
-      operationId: rotateAlertWebhookSecret
+  /v1/alerts/destinations:
+    get:
+      operationId: listAlertDestinations
       parameters:
-      - description: Alert rule ID
+      - description: Destination type
+        in: query
+        name: type
+        type: string
+      - description: Enabled filter
+        in: query
+        name: enabled
+        type: boolean
+      - description: Result limit
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_alert.DestinationListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List alert destinations
+      tags:
+      - alerts
+    post:
+      consumes:
+      - application/json
+      operationId: createAlertDestination
+      parameters:
+      - description: Alert destination
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_alert.DestinationSaveRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_alert.DestinationResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Create alert destination
+      tags:
+      - alerts
+  /v1/alerts/destinations/{id}:
+    delete:
+      operationId: deleteAlertDestination
+      parameters:
+      - description: Alert destination ID
         in: path
         name: id
         required: true
@@ -1010,10 +1115,46 @@ paths:
       produces:
       - application/json
       responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Delete alert destination
+      tags:
+      - alerts
+    put:
+      consumes:
+      - application/json
+      operationId: updateAlertDestination
+      parameters:
+      - description: Alert destination ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Alert destination update
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_alert.DestinationUpdateRequest'
+      produces:
+      - application/json
+      responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/internal_metering_adapters_http_alert.RuleResponse'
+            $ref: '#/definitions/internal_metering_adapters_http_alert.DestinationResponse'
         "400":
           description: Bad Request
           schema:
@@ -1026,7 +1167,38 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
-      summary: Rotate alert webhook signing secret
+      summary: Update alert destination
+      tags:
+      - alerts
+  /v1/alerts/destinations/{id}/webhook-secret/rotate:
+    post:
+      operationId: rotateAlertDestinationSecret
+      parameters:
+      - description: Alert destination ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_alert.DestinationResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Rotate alert destination webhook signing secret
       tags:
       - alerts
   /v1/alerts/events:

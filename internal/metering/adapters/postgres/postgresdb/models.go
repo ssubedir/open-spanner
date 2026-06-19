@@ -9,6 +9,17 @@ import (
 	"encoding/json"
 )
 
+type AlertDestination struct {
+	ID            string
+	Name          string
+	Type          string
+	Enabled       bool
+	WebhookUrl    string
+	WebhookSecret string
+	CreatedAt     string
+	UpdatedAt     string
+}
+
 type AlertEvaluationJob struct {
 	RuleID      string
 	RunAfter    string

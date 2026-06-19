@@ -11,14 +11,12 @@ INSERT INTO alert_rules (
 	threshold,
 	evaluation_interval_seconds,
 	group_by,
-	trigger_type,
-	webhook_url,
-	webhook_secret,
+	destination_id,
 	next_evaluate_at,
 	created_at,
 	updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	name = excluded.name,
 	meter_name = excluded.meter_name,
@@ -30,20 +28,43 @@ ON CONFLICT(id) DO UPDATE SET
 	threshold = excluded.threshold,
 	evaluation_interval_seconds = excluded.evaluation_interval_seconds,
 	group_by = excluded.group_by,
-	trigger_type = excluded.trigger_type,
-	webhook_url = excluded.webhook_url,
-	webhook_secret = excluded.webhook_secret,
+	destination_id = excluded.destination_id,
 	next_evaluate_at = excluded.next_evaluate_at,
 	updated_at = excluded.updated_at;
 
 -- name: ListAlertRules :many
-SELECT id, name, meter_name, enabled, subject, metadata, window_seconds, comparator, threshold, evaluation_interval_seconds, group_by, trigger_type, webhook_url, webhook_secret, next_evaluate_at, created_at, updated_at
+SELECT id, name, meter_name, enabled, subject, metadata, window_seconds, comparator, threshold, evaluation_interval_seconds, group_by, destination_id, next_evaluate_at, created_at, updated_at
 FROM alert_rules
 WHERE (CAST(sqlc.narg('id') AS TEXT) IS NULL OR id = CAST(sqlc.narg('id') AS TEXT))
 	AND (CAST(sqlc.narg('meter_name') AS TEXT) IS NULL OR meter_name = CAST(sqlc.narg('meter_name') AS TEXT))
 	AND (CAST(sqlc.narg('enabled') AS INTEGER) IS NULL OR enabled = CAST(sqlc.narg('enabled') AS INTEGER))
+	AND (CAST(sqlc.narg('destination_id') AS TEXT) IS NULL OR destination_id = CAST(sqlc.narg('destination_id') AS TEXT))
 ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg('limit');
+
+-- name: SaveAlertDestination :exec
+INSERT INTO alert_destinations (id, name, type, enabled, webhook_url, webhook_secret, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+	name = excluded.name,
+	type = excluded.type,
+	enabled = excluded.enabled,
+	webhook_url = excluded.webhook_url,
+	webhook_secret = excluded.webhook_secret,
+	updated_at = excluded.updated_at;
+
+-- name: ListAlertDestinations :many
+SELECT id, name, type, enabled, webhook_url, webhook_secret, created_at, updated_at
+FROM alert_destinations
+WHERE (CAST(sqlc.narg('id') AS TEXT) IS NULL OR id = CAST(sqlc.narg('id') AS TEXT))
+	AND (CAST(sqlc.narg('type') AS TEXT) IS NULL OR type = CAST(sqlc.narg('type') AS TEXT))
+	AND (CAST(sqlc.narg('enabled') AS INTEGER) IS NULL OR enabled = CAST(sqlc.narg('enabled') AS INTEGER))
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg('limit');
+
+-- name: DeleteAlertDestination :execrows
+DELETE FROM alert_destinations
+WHERE id = ?;
 
 -- name: DeleteAlertRule :execrows
 DELETE FROM alert_rules

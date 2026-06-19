@@ -9,8 +9,6 @@ CREATE TABLE IF NOT EXISTS alert_rules_next (
 	comparator TEXT NOT NULL,
 	threshold REAL NOT NULL,
 	evaluation_interval_seconds INTEGER NOT NULL,
-	trigger_type TEXT NOT NULL DEFAULT 'webhook',
-	webhook_url TEXT NOT NULL DEFAULT '',
 	next_evaluate_at TEXT NOT NULL,
 	created_at TEXT NOT NULL,
 	updated_at TEXT NOT NULL,
@@ -28,8 +26,6 @@ INSERT INTO alert_rules_next (
 	comparator,
 	threshold,
 	evaluation_interval_seconds,
-	trigger_type,
-	webhook_url,
 	next_evaluate_at,
 	created_at,
 	updated_at
@@ -45,8 +41,6 @@ SELECT
 	comparator,
 	threshold,
 	evaluation_interval_seconds,
-	trigger_type,
-	webhook_url,
 	next_evaluate_at,
 	created_at,
 	updated_at

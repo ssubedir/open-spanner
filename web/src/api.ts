@@ -319,6 +319,30 @@ export type AlertState = {
   updated_at: string
 }
 
+export type AlertDestination = {
+  id: string
+  name: string
+  type: string
+  enabled: boolean
+  webhook_url: string
+  webhook_signing: AlertWebhookSigning
+  created_at: string
+  updated_at: string
+}
+
+export type AlertDestinationList = {
+  items: AlertDestination[]
+}
+
+export type AlertDestinationRequest = {
+  name: string
+  type?: string
+  enabled?: boolean
+  webhook_url: string
+}
+
+export type AlertDestinationUpdateRequest = Partial<AlertDestinationRequest>
+
 export type AlertRule = {
   id: string
   name: string
@@ -331,9 +355,8 @@ export type AlertRule = {
   threshold: number
   evaluation_interval_seconds: number
   group_by?: string
-  trigger_type: string
-  webhook_url?: string
-  webhook_signing: AlertWebhookSigning
+  destination_id: string
+  destination?: AlertDestination
   next_evaluate_at: string
   created_at: string
   updated_at: string
@@ -393,8 +416,7 @@ export type AlertRuleRequest = {
   threshold: number
   evaluation_interval_seconds?: number
   group_by?: string
-  trigger_type?: string
-  webhook_url?: string
+  destination_id: string
 }
 
 export type AlertRuleUpdateRequest = Partial<Omit<AlertRuleRequest, 'threshold'>> & {
@@ -532,6 +554,36 @@ export async function listAlertRules() {
   return request<AlertRuleList>('/v1/alerts')
 }
 
+export async function listAlertDestinations() {
+  return request<AlertDestinationList>('/v1/alerts/destinations')
+}
+
+export async function createAlertDestination(input: AlertDestinationRequest) {
+  return request<AlertDestination>('/v1/alerts/destinations', {
+    body: JSON.stringify(input),
+    method: 'POST',
+  })
+}
+
+export async function updateAlertDestination(id: string, input: AlertDestinationUpdateRequest) {
+  return request<AlertDestination>(`/v1/alerts/destinations/${encodeURIComponent(id)}`, {
+    body: JSON.stringify(input),
+    method: 'PUT',
+  })
+}
+
+export async function deleteAlertDestination(id: string) {
+  return request<void>(`/v1/alerts/destinations/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function rotateAlertDestinationSecret(id: string) {
+  return request<AlertDestination>(`/v1/alerts/destinations/${encodeURIComponent(id)}/webhook-secret/rotate`, {
+    method: 'POST',
+  })
+}
+
 export async function createAlertRule(input: AlertRuleRequest) {
   return request<AlertRule>('/v1/alerts', {
     body: JSON.stringify(input),
@@ -543,12 +595,6 @@ export async function updateAlertRule(id: string, input: AlertRuleUpdateRequest)
   return request<AlertRule>(`/v1/alerts/${encodeURIComponent(id)}`, {
     body: JSON.stringify(input),
     method: 'PUT',
-  })
-}
-
-export async function rotateAlertWebhookSecret(id: string) {
-  return request<AlertRule>(`/v1/alerts/${encodeURIComponent(id)}/webhook-secret/rotate`, {
-    method: 'POST',
   })
 }
 

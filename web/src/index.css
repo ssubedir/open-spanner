@@ -976,6 +976,14 @@ svg {
   padding: 13px 14px 11px;
 }
 
+.card-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .api-key-create-content {
   padding: 12px;
 }
@@ -1005,6 +1013,10 @@ svg {
 
 .api-key-table-card .table-cell:last-child {
   width: 1%;
+}
+
+.alert-destinations-card {
+  margin-bottom: 12px;
 }
 
 .api-key-name {
@@ -1038,6 +1050,14 @@ svg {
 
 .alert-rule-create-form .button {
   width: 100%;
+}
+
+.alert-destination-url {
+  display: block;
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .modal-panel.alert-rule-modal {

@@ -472,6 +472,45 @@ func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handl
 	}))
 	defer webhookServer.Close()
 
+	createDestination := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/alerts/destinations", map[string]any{
+		"name":        "Primary alert webhook " + suffix,
+		"type":        "webhook",
+		"enabled":     true,
+		"webhook_url": webhookServer.URL,
+	}, authHeaders, nil)
+	if createDestination.Code != http.StatusCreated {
+		t.Fatalf("create alert destination status = %d, want %d: %s", createDestination.Code, http.StatusCreated, createDestination.Body.String())
+	}
+	var destination alertDestinationResponse
+	decodeJSON(t, createDestination, &destination)
+	if destination.ID == "" || destination.WebhookURL != webhookServer.URL || !destination.Enabled {
+		t.Fatalf("created alert destination = %#v", destination)
+	}
+	if !destination.WebhookSigning.Enabled || destination.WebhookSigning.Secret == "" || destination.WebhookSigning.SignatureHeader != appalert.WebhookSignatureHeader || destination.WebhookSigning.TimestampHeader != appalert.WebhookTimestampHeader {
+		t.Fatalf("created destination signing = %#v, want one-time signing secret", destination.WebhookSigning)
+	}
+
+	listDestinations := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/alerts/destinations", nil, authHeaders, nil)
+	if listDestinations.Code != http.StatusOK {
+		t.Fatalf("list alert destinations status = %d, want %d: %s", listDestinations.Code, http.StatusOK, listDestinations.Body.String())
+	}
+	var destinationList alertDestinationListResponse
+	decodeJSON(t, listDestinations, &destinationList)
+	if len(destinationList.Items) != 1 || destinationList.Items[0].ID != destination.ID || destinationList.Items[0].WebhookSigning.Secret != "" {
+		t.Fatalf("listed alert destinations = %#v, want destination without secret", destinationList)
+	}
+
+	rotateDestination := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/alerts/destinations/"+destination.ID+"/webhook-secret/rotate", nil, authHeaders, nil)
+	if rotateDestination.Code != http.StatusOK {
+		t.Fatalf("rotate destination webhook secret status = %d, want %d: %s", rotateDestination.Code, http.StatusOK, rotateDestination.Body.String())
+	}
+	var rotatedDestination alertDestinationResponse
+	decodeJSON(t, rotateDestination, &rotatedDestination)
+	if rotatedDestination.WebhookSigning.Secret == "" || rotatedDestination.WebhookSigning.Secret == destination.WebhookSigning.Secret {
+		t.Fatalf("rotated destination signing = %#v, want a new one-time secret", rotatedDestination.WebhookSigning)
+	}
+	destination = rotatedDestination
+
 	createAlert := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/alerts", map[string]any{
 		"name":                        "High API calls " + suffix,
 		"meter":                       meterName,
@@ -481,8 +520,7 @@ func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handl
 		"comparator":                  "gte",
 		"threshold":                   10,
 		"evaluation_interval_seconds": 60,
-		"trigger_type":                "webhook",
-		"webhook_url":                 webhookServer.URL,
+		"destination_id":              destination.ID,
 	}, authHeaders, nil)
 	if createAlert.Code != http.StatusCreated {
 		t.Fatalf("create alert status = %d, want %d: %s", createAlert.Code, http.StatusCreated, createAlert.Body.String())
@@ -492,14 +530,16 @@ func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handl
 	if alertRule.ID == "" || alertRule.Meter != meterName || !alertRule.Enabled {
 		t.Fatalf("created alert rule = %#v", alertRule)
 	}
-	if alertRule.TriggerType != "webhook" || alertRule.WebhookURL != webhookServer.URL {
-		t.Fatalf("created alert trigger = %#v, want webhook %q", alertRule, webhookServer.URL)
-	}
-	if !alertRule.WebhookSigning.Enabled || alertRule.WebhookSigning.Secret == "" || alertRule.WebhookSigning.SignatureHeader != appalert.WebhookSignatureHeader || alertRule.WebhookSigning.TimestampHeader != appalert.WebhookTimestampHeader {
-		t.Fatalf("created alert signing = %#v, want one-time signing secret", alertRule.WebhookSigning)
+	if alertRule.DestinationID != destination.ID || alertRule.Destination == nil || alertRule.Destination.WebhookURL != webhookServer.URL || !alertRule.Destination.WebhookSigning.Enabled || alertRule.Destination.WebhookSigning.Secret != "" {
+		t.Fatalf("created alert destination = %#v, want destination webhook %q without secret", alertRule, webhookServer.URL)
 	}
 	if alertRule.GroupBy != "subject" {
 		t.Fatalf("created alert group_by = %q, want subject", alertRule.GroupBy)
+	}
+
+	deleteUsedDestination := requestJSONWithHeaders(t, router, http.MethodDelete, "/v1/alerts/destinations/"+destination.ID, nil, authHeaders, nil)
+	if deleteUsedDestination.Code != http.StatusConflict {
+		t.Fatalf("delete used alert destination status = %d, want %d: %s", deleteUsedDestination.Code, http.StatusConflict, deleteUsedDestination.Body.String())
 	}
 
 	getFreshAlert := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/alerts/"+alertRule.ID, nil, authHeaders, nil)
@@ -508,20 +548,9 @@ func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handl
 	}
 	var freshAlert alertRuleResponse
 	decodeJSON(t, getFreshAlert, &freshAlert)
-	if !freshAlert.WebhookSigning.Enabled || freshAlert.WebhookSigning.Secret != "" {
-		t.Fatalf("fresh alert signing = %#v, want configured signing without secret", freshAlert.WebhookSigning)
+	if freshAlert.Destination == nil || !freshAlert.Destination.WebhookSigning.Enabled || freshAlert.Destination.WebhookSigning.Secret != "" {
+		t.Fatalf("fresh alert destination signing = %#v, want configured signing without secret", freshAlert.Destination)
 	}
-
-	rotateAlert := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/alerts/"+alertRule.ID+"/webhook-secret/rotate", nil, authHeaders, nil)
-	if rotateAlert.Code != http.StatusOK {
-		t.Fatalf("rotate alert webhook secret status = %d, want %d: %s", rotateAlert.Code, http.StatusOK, rotateAlert.Body.String())
-	}
-	var rotatedRule alertRuleResponse
-	decodeJSON(t, rotateAlert, &rotatedRule)
-	if rotatedRule.WebhookSigning.Secret == "" || rotatedRule.WebhookSigning.Secret == alertRule.WebhookSigning.Secret {
-		t.Fatalf("rotated alert signing = %#v, want a new one-time secret", rotatedRule.WebhookSigning)
-	}
-	alertRule = rotatedRule
 
 	alertSubject := "org_alert_" + suffix
 	createUsage := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages", map[string]any{
@@ -573,10 +602,10 @@ func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handl
 	if !delivered {
 		t.Fatal("alert webhook was not delivered")
 	}
-	if payload.Event.Type != "triggered" || payload.Event.Value != 12 || payload.Event.GroupKey != "subject" || payload.Event.GroupValue != alertSubject || payload.Rule.Meter != meterName || payload.Rule.GroupBy != "subject" || payload.State.Status != "alerting" || payload.State.GroupValue != alertSubject {
+	if payload.Event.Type != "triggered" || payload.Event.Value != 12 || payload.Event.GroupKey != "subject" || payload.Event.GroupValue != alertSubject || payload.Rule.Meter != meterName || payload.Rule.GroupBy != "subject" || payload.Rule.DestinationID != destination.ID || payload.Rule.DestinationName != destination.Name || payload.State.Status != "alerting" || payload.State.GroupValue != alertSubject {
 		t.Fatalf("webhook payload = %#v, want triggered value 12 for grouped subject %s", payload, alertSubject)
 	}
-	if !validAlertWebhookSignature(alertRule.WebhookSigning.Secret, request.Timestamp, request.Body, request.Signature) {
+	if !validAlertWebhookSignature(destination.WebhookSigning.Secret, request.Timestamp, request.Body, request.Signature) {
 		t.Fatalf("webhook signature header = %q timestamp = %q, want valid %s signature", request.Signature, request.Timestamp, appalert.WebhookSignatureAlgorithm)
 	}
 
@@ -589,8 +618,8 @@ func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handl
 	if evaluated.State == nil || evaluated.State.Status != "alerting" || evaluated.State.Value != 12 || evaluated.State.GroupValue != alertSubject {
 		t.Fatalf("evaluated alert = %#v, want alerting value 12 for subject %s", evaluated, alertSubject)
 	}
-	if !evaluated.WebhookSigning.Enabled || evaluated.WebhookSigning.Secret != "" {
-		t.Fatalf("evaluated alert signing = %#v, want configured signing without secret", evaluated.WebhookSigning)
+	if evaluated.Destination == nil || !evaluated.Destination.WebhookSigning.Enabled || evaluated.Destination.WebhookSigning.Secret != "" {
+		t.Fatalf("evaluated alert destination signing = %#v, want configured signing without secret", evaluated.Destination)
 	}
 	if len(evaluated.States) < 2 {
 		t.Fatalf("evaluated states = %#v, want grouped states for alerting and ok subjects", evaluated.States)
@@ -1999,14 +2028,30 @@ type alertRuleResponse struct {
 	Threshold                 float64              `json:"threshold"`
 	EvaluationIntervalSeconds int                  `json:"evaluation_interval_seconds"`
 	GroupBy                   string               `json:"group_by"`
-	TriggerType               string               `json:"trigger_type"`
-	WebhookURL                string               `json:"webhook_url"`
-	WebhookSigning            alertSigningResponse `json:"webhook_signing"`
+	DestinationID             string               `json:"destination_id"`
+	Destination               *alertDestination    `json:"destination"`
 	NextEvaluateAt            string               `json:"next_evaluate_at"`
 	CreatedAt                 string               `json:"created_at"`
 	UpdatedAt                 string               `json:"updated_at"`
 	State                     *alertStateResponse  `json:"state"`
 	States                    []alertStateResponse `json:"states"`
+}
+
+type alertDestinationResponse = alertDestination
+
+type alertDestination struct {
+	ID             string               `json:"id"`
+	Name           string               `json:"name"`
+	Type           string               `json:"type"`
+	Enabled        bool                 `json:"enabled"`
+	WebhookURL     string               `json:"webhook_url"`
+	WebhookSigning alertSigningResponse `json:"webhook_signing"`
+	CreatedAt      string               `json:"created_at"`
+	UpdatedAt      string               `json:"updated_at"`
+}
+
+type alertDestinationListResponse struct {
+	Items []alertDestinationResponse `json:"items"`
 }
 
 type alertSigningResponse struct {
@@ -2062,8 +2107,10 @@ type alertWebhookPayload struct {
 		Value      float64 `json:"value"`
 	} `json:"event"`
 	Rule struct {
-		Meter   string `json:"meter"`
-		GroupBy string `json:"group_by"`
+		Meter           string `json:"meter"`
+		GroupBy         string `json:"group_by"`
+		DestinationID   string `json:"destination_id"`
+		DestinationName string `json:"destination_name"`
 	} `json:"rule"`
 	State struct {
 		Status     string `json:"status"`

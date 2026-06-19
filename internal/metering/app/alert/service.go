@@ -64,6 +64,12 @@ const (
 	TriggerWebhook TriggerType = "webhook"
 )
 
+type DestinationType string
+
+const (
+	DestinationWebhook DestinationType = "webhook"
+)
+
 const (
 	WebhookSignatureAlgorithm = "hmac-sha256"
 	WebhookSignatureHeader    = "X-Open-Spanner-Signature"
@@ -79,6 +85,9 @@ const (
 )
 
 type Repository interface {
+	SaveDestination(ctx context.Context, destination Destination) (Destination, error)
+	FindDestinations(ctx context.Context, query DestinationQuery) ([]Destination, error)
+	DeleteDestination(ctx context.Context, id string) error
 	SaveRule(ctx context.Context, rule Rule) (Rule, error)
 	FindRules(ctx context.Context, query RuleQuery) ([]Rule, error)
 	DeleteRule(ctx context.Context, id string) error
@@ -102,12 +111,16 @@ type UsageRepository interface {
 }
 
 type Service interface {
+	CreateDestination(ctx context.Context, cmd DestinationSaveCommand) (DestinationResult, error)
+	UpdateDestination(ctx context.Context, cmd DestinationUpdateCommand) (DestinationResult, error)
+	DeleteDestination(ctx context.Context, cmd DestinationDeleteCommand) error
+	ListDestinations(ctx context.Context, query DestinationListQuery) (DestinationListResult, error)
+	RotateDestinationSecret(ctx context.Context, cmd RotateDestinationSecretCommand) (DestinationResult, error)
 	Create(ctx context.Context, cmd SaveCommand) (RuleResult, error)
 	Update(ctx context.Context, cmd UpdateCommand) (RuleResult, error)
 	Delete(ctx context.Context, cmd DeleteCommand) error
 	Get(ctx context.Context, query GetQuery) (RuleResult, error)
 	List(ctx context.Context, query ListQuery) (RuleListResult, error)
-	RotateWebhookSecret(ctx context.Context, cmd RotateWebhookSecretCommand) (RuleResult, error)
 	ListEvents(ctx context.Context, query EventListQuery) (EventListResult, error)
 	EnqueueForUsageEvents(ctx context.Context, events []UsageEvent) error
 	EnqueueDueRules(ctx context.Context, limit int) (int, error)
@@ -152,12 +165,21 @@ type Rule struct {
 	Threshold          float64
 	EvaluationInterval time.Duration
 	GroupBy            string
-	TriggerType        TriggerType
-	WebhookURL         string
-	WebhookSecret      string
+	DestinationID      string
 	NextEvaluateAt     time.Time
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
+}
+
+type Destination struct {
+	ID            string
+	Name          string
+	Type          DestinationType
+	Enabled       bool
+	WebhookURL    string
+	WebhookSecret string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 type State struct {
@@ -205,10 +227,18 @@ type EvaluationJob struct {
 }
 
 type RuleQuery struct {
-	ID        string
-	MeterName string
-	Enabled   *bool
-	Limit     int
+	ID            string
+	MeterName     string
+	DestinationID string
+	Enabled       *bool
+	Limit         int
+}
+
+type DestinationQuery struct {
+	ID      string
+	Type    string
+	Enabled *bool
+	Limit   int
 }
 
 type EventQuery struct {
@@ -235,8 +265,7 @@ type SaveCommand struct {
 	Threshold          float64
 	EvaluationInterval time.Duration
 	GroupBy            string
-	TriggerType        string
-	WebhookURL         string
+	DestinationID      string
 }
 
 type UpdateCommand struct {
@@ -251,15 +280,33 @@ type UpdateCommand struct {
 	Threshold          *float64
 	EvaluationInterval time.Duration
 	GroupBy            *string
-	TriggerType        string
-	WebhookURL         *string
+	DestinationID      *string
 }
 
-type DeleteCommand struct {
+type DestinationSaveCommand struct {
+	Name       string
+	Type       string
+	Enabled    *bool
+	WebhookURL string
+}
+
+type DestinationUpdateCommand struct {
+	ID         string
+	Name       string
+	Type       string
+	Enabled    *bool
+	WebhookURL *string
+}
+
+type DestinationDeleteCommand struct {
 	ID string
 }
 
-type RotateWebhookSecretCommand struct {
+type RotateDestinationSecretCommand struct {
+	ID string
+}
+
+type DeleteCommand struct {
 	ID string
 }
 
@@ -268,9 +315,16 @@ type GetQuery struct {
 }
 
 type ListQuery struct {
-	MeterName string
-	Enabled   *bool
-	Limit     int
+	MeterName     string
+	DestinationID string
+	Enabled       *bool
+	Limit         int
+}
+
+type DestinationListQuery struct {
+	Type    string
+	Enabled *bool
+	Limit   int
 }
 
 type EventListQuery struct {
@@ -321,14 +375,31 @@ type RuleResult struct {
 	Threshold          float64
 	EvaluationInterval int
 	GroupBy            string
-	TriggerType        string
-	WebhookURL         string
-	WebhookSecret      string
+	DestinationID      string
+	Destination        *DestinationResult
 	NextEvaluateAt     time.Time
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 	State              *StateResult
 	States             []StateResult
+}
+
+type DestinationResult struct {
+	ID              string
+	Name            string
+	Type            string
+	Enabled         bool
+	WebhookURL      string
+	WebhookSecret   string
+	SignatureHeader string
+	TimestampHeader string
+	Algorithm       string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+type DestinationListResult struct {
+	Items []DestinationResult
 }
 
 type StateResult struct {
@@ -390,8 +461,117 @@ type EvaluationResult struct {
 	Events []EventResult
 }
 
+func (s *service) CreateDestination(ctx context.Context, cmd DestinationSaveCommand) (DestinationResult, error) {
+	now := s.now()
+	destination, err := destinationFromInput(Destination{}, cmd, now)
+	if err != nil {
+		return DestinationResult{}, err
+	}
+	destination.ID = uuid.NewString()
+	destination.CreatedAt = now
+	destination.UpdatedAt = now
+
+	saved, err := s.repo.SaveDestination(ctx, destination)
+	if err != nil {
+		return DestinationResult{}, err
+	}
+	return destinationResult(saved), nil
+}
+
+func (s *service) UpdateDestination(ctx context.Context, cmd DestinationUpdateCommand) (DestinationResult, error) {
+	existing, err := s.findDestination(ctx, cmd.ID)
+	if err != nil {
+		return DestinationResult{}, err
+	}
+	now := s.now()
+	next := existing
+	if cmd.Name != "" {
+		next.Name = cmd.Name
+	}
+	if cmd.Type != "" {
+		next.Type = DestinationType(cmd.Type)
+	}
+	if cmd.Enabled != nil {
+		next.Enabled = *cmd.Enabled
+	}
+	if cmd.WebhookURL != nil {
+		next.WebhookURL = *cmd.WebhookURL
+	}
+	destination, err := validateDestination(next, now)
+	if err != nil {
+		return DestinationResult{}, err
+	}
+	destination.CreatedAt = existing.CreatedAt
+	destination.UpdatedAt = now
+
+	saved, err := s.repo.SaveDestination(ctx, destination)
+	if err != nil {
+		return DestinationResult{}, err
+	}
+	return destinationResult(saved), nil
+}
+
+func (s *service) DeleteDestination(ctx context.Context, cmd DestinationDeleteCommand) error {
+	id, err := normalizeRequired(cmd.ID, "alert destination id is required")
+	if err != nil {
+		return err
+	}
+	rules, err := s.repo.FindRules(ctx, RuleQuery{DestinationID: id, Limit: 1})
+	if err != nil {
+		return err
+	}
+	if len(rules) > 0 {
+		return errors.Join(domain.ErrConflict, errors.New("alert destination is used by alert rules"))
+	}
+	return s.repo.DeleteDestination(ctx, id)
+}
+
+func (s *service) ListDestinations(ctx context.Context, query DestinationListQuery) (DestinationListResult, error) {
+	destinations, err := s.repo.FindDestinations(ctx, DestinationQuery{
+		Type:    query.Type,
+		Enabled: query.Enabled,
+		Limit:   normalizeLimit(query.Limit),
+	})
+	if err != nil {
+		return DestinationListResult{}, err
+	}
+	results := make([]DestinationResult, 0, len(destinations))
+	for _, destination := range destinations {
+		results = append(results, destinationResult(destination))
+	}
+	return DestinationListResult{Items: results}, nil
+}
+
+func (s *service) RotateDestinationSecret(ctx context.Context, cmd RotateDestinationSecretCommand) (DestinationResult, error) {
+	destination, err := s.findDestination(ctx, cmd.ID)
+	if err != nil {
+		return DestinationResult{}, err
+	}
+	if destination.Type != DestinationWebhook {
+		return DestinationResult{}, errors.Join(domain.ErrInvalidInput, errors.New("only webhook destinations can rotate signing secrets"))
+	}
+	if destination.WebhookURL == "" {
+		return DestinationResult{}, errors.Join(domain.ErrInvalidInput, errors.New("webhook url must be configured before rotating signing secrets"))
+	}
+	secret, err := newWebhookSecret()
+	if err != nil {
+		return DestinationResult{}, err
+	}
+	destination.WebhookSecret = secret
+	destination.UpdatedAt = s.now()
+
+	saved, err := s.repo.SaveDestination(ctx, destination)
+	if err != nil {
+		return DestinationResult{}, err
+	}
+	return destinationResult(saved), nil
+}
+
 func (s *service) Create(ctx context.Context, cmd SaveCommand) (RuleResult, error) {
 	if _, err := s.findMeter(ctx, cmd.MeterName); err != nil {
+		return RuleResult{}, err
+	}
+	if err := s.validateRequiredDestinationReference(ctx, cmd.DestinationID); err != nil {
 		return RuleResult{}, err
 	}
 
@@ -407,8 +587,7 @@ func (s *service) Create(ctx context.Context, cmd SaveCommand) (RuleResult, erro
 		Threshold:          cmd.Threshold,
 		EvaluationInterval: cmd.EvaluationInterval,
 		GroupBy:            cmd.GroupBy,
-		TriggerType:        cmd.TriggerType,
-		WebhookURL:         cmd.WebhookURL,
+		DestinationID:      cmd.DestinationID,
 	}, now)
 	if err != nil {
 		return RuleResult{}, err
@@ -438,6 +617,11 @@ func (s *service) Update(ctx context.Context, cmd UpdateCommand) (RuleResult, er
 	}
 	if cmd.MeterName != "" {
 		if _, err := s.findMeter(ctx, cmd.MeterName); err != nil {
+			return RuleResult{}, err
+		}
+	}
+	if cmd.DestinationID != nil {
+		if err := s.validateRequiredDestinationReference(ctx, *cmd.DestinationID); err != nil {
 			return RuleResult{}, err
 		}
 	}
@@ -474,11 +658,8 @@ func (s *service) Update(ctx context.Context, cmd UpdateCommand) (RuleResult, er
 	if cmd.GroupBy != nil {
 		next.GroupBy = *cmd.GroupBy
 	}
-	if cmd.TriggerType != "" {
-		next.TriggerType = TriggerType(cmd.TriggerType)
-	}
-	if cmd.WebhookURL != nil {
-		next.WebhookURL = *cmd.WebhookURL
+	if cmd.DestinationID != nil {
+		next.DestinationID = *cmd.DestinationID
 	}
 
 	rule, err := validateRule(next, now)
@@ -510,32 +691,6 @@ func (s *service) Delete(ctx context.Context, cmd DeleteCommand) error {
 	return s.repo.DeleteRule(ctx, id)
 }
 
-func (s *service) RotateWebhookSecret(ctx context.Context, cmd RotateWebhookSecretCommand) (RuleResult, error) {
-	rule, err := s.findRule(ctx, cmd.ID)
-	if err != nil {
-		return RuleResult{}, err
-	}
-	if rule.TriggerType != TriggerWebhook {
-		return RuleResult{}, errors.Join(domain.ErrInvalidInput, errors.New("only webhook alert rules can rotate signing secrets"))
-	}
-	if rule.WebhookURL == "" {
-		return RuleResult{}, errors.Join(domain.ErrInvalidInput, errors.New("webhook url must be configured before rotating signing secrets"))
-	}
-
-	secret, err := newWebhookSecret()
-	if err != nil {
-		return RuleResult{}, err
-	}
-	rule.WebhookSecret = secret
-	rule.UpdatedAt = s.now()
-
-	saved, err := s.repo.SaveRule(ctx, rule)
-	if err != nil {
-		return RuleResult{}, err
-	}
-	return s.ruleResult(ctx, saved), nil
-}
-
 func (s *service) Get(ctx context.Context, query GetQuery) (RuleResult, error) {
 	rule, err := s.findRule(ctx, query.ID)
 	if err != nil {
@@ -546,9 +701,10 @@ func (s *service) Get(ctx context.Context, query GetQuery) (RuleResult, error) {
 
 func (s *service) List(ctx context.Context, query ListQuery) (RuleListResult, error) {
 	rules, err := s.repo.FindRules(ctx, RuleQuery{
-		MeterName: query.MeterName,
-		Enabled:   query.Enabled,
-		Limit:     normalizeLimit(query.Limit),
+		MeterName:     query.MeterName,
+		DestinationID: query.DestinationID,
+		Enabled:       query.Enabled,
+		Limit:         normalizeLimit(query.Limit),
 	})
 	if err != nil {
 		return RuleListResult{}, err
@@ -956,6 +1112,30 @@ func (s *service) findRule(ctx context.Context, id string) (Rule, error) {
 	return rules[0], nil
 }
 
+func (s *service) findDestination(ctx context.Context, id string) (Destination, error) {
+	id, err := normalizeRequired(id, "alert destination id is required")
+	if err != nil {
+		return Destination{}, err
+	}
+	destinations, err := s.repo.FindDestinations(ctx, DestinationQuery{ID: id, Limit: 1})
+	if err != nil {
+		return Destination{}, err
+	}
+	if len(destinations) == 0 {
+		return Destination{}, domain.ErrNotFound
+	}
+	return destinations[0], nil
+}
+
+func (s *service) validateRequiredDestinationReference(ctx context.Context, id string) error {
+	id, err := normalizeRequired(id, "alert destination is required")
+	if err != nil {
+		return err
+	}
+	_, err = s.findDestination(ctx, id)
+	return err
+}
+
 func (s *service) findMeter(ctx context.Context, meterName string) (domainmeter.Meter, error) {
 	meters, err := s.meterRepo.Find(ctx, domainmeter.Query{Name: strings.TrimSpace(meterName)})
 	if err != nil {
@@ -969,6 +1149,12 @@ func (s *service) findMeter(ctx context.Context, meterName string) (domainmeter.
 
 func (s *service) ruleResult(ctx context.Context, rule Rule) RuleResult {
 	result := ruleResult(rule)
+	if rule.DestinationID != "" {
+		if destination, err := s.findDestination(ctx, rule.DestinationID); err == nil {
+			value := destinationResult(destination)
+			result.Destination = &value
+		}
+	}
 	states, err := s.repo.FindStates(ctx, rule.ID, domainusage.MaxLimit)
 	if err == nil && len(states) > 0 {
 		results := make([]StateResult, 0, len(states))
@@ -1005,14 +1191,69 @@ func ruleFromInput(existing Rule, cmd SaveCommand, now time.Time) (Rule, error) 
 		Threshold:          cmd.Threshold,
 		EvaluationInterval: cmd.EvaluationInterval,
 		GroupBy:            cmd.GroupBy,
-		TriggerType:        TriggerType(cmd.TriggerType),
-		WebhookURL:         cmd.WebhookURL,
-		WebhookSecret:      existing.WebhookSecret,
+		DestinationID:      cmd.DestinationID,
 		NextEvaluateAt:     existing.NextEvaluateAt,
 		CreatedAt:          existing.CreatedAt,
 		UpdatedAt:          now,
 	}
 	return validateRule(rule, now)
+}
+
+func destinationFromInput(existing Destination, cmd DestinationSaveCommand, now time.Time) (Destination, error) {
+	enabled := true
+	if cmd.Enabled != nil {
+		enabled = *cmd.Enabled
+	}
+	destination := Destination{
+		ID:            existing.ID,
+		Name:          cmd.Name,
+		Type:          DestinationType(cmd.Type),
+		Enabled:       enabled,
+		WebhookURL:    cmd.WebhookURL,
+		WebhookSecret: existing.WebhookSecret,
+		CreatedAt:     existing.CreatedAt,
+		UpdatedAt:     now,
+	}
+	return validateDestination(destination, now)
+}
+
+func validateDestination(destination Destination, now time.Time) (Destination, error) {
+	name, err := normalizeName(destination.Name)
+	if err != nil {
+		return Destination{}, err
+	}
+	destinationType, err := normalizeDestinationType(destination.Type)
+	if err != nil {
+		return Destination{}, err
+	}
+	webhookURL, err := normalizeWebhookURL(destination.WebhookURL)
+	if err != nil {
+		return Destination{}, err
+	}
+	if destinationType == DestinationWebhook && webhookURL == "" {
+		return Destination{}, errors.Join(domain.ErrInvalidInput, errors.New("webhook url is required"))
+	}
+	if destinationType == DestinationWebhook && strings.TrimSpace(destination.WebhookSecret) == "" {
+		secret, err := newWebhookSecret()
+		if err != nil {
+			return Destination{}, err
+		}
+		destination.WebhookSecret = secret
+	}
+	if destination.CreatedAt.IsZero() {
+		destination.CreatedAt = now
+	}
+	if destination.UpdatedAt.IsZero() {
+		destination.UpdatedAt = now
+	}
+
+	destination.Name = name
+	destination.Type = destinationType
+	destination.WebhookURL = webhookURL
+	destination.WebhookSecret = strings.TrimSpace(destination.WebhookSecret)
+	destination.CreatedAt = destination.CreatedAt.UTC()
+	destination.UpdatedAt = destination.UpdatedAt.UTC()
+	return destination, nil
 }
 
 func validateRule(rule Rule, now time.Time) (Rule, error) {
@@ -1054,11 +1295,7 @@ func validateRule(rule Rule, now time.Time) (Rule, error) {
 	if err != nil {
 		return Rule{}, err
 	}
-	triggerType, err := normalizeTriggerType(rule.TriggerType)
-	if err != nil {
-		return Rule{}, err
-	}
-	webhookURL, err := normalizeWebhookURL(rule.WebhookURL)
+	destinationID, err := normalizeRequired(rule.DestinationID, "alert destination is required")
 	if err != nil {
 		return Rule{}, err
 	}
@@ -1071,14 +1308,6 @@ func validateRule(rule Rule, now time.Time) (Rule, error) {
 	if rule.NextEvaluateAt.IsZero() {
 		rule.NextEvaluateAt = now
 	}
-	if triggerType == TriggerWebhook && webhookURL != "" && strings.TrimSpace(rule.WebhookSecret) == "" {
-		secret, err := newWebhookSecret()
-		if err != nil {
-			return Rule{}, err
-		}
-		rule.WebhookSecret = secret
-	}
-
 	rule.Name = name
 	rule.MeterName = meterName
 	rule.Subject = subject
@@ -1087,9 +1316,7 @@ func validateRule(rule Rule, now time.Time) (Rule, error) {
 	rule.Comparator = comparator
 	rule.EvaluationInterval = interval
 	rule.GroupBy = groupBy
-	rule.TriggerType = triggerType
-	rule.WebhookURL = webhookURL
-	rule.WebhookSecret = strings.TrimSpace(rule.WebhookSecret)
+	rule.DestinationID = destinationID
 	rule.CreatedAt = rule.CreatedAt.UTC()
 	rule.UpdatedAt = rule.UpdatedAt.UTC()
 	rule.NextEvaluateAt = rule.NextEvaluateAt.UTC()
@@ -1159,6 +1386,15 @@ func normalizeTriggerType(value TriggerType) (TriggerType, error) {
 		return TriggerWebhook, nil
 	default:
 		return "", errors.Join(domain.ErrInvalidInput, fmt.Errorf("unsupported trigger type %q", value))
+	}
+}
+
+func normalizeDestinationType(value DestinationType) (DestinationType, error) {
+	switch value {
+	case "", DestinationWebhook:
+		return DestinationWebhook, nil
+	default:
+		return "", errors.Join(domain.ErrInvalidInput, fmt.Errorf("unsupported destination type %q", value))
 	}
 }
 
@@ -1395,12 +1631,26 @@ func ruleResult(rule Rule) RuleResult {
 		Threshold:          rule.Threshold,
 		EvaluationInterval: int(rule.EvaluationInterval.Seconds()),
 		GroupBy:            rule.GroupBy,
-		TriggerType:        string(rule.TriggerType),
-		WebhookURL:         rule.WebhookURL,
-		WebhookSecret:      rule.WebhookSecret,
+		DestinationID:      rule.DestinationID,
 		NextEvaluateAt:     rule.NextEvaluateAt,
 		CreatedAt:          rule.CreatedAt,
 		UpdatedAt:          rule.UpdatedAt,
+	}
+}
+
+func destinationResult(destination Destination) DestinationResult {
+	return DestinationResult{
+		ID:              destination.ID,
+		Name:            destination.Name,
+		Type:            string(destination.Type),
+		Enabled:         destination.Enabled,
+		WebhookURL:      destination.WebhookURL,
+		WebhookSecret:   destination.WebhookSecret,
+		SignatureHeader: WebhookSignatureHeader,
+		TimestampHeader: WebhookTimestampHeader,
+		Algorithm:       WebhookSignatureAlgorithm,
+		CreatedAt:       destination.CreatedAt,
+		UpdatedAt:       destination.UpdatedAt,
 	}
 }
 

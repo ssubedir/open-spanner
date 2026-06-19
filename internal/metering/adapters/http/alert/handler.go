@@ -51,15 +51,14 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		Threshold:          req.Threshold,
 		EvaluationInterval: secondsDuration(req.EvaluationIntervalSeconds),
 		GroupBy:            req.GroupBy,
-		TriggerType:        req.TriggerType,
-		WebhookURL:         req.WebhookURL,
+		DestinationID:      req.DestinationID,
 	})
 	if err != nil {
 		respond.ServiceError(w, err)
 		return
 	}
 
-	respond.JSON(w, http.StatusCreated, ruleResponseWithSecret(rule, true))
+	respond.JSON(w, http.StatusCreated, ruleResponse(rule))
 }
 
 // List lists alert rules.
@@ -102,6 +101,153 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		res = append(res, ruleResponse(rule))
 	}
 	respond.JSON(w, http.StatusOK, RuleListResponse{Items: res})
+}
+
+// CreateDestination creates an alert destination.
+//
+// @Summary Create alert destination
+// @ID createAlertDestination
+// @Tags alerts
+// @Accept json
+// @Produce json
+// @Param request body DestinationSaveRequest true "Alert destination"
+// @Success 201 {object} DestinationResponse
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/alerts/destinations [post]
+func (h *Handler) CreateDestination(w http.ResponseWriter, r *http.Request) {
+	var req DestinationSaveRequest
+	if err := request.DecodeJSON(r.Body, &req); err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+
+	destination, err := h.service.CreateDestination(r.Context(), appalert.DestinationSaveCommand{
+		Name:       req.Name,
+		Type:       req.Type,
+		Enabled:    req.Enabled,
+		WebhookURL: req.WebhookURL,
+	})
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	respond.JSON(w, http.StatusCreated, destinationResponse(destination, true))
+}
+
+// ListDestinations lists alert destinations.
+//
+// @Summary List alert destinations
+// @ID listAlertDestinations
+// @Tags alerts
+// @Produce json
+// @Param type query string false "Destination type"
+// @Param enabled query bool false "Enabled filter"
+// @Param limit query int false "Result limit"
+// @Success 200 {object} DestinationListResponse
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/alerts/destinations [get]
+func (h *Handler) ListDestinations(w http.ResponseWriter, r *http.Request) {
+	limit, err := request.ParseLimit(r.URL.Query().Get("limit"))
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+	enabled, err := enabledFilter(r.URL.Query().Get("enabled"))
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+	destinations, err := h.service.ListDestinations(r.Context(), appalert.DestinationListQuery{
+		Type:    r.URL.Query().Get("type"),
+		Enabled: enabled,
+		Limit:   limit,
+	})
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	res := make([]DestinationResponse, 0, len(destinations.Items))
+	for _, destination := range destinations.Items {
+		res = append(res, destinationResponse(destination, false))
+	}
+	respond.JSON(w, http.StatusOK, DestinationListResponse{Items: res})
+}
+
+// UpdateDestination updates an alert destination.
+//
+// @Summary Update alert destination
+// @ID updateAlertDestination
+// @Tags alerts
+// @Accept json
+// @Produce json
+// @Param id path string true "Alert destination ID"
+// @Param request body DestinationUpdateRequest true "Alert destination update"
+// @Success 200 {object} DestinationResponse
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 404 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/alerts/destinations/{id} [put]
+func (h *Handler) UpdateDestination(w http.ResponseWriter, r *http.Request) {
+	var req DestinationUpdateRequest
+	if err := request.DecodeJSON(r.Body, &req); err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+	destination, err := h.service.UpdateDestination(r.Context(), appalert.DestinationUpdateCommand{
+		ID:         chi.URLParam(r, "id"),
+		Name:       stringValue(req.Name),
+		Type:       stringValue(req.Type),
+		Enabled:    req.Enabled,
+		WebhookURL: req.WebhookURL,
+	})
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	respond.JSON(w, http.StatusOK, destinationResponse(destination, false))
+}
+
+// DeleteDestination deletes an alert destination.
+//
+// @Summary Delete alert destination
+// @ID deleteAlertDestination
+// @Tags alerts
+// @Produce json
+// @Param id path string true "Alert destination ID"
+// @Success 204
+// @Failure 404 {object} respond.ErrorResponse
+// @Failure 409 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/alerts/destinations/{id} [delete]
+func (h *Handler) DeleteDestination(w http.ResponseWriter, r *http.Request) {
+	if err := h.service.DeleteDestination(r.Context(), appalert.DestinationDeleteCommand{ID: chi.URLParam(r, "id")}); err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// RotateDestinationSecret rotates an alert destination webhook signing secret.
+//
+// @Summary Rotate alert destination webhook signing secret
+// @ID rotateAlertDestinationSecret
+// @Tags alerts
+// @Produce json
+// @Param id path string true "Alert destination ID"
+// @Success 200 {object} DestinationResponse
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 404 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/alerts/destinations/{id}/webhook-secret/rotate [post]
+func (h *Handler) RotateDestinationSecret(w http.ResponseWriter, r *http.Request) {
+	destination, err := h.service.RotateDestinationSecret(r.Context(), appalert.RotateDestinationSecretCommand{ID: chi.URLParam(r, "id")})
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	respond.JSON(w, http.StatusOK, destinationResponse(destination, true))
 }
 
 // Get gets an alert rule.
@@ -157,8 +303,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		Threshold:          req.Threshold,
 		EvaluationInterval: secondsDurationPointer(req.EvaluationIntervalSeconds),
 		GroupBy:            req.GroupBy,
-		TriggerType:        stringValue(req.TriggerType),
-		WebhookURL:         req.WebhookURL,
+		DestinationID:      req.DestinationID,
 	})
 	if err != nil {
 		respond.ServiceError(w, err)
@@ -185,27 +330,6 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// RotateWebhookSecret rotates an alert rule webhook signing secret.
-//
-// @Summary Rotate alert webhook signing secret
-// @ID rotateAlertWebhookSecret
-// @Tags alerts
-// @Produce json
-// @Param id path string true "Alert rule ID"
-// @Success 200 {object} RuleResponse
-// @Failure 400 {object} respond.ErrorResponse
-// @Failure 404 {object} respond.ErrorResponse
-// @Failure 500 {object} respond.ErrorResponse
-// @Router /v1/alerts/{id}/webhook-secret/rotate [post]
-func (h *Handler) RotateWebhookSecret(w http.ResponseWriter, r *http.Request) {
-	rule, err := h.service.RotateWebhookSecret(r.Context(), appalert.RotateWebhookSecretCommand{ID: chi.URLParam(r, "id")})
-	if err != nil {
-		respond.ServiceError(w, err)
-		return
-	}
-	respond.JSON(w, http.StatusOK, ruleResponseWithSecret(rule, true))
 }
 
 // Evaluate evaluates an alert rule immediately.
@@ -278,10 +402,6 @@ func (h *Handler) ListEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func ruleResponse(rule appalert.RuleResult) RuleResponse {
-	return ruleResponseWithSecret(rule, false)
-}
-
-func ruleResponseWithSecret(rule appalert.RuleResult, includeSecret bool) RuleResponse {
 	response := RuleResponse{
 		ID:                        rule.ID,
 		Name:                      rule.Name,
@@ -294,9 +414,7 @@ func ruleResponseWithSecret(rule appalert.RuleResult, includeSecret bool) RuleRe
 		Threshold:                 rule.Threshold,
 		EvaluationIntervalSeconds: rule.EvaluationInterval,
 		GroupBy:                   rule.GroupBy,
-		TriggerType:               rule.TriggerType,
-		WebhookURL:                rule.WebhookURL,
-		WebhookSigning:            webhookSigningResponse(rule, includeSecret),
+		DestinationID:             rule.DestinationID,
 		NextEvaluateAt:            formatTime(rule.NextEvaluateAt),
 		CreatedAt:                 formatTime(rule.CreatedAt),
 		UpdatedAt:                 formatTime(rule.UpdatedAt),
@@ -308,18 +426,38 @@ func ruleResponseWithSecret(rule appalert.RuleResult, includeSecret bool) RuleRe
 	for _, state := range rule.States {
 		response.States = append(response.States, stateResponse(state))
 	}
+	if rule.Destination != nil {
+		destination := destinationResponse(*rule.Destination, false)
+		response.Destination = &destination
+	}
 	return response
 }
 
-func webhookSigningResponse(rule appalert.RuleResult, includeSecret bool) WebhookSigning {
+func destinationResponse(destination appalert.DestinationResult, includeSecret bool) DestinationResponse {
+	return DestinationResponse{
+		ID:         destination.ID,
+		Name:       destination.Name,
+		Type:       destination.Type,
+		Enabled:    destination.Enabled,
+		WebhookURL: destination.WebhookURL,
+		WebhookSigning: destinationWebhookSigningResponse(
+			destination,
+			includeSecret,
+		),
+		CreatedAt: formatTime(destination.CreatedAt),
+		UpdatedAt: formatTime(destination.UpdatedAt),
+	}
+}
+
+func destinationWebhookSigningResponse(destination appalert.DestinationResult, includeSecret bool) WebhookSigning {
 	response := WebhookSigning{
-		Enabled:         rule.WebhookURL != "" && rule.WebhookSecret != "",
-		Algorithm:       appalert.WebhookSignatureAlgorithm,
-		SignatureHeader: appalert.WebhookSignatureHeader,
-		TimestampHeader: appalert.WebhookTimestampHeader,
+		Enabled:         destination.Enabled && destination.WebhookURL != "" && destination.WebhookSecret != "",
+		Algorithm:       destination.Algorithm,
+		SignatureHeader: destination.SignatureHeader,
+		TimestampHeader: destination.TimestampHeader,
 	}
 	if includeSecret {
-		response.Secret = rule.WebhookSecret
+		response.Secret = destination.WebhookSecret
 	}
 	return response
 }

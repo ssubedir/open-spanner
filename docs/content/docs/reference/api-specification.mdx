@@ -29,6 +29,11 @@ Queued export jobs are available for longer-running bucketed exports:
 
 Alert rules are available in the full REST API and dashboard:
 
+- `POST /v1/alerts/destinations`
+- `GET /v1/alerts/destinations`
+- `PUT /v1/alerts/destinations/{id}`
+- `DELETE /v1/alerts/destinations/{id}`
+- `POST /v1/alerts/destinations/{id}/webhook-secret/rotate`
 - `POST /v1/alerts`
 - `GET /v1/alerts`
 - `GET /v1/alerts/events`

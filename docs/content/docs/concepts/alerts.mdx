@@ -3,7 +3,7 @@ title: Alerts
 description: Watch usage windows against thresholds.
 ---
 
-Alerts let Open Spanner watch a meter for threshold crossings. A rule selects a meter, an optional subject, optional dimension filters, a time window, and a comparator.
+Alerts let Open Spanner watch a meter for threshold crossings. A rule selects a meter, an optional subject, optional dimension filters, a time window, a comparator, and a delivery destination.
 
 For example, an alert can watch `api_requests` for one endpoint and trigger when the last hour reaches `10,000` requests.
 
@@ -20,7 +20,7 @@ An alert rule evaluates the meter's aggregation over a rolling window:
 | Comparator | `gt`, `gte`, `lt`, `lte`, `eq`, or `neq`. |
 | Threshold | The value to compare against. |
 | Evaluation interval | How often the rule should be checked when no new matching usage arrives. |
-| Trigger | The action to run when alert state changes. The first supported trigger type is `webhook`. |
+| Destination | The notification target to use when alert state changes. The first supported destination type is `webhook`. |
 
 When usage is reported, Open Spanner finds enabled rules for that meter and only queues rules whose subject and metadata filters match the event. This keeps alert evaluation tied to the relevant usage stream instead of scanning every rule for every event.
 
@@ -37,9 +37,11 @@ Each rule has a current state:
 
 Open Spanner records alert events when a rule first enters `alerting`, resolves back out of `alerting`, or fails evaluation.
 
-## Webhook Triggers
+## Destinations And Webhooks
 
-Alert rules default to a webhook trigger. If `webhook_url` is set, the alert worker sends an HTTP `POST` when a rule creates a `triggered` or `resolved` event.
+Alert destinations hold the webhook URL and signing secret. Rules reference a destination, so multiple thresholds can notify the same endpoint without copying secrets into each rule.
+
+For webhook destinations, the alert worker sends an HTTP `POST` when a rule creates a `triggered` or `resolved` event. The dashboard shows the signing secret only when a destination is created or rotated.
 
 The webhook payload includes the rule, current state, and event:
 
@@ -51,7 +53,9 @@ The webhook payload includes the rule, current state, and event:
     "meter": "api_requests",
     "window_seconds": 3600,
     "comparator": "gte",
-    "threshold": 10000
+    "threshold": 10000,
+    "destination_id": "dest_123",
+    "destination_name": "Primary webhook"
   },
   "state": {
     "status": "alerting",

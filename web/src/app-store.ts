@@ -2,6 +2,7 @@ import { createStore } from '@tanstack/react-store'
 import type { RuleGroupType } from 'react-querybuilder'
 
 import {
+  createAlertDestination as createAlertDestinationRequest,
   createAlertRule,
   APIError,
   cancelUsageExportJob,
@@ -12,6 +13,7 @@ import {
   createSavedUsageQuery,
   createUsageExportJob,
   deleteAlertRule,
+  deleteAlertDestination as deleteAlertDestinationRequest,
   deleteAPIKey as deleteAPIKeyRequest,
   deleteAuthSession,
   deleteMeter as deleteMeterRequest,
@@ -22,6 +24,7 @@ import {
   evaluateAlertRule,
   getSystemStats,
   listAlertEvents,
+  listAlertDestinations,
   listAlertRules,
   listAPIKeys,
   listIngestions,
@@ -36,11 +39,15 @@ import {
   listUsageEvents,
   listUsageExportJobs,
   refreshAuthSession,
-  rotateAlertWebhookSecret as rotateAlertWebhookSecretRequest,
+  rotateAlertDestinationSecret as rotateAlertDestinationSecretRequest,
   retryUsageExportJob,
+  updateAlertDestination as updateAlertDestinationRequest,
   updateAlertRule,
   updateMeter as updateMeterRequest,
   updateSavedUsageQuery,
+  type AlertDestination,
+  type AlertDestinationRequest,
+  type AlertDestinationUpdateRequest,
   type AlertEvent,
   type AlertRule,
   type AlertRuleRequest,
@@ -86,8 +93,8 @@ type UsageExportKind = '' | 'buckets' | 'events' | 'job'
 
 type AlertWebhookSecret = {
   algorithm: string
-  ruleID: string
-  ruleName: string
+  ownerID: string
+  ownerName: string
   secret: string
   signatureHeader: string
   timestampHeader: string
@@ -134,6 +141,10 @@ type AppState = {
     status: LoadState
   }
   alerts: {
+    destinationCreating: boolean
+    destinationDeleting: AlertDestination | null
+    destinationEditing: AlertDestination | null
+    destinations: AlertDestination[]
     deleting: AlertRule | null
     editing: AlertRule | null
     error: string
@@ -231,6 +242,10 @@ export const appStore = createStore<AppState>({
     status: 'idle',
   },
   alerts: {
+    destinationCreating: false,
+    destinationDeleting: null,
+    destinationEditing: null,
+    destinations: [],
     deleting: null,
     editing: null,
     error: '',
@@ -386,11 +401,13 @@ export const appStoreActions = {
       const meters = await listMeters()
       setAlertsState({ meters: meters.items })
 
-      const [rules, events] = await Promise.all([
+      const [rules, events, destinations] = await Promise.all([
         listAlertRules(),
         listAlertEvents(),
+        listAlertDestinations(),
       ])
       setAlertsState((state) => ({
+        destinations: destinations.items,
         events: events.items,
         eventStatus: 'ready',
         items: rules.items,
@@ -427,11 +444,7 @@ export const appStoreActions = {
   async createAlert(input: AlertRuleRequest) {
     setAlertsState({ error: '', saving: true })
     try {
-      const created = await createAlertRule(input)
-      const signingSecret = alertWebhookSecretFromRule(created)
-      if (signingSecret) {
-        setAlertsState({ signingSecret })
-      }
+      await createAlertRule(input)
       await appStoreActions.loadAlerts()
     } catch (err) {
       setAlertsState({ error: errorMessage(err, 'Unable to create alert') })
@@ -440,17 +453,35 @@ export const appStoreActions = {
       setAlertsState({ saving: false })
     }
   },
-  async rotateAlertWebhookSecret(rule: AlertRule) {
+  async createAlertDestination(input: AlertDestinationRequest) {
     setAlertsState({ error: '', saving: true })
     try {
-      const updated = await rotateAlertWebhookSecretRequest(rule.id)
-      const signingSecret = alertWebhookSecretFromRule(updated)
+      const created = await createAlertDestinationRequest(input)
+      const signingSecret = alertWebhookSecretFromDestination(created)
       setAlertsState((state) => ({
-        items: state.items.map((item) => item.id === updated.id ? updated : item),
-        signingSecret,
+        destinationCreating: false,
+        destinations: [...state.destinations, created],
+        signingSecret: signingSecret ?? state.signingSecret,
       }))
     } catch (err) {
-      setAlertsState({ error: errorMessage(err, 'Unable to rotate webhook signing secret') })
+      setAlertsState({ error: errorMessage(err, 'Unable to create alert destination') })
+      throw err
+    } finally {
+      setAlertsState({ saving: false })
+    }
+  },
+  async rotateAlertDestinationSecret(destination: AlertDestination) {
+    setAlertsState({ error: '', saving: true })
+    try {
+      const updated = await rotateAlertDestinationSecretRequest(destination.id)
+      const signingSecret = alertWebhookSecretFromDestination(updated)
+      setAlertsState((state) => ({
+        destinations: state.destinations.map((item) => item.id === updated.id ? updated : item),
+        items: state.items.map((item) => item.destination_id === updated.id ? { ...item, destination: updated } : item),
+        signingSecret: signingSecret ?? state.signingSecret,
+      }))
+    } catch (err) {
+      setAlertsState({ error: errorMessage(err, 'Unable to rotate destination signing secret') })
       throw err
     } finally {
       setAlertsState({ saving: false })
@@ -474,6 +505,27 @@ export const appStoreActions = {
       setAlertsState({ saving: false })
     }
   },
+  async updateEditingAlertDestination(input: AlertDestinationUpdateRequest) {
+    const editing = appStore.state.alerts.destinationEditing
+    if (!editing) {
+      return
+    }
+
+    setAlertsState({ error: '', saving: true })
+    try {
+      const updated = await updateAlertDestinationRequest(editing.id, input)
+      setAlertsState((state) => ({
+        destinationEditing: null,
+        destinations: state.destinations.map((item) => item.id === updated.id ? updated : item),
+        items: state.items.map((item) => item.destination_id === updated.id ? { ...item, destination: updated } : item),
+      }))
+    } catch (err) {
+      setAlertsState({ error: errorMessage(err, 'Unable to update alert destination') })
+      throw err
+    } finally {
+      setAlertsState({ saving: false })
+    }
+  },
   async deleteSelectedAlert() {
     const deleting = appStore.state.alerts.deleting
     if (!deleting) {
@@ -488,10 +540,31 @@ export const appStoreActions = {
         events: state.events.filter((event) => event.rule_id !== deleting.id),
         items: state.items.filter((item) => item.id !== deleting.id),
         selectedEvent: state.selectedEvent?.rule_id === deleting.id ? null : state.selectedEvent,
-        signingSecret: state.signingSecret?.ruleID === deleting.id ? null : state.signingSecret,
+        signingSecret: state.signingSecret?.ownerID === deleting.id ? null : state.signingSecret,
       }))
     } catch (err) {
       setAlertsState({ error: errorMessage(err, 'Unable to delete alert') })
+      throw err
+    } finally {
+      setAlertsState({ saving: false })
+    }
+  },
+  async deleteSelectedAlertDestination() {
+    const deleting = appStore.state.alerts.destinationDeleting
+    if (!deleting) {
+      return
+    }
+
+    setAlertsState({ error: '', saving: true })
+    try {
+      await deleteAlertDestinationRequest(deleting.id)
+      setAlertsState((state) => ({
+        destinationDeleting: null,
+        destinations: state.destinations.filter((item) => item.id !== deleting.id),
+        signingSecret: state.signingSecret?.ownerID === deleting.id ? null : state.signingSecret,
+      }))
+    } catch (err) {
+      setAlertsState({ error: errorMessage(err, 'Unable to delete alert destination') })
       throw err
     } finally {
       setAlertsState({ saving: false })
@@ -875,6 +948,15 @@ export const appStoreActions = {
   },
   setAlertDeleting(deleting: AlertRule | null) {
     setAlertsState({ deleting })
+  },
+  setAlertDestinationDeleting(destinationDeleting: AlertDestination | null) {
+    setAlertsState({ destinationDeleting })
+  },
+  setAlertDestinationCreating(destinationCreating: boolean) {
+    setAlertsState({ destinationCreating })
+  },
+  setAlertDestinationEditing(destinationEditing: AlertDestination | null) {
+    setAlertsState({ destinationEditing })
   },
   setAlertEditing(editing: AlertRule | null) {
     setAlertsState({ editing })
@@ -1264,18 +1346,18 @@ function mergeAlertEvents(next: AlertEvent[], current: AlertEvent[]) {
   return [...next, ...current.filter((event) => !nextIDs.has(event.id))].slice(0, 25)
 }
 
-function alertWebhookSecretFromRule(rule: AlertRule): AlertWebhookSecret | null {
-  const secret = rule.webhook_signing?.secret
+function alertWebhookSecretFromDestination(destination: AlertDestination): AlertWebhookSecret | null {
+  const secret = destination.webhook_signing?.secret
   if (!secret) {
     return null
   }
   return {
-    algorithm: rule.webhook_signing.algorithm,
-    ruleID: rule.id,
-    ruleName: rule.name,
+    algorithm: destination.webhook_signing.algorithm,
+    ownerID: destination.id,
+    ownerName: destination.name,
     secret,
-    signatureHeader: rule.webhook_signing.signature_header,
-    timestampHeader: rule.webhook_signing.timestamp_header,
+    signatureHeader: destination.webhook_signing.signature_header,
+    timestampHeader: destination.webhook_signing.timestamp_header,
   }
 }
 

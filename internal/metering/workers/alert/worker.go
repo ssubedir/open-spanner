@@ -142,7 +142,7 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 			}
 			if _, recordErr := w.service.RecordDelivery(ctx, appalert.DeliveryCommand{
 				EventID:     event.ID,
-				TriggerType: result.Rule.TriggerType,
+				TriggerType: string(appalert.TriggerWebhook),
 				Status:      string(attempt.status),
 				StatusCode:  attempt.statusCode,
 				Error:       attempt.message,
@@ -195,15 +195,12 @@ type deliveryAttempt struct {
 }
 
 func deliverWebhookTrigger(ctx context.Context, result appalert.EvaluationResult, event appalert.EventResult) (deliveryAttempt, bool) {
-	if result.Rule.TriggerType != string(appalert.TriggerWebhook) {
-		return deliveryAttempt{}, false
-	}
-
 	attemptedAt := time.Now().UTC()
-	if result.Rule.WebhookURL == "" {
+	target, targetErr := webhookDeliveryTarget(result.Rule)
+	if targetErr != "" {
 		return deliveryAttempt{
 			status:      appalert.DeliveryFailed,
-			message:     "webhook url is not configured",
+			message:     targetErr,
 			attemptedAt: attemptedAt,
 		}, true
 	}
@@ -222,6 +219,8 @@ func deliverWebhookTrigger(ctx context.Context, result appalert.EvaluationResult
 			Threshold:                 result.Rule.Threshold,
 			EvaluationIntervalSeconds: result.Rule.EvaluationInterval,
 			GroupBy:                   result.Rule.GroupBy,
+			DestinationID:             result.Rule.DestinationID,
+			DestinationName:           destinationName(result.Rule),
 		},
 		State: webhookStatePayload{
 			Status:      state.Status,
@@ -252,7 +251,7 @@ func deliverWebhookTrigger(ctx context.Context, result appalert.EvaluationResult
 			attemptedAt: attemptedAt,
 		}, true
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, result.Rule.WebhookURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.url, bytes.NewReader(body))
 	if err != nil {
 		return deliveryAttempt{
 			status:      appalert.DeliveryFailed,
@@ -262,8 +261,8 @@ func deliverWebhookTrigger(ctx context.Context, result appalert.EvaluationResult
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "open-spanner-alert-worker")
-	if result.Rule.WebhookSecret != "" {
-		signWebhookRequest(req, result.Rule.WebhookSecret, attemptedAt, body)
+	if target.secret != "" {
+		signWebhookRequest(req, target.secret, attemptedAt, body)
 	}
 
 	client := http.Client{Timeout: 10 * time.Second}
@@ -294,6 +293,31 @@ func deliverWebhookTrigger(ctx context.Context, result appalert.EvaluationResult
 		duration:    duration,
 		attemptedAt: attemptedAt,
 	}, true
+}
+
+type webhookDeliveryTargetValue struct {
+	url    string
+	secret string
+}
+
+func webhookDeliveryTarget(rule appalert.RuleResult) (webhookDeliveryTargetValue, string) {
+	if rule.Destination == nil {
+		return webhookDeliveryTargetValue{}, "alert destination is not configured"
+	}
+	if !rule.Destination.Enabled {
+		return webhookDeliveryTargetValue{}, "alert destination is disabled"
+	}
+	if rule.Destination.WebhookURL == "" {
+		return webhookDeliveryTargetValue{}, "alert destination webhook url is not configured"
+	}
+	return webhookDeliveryTargetValue{url: rule.Destination.WebhookURL, secret: rule.Destination.WebhookSecret}, ""
+}
+
+func destinationName(rule appalert.RuleResult) string {
+	if rule.Destination == nil {
+		return ""
+	}
+	return rule.Destination.Name
 }
 
 func signWebhookRequest(req *http.Request, secret string, timestamp time.Time, body []byte) {
@@ -346,6 +370,8 @@ type webhookRulePayload struct {
 	Threshold                 float64           `json:"threshold"`
 	EvaluationIntervalSeconds int               `json:"evaluation_interval_seconds"`
 	GroupBy                   string            `json:"group_by,omitempty"`
+	DestinationID             string            `json:"destination_id,omitempty"`
+	DestinationName           string            `json:"destination_name,omitempty"`
 }
 
 type webhookStatePayload struct {

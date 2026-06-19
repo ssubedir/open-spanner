@@ -1,1 +1,1 @@
-ALTER TABLE alert_rules DROP COLUMN webhook_secret;
+-- Alert webhook signing secrets are stored on alert destinations.

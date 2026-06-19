@@ -11,9 +11,7 @@ INSERT INTO alert_rules (
 	threshold,
 	evaluation_interval_seconds,
 	group_by,
-	trigger_type,
-	webhook_url,
-	webhook_secret,
+	destination_id,
 	next_evaluate_at,
 	created_at,
 	updated_at
@@ -30,9 +28,7 @@ VALUES (
 	sqlc.arg('threshold'),
 	sqlc.arg('evaluation_interval_seconds'),
 	sqlc.arg('group_by'),
-	sqlc.arg('trigger_type'),
-	sqlc.arg('webhook_url'),
-	sqlc.arg('webhook_secret'),
+	sqlc.arg('destination_id'),
 	sqlc.arg('next_evaluate_at'),
 	sqlc.arg('created_at'),
 	sqlc.arg('updated_at')
@@ -48,20 +44,43 @@ ON CONFLICT(id) DO UPDATE SET
 	threshold = excluded.threshold,
 	evaluation_interval_seconds = excluded.evaluation_interval_seconds,
 	group_by = excluded.group_by,
-	trigger_type = excluded.trigger_type,
-	webhook_url = excluded.webhook_url,
-	webhook_secret = excluded.webhook_secret,
+	destination_id = excluded.destination_id,
 	next_evaluate_at = excluded.next_evaluate_at,
 	updated_at = excluded.updated_at;
 
 -- name: ListAlertRules :many
-SELECT id, name, meter_name, enabled, subject, metadata, window_seconds, comparator, threshold, evaluation_interval_seconds, group_by, trigger_type, webhook_url, webhook_secret, next_evaluate_at, created_at, updated_at
+SELECT id, name, meter_name, enabled, subject, metadata, window_seconds, comparator, threshold, evaluation_interval_seconds, group_by, destination_id, next_evaluate_at, created_at, updated_at
 FROM alert_rules
 WHERE (sqlc.narg('id')::text IS NULL OR id = sqlc.narg('id')::text)
 	AND (sqlc.narg('meter_name')::text IS NULL OR meter_name = sqlc.narg('meter_name')::text)
 	AND (sqlc.narg('enabled')::boolean IS NULL OR enabled = sqlc.narg('enabled')::boolean)
+	AND (sqlc.narg('destination_id')::text IS NULL OR destination_id = sqlc.narg('destination_id')::text)
 ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg('limit')::int;
+
+-- name: SaveAlertDestination :exec
+INSERT INTO alert_destinations (id, name, type, enabled, webhook_url, webhook_secret, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT(id) DO UPDATE SET
+	name = excluded.name,
+	type = excluded.type,
+	enabled = excluded.enabled,
+	webhook_url = excluded.webhook_url,
+	webhook_secret = excluded.webhook_secret,
+	updated_at = excluded.updated_at;
+
+-- name: ListAlertDestinations :many
+SELECT id, name, type, enabled, webhook_url, webhook_secret, created_at, updated_at
+FROM alert_destinations
+WHERE (sqlc.narg('id')::text IS NULL OR id = sqlc.narg('id')::text)
+	AND (sqlc.narg('type')::text IS NULL OR type = sqlc.narg('type')::text)
+	AND (sqlc.narg('enabled')::boolean IS NULL OR enabled = sqlc.narg('enabled')::boolean)
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg('limit')::int;
+
+-- name: DeleteAlertDestination :execrows
+DELETE FROM alert_destinations
+WHERE id = $1;
 
 -- name: DeleteAlertRule :execrows
 DELETE FROM alert_rules

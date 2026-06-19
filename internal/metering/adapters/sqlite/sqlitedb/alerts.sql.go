@@ -47,6 +47,19 @@ func (q *Queries) ClaimAlertEvaluationJob(ctx context.Context, arg ClaimAlertEva
 	return i, err
 }
 
+const deleteAlertDestination = `-- name: DeleteAlertDestination :execrows
+DELETE FROM alert_destinations
+WHERE id = ?
+`
+
+func (q *Queries) DeleteAlertDestination(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteAlertDestination, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteAlertEvaluationJob = `-- name: DeleteAlertEvaluationJob :execrows
 DELETE FROM alert_evaluation_jobs
 WHERE rule_id = ?
@@ -156,6 +169,60 @@ func (q *Queries) FindAlertState(ctx context.Context, arg FindAlertStateParams) 
 	return i, err
 }
 
+const listAlertDestinations = `-- name: ListAlertDestinations :many
+SELECT id, name, type, enabled, webhook_url, webhook_secret, created_at, updated_at
+FROM alert_destinations
+WHERE (CAST(?1 AS TEXT) IS NULL OR id = CAST(?1 AS TEXT))
+	AND (CAST(?2 AS TEXT) IS NULL OR type = CAST(?2 AS TEXT))
+	AND (CAST(?3 AS INTEGER) IS NULL OR enabled = CAST(?3 AS INTEGER))
+ORDER BY created_at DESC, id DESC
+LIMIT ?4
+`
+
+type ListAlertDestinationsParams struct {
+	ID      sql.NullString
+	Type    sql.NullString
+	Enabled sql.NullInt64
+	Limit   int64
+}
+
+func (q *Queries) ListAlertDestinations(ctx context.Context, arg ListAlertDestinationsParams) ([]AlertDestination, error) {
+	rows, err := q.db.QueryContext(ctx, listAlertDestinations,
+		arg.ID,
+		arg.Type,
+		arg.Enabled,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AlertDestination{}
+	for rows.Next() {
+		var i AlertDestination
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Type,
+			&i.Enabled,
+			&i.WebhookUrl,
+			&i.WebhookSecret,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAlertEvents = `-- name: ListAlertEvents :many
 SELECT
 	alert_events.id,
@@ -263,20 +330,22 @@ func (q *Queries) ListAlertEvents(ctx context.Context, arg ListAlertEventsParams
 }
 
 const listAlertRules = `-- name: ListAlertRules :many
-SELECT id, name, meter_name, enabled, subject, metadata, window_seconds, comparator, threshold, evaluation_interval_seconds, group_by, trigger_type, webhook_url, webhook_secret, next_evaluate_at, created_at, updated_at
+SELECT id, name, meter_name, enabled, subject, metadata, window_seconds, comparator, threshold, evaluation_interval_seconds, group_by, destination_id, next_evaluate_at, created_at, updated_at
 FROM alert_rules
 WHERE (CAST(?1 AS TEXT) IS NULL OR id = CAST(?1 AS TEXT))
 	AND (CAST(?2 AS TEXT) IS NULL OR meter_name = CAST(?2 AS TEXT))
 	AND (CAST(?3 AS INTEGER) IS NULL OR enabled = CAST(?3 AS INTEGER))
+	AND (CAST(?4 AS TEXT) IS NULL OR destination_id = CAST(?4 AS TEXT))
 ORDER BY created_at DESC, id DESC
-LIMIT ?4
+LIMIT ?5
 `
 
 type ListAlertRulesParams struct {
-	ID        sql.NullString
-	MeterName sql.NullString
-	Enabled   sql.NullInt64
-	Limit     int64
+	ID            sql.NullString
+	MeterName     sql.NullString
+	Enabled       sql.NullInt64
+	DestinationID sql.NullString
+	Limit         int64
 }
 
 type ListAlertRulesRow struct {
@@ -291,9 +360,7 @@ type ListAlertRulesRow struct {
 	Threshold                 float64
 	EvaluationIntervalSeconds int64
 	GroupBy                   string
-	TriggerType               string
-	WebhookUrl                string
-	WebhookSecret             string
+	DestinationID             string
 	NextEvaluateAt            string
 	CreatedAt                 string
 	UpdatedAt                 string
@@ -304,6 +371,7 @@ func (q *Queries) ListAlertRules(ctx context.Context, arg ListAlertRulesParams) 
 		arg.ID,
 		arg.MeterName,
 		arg.Enabled,
+		arg.DestinationID,
 		arg.Limit,
 	)
 	if err != nil {
@@ -325,9 +393,7 @@ func (q *Queries) ListAlertRules(ctx context.Context, arg ListAlertRulesParams) 
 			&i.Threshold,
 			&i.EvaluationIntervalSeconds,
 			&i.GroupBy,
-			&i.TriggerType,
-			&i.WebhookUrl,
-			&i.WebhookSecret,
+			&i.DestinationID,
 			&i.NextEvaluateAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -453,6 +519,43 @@ func (q *Queries) SaveAlertDelivery(ctx context.Context, arg SaveAlertDeliveryPa
 	return err
 }
 
+const saveAlertDestination = `-- name: SaveAlertDestination :exec
+INSERT INTO alert_destinations (id, name, type, enabled, webhook_url, webhook_secret, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+	name = excluded.name,
+	type = excluded.type,
+	enabled = excluded.enabled,
+	webhook_url = excluded.webhook_url,
+	webhook_secret = excluded.webhook_secret,
+	updated_at = excluded.updated_at
+`
+
+type SaveAlertDestinationParams struct {
+	ID            string
+	Name          string
+	Type          string
+	Enabled       int64
+	WebhookUrl    string
+	WebhookSecret string
+	CreatedAt     string
+	UpdatedAt     string
+}
+
+func (q *Queries) SaveAlertDestination(ctx context.Context, arg SaveAlertDestinationParams) error {
+	_, err := q.db.ExecContext(ctx, saveAlertDestination,
+		arg.ID,
+		arg.Name,
+		arg.Type,
+		arg.Enabled,
+		arg.WebhookUrl,
+		arg.WebhookSecret,
+		arg.CreatedAt,
+		arg.UpdatedAt,
+	)
+	return err
+}
+
 const saveAlertEvent = `-- name: SaveAlertEvent :exec
 INSERT INTO alert_events (id, rule_id, group_key, group_value, type, value, message, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -496,14 +599,12 @@ INSERT INTO alert_rules (
 	threshold,
 	evaluation_interval_seconds,
 	group_by,
-	trigger_type,
-	webhook_url,
-	webhook_secret,
+	destination_id,
 	next_evaluate_at,
 	created_at,
 	updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	name = excluded.name,
 	meter_name = excluded.meter_name,
@@ -515,9 +616,7 @@ ON CONFLICT(id) DO UPDATE SET
 	threshold = excluded.threshold,
 	evaluation_interval_seconds = excluded.evaluation_interval_seconds,
 	group_by = excluded.group_by,
-	trigger_type = excluded.trigger_type,
-	webhook_url = excluded.webhook_url,
-	webhook_secret = excluded.webhook_secret,
+	destination_id = excluded.destination_id,
 	next_evaluate_at = excluded.next_evaluate_at,
 	updated_at = excluded.updated_at
 `
@@ -534,9 +633,7 @@ type SaveAlertRuleParams struct {
 	Threshold                 float64
 	EvaluationIntervalSeconds int64
 	GroupBy                   string
-	TriggerType               string
-	WebhookUrl                string
-	WebhookSecret             string
+	DestinationID             string
 	NextEvaluateAt            string
 	CreatedAt                 string
 	UpdatedAt                 string
@@ -555,9 +652,7 @@ func (q *Queries) SaveAlertRule(ctx context.Context, arg SaveAlertRuleParams) er
 		arg.Threshold,
 		arg.EvaluationIntervalSeconds,
 		arg.GroupBy,
-		arg.TriggerType,
-		arg.WebhookUrl,
-		arg.WebhookSecret,
+		arg.DestinationID,
 		arg.NextEvaluateAt,
 		arg.CreatedAt,
 		arg.UpdatedAt,
