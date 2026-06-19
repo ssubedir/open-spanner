@@ -1,6 +1,6 @@
 [project]
 name = "open-spanner"
-version = "0.1.7"
+version = "0.1.8"
 description = "A client library for accessing Open Spanner API"
 authors = []
 license = "MIT"
