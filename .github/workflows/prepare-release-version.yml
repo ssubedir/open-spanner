@@ -44,6 +44,28 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.5"
+          cache: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Use locked npm version
+        run: npm install --global npm@11.6.2
+
       - name: Install Task
         run: npm install --global @go-task/cli
 
@@ -63,6 +85,12 @@ jobs:
             echo "version=$VERSION"
             echo "commit_message=release: bump package versions to $VERSION"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Validate Taskfile includes
+        run: task --list
+
+      - name: Verify release readiness
+        run: task release:check
 
       - name: Configure release token
         shell: bash

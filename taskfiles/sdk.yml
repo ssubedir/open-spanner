@@ -87,7 +87,7 @@ tasks:
     desc: Generate and build the TypeScript SDK package
     cmds:
       - task: openapi:sdk
-      - node scripts/remove-paths.mjs sdk/typescript/src/client.gen.ts sdk/typescript/src/client sdk/typescript/src/core sdk/typescript/src/index.ts sdk/typescript/src/sdk.gen.ts sdk/typescript/src/types.gen.ts
+      - node scripts/remove-paths.mjs sdk/typescript/src/rest sdk/typescript/src/client.gen.ts sdk/typescript/src/client sdk/typescript/src/core sdk/typescript/src/sdk.gen.ts sdk/typescript/src/types.gen.ts
       - cd sdk/typescript; npm ci
       - cd sdk/typescript; npm run generate
       - cd sdk/typescript; npm run build

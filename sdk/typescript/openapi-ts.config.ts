@@ -4,7 +4,7 @@ export default {
     module: {
       extension: ".js",
     },
-    path: "src",
+    path: "src/rest",
   },
   plugins: [
     {
