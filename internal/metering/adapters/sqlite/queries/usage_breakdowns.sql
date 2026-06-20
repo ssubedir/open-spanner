@@ -11,7 +11,8 @@ WITH filtered AS (
 		quantity,
 		event_time AS event_at
 	FROM usage_events
-	WHERE meter_name = sqlc.arg('meter_name')
+	WHERE workspace_id = sqlc.arg('workspace_id')
+		AND meter_name = sqlc.arg('meter_name')
 		AND event_time >= CAST(sqlc.arg('from_time') AS TEXT)
 		AND event_time < CAST(sqlc.arg('to_time') AS TEXT)
 		AND (CAST(sqlc.narg('subject') AS TEXT) IS NULL OR subject = CAST(sqlc.narg('subject') AS TEXT))

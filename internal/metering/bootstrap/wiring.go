@@ -50,6 +50,7 @@ type repositorySet struct {
 	savedQuery appsavedquery.Repository
 	usage      domainusage.Repository
 	alert      appalert.Repository
+	system     appsystem.Repository
 	transactor apptransaction.Transactor
 	ready      func(context.Context) error
 	cleanup    func() error
@@ -85,7 +86,7 @@ func NewApp(ctx context.Context, cfg config.Config) (*App, error) {
 	subjectService := appsubject.NewService(repos.usage)
 	usageService := appusage.NewService(repos.meter, repos.usage, repos.transactor)
 	alertService := appalert.NewService(repos.alert, repos.meter, repos.usage, repos.transactor)
-	systemService := appsystem.NewService(repos.meter, repos.usage)
+	systemService := appsystem.NewService(repos.system)
 
 	return &App{
 		UsageService:      usageService,
@@ -146,6 +147,7 @@ func repositories(ctx context.Context, cfg config.Config) (repositorySet, error)
 			savedQuery: postgres.NewSavedQueryRepository(store),
 			usage:      postgres.NewUsageRepository(store),
 			alert:      postgres.NewAlertRepository(store),
+			system:     postgres.NewSystemRepository(store),
 			transactor: store,
 			ready:      readiness(store),
 			cleanup:    store.Close,
@@ -162,6 +164,7 @@ func repositories(ctx context.Context, cfg config.Config) (repositorySet, error)
 			savedQuery: sqlite.NewSavedQueryRepository(store),
 			usage:      sqlite.NewUsageRepository(store),
 			alert:      sqlite.NewAlertRepository(store),
+			system:     sqlite.NewSystemRepository(store),
 			transactor: store,
 			ready:      readiness(store),
 			cleanup:    store.Close,

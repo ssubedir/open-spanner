@@ -13,10 +13,11 @@ import (
 const countUsageEvents = `-- name: CountUsageEvents :one
 SELECT COUNT(*)
 FROM usage_events
+WHERE workspace_id = $1::text
 `
 
-func (q *Queries) CountUsageEvents(ctx context.Context) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countUsageEvents)
+func (q *Queries) CountUsageEvents(ctx context.Context, workspaceID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countUsageEvents, workspaceID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -25,6 +26,7 @@ func (q *Queries) CountUsageEvents(ctx context.Context) (int64, error) {
 const listUsageMeterStats = `-- name: ListUsageMeterStats :many
 SELECT meter_name, COUNT(*)::bigint AS usage_events, MAX(event_time)::text AS last_event_at
 FROM usage_events
+WHERE workspace_id = $1::text
 GROUP BY meter_name
 ORDER BY meter_name
 `
@@ -35,8 +37,8 @@ type ListUsageMeterStatsRow struct {
 	LastEventAt string
 }
 
-func (q *Queries) ListUsageMeterStats(ctx context.Context) ([]ListUsageMeterStatsRow, error) {
-	rows, err := q.db.QueryContext(ctx, listUsageMeterStats)
+func (q *Queries) ListUsageMeterStats(ctx context.Context, workspaceID string) ([]ListUsageMeterStatsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listUsageMeterStats, workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -61,15 +63,17 @@ func (q *Queries) ListUsageMeterStats(ctx context.Context) ([]ListUsageMeterStat
 const listUsageSubjectStats = `-- name: ListUsageSubjectStats :many
 SELECT subject, COUNT(*)::bigint AS usage_events, COUNT(DISTINCT meter_name)::bigint AS meters, MAX(event_time)::text AS last_event_at
 FROM usage_events
+WHERE workspace_id = $1::text
 GROUP BY subject
-HAVING ($1::text IS NULL
-	OR MAX(event_time) < $1::text
-	OR (MAX(event_time) = $1::text AND subject > $2::text))
+HAVING ($2::text IS NULL
+	OR MAX(event_time) < $2::text
+	OR (MAX(event_time) = $2::text AND subject > $3::text))
 ORDER BY MAX(event_time) DESC, subject ASC
-LIMIT $3::int
+LIMIT $4::int
 `
 
 type ListUsageSubjectStatsParams struct {
+	WorkspaceID       string
 	CursorLastEventAt sql.NullString
 	CursorSubject     sql.NullString
 	Limit             int32
@@ -83,7 +87,12 @@ type ListUsageSubjectStatsRow struct {
 }
 
 func (q *Queries) ListUsageSubjectStats(ctx context.Context, arg ListUsageSubjectStatsParams) ([]ListUsageSubjectStatsRow, error) {
-	rows, err := q.db.QueryContext(ctx, listUsageSubjectStats, arg.CursorLastEventAt, arg.CursorSubject, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, listUsageSubjectStats,
+		arg.WorkspaceID,
+		arg.CursorLastEventAt,
+		arg.CursorSubject,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}

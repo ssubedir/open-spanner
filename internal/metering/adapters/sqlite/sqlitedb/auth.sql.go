@@ -24,16 +24,17 @@ func (q *Queries) CountUsers(ctx context.Context) (int64, error) {
 
 const deleteAPIKey = `-- name: DeleteAPIKey :execrows
 DELETE FROM auth_api_keys
-WHERE id = ? AND user_id = ?
+WHERE id = ? AND user_id = ? AND workspace_id = ?
 `
 
 type DeleteAPIKeyParams struct {
-	ID     string
-	UserID string
+	ID          string
+	UserID      string
+	WorkspaceID string
 }
 
 func (q *Queries) DeleteAPIKey(ctx context.Context, arg DeleteAPIKeyParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteAPIKey, arg.ID, arg.UserID)
+	result, err := q.db.ExecContext(ctx, deleteAPIKey, arg.ID, arg.UserID, arg.WorkspaceID)
 	if err != nil {
 		return 0, err
 	}
@@ -51,7 +52,7 @@ func (q *Queries) DeleteSessionByTokenHash(ctx context.Context, tokenHash string
 }
 
 const findAPIKeyByTokenHash = `-- name: FindAPIKeyByTokenHash :one
-SELECT id, user_id, name, token_hash, prefix, scopes, allowed_meters, expires_at, revoked_at, created_at, last_used_at
+SELECT id, user_id, workspace_id, name, token_hash, prefix, scopes, allowed_meters, expires_at, revoked_at, created_at, last_used_at
 FROM auth_api_keys
 WHERE token_hash = ?
 `
@@ -59,6 +60,7 @@ WHERE token_hash = ?
 type FindAPIKeyByTokenHashRow struct {
 	ID            string
 	UserID        string
+	WorkspaceID   string
 	Name          string
 	TokenHash     string
 	Prefix        string
@@ -76,6 +78,7 @@ func (q *Queries) FindAPIKeyByTokenHash(ctx context.Context, tokenHash string) (
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
+		&i.WorkspaceID,
 		&i.Name,
 		&i.TokenHash,
 		&i.Prefix,
@@ -86,6 +89,30 @@ func (q *Queries) FindAPIKeyByTokenHash(ctx context.Context, tokenHash string) (
 		&i.CreatedAt,
 		&i.LastUsedAt,
 	)
+	return i, err
+}
+
+const findDefaultWorkspaceByUserID = `-- name: FindDefaultWorkspaceByUserID :one
+SELECT auth_workspaces.id, auth_workspaces.name, auth_workspaces.created_at
+FROM auth_workspaces
+JOIN auth_workspace_memberships
+	ON auth_workspace_memberships.workspace_id = auth_workspaces.id
+WHERE auth_workspace_memberships.user_id = ?
+ORDER BY
+	CASE auth_workspace_memberships.role
+		WHEN 'owner' THEN 0
+		WHEN 'admin' THEN 1
+		ELSE 2
+	END,
+	auth_workspace_memberships.created_at ASC,
+	auth_workspaces.id ASC
+LIMIT 1
+`
+
+func (q *Queries) FindDefaultWorkspaceByUserID(ctx context.Context, userID string) (AuthWorkspace, error) {
+	row := q.db.QueryRowContext(ctx, findDefaultWorkspaceByUserID, userID)
+	var i AuthWorkspace
+	err := row.Scan(&i.ID, &i.Name, &i.CreatedAt)
 	return i, err
 }
 
@@ -117,7 +144,7 @@ func (q *Queries) FindIdentityByProviderSubject(ctx context.Context, arg FindIde
 }
 
 const findSessionByTokenHash = `-- name: FindSessionByTokenHash :one
-SELECT id, user_id, token_hash, kind, expires_at, created_at
+SELECT id, user_id, workspace_id, token_hash, kind, expires_at, created_at
 FROM auth_sessions
 WHERE token_hash = ? AND kind = ? AND expires_at > ?
 `
@@ -129,12 +156,13 @@ type FindSessionByTokenHashParams struct {
 }
 
 type FindSessionByTokenHashRow struct {
-	ID        string
-	UserID    string
-	TokenHash string
-	Kind      string
-	ExpiresAt string
-	CreatedAt string
+	ID          string
+	UserID      string
+	WorkspaceID string
+	TokenHash   string
+	Kind        string
+	ExpiresAt   string
+	CreatedAt   string
 }
 
 func (q *Queries) FindSessionByTokenHash(ctx context.Context, arg FindSessionByTokenHashParams) (FindSessionByTokenHashRow, error) {
@@ -143,6 +171,7 @@ func (q *Queries) FindSessionByTokenHash(ctx context.Context, arg FindSessionByT
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
+		&i.WorkspaceID,
 		&i.TokenHash,
 		&i.Kind,
 		&i.ExpiresAt,
@@ -188,15 +217,22 @@ func (q *Queries) FindUserByID(ctx context.Context, id string) (AuthUser, error)
 }
 
 const listAPIKeys = `-- name: ListAPIKeys :many
-SELECT id, user_id, name, token_hash, prefix, scopes, allowed_meters, expires_at, revoked_at, created_at, last_used_at
+SELECT id, user_id, workspace_id, name, token_hash, prefix, scopes, allowed_meters, expires_at, revoked_at, created_at, last_used_at
 FROM auth_api_keys
 WHERE user_id = ?
+	AND workspace_id = ?
 ORDER BY created_at DESC, id DESC
 `
+
+type ListAPIKeysParams struct {
+	UserID      string
+	WorkspaceID string
+}
 
 type ListAPIKeysRow struct {
 	ID            string
 	UserID        string
+	WorkspaceID   string
 	Name          string
 	TokenHash     string
 	Prefix        string
@@ -208,8 +244,8 @@ type ListAPIKeysRow struct {
 	LastUsedAt    sql.NullString
 }
 
-func (q *Queries) ListAPIKeys(ctx context.Context, userID string) ([]ListAPIKeysRow, error) {
-	rows, err := q.db.QueryContext(ctx, listAPIKeys, userID)
+func (q *Queries) ListAPIKeys(ctx context.Context, arg ListAPIKeysParams) ([]ListAPIKeysRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAPIKeys, arg.UserID, arg.WorkspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -220,6 +256,7 @@ func (q *Queries) ListAPIKeys(ctx context.Context, userID string) ([]ListAPIKeys
 		if err := rows.Scan(
 			&i.ID,
 			&i.UserID,
+			&i.WorkspaceID,
 			&i.Name,
 			&i.TokenHash,
 			&i.Prefix,
@@ -244,13 +281,14 @@ func (q *Queries) ListAPIKeys(ctx context.Context, userID string) ([]ListAPIKeys
 }
 
 const saveAPIKey = `-- name: SaveAPIKey :exec
-INSERT INTO auth_api_keys (id, user_id, name, token_hash, prefix, scopes, allowed_meters, expires_at, revoked_at, created_at, last_used_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO auth_api_keys (id, user_id, workspace_id, name, token_hash, prefix, scopes, allowed_meters, expires_at, revoked_at, created_at, last_used_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type SaveAPIKeyParams struct {
 	ID            string
 	UserID        string
+	WorkspaceID   string
 	Name          string
 	TokenHash     string
 	Prefix        string
@@ -266,6 +304,7 @@ func (q *Queries) SaveAPIKey(ctx context.Context, arg SaveAPIKeyParams) error {
 	_, err := q.db.ExecContext(ctx, saveAPIKey,
 		arg.ID,
 		arg.UserID,
+		arg.WorkspaceID,
 		arg.Name,
 		arg.TokenHash,
 		arg.Prefix,
@@ -310,23 +349,25 @@ func (q *Queries) SaveIdentity(ctx context.Context, arg SaveIdentityParams) erro
 }
 
 const saveSession = `-- name: SaveSession :exec
-INSERT INTO auth_sessions (id, user_id, token_hash, kind, expires_at, created_at)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO auth_sessions (id, user_id, workspace_id, token_hash, kind, expires_at, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 `
 
 type SaveSessionParams struct {
-	ID        string
-	UserID    string
-	TokenHash string
-	Kind      string
-	ExpiresAt string
-	CreatedAt string
+	ID          string
+	UserID      string
+	WorkspaceID string
+	TokenHash   string
+	Kind        string
+	ExpiresAt   string
+	CreatedAt   string
 }
 
 func (q *Queries) SaveSession(ctx context.Context, arg SaveSessionParams) error {
 	_, err := q.db.ExecContext(ctx, saveSession,
 		arg.ID,
 		arg.UserID,
+		arg.WorkspaceID,
 		arg.TokenHash,
 		arg.Kind,
 		arg.ExpiresAt,
@@ -352,6 +393,44 @@ func (q *Queries) SaveUser(ctx context.Context, arg SaveUserParams) error {
 		arg.ID,
 		arg.Email,
 		arg.PasswordHash,
+		arg.CreatedAt,
+	)
+	return err
+}
+
+const saveWorkspace = `-- name: SaveWorkspace :exec
+INSERT INTO auth_workspaces (id, name, created_at)
+VALUES (?, ?, ?)
+`
+
+type SaveWorkspaceParams struct {
+	ID        string
+	Name      string
+	CreatedAt string
+}
+
+func (q *Queries) SaveWorkspace(ctx context.Context, arg SaveWorkspaceParams) error {
+	_, err := q.db.ExecContext(ctx, saveWorkspace, arg.ID, arg.Name, arg.CreatedAt)
+	return err
+}
+
+const saveWorkspaceMembership = `-- name: SaveWorkspaceMembership :exec
+INSERT INTO auth_workspace_memberships (workspace_id, user_id, role, created_at)
+VALUES (?, ?, ?, ?)
+`
+
+type SaveWorkspaceMembershipParams struct {
+	WorkspaceID string
+	UserID      string
+	Role        string
+	CreatedAt   string
+}
+
+func (q *Queries) SaveWorkspaceMembership(ctx context.Context, arg SaveWorkspaceMembershipParams) error {
+	_, err := q.db.ExecContext(ctx, saveWorkspaceMembership,
+		arg.WorkspaceID,
+		arg.UserID,
+		arg.Role,
 		arg.CreatedAt,
 	)
 	return err

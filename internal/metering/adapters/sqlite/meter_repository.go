@@ -7,6 +7,7 @@ import (
 	"errors"
 	"time"
 
+	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/sqlite/sqlitedb"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
 	domainmeter "github.com/ssubedir/open-spanner/internal/metering/domain/meter"
@@ -22,25 +23,54 @@ func NewMeterRepository(store *Store) *MeterRepository {
 }
 
 func (r *MeterRepository) Save(ctx context.Context, meter domainmeter.Meter) (domainmeter.Meter, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return domainmeter.Meter{}, err
+	}
 	dimensions, err := marshalDimensions(meter.Dimensions())
 	if err != nil {
 		return domainmeter.Meter{}, err
 	}
 
-	err = queriesFor(ctx, r.queries).SaveMeter(ctx, sqlitedb.SaveMeterParams{
-		ID:                 meter.ID(),
-		Name:               meter.Name(),
-		Description:        meter.Description(),
-		Unit:               meter.Unit(),
-		Aggregation:        string(meter.Aggregation()),
-		Dimensions:         dimensions,
-		EventRetentionDays: int64(meter.EventRetentionDays()),
-		CreatedAt:          formatTime(meter.CreatedAt()),
+	err = r.store.WithinTransaction(ctx, func(txCtx context.Context) error {
+		existing, err := queriesFor(txCtx, r.queries).ListMeters(txCtx, sqlitedb.ListMetersParams{
+			WorkspaceID: workspaceID,
+			ID:          optionalValue(meter.ID()),
+			Limit:       1,
+		})
+		if err != nil {
+			return err
+		}
+
+		err = queriesFor(txCtx, r.queries).SaveMeter(txCtx, sqlitedb.SaveMeterParams{
+			ID:                 meter.ID(),
+			WorkspaceID:        workspaceID,
+			Name:               meter.Name(),
+			Description:        meter.Description(),
+			Unit:               meter.Unit(),
+			Aggregation:        string(meter.Aggregation()),
+			Dimensions:         dimensions,
+			EventRetentionDays: int64(meter.EventRetentionDays()),
+			CreatedAt:          formatTime(meter.CreatedAt()),
+		})
+		if err != nil {
+			if isUniqueConstraint(err) {
+				return errors.Join(domain.ErrConflict, err)
+			}
+			return err
+		}
+
+		if len(existing) > 0 {
+			return nil
+		}
+
+		return queriesFor(txCtx, r.queries).IncrementWorkspaceMeters(txCtx, sqlitedb.IncrementWorkspaceMetersParams{
+			WorkspaceID: workspaceID,
+			Delta:       1,
+			UpdatedAt:   formatTime(time.Now().UTC()),
+		})
 	})
 	if err != nil {
-		if isUniqueConstraint(err) {
-			return domainmeter.Meter{}, errors.Join(domain.ErrConflict, err)
-		}
 		return domainmeter.Meter{}, err
 	}
 
@@ -48,11 +78,16 @@ func (r *MeterRepository) Save(ctx context.Context, meter domainmeter.Meter) (do
 }
 
 func (r *MeterRepository) Find(ctx context.Context, query domainmeter.Query) ([]domainmeter.Meter, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := queriesFor(ctx, r.queries).ListMeters(ctx, sqlitedb.ListMetersParams{
-		ID:     optionalValue(query.ID),
-		Name:   optionalValue(query.Name),
-		Cursor: optionalValue(query.Cursor),
-		Limit:  int64(domainmeter.NormalizeLimit(query.Limit)),
+		WorkspaceID: workspaceID,
+		ID:          optionalValue(query.ID),
+		Name:        optionalValue(query.Name),
+		Cursor:      optionalValue(query.Cursor),
+		Limit:       int64(domainmeter.NormalizeLimit(query.Limit)),
 	})
 	if err != nil {
 		return nil, err
@@ -80,7 +115,11 @@ func (r *MeterRepository) Find(ctx context.Context, query domainmeter.Query) ([]
 }
 
 func (r *MeterRepository) Count(ctx context.Context) (int, error) {
-	count, err := queriesFor(ctx, r.queries).CountMeters(ctx)
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return 0, err
+	}
+	count, err := queriesFor(ctx, r.queries).CountMeters(ctx, workspaceID)
 	if err != nil {
 		return 0, err
 	}
@@ -88,6 +127,10 @@ func (r *MeterRepository) Count(ctx context.Context) (int, error) {
 }
 
 func (r *MeterRepository) Delete(ctx context.Context, query domainmeter.Query) error {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return err
+	}
 	meters, err := r.Find(ctx, query)
 	if err != nil {
 		return err
@@ -97,7 +140,10 @@ func (r *MeterRepository) Delete(ctx context.Context, query domainmeter.Query) e
 	}
 
 	meter := meters[0]
-	usageCount, err := queriesFor(ctx, r.queries).CountUsageEventsForMeter(ctx, meter.Name())
+	usageCount, err := queriesFor(ctx, r.queries).CountUsageEventsForMeter(ctx, sqlitedb.CountUsageEventsForMeterParams{
+		WorkspaceID: workspaceID,
+		MeterName:   meter.Name(),
+	})
 	if err != nil {
 		return err
 	}
@@ -105,7 +151,20 @@ func (r *MeterRepository) Delete(ctx context.Context, query domainmeter.Query) e
 		return errors.Join(domain.ErrConflict, errors.New("meter has usage"))
 	}
 
-	return queriesFor(ctx, r.queries).DeleteMeter(ctx, meter.ID())
+	return r.store.WithinTransaction(ctx, func(txCtx context.Context) error {
+		if err := queriesFor(txCtx, r.queries).DeleteMeter(txCtx, sqlitedb.DeleteMeterParams{
+			WorkspaceID: workspaceID,
+			ID:          meter.ID(),
+		}); err != nil {
+			return err
+		}
+
+		return queriesFor(txCtx, r.queries).IncrementWorkspaceMeters(txCtx, sqlitedb.IncrementWorkspaceMetersParams{
+			WorkspaceID: workspaceID,
+			Delta:       -1,
+			UpdatedAt:   formatTime(time.Now().UTC()),
+		})
+	})
 }
 
 func scanMeter(scanner interface {

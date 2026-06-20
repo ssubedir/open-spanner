@@ -6,19 +6,7 @@ package postgresdb
 
 import (
 	"database/sql"
-	"encoding/json"
 )
-
-type AlertDestination struct {
-	ID            string
-	Name          string
-	Type          string
-	Enabled       bool
-	WebhookUrl    string
-	WebhookSecret string
-	CreatedAt     string
-	UpdatedAt     string
-}
 
 type AlertEvaluationJob struct {
 	RuleID      string
@@ -27,24 +15,6 @@ type AlertEvaluationJob struct {
 	Attempts    int32
 	CreatedAt   string
 	UpdatedAt   string
-}
-
-type AlertRule struct {
-	ID                        string
-	Name                      string
-	MeterName                 string
-	Enabled                   bool
-	Subject                   string
-	Metadata                  json.RawMessage
-	WindowSeconds             int32
-	Comparator                string
-	Threshold                 float64
-	EvaluationIntervalSeconds int32
-	GroupBy                   string
-	DestinationID             string
-	NextEvaluateAt            string
-	CreatedAt                 string
-	UpdatedAt                 string
 }
 
 type AlertState struct {
@@ -76,41 +46,8 @@ type AuthUser struct {
 	CreatedAt    string
 }
 
-type Meter struct {
-	ID                 string
-	Name               string
-	Description        string
-	Unit               string
-	Aggregation        string
-	Dimensions         string
-	EventRetentionDays int32
-	CreatedAt          string
-}
-
-type UsageEvent struct {
-	ID             string
-	IdempotencyKey sql.NullString
-	Subject        string
-	MeterName      string
-	Quantity       float64
-	EventTime      string
-	ReceivedAt     string
-	Metadata       json.RawMessage
-}
-
-type UsageIngestion struct {
-	ID         string
-	Kind       string
-	Accepted   int32
-	Duplicates int32
-	Failed     int32
-	CreatedAt  string
-}
-
-type UsagePruneRun struct {
+type AuthWorkspace struct {
 	ID        string
-	DryRun    int32
-	Deleted   int32
-	Meters    string
+	Name      string
 	CreatedAt string
 }

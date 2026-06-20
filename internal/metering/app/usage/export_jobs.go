@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/metering/app/page"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
 	domainusage "github.com/ssubedir/open-spanner/internal/metering/domain/usage"
@@ -54,10 +55,15 @@ func (s *service) CreateExportJob(ctx context.Context, cmd ExportJobCreateComman
 	if format == "" {
 		format = domainusage.ExportJobCSV
 	}
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return ExportJobResult{}, err
+	}
 
 	now := s.now()
 	job, err := domainusage.NewExportJob(
 		newID(),
+		workspaceID,
 		kind,
 		domainusage.ExportJobQueued,
 		format,

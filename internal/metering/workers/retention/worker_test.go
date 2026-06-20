@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/config"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/sqlite"
 	appusage "github.com/ssubedir/open-spanner/internal/metering/app/usage"
@@ -16,7 +17,7 @@ import (
 )
 
 func TestWorkerPrunesWithSQLiteRepositories(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	store, err := sqlite.NewStore(ctx, ":memory:", config.DBPoolConfig{MaxOpenConns: 1})
 	if err != nil {
 		t.Fatalf("new sqlite store: %v", err)
@@ -100,6 +101,10 @@ func newUsageEvent(t *testing.T, id string, subject string, meter string, quanti
 	return event
 }
 
+func testContext() context.Context {
+	return appauth.WithWorkspaceID(context.Background(), appauth.DefaultWorkspaceID)
+}
+
 func waitFor(t *testing.T, timeout time.Duration, fn func() bool) bool {
 	t.Helper()
 
@@ -117,7 +122,7 @@ func TestWorkerPrunesOnIntervalAndStops(t *testing.T) {
 	pruner := &fakePruner{}
 	worker := NewWorker(pruner, 5*time.Millisecond, time.Second, func(string, ...any) {})
 
-	stop := worker.Start(context.Background())
+	stop := worker.Start(testContext())
 	if !pruner.waitForCalls(1, 200*time.Millisecond) {
 		t.Fatal("worker did not prune on interval")
 	}
@@ -135,7 +140,7 @@ func TestWorkerSkipsTickWhenPreviousRunIsActive(t *testing.T) {
 	logs := &logRecorder{}
 	worker := NewWorker(pruner, 5*time.Millisecond, time.Second, logs.logf)
 
-	stop := worker.Start(context.Background())
+	stop := worker.Start(testContext())
 	defer stop()
 
 	if !pruner.waitForCalls(1, 200*time.Millisecond) {
@@ -157,7 +162,7 @@ func TestWorkerCancelsPruneAfterTimeout(t *testing.T) {
 	logs := &logRecorder{}
 	worker := NewWorker(pruner, 5*time.Millisecond, 10*time.Millisecond, logs.logf)
 
-	stop := worker.Start(context.Background())
+	stop := worker.Start(testContext())
 	defer stop()
 
 	if !pruner.waitForCancellations(1, 200*time.Millisecond) {

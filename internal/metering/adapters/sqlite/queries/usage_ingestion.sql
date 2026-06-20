@@ -1,6 +1,7 @@
 -- name: SaveUsageEvent :exec
 INSERT INTO usage_events (
 	id,
+	workspace_id,
 	idempotency_key,
 	subject,
 	meter_name,
@@ -10,6 +11,7 @@ INSERT INTO usage_events (
 	metadata
 ) VALUES (
 	sqlc.arg('id'),
+	sqlc.arg('workspace_id'),
 	NULLIF(CAST(sqlc.arg('idempotency_key') AS TEXT), ''),
 	sqlc.arg('subject'),
 	sqlc.arg('meter_name'),
@@ -22,18 +24,21 @@ INSERT INTO usage_events (
 -- name: FindUsageEventByID :one
 SELECT id, idempotency_key, subject, meter_name, quantity, event_time, received_at, metadata
 FROM usage_events
-WHERE id = ?;
+WHERE workspace_id = sqlc.arg('workspace_id')
+	AND id = sqlc.arg('id');
 
 -- name: FindUsageEventByIdempotencyKey :one
 SELECT id, idempotency_key, subject, meter_name, quantity, event_time, received_at, metadata
 FROM usage_events
-WHERE idempotency_key = ?;
+WHERE workspace_id = sqlc.arg('workspace_id')
+	AND idempotency_key = sqlc.arg('idempotency_key');
 
 -- name: SaveBulkUsageIngestion :exec
-INSERT INTO bulk_usage_ingestions (idempotency_key, response, created_at)
-VALUES (?, ?, ?);
+INSERT INTO bulk_usage_ingestions (workspace_id, idempotency_key, response, created_at)
+VALUES (?, ?, ?, ?);
 
 -- name: FindBulkUsageIngestion :one
 SELECT response
 FROM bulk_usage_ingestions
-WHERE idempotency_key = ?;
+WHERE workspace_id = sqlc.arg('workspace_id')
+	AND idempotency_key = sqlc.arg('idempotency_key');

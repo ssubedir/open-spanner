@@ -8,23 +8,26 @@ package postgresdb
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 )
 
 const listUsageEvents = `-- name: ListUsageEvents :many
 SELECT id, idempotency_key, subject, meter_name, quantity, event_time, received_at, metadata
 FROM usage_events
-WHERE ($1::text IS NULL OR subject = $1::text)
-	AND ($2::text IS NULL OR meter_name = $2::text)
-	AND ($3::text IS NULL OR event_time >= $3::text)
-	AND ($4::text IS NULL OR event_time < $4::text)
-	AND ($5::text IS NULL
-		OR (event_time < $5::text
-			OR (event_time = $5::text AND id < $6::text)))
+WHERE workspace_id = $1::text
+	AND ($2::text IS NULL OR subject = $2::text)
+	AND ($3::text IS NULL OR meter_name = $3::text)
+	AND ($4::text IS NULL OR event_time >= $4::text)
+	AND ($5::text IS NULL OR event_time < $5::text)
+	AND ($6::text IS NULL
+		OR (event_time < $6::text
+			OR (event_time = $6::text AND id < $7::text)))
 ORDER BY event_time DESC, id DESC
-LIMIT $7::int
+LIMIT $8::int
 `
 
 type ListUsageEventsParams struct {
+	WorkspaceID     string
 	Subject         sql.NullString
 	MeterName       sql.NullString
 	FromTime        sql.NullString
@@ -34,8 +37,20 @@ type ListUsageEventsParams struct {
 	Limit           int32
 }
 
-func (q *Queries) ListUsageEvents(ctx context.Context, arg ListUsageEventsParams) ([]UsageEvent, error) {
+type ListUsageEventsRow struct {
+	ID             string
+	IdempotencyKey sql.NullString
+	Subject        string
+	MeterName      string
+	Quantity       float64
+	EventTime      string
+	ReceivedAt     string
+	Metadata       json.RawMessage
+}
+
+func (q *Queries) ListUsageEvents(ctx context.Context, arg ListUsageEventsParams) ([]ListUsageEventsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listUsageEvents,
+		arg.WorkspaceID,
 		arg.Subject,
 		arg.MeterName,
 		arg.FromTime,
@@ -48,9 +63,9 @@ func (q *Queries) ListUsageEvents(ctx context.Context, arg ListUsageEventsParams
 		return nil, err
 	}
 	defer rows.Close()
-	items := []UsageEvent{}
+	items := []ListUsageEventsRow{}
 	for rows.Next() {
-		var i UsageEvent
+		var i ListUsageEventsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.IdempotencyKey,

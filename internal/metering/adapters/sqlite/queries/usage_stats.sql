@@ -1,10 +1,12 @@
 -- name: CountUsageEvents :one
 SELECT COUNT(*)
-FROM usage_events;
+FROM usage_events
+WHERE workspace_id = sqlc.arg('workspace_id');
 
 -- name: ListUsageMeterStats :many
 SELECT meter_name, COUNT(*) AS usage_events, CAST(MAX(event_time) AS TEXT) AS last_event_at
 FROM usage_events
+WHERE workspace_id = sqlc.arg('workspace_id')
 GROUP BY meter_name
 ORDER BY meter_name;
 
@@ -13,6 +15,7 @@ SELECT subject, usage_events, meters, last_event_at
 FROM (
 	SELECT subject, COUNT(*) AS usage_events, COUNT(DISTINCT meter_name) AS meters, CAST(MAX(event_time) AS TEXT) AS last_event_at
 	FROM usage_events
+	WHERE workspace_id = sqlc.arg('workspace_id')
 	GROUP BY subject
 )
 WHERE (CAST(sqlc.narg('cursor_last_event_at') AS TEXT) IS NULL

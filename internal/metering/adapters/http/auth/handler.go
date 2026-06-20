@@ -314,7 +314,7 @@ func (h *Handler) ListAPIKeys(w http.ResponseWriter, r *http.Request) {
 // @Failure 500 {object} respond.ErrorResponse
 // @Router /v1/auth/api-keys [post]
 func (h *Handler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
-	user, err := h.currentUser(r)
+	principal, err := h.currentPrincipal(r)
 	if err != nil {
 		respond.ServiceError(w, err)
 		return
@@ -335,8 +335,9 @@ func (h *Handler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 		expiresAtPtr = &expiresAt
 	}
 
-	key, err := h.service.CreateAPIKey(r.Context(), appauth.CreateAPIKeyCommand{
-		UserID:        user.ID,
+	ctx := appauth.WithPrincipal(r.Context(), principal)
+	key, err := h.service.CreateAPIKey(ctx, appauth.CreateAPIKeyCommand{
+		UserID:        principal.User.ID,
 		Name:          req.Name,
 		Scopes:        req.Scopes,
 		AllowedMeters: req.AllowedMeters,
@@ -366,13 +367,14 @@ func (h *Handler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 // @Failure 500 {object} respond.ErrorResponse
 // @Router /v1/auth/api-keys/{id} [delete]
 func (h *Handler) DeleteAPIKey(w http.ResponseWriter, r *http.Request) {
-	user, err := h.currentUser(r)
+	principal, err := h.currentPrincipal(r)
 	if err != nil {
 		respond.ServiceError(w, err)
 		return
 	}
 
-	if err := h.service.DeleteAPIKey(r.Context(), user.ID, chi.URLParam(r, "id")); err != nil {
+	ctx := appauth.WithPrincipal(r.Context(), principal)
+	if err := h.service.DeleteAPIKey(ctx, principal.User.ID, chi.URLParam(r, "id")); err != nil {
 		respond.ServiceError(w, err)
 		return
 	}

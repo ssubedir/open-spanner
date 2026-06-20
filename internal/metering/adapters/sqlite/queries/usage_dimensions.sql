@@ -7,7 +7,8 @@ FROM (
 		ELSE CAST(json_extract(metadata, CAST(sqlc.arg('path') AS TEXT)) AS TEXT)
 	END AS value
 	FROM usage_events
-	WHERE meter_name = sqlc.arg('meter_name')
+	WHERE workspace_id = sqlc.arg('workspace_id')
+		AND meter_name = sqlc.arg('meter_name')
 		AND json_type(metadata, CAST(sqlc.arg('path') AS TEXT)) IS NOT NULL
 		AND (CAST(sqlc.narg('subject') AS TEXT) IS NULL OR subject = CAST(sqlc.narg('subject') AS TEXT))
 		AND (CAST(sqlc.narg('from_time') AS TEXT) IS NULL OR event_time >= CAST(sqlc.narg('from_time') AS TEXT))

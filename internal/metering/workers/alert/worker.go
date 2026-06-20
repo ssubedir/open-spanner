@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	appalert "github.com/ssubedir/open-spanner/internal/metering/app/alert"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
 )
@@ -125,10 +126,11 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 	}
 
 	startedAt := time.Now()
-	jobCtx := ctx
+	baseCtx := appauth.WithWorkspaceID(ctx, job.WorkspaceID)
+	jobCtx := baseCtx
 	cancel := func() {}
 	if w.timeout > 0 {
-		jobCtx, cancel = context.WithTimeout(ctx, w.timeout)
+		jobCtx, cancel = context.WithTimeout(baseCtx, w.timeout)
 	}
 	defer cancel()
 
@@ -140,7 +142,7 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 			if !attempted {
 				continue
 			}
-			if _, recordErr := w.service.RecordDelivery(ctx, appalert.DeliveryCommand{
+			if _, recordErr := w.service.RecordDelivery(baseCtx, appalert.DeliveryCommand{
 				EventID:     event.ID,
 				TriggerType: string(appalert.TriggerWebhook),
 				Status:      string(attempt.status),
@@ -155,7 +157,7 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 				w.logger("alert trigger delivery failed: rule_id=%s event_id=%s error=%s", job.RuleID, event.ID, attempt.message)
 			}
 		}
-		if err := w.service.CompleteEvaluationJob(ctx, appalert.CompleteCommand{RuleID: job.RuleID}); err != nil && !errors.Is(err, domain.ErrNotFound) {
+		if err := w.service.CompleteEvaluationJob(baseCtx, appalert.CompleteCommand{RuleID: job.RuleID}); err != nil && !errors.Is(err, domain.ErrNotFound) {
 			return true, err
 		}
 		w.logger("alert evaluation completed: rule_id=%s status=%s value=%.4f duration=%s", job.RuleID, result.State.Status, result.State.Value, duration)
@@ -166,7 +168,7 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 		return true, nil
 	}
 
-	failCtx, failCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	failCtx, failCancel := context.WithTimeout(appauth.WithWorkspaceID(context.Background(), job.WorkspaceID), 10*time.Second)
 	defer failCancel()
 	if job.Attempts >= w.maxAttempts {
 		if completeErr := w.service.CompleteEvaluationJob(failCtx, appalert.CompleteCommand{RuleID: job.RuleID}); completeErr != nil && !errors.Is(completeErr, domain.ErrNotFound) {

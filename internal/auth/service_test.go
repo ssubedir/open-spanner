@@ -195,6 +195,7 @@ func TestAPIKeyFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
+	ctx = WithWorkspaceID(ctx, user.WorkspaceID)
 
 	created, err := service.CreateAPIKey(ctx, CreateAPIKeyCommand{UserID: user.ID, Name: "sdk"})
 	if err != nil {
@@ -251,6 +252,7 @@ func TestAPIKeyAuthenticationRejectsExpiredKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
+	ctx = WithWorkspaceID(ctx, user.WorkspaceID)
 
 	expiresAt := now.Add(time.Hour)
 	created, err := service.CreateAPIKey(ctx, CreateAPIKeyCommand{UserID: user.ID, Name: "short-lived", ExpiresAt: &expiresAt})
@@ -298,23 +300,27 @@ func TestCasbinAuthorizerEnforcesScopesAndMeters(t *testing.T) {
 }
 
 type fakeRepository struct {
-	usersByID        map[string]User
-	userIDByEmail    map[string]string
-	identitiesByKey  map[string]Identity
-	sessionsByHash   map[string]Session
-	apiKeysByID      map[string]APIKey
-	apiKeyIDByHash   map[string]string
-	saveSessionError error
+	usersByID           map[string]User
+	userIDByEmail       map[string]string
+	workspacesByID      map[string]Workspace
+	membershipsByUserID map[string][]WorkspaceMembership
+	identitiesByKey     map[string]Identity
+	sessionsByHash      map[string]Session
+	apiKeysByID         map[string]APIKey
+	apiKeyIDByHash      map[string]string
+	saveSessionError    error
 }
 
 func newFakeRepository() *fakeRepository {
 	return &fakeRepository{
-		usersByID:       map[string]User{},
-		userIDByEmail:   map[string]string{},
-		identitiesByKey: map[string]Identity{},
-		sessionsByHash:  map[string]Session{},
-		apiKeysByID:     map[string]APIKey{},
-		apiKeyIDByHash:  map[string]string{},
+		usersByID:           map[string]User{},
+		userIDByEmail:       map[string]string{},
+		workspacesByID:      map[string]Workspace{},
+		membershipsByUserID: map[string][]WorkspaceMembership{},
+		identitiesByKey:     map[string]Identity{},
+		sessionsByHash:      map[string]Session{},
+		apiKeysByID:         map[string]APIKey{},
+		apiKeyIDByHash:      map[string]string{},
 	}
 }
 
@@ -322,6 +328,28 @@ func (r *fakeRepository) SaveUser(_ context.Context, user User) (User, error) {
 	r.usersByID[user.ID] = user
 	r.userIDByEmail[user.Email] = user.ID
 	return user, nil
+}
+
+func (r *fakeRepository) SaveWorkspace(_ context.Context, workspace Workspace) (Workspace, error) {
+	r.workspacesByID[workspace.ID] = workspace
+	return workspace, nil
+}
+
+func (r *fakeRepository) SaveWorkspaceMembership(_ context.Context, membership WorkspaceMembership) (WorkspaceMembership, error) {
+	r.membershipsByUserID[membership.UserID] = append(r.membershipsByUserID[membership.UserID], membership)
+	return membership, nil
+}
+
+func (r *fakeRepository) FindDefaultWorkspaceByUserID(_ context.Context, userID string) (Workspace, error) {
+	memberships := r.membershipsByUserID[userID]
+	if len(memberships) == 0 {
+		return Workspace{}, domain.ErrNotFound
+	}
+	workspace, ok := r.workspacesByID[memberships[0].WorkspaceID]
+	if !ok {
+		return Workspace{}, domain.ErrNotFound
+	}
+	return workspace, nil
 }
 
 func (r *fakeRepository) FindUserByID(_ context.Context, id string) (User, error) {
@@ -380,10 +408,14 @@ func (r *fakeRepository) SaveAPIKey(_ context.Context, key APIKey) (APIKey, erro
 	return key, nil
 }
 
-func (r *fakeRepository) ListAPIKeys(_ context.Context, userID string) ([]APIKey, error) {
+func (r *fakeRepository) ListAPIKeys(ctx context.Context, userID string) ([]APIKey, error) {
+	workspaceID, err := RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
 	keys := []APIKey{}
 	for _, key := range r.apiKeysByID {
-		if key.UserID == userID {
+		if key.UserID == userID && key.WorkspaceID == workspaceID {
 			keys = append(keys, key)
 		}
 	}
@@ -408,9 +440,13 @@ func (r *fakeRepository) UpdateAPIKeyLastUsed(_ context.Context, id string, last
 	return nil
 }
 
-func (r *fakeRepository) DeleteAPIKey(_ context.Context, userID string, id string) error {
+func (r *fakeRepository) DeleteAPIKey(ctx context.Context, userID string, id string) error {
+	workspaceID, err := RequireWorkspaceID(ctx)
+	if err != nil {
+		return err
+	}
 	key, ok := r.apiKeysByID[id]
-	if !ok || key.UserID != userID {
+	if !ok || key.UserID != userID || key.WorkspaceID != workspaceID {
 		return domain.ErrNotFound
 	}
 	delete(r.apiKeyIDByHash, key.TokenHash)

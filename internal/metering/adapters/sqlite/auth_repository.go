@@ -44,6 +44,42 @@ func (r *AuthRepository) SaveUser(ctx context.Context, user appauth.User) (appau
 	return user, nil
 }
 
+func (r *AuthRepository) SaveWorkspace(ctx context.Context, workspace appauth.Workspace) (appauth.Workspace, error) {
+	err := queriesFor(ctx, r.queries).SaveWorkspace(ctx, sqlitedb.SaveWorkspaceParams{
+		ID:        workspace.ID,
+		Name:      workspace.Name,
+		CreatedAt: formatTime(workspace.CreatedAt),
+	})
+	if err != nil {
+		if isUniqueConstraint(err) {
+			return appauth.Workspace{}, errors.Join(domain.ErrConflict, err)
+		}
+		return appauth.Workspace{}, err
+	}
+	return workspace, nil
+}
+
+func (r *AuthRepository) SaveWorkspaceMembership(ctx context.Context, membership appauth.WorkspaceMembership) (appauth.WorkspaceMembership, error) {
+	err := queriesFor(ctx, r.queries).SaveWorkspaceMembership(ctx, sqlitedb.SaveWorkspaceMembershipParams{
+		WorkspaceID: membership.WorkspaceID,
+		UserID:      membership.UserID,
+		Role:        membership.Role,
+		CreatedAt:   formatTime(membership.CreatedAt),
+	})
+	if err != nil {
+		if isUniqueConstraint(err) {
+			return appauth.WorkspaceMembership{}, errors.Join(domain.ErrConflict, err)
+		}
+		return appauth.WorkspaceMembership{}, err
+	}
+	return membership, nil
+}
+
+func (r *AuthRepository) FindDefaultWorkspaceByUserID(ctx context.Context, userID string) (appauth.Workspace, error) {
+	workspace, err := queriesFor(ctx, r.queries).FindDefaultWorkspaceByUserID(ctx, userID)
+	return workspaceFromFields(workspace.ID, workspace.Name, workspace.CreatedAt, err)
+}
+
 func (r *AuthRepository) FindUserByID(ctx context.Context, id string) (appauth.User, error) {
 	user, err := queriesFor(ctx, r.queries).FindUserByID(ctx, id)
 	return userFromFields(user.ID, user.Email, user.PasswordHash, user.CreatedAt, err)
@@ -84,12 +120,13 @@ func (r *AuthRepository) FindIdentityByProviderSubject(ctx context.Context, prov
 
 func (r *AuthRepository) SaveSession(ctx context.Context, session appauth.Session) (appauth.Session, error) {
 	err := queriesFor(ctx, r.queries).SaveSession(ctx, sqlitedb.SaveSessionParams{
-		ID:        session.ID,
-		UserID:    session.UserID,
-		TokenHash: session.TokenHash,
-		Kind:      session.Kind,
-		ExpiresAt: formatTime(session.ExpiresAt),
-		CreatedAt: formatTime(session.CreatedAt),
+		ID:          session.ID,
+		UserID:      session.UserID,
+		WorkspaceID: session.WorkspaceID,
+		TokenHash:   session.TokenHash,
+		Kind:        session.Kind,
+		ExpiresAt:   formatTime(session.ExpiresAt),
+		CreatedAt:   formatTime(session.CreatedAt),
 	})
 	if err != nil {
 		if isUniqueConstraint(err) {
@@ -106,7 +143,7 @@ func (r *AuthRepository) FindSessionByTokenHash(ctx context.Context, tokenHash s
 		Kind:      kind,
 		ExpiresAt: formatTime(now),
 	})
-	return sessionFromFields(session.ID, session.UserID, session.TokenHash, session.Kind, session.ExpiresAt, session.CreatedAt, err)
+	return sessionFromFields(session.ID, session.UserID, session.WorkspaceID, session.TokenHash, session.Kind, session.ExpiresAt, session.CreatedAt, err)
 }
 
 func (r *AuthRepository) DeleteSessionByTokenHash(ctx context.Context, tokenHash string) error {
@@ -117,6 +154,7 @@ func (r *AuthRepository) SaveAPIKey(ctx context.Context, key appauth.APIKey) (ap
 	err := queriesFor(ctx, r.queries).SaveAPIKey(ctx, sqlitedb.SaveAPIKeyParams{
 		ID:            key.ID,
 		UserID:        key.UserID,
+		WorkspaceID:   key.WorkspaceID,
 		Name:          key.Name,
 		TokenHash:     key.TokenHash,
 		Prefix:        key.Prefix,
@@ -137,14 +175,21 @@ func (r *AuthRepository) SaveAPIKey(ctx context.Context, key appauth.APIKey) (ap
 }
 
 func (r *AuthRepository) ListAPIKeys(ctx context.Context, userID string) ([]appauth.APIKey, error) {
-	rows, err := queriesFor(ctx, r.queries).ListAPIKeys(ctx, userID)
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := queriesFor(ctx, r.queries).ListAPIKeys(ctx, sqlitedb.ListAPIKeysParams{
+		UserID:      userID,
+		WorkspaceID: workspaceID,
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	keys := make([]appauth.APIKey, 0, len(rows))
 	for _, row := range rows {
-		key, err := apiKeyFromFields(row.ID, row.UserID, row.Name, row.TokenHash, row.Prefix, row.Scopes, row.AllowedMeters, row.ExpiresAt, row.RevokedAt, row.CreatedAt, row.LastUsedAt, nil)
+		key, err := apiKeyFromFields(row.ID, row.UserID, row.WorkspaceID, row.Name, row.TokenHash, row.Prefix, row.Scopes, row.AllowedMeters, row.ExpiresAt, row.RevokedAt, row.CreatedAt, row.LastUsedAt, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -155,7 +200,7 @@ func (r *AuthRepository) ListAPIKeys(ctx context.Context, userID string) ([]appa
 
 func (r *AuthRepository) FindAPIKeyByTokenHash(ctx context.Context, tokenHash string) (appauth.APIKey, error) {
 	key, err := queriesFor(ctx, r.queries).FindAPIKeyByTokenHash(ctx, tokenHash)
-	return apiKeyFromFields(key.ID, key.UserID, key.Name, key.TokenHash, key.Prefix, key.Scopes, key.AllowedMeters, key.ExpiresAt, key.RevokedAt, key.CreatedAt, key.LastUsedAt, err)
+	return apiKeyFromFields(key.ID, key.UserID, key.WorkspaceID, key.Name, key.TokenHash, key.Prefix, key.Scopes, key.AllowedMeters, key.ExpiresAt, key.RevokedAt, key.CreatedAt, key.LastUsedAt, err)
 }
 
 func (r *AuthRepository) UpdateAPIKeyLastUsed(ctx context.Context, id string, lastUsedAt time.Time) error {
@@ -166,7 +211,15 @@ func (r *AuthRepository) UpdateAPIKeyLastUsed(ctx context.Context, id string, la
 }
 
 func (r *AuthRepository) DeleteAPIKey(ctx context.Context, userID string, id string) error {
-	rows, err := queriesFor(ctx, r.queries).DeleteAPIKey(ctx, sqlitedb.DeleteAPIKeyParams{ID: id, UserID: userID})
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return err
+	}
+	rows, err := queriesFor(ctx, r.queries).DeleteAPIKey(ctx, sqlitedb.DeleteAPIKeyParams{
+		ID:          id,
+		UserID:      userID,
+		WorkspaceID: workspaceID,
+	})
 	if err != nil {
 		return err
 	}
@@ -174,6 +227,21 @@ func (r *AuthRepository) DeleteAPIKey(ctx context.Context, userID string, id str
 		return domain.ErrNotFound
 	}
 	return nil
+}
+
+func workspaceFromFields(id string, name string, createdAt string, err error) (appauth.Workspace, error) {
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return appauth.Workspace{}, domain.ErrNotFound
+		}
+		return appauth.Workspace{}, err
+	}
+
+	parsedCreatedAt, err := time.Parse(time.RFC3339Nano, createdAt)
+	if err != nil {
+		return appauth.Workspace{}, err
+	}
+	return appauth.Workspace{ID: id, Name: name, CreatedAt: parsedCreatedAt}, nil
 }
 
 func userFromFields(id string, email string, passwordHash string, createdAt string, err error) (appauth.User, error) {
@@ -226,7 +294,7 @@ func authBoolInt(value bool) int64 {
 	return 0
 }
 
-func apiKeyFromFields(id string, userID string, name string, tokenHash string, prefix string, scopesJSON string, allowedMetersJSON string, expiresAt sql.NullString, revokedAt sql.NullString, createdAt string, lastUsedAt sql.NullString, err error) (appauth.APIKey, error) {
+func apiKeyFromFields(id string, userID string, workspaceID string, name string, tokenHash string, prefix string, scopesJSON string, allowedMetersJSON string, expiresAt sql.NullString, revokedAt sql.NullString, createdAt string, lastUsedAt sql.NullString, err error) (appauth.APIKey, error) {
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return appauth.APIKey{}, domain.ErrNotFound
@@ -235,11 +303,12 @@ func apiKeyFromFields(id string, userID string, name string, tokenHash string, p
 	}
 
 	key := appauth.APIKey{
-		ID:        id,
-		UserID:    userID,
-		Name:      name,
-		TokenHash: tokenHash,
-		Prefix:    prefix,
+		ID:          id,
+		UserID:      userID,
+		WorkspaceID: workspaceID,
+		Name:        name,
+		TokenHash:   tokenHash,
+		Prefix:      prefix,
 	}
 	scopes, err := parseStringArray(scopesJSON)
 	if err != nil {
@@ -274,7 +343,7 @@ func apiKeyFromFields(id string, userID string, name string, tokenHash string, p
 	return key, nil
 }
 
-func sessionFromFields(id string, userID string, tokenHash string, kind string, expiresAt string, createdAt string, err error) (appauth.Session, error) {
+func sessionFromFields(id string, userID string, workspaceID string, tokenHash string, kind string, expiresAt string, createdAt string, err error) (appauth.Session, error) {
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return appauth.Session{}, domain.ErrNotFound
@@ -291,12 +360,13 @@ func sessionFromFields(id string, userID string, tokenHash string, kind string, 
 		return appauth.Session{}, err
 	}
 	return appauth.Session{
-		ID:        id,
-		UserID:    userID,
-		TokenHash: tokenHash,
-		Kind:      kind,
-		ExpiresAt: parsedExpiresAt,
-		CreatedAt: parsedCreatedAt,
+		ID:          id,
+		UserID:      userID,
+		WorkspaceID: workspaceID,
+		TokenHash:   tokenHash,
+		Kind:        kind,
+		ExpiresAt:   parsedExpiresAt,
+		CreatedAt:   parsedCreatedAt,
 	}, nil
 }
 

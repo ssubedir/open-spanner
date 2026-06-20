@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/fileexport"
 	appusage "github.com/ssubedir/open-spanner/internal/metering/app/usage"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
@@ -112,10 +113,11 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 	}
 
 	startedAt := time.Now()
-	jobCtx := ctx
+	baseCtx := appauth.WithWorkspaceID(ctx, job.WorkspaceID)
+	jobCtx := baseCtx
 	cancel := func() {}
 	if w.timeout > 0 {
-		jobCtx, cancel = context.WithTimeout(ctx, w.timeout)
+		jobCtx, cancel = context.WithTimeout(baseCtx, w.timeout)
 	}
 	defer cancel()
 
@@ -134,7 +136,7 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 		return true, nil
 	}
 
-	failCtx, failCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	failCtx, failCancel := context.WithTimeout(appauth.WithWorkspaceID(context.Background(), job.WorkspaceID), 10*time.Second)
 	defer failCancel()
 	if _, failErr := w.service.FailExportJob(failCtx, appusage.ExportJobFailCommand{
 		ID:           job.ID,

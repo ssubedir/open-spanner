@@ -218,6 +218,7 @@ type Delivery struct {
 }
 
 type EvaluationJob struct {
+	WorkspaceID string
 	RuleID      string
 	RunAfter    time.Time
 	LockedUntil time.Time
@@ -446,6 +447,7 @@ type EventListResult struct {
 }
 
 type EvaluationJobResult struct {
+	WorkspaceID string
 	RuleID      string
 	RunAfter    time.Time
 	LockedUntil time.Time
@@ -1700,6 +1702,7 @@ func deliveryResult(delivery Delivery) DeliveryResult {
 
 func evaluationJobResult(job EvaluationJob) EvaluationJobResult {
 	return EvaluationJobResult{
+		WorkspaceID: job.WorkspaceID,
 		RuleID:      job.RuleID,
 		RunAfter:    job.RunAfter,
 		LockedUntil: job.LockedUntil,

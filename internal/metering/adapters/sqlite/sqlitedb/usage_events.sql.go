@@ -13,18 +13,20 @@ import (
 const listUsageEvents = `-- name: ListUsageEvents :many
 SELECT id, idempotency_key, subject, meter_name, quantity, event_time, received_at, metadata
 FROM usage_events
-WHERE (CAST(?1 AS TEXT) IS NULL OR subject = CAST(?1 AS TEXT))
-	AND (CAST(?2 AS TEXT) IS NULL OR meter_name = CAST(?2 AS TEXT))
-	AND (CAST(?3 AS TEXT) IS NULL OR event_time >= CAST(?3 AS TEXT))
-	AND (CAST(?4 AS TEXT) IS NULL OR event_time < CAST(?4 AS TEXT))
-	AND (CAST(?5 AS TEXT) IS NULL
-		OR (event_time < CAST(?5 AS TEXT)
-			OR (event_time = CAST(?5 AS TEXT) AND id < CAST(?6 AS TEXT))))
+WHERE workspace_id = ?1
+	AND (CAST(?2 AS TEXT) IS NULL OR subject = CAST(?2 AS TEXT))
+	AND (CAST(?3 AS TEXT) IS NULL OR meter_name = CAST(?3 AS TEXT))
+	AND (CAST(?4 AS TEXT) IS NULL OR event_time >= CAST(?4 AS TEXT))
+	AND (CAST(?5 AS TEXT) IS NULL OR event_time < CAST(?5 AS TEXT))
+	AND (CAST(?6 AS TEXT) IS NULL
+		OR (event_time < CAST(?6 AS TEXT)
+			OR (event_time = CAST(?6 AS TEXT) AND id < CAST(?7 AS TEXT))))
 ORDER BY event_time DESC, id DESC
-LIMIT ?7
+LIMIT ?8
 `
 
 type ListUsageEventsParams struct {
+	WorkspaceID     string
 	Subject         sql.NullString
 	MeterName       sql.NullString
 	FromTime        sql.NullString
@@ -34,8 +36,20 @@ type ListUsageEventsParams struct {
 	Limit           int64
 }
 
-func (q *Queries) ListUsageEvents(ctx context.Context, arg ListUsageEventsParams) ([]UsageEvent, error) {
+type ListUsageEventsRow struct {
+	ID             string
+	IdempotencyKey sql.NullString
+	Subject        string
+	MeterName      string
+	Quantity       float64
+	EventTime      string
+	ReceivedAt     string
+	Metadata       string
+}
+
+func (q *Queries) ListUsageEvents(ctx context.Context, arg ListUsageEventsParams) ([]ListUsageEventsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listUsageEvents,
+		arg.WorkspaceID,
 		arg.Subject,
 		arg.MeterName,
 		arg.FromTime,
@@ -48,9 +62,9 @@ func (q *Queries) ListUsageEvents(ctx context.Context, arg ListUsageEventsParams
 		return nil, err
 	}
 	defer rows.Close()
-	items := []UsageEvent{}
+	items := []ListUsageEventsRow{}
 	for rows.Next() {
-		var i UsageEvent
+		var i ListUsageEventsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.IdempotencyKey,

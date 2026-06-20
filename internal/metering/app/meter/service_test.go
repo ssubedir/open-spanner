@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/config"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/sqlite"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
@@ -14,7 +15,7 @@ import (
 )
 
 func TestServiceCreateListAndGet(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	service := newTestService()
 
 	created, err := service.Create(ctx, CreateCommand{
@@ -57,7 +58,7 @@ func TestServiceCreateListAndGet(t *testing.T) {
 }
 
 func TestServiceListCanFilterByName(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	service := newTestService()
 
 	if _, err := service.Create(ctx, CreateCommand{Name: "api_calls", Unit: "call"}); err != nil {
@@ -77,7 +78,7 @@ func TestServiceListCanFilterByName(t *testing.T) {
 }
 
 func TestServiceCreateStoresEventRetentionDays(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	service := newTestService()
 
 	created, err := service.Create(ctx, CreateCommand{
@@ -94,14 +95,14 @@ func TestServiceCreateStoresEventRetentionDays(t *testing.T) {
 }
 
 func TestServiceGetMissingReturnsNotFound(t *testing.T) {
-	_, err := newTestService().Get(context.Background(), GetQuery{ID: "missing"})
+	_, err := newTestService().Get(testContext(), GetQuery{ID: "missing"})
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("get missing error = %v, want ErrNotFound", err)
 	}
 }
 
 func TestServiceUpdateDescription(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	service := newTestService()
 
 	created, err := service.Create(ctx, CreateCommand{
@@ -130,7 +131,7 @@ func TestServiceUpdateDescription(t *testing.T) {
 }
 
 func TestServiceUpdateDefinitionSettings(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	service := newTestService()
 
 	created, err := service.Create(ctx, CreateCommand{
@@ -177,7 +178,7 @@ func TestServiceUpdateDefinitionSettings(t *testing.T) {
 }
 
 func TestServiceUpdateDimensions(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	service := newTestService()
 
 	created, err := service.Create(ctx, CreateCommand{
@@ -207,7 +208,7 @@ func TestServiceUpdateDimensions(t *testing.T) {
 }
 
 func TestServiceUpdateDimensionsAllowsSafeChangesWithUsage(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	service, usageRepo := newTestServiceWithUsage(t, ctx)
 
 	created, err := service.Create(ctx, CreateCommand{
@@ -245,7 +246,7 @@ func TestServiceUpdateDimensionsAllowsSafeChangesWithUsage(t *testing.T) {
 }
 
 func TestServiceUpdateDimensionsRejectsUnsafeChangesWithUsage(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 
 	for name, dimensions := range map[string][]domainmeter.Dimension{
 		"remove dimension": {
@@ -296,7 +297,7 @@ func TestServiceUpdateDimensionsRejectsUnsafeChangesWithUsage(t *testing.T) {
 }
 
 func TestServiceDelete(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	service := newTestService()
 
 	created, err := service.Create(ctx, CreateCommand{Name: "api_calls", Unit: "call"})
@@ -314,14 +315,14 @@ func TestServiceDelete(t *testing.T) {
 }
 
 func TestServiceCreateInvalidMeterReturnsInvalidInput(t *testing.T) {
-	_, err := newTestService().Create(context.Background(), CreateCommand{Name: "", Unit: "call"})
+	_, err := newTestService().Create(testContext(), CreateCommand{Name: "", Unit: "call"})
 	if !errors.Is(err, domain.ErrInvalidInput) {
 		t.Fatalf("create invalid error = %v, want ErrInvalidInput", err)
 	}
 }
 
 func TestServiceCreateDuplicateDimensionReturnsInvalidInput(t *testing.T) {
-	_, err := newTestService().Create(context.Background(), CreateCommand{
+	_, err := newTestService().Create(testContext(), CreateCommand{
 		Name: "api_calls",
 		Unit: "call",
 		Dimensions: []domainmeter.Dimension{
@@ -335,7 +336,7 @@ func TestServiceCreateDuplicateDimensionReturnsInvalidInput(t *testing.T) {
 }
 
 func TestServiceCreateInvalidEventRetentionDaysReturnsInvalidInput(t *testing.T) {
-	_, err := newTestService().Create(context.Background(), CreateCommand{
+	_, err := newTestService().Create(testContext(), CreateCommand{
 		Name:               "api_calls",
 		Unit:               "call",
 		EventRetentionDays: -1,
@@ -346,11 +347,15 @@ func TestServiceCreateInvalidEventRetentionDaysReturnsInvalidInput(t *testing.T)
 }
 
 func newTestService() Service {
-	store, err := sqlite.NewStore(context.Background(), ":memory:", config.DBPoolConfig{MaxOpenConns: 1})
+	store, err := sqlite.NewStore(testContext(), ":memory:", config.DBPoolConfig{MaxOpenConns: 1})
 	if err != nil {
 		panic(err)
 	}
 	return NewService(sqlite.NewMeterRepository(store))
+}
+
+func testContext() context.Context {
+	return appauth.WithWorkspaceID(context.Background(), appauth.DefaultWorkspaceID)
 }
 
 func newTestServiceWithUsage(t *testing.T, ctx context.Context) (Service, *sqlite.UsageRepository) {

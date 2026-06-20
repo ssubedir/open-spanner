@@ -71,6 +71,7 @@ type Principal struct {
 	Kind          PrincipalKind
 	ID            string
 	User          UserResult
+	WorkspaceID   string
 	APIKeyID      string
 	Scopes        []string
 	AllowedMeters []string

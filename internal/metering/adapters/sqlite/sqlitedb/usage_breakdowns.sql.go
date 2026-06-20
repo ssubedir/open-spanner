@@ -23,10 +23,11 @@ WITH filtered AS (
 		quantity,
 		event_time AS event_at
 	FROM usage_events
-	WHERE meter_name = ?6
-		AND event_time >= CAST(?7 AS TEXT)
-		AND event_time < CAST(?8 AS TEXT)
-		AND (CAST(?9 AS TEXT) IS NULL OR subject = CAST(?9 AS TEXT))
+	WHERE workspace_id = ?6
+		AND meter_name = ?7
+		AND event_time >= CAST(?8 AS TEXT)
+		AND event_time < CAST(?9 AS TEXT)
+		AND (CAST(?10 AS TEXT) IS NULL OR subject = CAST(?10 AS TEXT))
 ),
 ranked AS (
 	SELECT
@@ -62,6 +63,7 @@ type ListUsageBreakdownParams struct {
 	Limit           int64
 	Field           string
 	Path            string
+	WorkspaceID     string
 	MeterName       string
 	FromTime        string
 	ToTime          string
@@ -81,6 +83,7 @@ func (q *Queries) ListUsageBreakdown(ctx context.Context, arg ListUsageBreakdown
 		arg.Limit,
 		arg.Field,
 		arg.Path,
+		arg.WorkspaceID,
 		arg.MeterName,
 		arg.FromTime,
 		arg.ToTime,

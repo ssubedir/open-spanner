@@ -33,6 +33,7 @@ const (
 
 type ExportJob struct {
 	id           string
+	workspaceID  string
 	kind         ExportJobKind
 	status       ExportJobStatus
 	format       ExportJobFormat
@@ -47,14 +48,18 @@ type ExportJob struct {
 	completedAt  time.Time
 }
 
-func NewExportJob(id string, kind ExportJobKind, status ExportJobStatus, format ExportJobFormat, queryJSON string, errorMessage string, attempts int, lockedUntil time.Time, artifactPath string, artifactSize int64, createdAt time.Time, updatedAt time.Time, completedAt time.Time) (ExportJob, error) {
+func NewExportJob(id string, workspaceID string, kind ExportJobKind, status ExportJobStatus, format ExportJobFormat, queryJSON string, errorMessage string, attempts int, lockedUntil time.Time, artifactPath string, artifactSize int64, createdAt time.Time, updatedAt time.Time, completedAt time.Time) (ExportJob, error) {
 	id = strings.TrimSpace(id)
+	workspaceID = strings.TrimSpace(workspaceID)
 	queryJSON = strings.TrimSpace(queryJSON)
 	errorMessage = strings.TrimSpace(errorMessage)
 	artifactPath = strings.TrimSpace(artifactPath)
 
 	if id == "" {
 		return ExportJob{}, fmt.Errorf("%w: export job id is required", domain.ErrInvalidInput)
+	}
+	if workspaceID == "" {
+		return ExportJob{}, fmt.Errorf("%w: export job workspace is required", domain.ErrInvalidInput)
 	}
 	if kind != ExportJobUsageBuckets {
 		return ExportJob{}, fmt.Errorf("%w: export job kind is invalid", domain.ErrInvalidInput)
@@ -94,6 +99,7 @@ func NewExportJob(id string, kind ExportJobKind, status ExportJobStatus, format 
 
 	return ExportJob{
 		id:           id,
+		workspaceID:  workspaceID,
 		kind:         kind,
 		status:       status,
 		format:       format,
@@ -111,6 +117,10 @@ func NewExportJob(id string, kind ExportJobKind, status ExportJobStatus, format 
 
 func (j ExportJob) ID() string {
 	return j.id
+}
+
+func (j ExportJob) WorkspaceID() string {
+	return j.workspaceID
 }
 
 func (j ExportJob) Kind() ExportJobKind {

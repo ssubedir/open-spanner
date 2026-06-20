@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/config"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/sqlite"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
@@ -14,7 +15,7 @@ import (
 )
 
 func TestServiceCreateAndList(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	service := newTestService(t, ctx)
 	eventTime := time.Date(2026, 6, 8, 14, 30, 0, 0, time.UTC)
 
@@ -48,7 +49,7 @@ func TestServiceCreateAndList(t *testing.T) {
 }
 
 func TestServiceCreateDefaultsEventTime(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	service := newTestService(t, ctx)
 
 	created, err := service.Create(ctx, CreateCommand{
@@ -65,7 +66,7 @@ func TestServiceCreateDefaultsEventTime(t *testing.T) {
 }
 
 func TestServiceCreateBulk(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	service := newTestService(t, ctx)
 
 	created, err := service.CreateBulk(ctx, "", []CreateCommand{
@@ -107,7 +108,7 @@ func TestServiceCreateBulk(t *testing.T) {
 }
 
 func TestServiceCreateBulkRejectsEmptyBatch(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	service := newTestService(t, ctx)
 
 	_, err := service.CreateBulk(ctx, "", nil)
@@ -117,7 +118,7 @@ func TestServiceCreateBulkRejectsEmptyBatch(t *testing.T) {
 }
 
 func TestServiceCreateBulkRejectsOverLimitBatch(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	service := newTestService(t, ctx)
 	commands := make([]CreateCommand, MaxBulkEvents+1)
 	for i := range commands {
@@ -135,7 +136,7 @@ func TestServiceCreateBulkRejectsOverLimitBatch(t *testing.T) {
 }
 
 func TestServiceCreateBulkReplaysIdempotencyKey(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	service := newTestService(t, ctx)
 	commands := []CreateCommand{
 		{
@@ -190,7 +191,7 @@ func TestServiceCreateBulkReplaysIdempotencyKey(t *testing.T) {
 }
 
 func TestServiceCreateBulkReportsDuplicateEventKeys(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	service := newTestService(t, ctx)
 
 	first, err := service.CreateBulk(ctx, "", []CreateCommand{
@@ -248,7 +249,7 @@ func TestServiceCreateBulkReportsDuplicateEventKeys(t *testing.T) {
 }
 
 func TestServiceCreateBulkReportsFailedItems(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	service := newTestService(t, ctx)
 
 	result, err := service.CreateBulk(ctx, "", []CreateCommand{
@@ -293,7 +294,7 @@ func TestServiceCreateBulkReportsFailedItems(t *testing.T) {
 }
 
 func TestServiceCreateBulkReturnsFailuresWhenAllItemsFail(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	service := newTestService(t, ctx)
 
 	result, err := service.CreateBulk(ctx, "", []CreateCommand{
@@ -314,7 +315,7 @@ func TestServiceCreateBulkReturnsFailuresWhenAllItemsFail(t *testing.T) {
 }
 
 func TestServiceListEvents(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	service := newTestService(t, ctx)
 
 	for i, quantity := range []float64{2, 3, 5} {
@@ -360,7 +361,7 @@ func TestServiceListEvents(t *testing.T) {
 }
 
 func TestServicePruneEventsUsesMeterRetention(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
 
 	meter, err := domainmeter.NewWithDimensions(
@@ -446,7 +447,7 @@ func pruneRunCountByMode(runs []PruneResult, dryRun bool) int {
 }
 
 func TestServiceListUsesMeterAggregation(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
 
 	meter, err := domainmeter.NewWithDimensions(
@@ -495,7 +496,7 @@ func TestServiceListUsesMeterAggregation(t *testing.T) {
 }
 
 func TestServiceCreateAllowsMetadataOutsideMeterDimensions(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	service := newTestService(t, ctx)
 
 	created, err := service.Create(ctx, CreateCommand{
@@ -513,7 +514,7 @@ func TestServiceCreateAllowsMetadataOutsideMeterDimensions(t *testing.T) {
 }
 
 func TestServiceCreateNormalizesDottedDimensionMetadata(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
 
 	meter, err := domainmeter.NewWithDimensions(
@@ -553,7 +554,7 @@ func TestServiceCreateNormalizesDottedDimensionMetadata(t *testing.T) {
 }
 
 func TestServiceCreateValidatesMeterDimensions(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
 
 	region, err := domainmeter.NewDimension("region", domainmeter.MetadataString, "Region", "", true)
@@ -624,7 +625,7 @@ func TestServiceCreateValidatesMeterDimensions(t *testing.T) {
 }
 
 func TestServiceCreateBulkReportsDimensionValidationFailures(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
 
 	region, err := domainmeter.NewDimension("region", domainmeter.MetadataString, "Region", "", true)
@@ -694,7 +695,7 @@ func TestServiceCreateBulkReportsDimensionValidationFailures(t *testing.T) {
 }
 
 func TestServiceCreateAcceptsMetadataMatchingMeterSchema(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
 
 	meter, err := domainmeter.NewWithDimensions(
@@ -733,7 +734,7 @@ func TestServiceCreateAcceptsMetadataMatchingMeterSchema(t *testing.T) {
 }
 
 func TestServiceListGroupsByMultipleMetadataFields(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
 
 	meter, err := domainmeter.NewWithDimensions(
@@ -790,7 +791,7 @@ func TestServiceListGroupsByMultipleMetadataFields(t *testing.T) {
 }
 
 func TestServiceListAggregatesAcrossSubjects(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	service := newTestService(t, ctx)
 
 	for _, event := range []CreateCommand{
@@ -838,7 +839,7 @@ func TestServiceListAggregatesAcrossSubjects(t *testing.T) {
 }
 
 func TestServiceListDimensionValues(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
 
 	meter, err := domainmeter.NewWithDimensions(
@@ -893,7 +894,7 @@ func TestServiceListDimensionValues(t *testing.T) {
 }
 
 func TestServiceListBreakdown(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
 
 	meter, err := domainmeter.NewWithDimensions(
@@ -966,7 +967,7 @@ func TestServiceListBreakdown(t *testing.T) {
 }
 
 func TestServiceListBreakdownRejectsUnknownField(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	service := newTestService(t, ctx)
 
 	_, err := service.ListBreakdown(ctx, BreakdownListQuery{
@@ -981,7 +982,7 @@ func TestServiceListBreakdownRejectsUnknownField(t *testing.T) {
 }
 
 func TestServiceListDimensionValuesRejectsUnknownField(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	service := newTestService(t, ctx)
 
 	_, err := service.ListDimensionValues(ctx, DimensionValueListQuery{
@@ -994,7 +995,7 @@ func TestServiceListDimensionValuesRejectsUnknownField(t *testing.T) {
 }
 
 func TestServiceCreateMissingMeterReturnsNotFound(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
 	service := NewService(meterRepo, usageRepo, store)
 
@@ -1009,7 +1010,7 @@ func TestServiceCreateMissingMeterReturnsNotFound(t *testing.T) {
 }
 
 func TestServiceListInvalidTimeRangeReturnsInvalidInput(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	service := newTestService(t, ctx)
 
 	_, err := service.List(ctx, ListQuery{
@@ -1023,7 +1024,7 @@ func TestServiceListInvalidTimeRangeReturnsInvalidInput(t *testing.T) {
 }
 
 func TestServiceListRejectsWideHourlyRange(t *testing.T) {
-	ctx := context.Background()
+	ctx := testContext()
 	service := newTestService(t, ctx)
 
 	_, err := service.List(ctx, ListQuery{
@@ -1061,6 +1062,10 @@ func newTestService(t *testing.T, ctx context.Context) Service {
 	}
 
 	return NewService(meterRepo, usageRepo, store)
+}
+
+func testContext() context.Context {
+	return appauth.WithWorkspaceID(context.Background(), appauth.DefaultWorkspaceID)
 }
 
 func mustDimension(t *testing.T, name string, typ domainmeter.MetadataType) domainmeter.Dimension {

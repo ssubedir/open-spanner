@@ -13,10 +13,11 @@ import (
 const countMeters = `-- name: CountMeters :one
 SELECT COUNT(*)
 FROM meters
+WHERE workspace_id = $1::text
 `
 
-func (q *Queries) CountMeters(ctx context.Context) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countMeters)
+func (q *Queries) CountMeters(ctx context.Context, workspaceID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countMeters, workspaceID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -25,11 +26,17 @@ func (q *Queries) CountMeters(ctx context.Context) (int64, error) {
 const countUsageEventsForMeter = `-- name: CountUsageEventsForMeter :one
 SELECT COUNT(*)
 FROM usage_events
-WHERE meter_name = $1
+WHERE workspace_id = $1::text
+	AND meter_name = $2::text
 `
 
-func (q *Queries) CountUsageEventsForMeter(ctx context.Context, meterName string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countUsageEventsForMeter, meterName)
+type CountUsageEventsForMeterParams struct {
+	WorkspaceID string
+	MeterName   string
+}
+
+func (q *Queries) CountUsageEventsForMeter(ctx context.Context, arg CountUsageEventsForMeterParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countUsageEventsForMeter, arg.WorkspaceID, arg.MeterName)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -37,33 +44,53 @@ func (q *Queries) CountUsageEventsForMeter(ctx context.Context, meterName string
 
 const deleteMeter = `-- name: DeleteMeter :exec
 DELETE FROM meters
-WHERE id = $1
+WHERE workspace_id = $1::text
+	AND id = $2::text
 `
 
-func (q *Queries) DeleteMeter(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, deleteMeter, id)
+type DeleteMeterParams struct {
+	WorkspaceID string
+	ID          string
+}
+
+func (q *Queries) DeleteMeter(ctx context.Context, arg DeleteMeterParams) error {
+	_, err := q.db.ExecContext(ctx, deleteMeter, arg.WorkspaceID, arg.ID)
 	return err
 }
 
 const listMeters = `-- name: ListMeters :many
 SELECT id, name, description, unit, aggregation, dimensions, event_retention_days, created_at
 FROM meters
-WHERE ($1::text IS NULL OR id = $1::text)
-	AND ($2::text IS NULL OR name = $2::text)
-	AND ($3::text IS NULL OR name > $3::text)
+WHERE workspace_id = $1::text
+	AND ($2::text IS NULL OR id = $2::text)
+	AND ($3::text IS NULL OR name = $3::text)
+	AND ($4::text IS NULL OR name > $4::text)
 ORDER BY name
-LIMIT $4::int
+LIMIT $5::int
 `
 
 type ListMetersParams struct {
-	ID     sql.NullString
-	Name   sql.NullString
-	Cursor sql.NullString
-	Limit  int32
+	WorkspaceID string
+	ID          sql.NullString
+	Name        sql.NullString
+	Cursor      sql.NullString
+	Limit       int32
 }
 
-func (q *Queries) ListMeters(ctx context.Context, arg ListMetersParams) ([]Meter, error) {
+type ListMetersRow struct {
+	ID                 string
+	Name               string
+	Description        string
+	Unit               string
+	Aggregation        string
+	Dimensions         string
+	EventRetentionDays int32
+	CreatedAt          string
+}
+
+func (q *Queries) ListMeters(ctx context.Context, arg ListMetersParams) ([]ListMetersRow, error) {
 	rows, err := q.db.QueryContext(ctx, listMeters,
+		arg.WorkspaceID,
 		arg.ID,
 		arg.Name,
 		arg.Cursor,
@@ -73,9 +100,9 @@ func (q *Queries) ListMeters(ctx context.Context, arg ListMetersParams) ([]Meter
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Meter{}
+	items := []ListMetersRow{}
 	for rows.Next() {
-		var i Meter
+		var i ListMetersRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
@@ -100,8 +127,8 @@ func (q *Queries) ListMeters(ctx context.Context, arg ListMetersParams) ([]Meter
 }
 
 const saveMeter = `-- name: SaveMeter :exec
-INSERT INTO meters (id, name, description, unit, aggregation, dimensions, event_retention_days, created_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO meters (id, workspace_id, name, description, unit, aggregation, dimensions, event_retention_days, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 ON CONFLICT(id) DO UPDATE SET
 	description = excluded.description,
 	unit = excluded.unit,
@@ -112,6 +139,7 @@ ON CONFLICT(id) DO UPDATE SET
 
 type SaveMeterParams struct {
 	ID                 string
+	WorkspaceID        string
 	Name               string
 	Description        string
 	Unit               string
@@ -124,6 +152,7 @@ type SaveMeterParams struct {
 func (q *Queries) SaveMeter(ctx context.Context, arg SaveMeterParams) error {
 	_, err := q.db.ExecContext(ctx, saveMeter,
 		arg.ID,
+		arg.WorkspaceID,
 		arg.Name,
 		arg.Description,
 		arg.Unit,

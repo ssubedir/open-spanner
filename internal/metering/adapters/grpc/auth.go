@@ -11,7 +11,6 @@ import (
 )
 
 type userContextKey struct{}
-type principalContextKey struct{}
 
 func UnaryAuthInterceptor(service appauth.Service) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
@@ -34,16 +33,11 @@ func StreamAuthInterceptor(service appauth.Service) grpc.StreamServerInterceptor
 }
 
 func UserFromContext(ctx context.Context) (appauth.UserResult, bool) {
-	if principal, ok := PrincipalFromContext(ctx); ok {
-		return principal.User, true
-	}
-	user, ok := ctx.Value(userContextKey{}).(appauth.UserResult)
-	return user, ok
+	return appauth.UserFromContext(ctx)
 }
 
 func PrincipalFromContext(ctx context.Context) (appauth.Principal, bool) {
-	principal, ok := ctx.Value(principalContextKey{}).(appauth.Principal)
-	return principal, ok
+	return appauth.PrincipalFromContext(ctx)
 }
 
 func authenticateContext(ctx context.Context, service appauth.Service) (context.Context, error) {
@@ -56,7 +50,7 @@ func authenticateContext(ctx context.Context, service appauth.Service) (context.
 	if err != nil {
 		return ctx, err
 	}
-	ctx = context.WithValue(ctx, principalContextKey{}, principal)
+	ctx = appauth.WithPrincipal(ctx, principal)
 	ctx = context.WithValue(ctx, userContextKey{}, principal.User)
 	return ctx, nil
 }
