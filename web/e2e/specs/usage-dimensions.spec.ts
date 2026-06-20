@@ -108,4 +108,20 @@ test.describe('Feature: Dashboard usage exploration', () => {
     await When.theScopedAPIKeyAttemptsDeniedUsage(page, scopedKey)
     await Then.scopedAPIKeyUsageWriteWasRecorded(page, scopedKey)
   })
+
+  test('Scenario: workspace data stays isolated between dashboard users', async ({ page }) => {
+    const owner = await Given.aDashboardAccount(page)
+    const other = await Given.aDashboardAccount(page)
+
+    await When.theUserSignsIn(page, owner)
+    await Then.theDashboardIsAvailable(page, owner)
+    const scenario = await When.theSignedInUserCreatesWorkspaceOwnedResources(page)
+
+    await When.theUserSignsOut(page)
+    await When.theUserSignsIn(page, other)
+    await Then.theDashboardIsAvailable(page, other)
+
+    await Then.workspaceOwnedDataIsHiddenFromCurrentUser(page, scenario)
+    await Then.workspaceOwnedAPIResourcesAreHiddenFromCurrentUser(page, scenario)
+  })
 })

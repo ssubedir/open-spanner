@@ -11,18 +11,19 @@ import { formatDate } from '../lib/format'
 import { useInitialLoad } from '../lib/hooks'
 
 const apiKeyScopes = [
-  { value: 'usage:write', label: 'Write usage' },
-  { value: 'usage:read', label: 'Read usage' },
-  { value: 'meters:read', label: 'Read meters' },
-  { value: 'meters:write', label: 'Write meters' },
-  { value: 'alerts:read', label: 'Read alerts' },
-  { value: 'alerts:write', label: 'Write alerts' },
-  { value: 'exports:read', label: 'Read exports' },
-  { value: 'exports:write', label: 'Write exports' },
-  { value: 'system:read', label: 'Read system' },
+  { value: 'usage:write', label: 'Write usage', group: 'Usage', description: 'Record usage events from a backend service.' },
+  { value: 'usage:read', label: 'Read usage', group: 'Usage', description: 'Query buckets, raw events, dimensions, and breakdowns.' },
+  { value: 'meters:read', label: 'Read meters', group: 'Meters', description: 'Read meter definitions and schemas.' },
+  { value: 'meters:write', label: 'Write meters', group: 'Meters', description: 'Create and edit meter definitions.' },
+  { value: 'alerts:read', label: 'Read alerts', group: 'Alerts', description: 'List alert rules, destinations, and events.' },
+  { value: 'alerts:write', label: 'Write alerts', group: 'Alerts', description: 'Manage alert rules and destinations.' },
+  { value: 'exports:read', label: 'Read exports', group: 'Exports', description: 'List and download usage exports.' },
+  { value: 'exports:write', label: 'Write exports', group: 'Exports', description: 'Queue, cancel, and retry export jobs.' },
+  { value: 'system:read', label: 'Read system', group: 'System', description: 'Read operational stats for the workspace.' },
 ]
 
 const defaultAPIKeyScopes = new Set(['usage:write', 'usage:read', 'meters:read', 'meters:write'])
+const apiKeyScopeGroups = Array.from(new Set(apiKeyScopes.map((scope) => scope.group)))
 
 const apiKeyExpirationPresets = [
   { value: '', label: 'Never expires' },
@@ -126,7 +127,7 @@ export function APIKeysPage() {
             rows={items.map((key) => [
               <span className="api-key-name-block">
                 <strong className="api-key-name">{key.name}</strong>
-                <small>{key.scopes.join(', ')}</small>
+                <ScopeBadges scopes={key.scopes} />
                 {key.allowed_meters.length > 0 ? <small>meters: {key.allowed_meters.join(', ')}</small> : null}
               </span>,
               <Badge className="api-key-prefix" variant="muted">
@@ -145,23 +146,33 @@ export function APIKeysPage() {
       </Card>
 
       {creating ? (
-        <Modal title="Create API Key" onClose={() => appStoreActions.setAPIKeyCreating(false)}>
-          <form className="modal-form" onSubmit={(event) => void submitCreate(event)}>
+        <Modal className="api-key-modal" title="Create API Key" onClose={() => appStoreActions.setAPIKeyCreating(false)}>
+          <form className="modal-form api-key-modal-form" onSubmit={(event) => void submitCreate(event)}>
             <label>
               Name
               <input name="name" placeholder="server-billing-sync" required />
             </label>
-            <label>
-              Scopes
-              <span className="checkbox-grid">
-                {apiKeyScopes.map((scope) => (
-                  <span className="checkbox-row" key={scope.value}>
-                    <input defaultChecked={defaultAPIKeyScopes.has(scope.value)} name="scopes" type="checkbox" value={scope.value} />
-                    {scope.label}
-                  </span>
+            <div className="form-field wide">
+              <span className="field-label">Scopes</span>
+              <div className="scope-picker">
+                {apiKeyScopeGroups.map((group) => (
+                  <section className="scope-group" key={group} aria-label={`${group} scopes`}>
+                    <strong>{group}</strong>
+                    <div className="scope-options">
+                      {apiKeyScopes.filter((scope) => scope.group === group).map((scope) => (
+                        <label className="scope-option" key={scope.value}>
+                          <input defaultChecked={defaultAPIKeyScopes.has(scope.value)} name="scopes" type="checkbox" value={scope.value} />
+                          <span>
+                            <b>{scope.label}</b>
+                            <small>{scope.description}</small>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </section>
                 ))}
-              </span>
-            </label>
+              </div>
+            </div>
             <label>
               Allowed meters
               <textarea name="allowed_meters" placeholder="Leave blank for all meters&#10;api_requests&#10;storage_bytes" rows={3} />
@@ -196,6 +207,26 @@ export function APIKeysPage() {
       ) : null}
     </>
   )
+}
+
+function ScopeBadges({ scopes }: { scopes: string[] }) {
+  if (scopes.length === 0) {
+    return <Badge variant="warning">No scopes</Badge>
+  }
+
+  return (
+    <span className="scope-badge-list" aria-label={scopes.join(', ')}>
+      {scopes.map((scope) => (
+        <Badge key={scope} title={scope} variant="muted">
+          {scopeLabel(scope)}
+        </Badge>
+      ))}
+    </span>
+  )
+}
+
+function scopeLabel(scope: string) {
+  return apiKeyScopes.find((item) => item.value === scope)?.label || scope
 }
 
 async function copyText(value: string) {

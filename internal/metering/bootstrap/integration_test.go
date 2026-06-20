@@ -198,6 +198,27 @@ func TestIntegrationPostgresSDKUsageFlow(t *testing.T) {
 	}, "postgres")
 }
 
+func TestIntegrationSQLiteWorkspaceIsolation(t *testing.T) {
+	runIntegrationWorkspaceIsolationFlow(t, config.Config{
+		DBDriver:   "sqlite",
+		SQLitePath: ":memory:",
+		DBPool:     config.DBPoolConfig{MaxOpenConns: 1},
+	}, "sqlite")
+}
+
+func TestIntegrationPostgresWorkspaceIsolation(t *testing.T) {
+	dsn := os.Getenv("OPEN_SPANNER_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set OPEN_SPANNER_TEST_POSTGRES_DSN to run Postgres bootstrap integration tests")
+	}
+
+	runIntegrationWorkspaceIsolationFlow(t, config.Config{
+		DBDriver:    "postgres",
+		PostgresDSN: dsn,
+		DBPool:      config.DBPoolConfig{MaxOpenConns: 1},
+	}, "postgres")
+}
+
 func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace string) {
 	t.Helper()
 
@@ -502,6 +523,158 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 	runIntegrationSummaryAggregationFlow(t, router, authHeaders, suffix)
 	runIntegrationFilterOperatorFlow(t, router, authHeaders, suffix)
 	runIntegrationDynamicSQLParityFlow(t, router, authHeaders, suffix)
+}
+
+func runIntegrationWorkspaceIsolationFlow(t *testing.T, cfg config.Config, namespace string) {
+	t.Helper()
+
+	if cfg.ExportStoragePath == "" {
+		cfg.ExportStoragePath = t.TempDir()
+	}
+
+	ctx := context.Background()
+	router := chi.NewRouter()
+	app, err := RegisterRoutes(ctx, router, cfg)
+	if err != nil {
+		t.Fatalf("register routes: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := app.Cleanup(); err != nil {
+			t.Fatalf("cleanup: %v", err)
+		}
+	})
+
+	suffix := namespace + "_workspace_" + strconv.FormatInt(time.Now().UTC().UnixNano(), 36)
+	owner := createTestDashboardIdentity(t, router, "owner+"+suffix+"@example.com")
+	other := createTestDashboardIdentity(t, router, "other+"+suffix+"@example.com")
+
+	meterName := "workspace_meter_" + suffix
+	subject := "workspace_subject_" + suffix
+	keyName := "workspace-key-" + suffix
+	destinationName := "Workspace destination " + suffix
+	alertName := "Workspace alert " + suffix
+
+	ownerKey := requestJSON(t, router, http.MethodPost, "/v1/auth/api-keys", map[string]any{
+		"name": keyName,
+	}, owner.Cookies)
+	if ownerKey.Code != http.StatusCreated {
+		t.Fatalf("create owner api key status = %d, want %d: %s", ownerKey.Code, http.StatusCreated, ownerKey.Body.String())
+	}
+	var ownerAPIKey apiKeyCreateTestResponse
+	decodeJSON(t, ownerKey, &ownerAPIKey)
+
+	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name":        meterName,
+		"description": "Workspace isolation meter",
+		"unit":        "event",
+		"aggregation": "sum",
+		"dimensions":  meterDimensionsFromSchema(map[string]string{"endpoint": "string"}),
+	}, owner.Headers, nil)
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create workspace meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
+	}
+
+	createUsage := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages", map[string]any{
+		"idempotency_key": "workspace-isolation-" + suffix,
+		"subject":         subject,
+		"meter":           meterName,
+		"quantity":        5,
+		"timestamp":       "2026-06-08T10:00:00Z",
+		"metadata":        map[string]any{"endpoint": "/owner"},
+	}, owner.Headers, nil)
+	if createUsage.Code != http.StatusCreated {
+		t.Fatalf("create workspace usage status = %d, want %d: %s", createUsage.Code, http.StatusCreated, createUsage.Body.String())
+	}
+
+	createDestination := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/alerts/destinations", map[string]any{
+		"name":        destinationName,
+		"type":        "webhook",
+		"enabled":     true,
+		"webhook_url": "https://example.com/open-spanner/workspace-isolation",
+	}, owner.Headers, nil)
+	if createDestination.Code != http.StatusCreated {
+		t.Fatalf("create workspace alert destination status = %d, want %d: %s", createDestination.Code, http.StatusCreated, createDestination.Body.String())
+	}
+	var destination alertDestinationResponse
+	decodeJSON(t, createDestination, &destination)
+
+	createAlert := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/alerts", map[string]any{
+		"name":                        alertName,
+		"meter":                       meterName,
+		"enabled":                     true,
+		"window_seconds":              3600,
+		"comparator":                  "gte",
+		"threshold":                   1,
+		"evaluation_interval_seconds": 60,
+		"destination_id":              destination.ID,
+	}, owner.Headers, nil)
+	if createAlert.Code != http.StatusCreated {
+		t.Fatalf("create workspace alert status = %d, want %d: %s", createAlert.Code, http.StatusCreated, createAlert.Body.String())
+	}
+	var alertRule alertRuleResponse
+	decodeJSON(t, createAlert, &alertRule)
+
+	createExport := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/exports", map[string]any{
+		"kind":   "usage_buckets",
+		"format": "csv",
+		"query": map[string]any{
+			"meter":       meterName,
+			"from":        "2026-06-08T00:00:00Z",
+			"to":          "2026-06-09T00:00:00Z",
+			"bucket_size": "day",
+			"limit":       10,
+		},
+	}, owner.Headers, nil)
+	if createExport.Code != http.StatusAccepted {
+		t.Fatalf("create workspace export status = %d, want %d: %s", createExport.Code, http.StatusAccepted, createExport.Body.String())
+	}
+	var exportJob usageExportJobResponse
+	decodeJSON(t, createExport, &exportJob)
+
+	assertNameVisibleForWorkspace(t, router, "/v1/meters", owner.Headers, nil, meterName, true)
+	assertNameVisibleForWorkspace(t, router, "/v1/auth/api-keys", nil, owner.Cookies, keyName, true)
+	assertNameVisibleForWorkspace(t, router, "/v1/alerts", owner.Headers, nil, alertName, true)
+	assertNameVisibleForWorkspace(t, router, "/v1/alerts/destinations", owner.Headers, nil, destinationName, true)
+	assertSubjectVisibleForWorkspace(t, router, "/v1/subjects?limit=10", owner.Headers, subject, true)
+	assertUsageEventVisibleForWorkspace(t, router, "/v1/usageevents?limit=10", owner.Headers, subject, meterName, true)
+	assertExportVisibleForWorkspace(t, router, "/v1/exports?limit=10", owner.Headers, exportJob.ID, meterName, true)
+
+	assertNameVisibleForWorkspace(t, router, "/v1/meters", other.Headers, nil, meterName, false)
+	assertNameVisibleForWorkspace(t, router, "/v1/auth/api-keys", nil, other.Cookies, keyName, false)
+	assertNameVisibleForWorkspace(t, router, "/v1/alerts", other.Headers, nil, alertName, false)
+	assertNameVisibleForWorkspace(t, router, "/v1/alerts/destinations", other.Headers, nil, destinationName, false)
+	assertSubjectVisibleForWorkspace(t, router, "/v1/subjects?limit=10", other.Headers, subject, false)
+	assertUsageEventVisibleForWorkspace(t, router, "/v1/usageevents?limit=10", other.Headers, subject, meterName, false)
+	assertExportVisibleForWorkspace(t, router, "/v1/exports?limit=10", other.Headers, exportJob.ID, meterName, false)
+
+	query := url.Values{}
+	query.Set("meter", meterName)
+	query.Set("from", "2026-06-08T00:00:00Z")
+	query.Set("to", "2026-06-09T00:00:00Z")
+	query.Set("bucket_size", "day")
+	otherBuckets := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/usages?"+query.Encode(), nil, other.Headers, nil)
+	if otherBuckets.Code == http.StatusOK {
+		var buckets []usageBucketResponse
+		decodeJSON(t, otherBuckets, &buckets)
+		if len(buckets) != 0 {
+			t.Fatalf("other workspace buckets = %#v, want none for owner meter", buckets)
+		}
+	} else if otherBuckets.Code != http.StatusNotFound {
+		t.Fatalf("other workspace bucket status = %d, want %d or %d: %s", otherBuckets.Code, http.StatusOK, http.StatusNotFound, otherBuckets.Body.String())
+	}
+
+	otherAlert := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/alerts/"+alertRule.ID, nil, other.Headers, nil)
+	if otherAlert.Code != http.StatusNotFound {
+		t.Fatalf("other workspace alert status = %d, want %d: %s", otherAlert.Code, http.StatusNotFound, otherAlert.Body.String())
+	}
+	otherExport := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/exports/"+exportJob.ID, nil, other.Headers, nil)
+	if otherExport.Code != http.StatusNotFound {
+		t.Fatalf("other workspace export status = %d, want %d: %s", otherExport.Code, http.StatusNotFound, otherExport.Body.String())
+	}
+	deleteOwnerKey := requestJSON(t, router, http.MethodDelete, "/v1/auth/api-keys/"+ownerAPIKey.ID, nil, other.Cookies)
+	if deleteOwnerKey.Code != http.StatusNotFound {
+		t.Fatalf("other workspace delete api key status = %d, want %d: %s", deleteOwnerKey.Code, http.StatusNotFound, deleteOwnerKey.Body.String())
+	}
 }
 
 func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handler, authHeaders map[string]string, meterName string, suffix string) {
@@ -1966,23 +2139,56 @@ func requestJSONWithHeaders(t *testing.T, handler http.Handler, method string, p
 	return res
 }
 
+type dashboardTestIdentity struct {
+	APIKey  string
+	Cookies []*http.Cookie
+	Headers map[string]string
+}
+
+func createTestDashboardIdentity(t *testing.T, handler http.Handler, email string) dashboardTestIdentity {
+	t.Helper()
+
+	createUser := requestJSON(t, handler, http.MethodPost, "/v1/auth/users", map[string]any{
+		"email":    email,
+		"password": "strong-password",
+	}, nil)
+	if createUser.Code != http.StatusCreated {
+		t.Fatalf("create user status = %d, want %d: %s", createUser.Code, http.StatusCreated, createUser.Body.String())
+	}
+
+	login := requestJSON(t, handler, http.MethodPost, "/v1/auth/sessions", map[string]any{
+		"email":    email,
+		"password": "strong-password",
+	}, nil)
+	if login.Code != http.StatusCreated {
+		t.Fatalf("login status = %d, want %d: %s", login.Code, http.StatusCreated, login.Body.String())
+	}
+
+	cookies := login.Result().Cookies()
+	createKey := requestJSON(t, handler, http.MethodPost, "/v1/auth/api-keys", fullAccessAPIKeyPayload("integration-sdk"), cookies)
+	if createKey.Code != http.StatusCreated {
+		t.Fatalf("create api key status = %d, want %d: %s", createKey.Code, http.StatusCreated, createKey.Body.String())
+	}
+
+	var key apiKeyCreateTestResponse
+	decodeJSON(t, createKey, &key)
+	if key.Key == "" {
+		t.Fatal("api key is empty")
+	}
+
+	return dashboardTestIdentity{
+		APIKey:  key.Key,
+		Cookies: cookies,
+		Headers: map[string]string{
+			"Authorization": "Bearer " + key.Key,
+		},
+	}
+}
+
 func createTestDashboardAPIKey(t *testing.T, handler http.Handler, email string) string {
 	t.Helper()
 
-	return createTestDashboardAPIKeyWithPayload(t, handler, email, map[string]any{
-		"name": "integration-sdk",
-		"scopes": []string{
-			"usage:write",
-			"usage:read",
-			"meters:write",
-			"meters:read",
-			"alerts:write",
-			"alerts:read",
-			"exports:write",
-			"exports:read",
-			"system:read",
-		},
-	})
+	return createTestDashboardAPIKeyWithPayload(t, handler, email, fullAccessAPIKeyPayload("integration-sdk"))
 }
 
 func createTestDashboardAPIKeyWithPayload(t *testing.T, handler http.Handler, email string, payload map[string]any) string {
@@ -2017,6 +2223,111 @@ func createTestDashboardAPIKeyWithPayload(t *testing.T, handler http.Handler, em
 		t.Fatal("api key is empty")
 	}
 	return key.Key
+}
+
+func fullAccessAPIKeyPayload(name string) map[string]any {
+	return map[string]any{
+		"name": name,
+		"scopes": []string{
+			"usage:write",
+			"usage:read",
+			"meters:write",
+			"meters:read",
+			"alerts:write",
+			"alerts:read",
+			"exports:write",
+			"exports:read",
+			"system:read",
+		},
+	}
+}
+
+func assertNameVisibleForWorkspace(t *testing.T, handler http.Handler, path string, headers map[string]string, cookies []*http.Cookie, name string, want bool) {
+	t.Helper()
+
+	res := requestJSONWithHeaders(t, handler, http.MethodGet, path, nil, headers, cookies)
+	if res.Code != http.StatusOK {
+		t.Fatalf("%s status = %d, want %d: %s", path, res.Code, http.StatusOK, res.Body.String())
+	}
+
+	var list namedItemListTestResponse
+	decodeJSON(t, res, &list)
+	found := false
+	for _, item := range list.Items {
+		if item.Name == name {
+			found = true
+			break
+		}
+	}
+	if found != want {
+		t.Fatalf("%s contains %q = %v, want %v: %#v", path, name, found, want, list.Items)
+	}
+}
+
+func assertSubjectVisibleForWorkspace(t *testing.T, handler http.Handler, path string, headers map[string]string, subject string, want bool) {
+	t.Helper()
+
+	res := requestJSONWithHeaders(t, handler, http.MethodGet, path, nil, headers, nil)
+	if res.Code != http.StatusOK {
+		t.Fatalf("%s status = %d, want %d: %s", path, res.Code, http.StatusOK, res.Body.String())
+	}
+
+	var list subjectListTestResponse
+	decodeJSON(t, res, &list)
+	found := false
+	for _, item := range list.Items {
+		if item.Subject == subject {
+			found = true
+			break
+		}
+	}
+	if found != want {
+		t.Fatalf("%s contains subject %q = %v, want %v: %#v", path, subject, found, want, list.Items)
+	}
+}
+
+func assertUsageEventVisibleForWorkspace(t *testing.T, handler http.Handler, path string, headers map[string]string, subject string, meter string, want bool) {
+	t.Helper()
+
+	res := requestJSONWithHeaders(t, handler, http.MethodGet, path, nil, headers, nil)
+	if res.Code != http.StatusOK {
+		t.Fatalf("%s status = %d, want %d: %s", path, res.Code, http.StatusOK, res.Body.String())
+	}
+
+	var list usageEventListResponse
+	decodeJSON(t, res, &list)
+	found := false
+	for _, item := range list.Items {
+		if item.Subject == subject && item.Meter == meter {
+			found = true
+			break
+		}
+	}
+	if found != want {
+		t.Fatalf("%s contains usage event %q/%q = %v, want %v: %#v", path, subject, meter, found, want, list.Items)
+	}
+}
+
+func assertExportVisibleForWorkspace(t *testing.T, handler http.Handler, path string, headers map[string]string, id string, meter string, want bool) {
+	t.Helper()
+
+	res := requestJSONWithHeaders(t, handler, http.MethodGet, path, nil, headers, nil)
+	if res.Code != http.StatusOK {
+		t.Fatalf("%s status = %d, want %d: %s", path, res.Code, http.StatusOK, res.Body.String())
+	}
+
+	var list usageExportJobListTestResponse
+	decodeJSON(t, res, &list)
+	found := false
+	for _, item := range list.Items {
+		if item.ID == id || item.Query["meter"] == meter {
+			found = true
+			break
+		}
+	}
+	if found != want {
+		t.Fatalf("%s contains export %q/%q = %v, want %v: %#v", path, id, meter, found, want, list.Items)
+	}
 }
 
 func decodeJSON(t *testing.T, res *httptest.ResponseRecorder, target any) {
@@ -2091,6 +2402,25 @@ type usageIngestionListResponse struct {
 	NextCursor string                   `json:"next_cursor"`
 }
 
+type apiKeyCreateTestResponse struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Key  string `json:"key"`
+}
+
+type namedItemListTestResponse struct {
+	Items []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"items"`
+}
+
+type subjectListTestResponse struct {
+	Items []struct {
+		Subject string `json:"subject"`
+	} `json:"items"`
+}
+
 type usageExportJobResponse struct {
 	ID           string         `json:"id"`
 	Kind         string         `json:"kind"`
@@ -2102,6 +2432,10 @@ type usageExportJobResponse struct {
 	CreatedAt    string         `json:"created_at"`
 	UpdatedAt    string         `json:"updated_at"`
 	CompletedAt  string         `json:"completed_at"`
+}
+
+type usageExportJobListTestResponse struct {
+	Items []usageExportJobResponse `json:"items"`
 }
 
 type alertRuleResponse struct {

@@ -1062,10 +1062,106 @@ svg {
 }
 
 .api-key-name-block small {
-  color: var(--muted-foreground);
+  color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.scope-badge-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 360px;
+}
+
+.scope-badge-list .badge {
+  padding: 2px 7px;
+  font-size: 11px;
+}
+
+.field-label {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.form-field {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.scope-picker {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 9px;
+  background: #f8fafc;
+}
+
+.scope-group {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.scope-group > strong {
+  color: var(--foreground);
+  font-size: 12px;
+}
+
+.scope-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.scope-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  min-width: 0;
+  border: 1px solid #e7ebf1;
+  border-radius: 6px;
+  padding: 8px;
+  background: #ffffff;
+}
+
+.scope-option input {
+  width: auto;
+  margin-top: 2px;
+}
+
+.scope-option span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.scope-option b {
+  color: var(--foreground);
+  font-size: 12px;
+}
+
+.scope-option small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.modal-panel.api-key-modal {
+  width: min(700px, 100%);
+  max-height: calc(100vh - 36px);
+  overflow: hidden;
+}
+
+.api-key-modal-form {
+  max-height: calc(100vh - 128px);
+  overflow: auto;
 }
 
 .api-key-prefix {
@@ -3015,6 +3111,10 @@ select:disabled,
   .secret-actions {
     display: grid;
     justify-content: stretch;
+  }
+
+  .scope-options {
+    grid-template-columns: 1fr;
   }
 
   .subject-metrics {

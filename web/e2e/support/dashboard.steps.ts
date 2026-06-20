@@ -28,6 +28,17 @@ export type ScopedAPIKeyScenario = {
   subject: string
 }
 
+export type WorkspaceIsolationScenario = {
+  alertID: string
+  alertName: string
+  apiKeyID: string
+  apiKeyName: string
+  destinationName: string
+  exportID: string
+  meterName: string
+  subject: string
+}
+
 export type CSVDownload = {
   filename: string
   text: string
@@ -377,7 +388,7 @@ export const When = {
 
     const table = page.locator('.api-key-table-card')
     await expect(table).toContainText(scenario.name)
-    await expect(table).toContainText('usage:write')
+    await expect(table).toContainText('Write usage')
     await expect(table).toContainText(`meters: ${allowedMeter}`)
 
     return scenario
@@ -427,6 +438,115 @@ export const When = {
       const readResponse = await api.get(`/v1/usages?${readQuery.toString()}`)
       expect(readResponse.status()).toBe(403)
     })
+  },
+
+  async theSignedInUserCreatesWorkspaceOwnedResources(page: Page): Promise<WorkspaceIsolationScenario> {
+    const id = uniqueID()
+    const meterName = `workspace_meter_${id}`
+    const subject = `workspace_subject_${id}`
+    const apiKeyName = `workspace-sdk-${id}`
+    const destinationName = `Workspace webhook ${id}`
+    const alertName = `Workspace threshold ${id}`
+
+    const keyResponse = await page.request.post('/v1/auth/api-keys', {
+      data: {
+        name: apiKeyName,
+        scopes: ['usage:write', 'usage:read', 'meters:read'],
+      },
+    })
+    expect(keyResponse.status()).toBe(201)
+    const key = await keyResponse.json() as { id: string }
+
+    const meterResponse = await page.request.post('/v1/meters', {
+      data: {
+        aggregation: 'sum',
+        description: 'Workspace isolation meter',
+        dimensions: [
+          {
+            deprecated: false,
+            description: 'Endpoint path',
+            display_name: 'Endpoint',
+            name: 'endpoint',
+            required: true,
+            type: 'string',
+          },
+        ],
+        event_retention_days: 30,
+        name: meterName,
+        unit: 'request',
+      },
+    })
+    expect(meterResponse.status()).toBe(201)
+
+    const usageResponse = await page.request.post('/v1/usages', {
+      data: {
+        idempotency_key: `workspace-isolation-${id}`,
+        metadata: { endpoint: '/workspace-owner' },
+        meter: meterName,
+        quantity: 3,
+        subject,
+        timestamp: new Date().toISOString(),
+      },
+    })
+    expect(usageResponse.status()).toBe(201)
+
+    const destinationResponse = await page.request.post('/v1/alerts/destinations', {
+      data: {
+        enabled: true,
+        name: destinationName,
+        type: 'webhook',
+        webhook_url: 'https://example.com/open-spanner/workspace-isolation',
+      },
+    })
+    expect(destinationResponse.status()).toBe(201)
+    const destination = await destinationResponse.json() as { id: string }
+
+    const alertResponse = await page.request.post('/v1/alerts', {
+      data: {
+        comparator: 'gte',
+        destination_id: destination.id,
+        enabled: true,
+        evaluation_interval_seconds: 60,
+        meter: meterName,
+        name: alertName,
+        threshold: 1,
+        window_seconds: 3600,
+      },
+    })
+    expect(alertResponse.status()).toBe(201)
+    const alert = await alertResponse.json() as { id: string }
+
+    const exportResponse = await page.request.post('/v1/exports', {
+      data: {
+        format: 'csv',
+        kind: 'usage_buckets',
+        query: {
+          bucket_size: 'day',
+          from: new Date(Date.now() - 60 * 60_000).toISOString(),
+          limit: 100,
+          meter: meterName,
+          to: new Date(Date.now() + 60 * 60_000).toISOString(),
+        },
+      },
+    })
+    expect(exportResponse.status()).toBe(202)
+    const exportJob = await exportResponse.json() as { id: string }
+
+    return {
+      alertID: alert.id,
+      alertName,
+      apiKeyID: key.id,
+      apiKeyName,
+      destinationName,
+      exportID: exportJob.id,
+      meterName,
+      subject,
+    }
+  },
+
+  async theUserSignsOut(page: Page) {
+    await page.request.delete('/v1/auth/session')
+    await page.goto('/login')
   },
 }
 
@@ -668,6 +788,83 @@ export const Then = {
     await expect(events).toContainText(scenario.subject)
     await expect(events).toContainText('1')
   },
+
+  async workspaceOwnedDataIsHiddenFromCurrentUser(page: Page, scenario: WorkspaceIsolationScenario) {
+    await page.goto('/meters')
+    await expect(page.getByRole('heading', { name: 'Meter definitions' })).toBeVisible()
+    await expect(page.locator('.meter-table-card')).not.toContainText(scenario.meterName)
+
+    await page.goto('/usage')
+    await expect(page.getByRole('heading', { name: 'Usage buckets' })).toBeVisible()
+    await expect(page.locator('body')).not.toContainText(scenario.meterName)
+    await expect(page.locator('body')).not.toContainText(scenario.subject)
+
+    await page.goto('/subjects')
+    await expect(page.getByRole('heading', { name: 'Subject activity' })).toBeVisible()
+    await expect(page.locator('.subject-list-card')).not.toContainText(scenario.subject)
+
+    await page.goto('/alerts')
+    await expect(page.getByRole('heading', { name: 'Threshold rules' })).toBeVisible()
+    await expect(page.locator('.alert-rules-card')).not.toContainText(scenario.alertName)
+    await expect(page.locator('.alert-destinations-card')).not.toContainText(scenario.destinationName)
+
+    await page.goto('/exports')
+    await expect(page.getByRole('heading', { name: 'Export jobs' })).toBeVisible()
+    await expect(page.locator('.usage-export-card')).not.toContainText(scenario.meterName)
+
+    await page.goto('/api-keys')
+    await expect(page.getByRole('heading', { name: 'SDK access' })).toBeVisible()
+    await expect(page.locator('.api-key-table-card')).not.toContainText(scenario.apiKeyName)
+
+    await page.goto('/overview')
+    await expect(page.getByRole('heading', { name: 'Metering operations' })).toBeVisible()
+    await expect(page.locator('.overview-grid')).not.toContainText(scenario.subject)
+  },
+
+  async workspaceOwnedAPIResourcesAreHiddenFromCurrentUser(page: Page, scenario: WorkspaceIsolationScenario) {
+    const [meters, apiKeys, alerts, destinations, subjects, events, exports] = await Promise.all([
+      page.request.get('/v1/meters'),
+      page.request.get('/v1/auth/api-keys'),
+      page.request.get('/v1/alerts'),
+      page.request.get('/v1/alerts/destinations'),
+      page.request.get('/v1/subjects?limit=50'),
+      page.request.get('/v1/usageevents?limit=50'),
+      page.request.get('/v1/exports?limit=50'),
+    ])
+
+    for (const response of [meters, apiKeys, alerts, destinations, subjects, events, exports]) {
+      expect(response.status()).toBe(200)
+    }
+
+    await expectListExcludes(meters, 'name', scenario.meterName)
+    await expectListExcludes(apiKeys, 'name', scenario.apiKeyName)
+    await expectListExcludes(alerts, 'name', scenario.alertName)
+    await expectListExcludes(destinations, 'name', scenario.destinationName)
+    await expectListExcludes(subjects, 'subject', scenario.subject)
+    await expectListExcludes(events, 'subject', scenario.subject)
+    await expectListExcludes(exports, 'id', scenario.exportID)
+
+    const usageQuery = new URLSearchParams({
+      bucket_size: 'day',
+      from: new Date(Date.now() - 60 * 60_000).toISOString(),
+      limit: '100',
+      meter: scenario.meterName,
+      to: new Date(Date.now() + 60 * 60_000).toISOString(),
+    })
+    const buckets = await page.request.get(`/v1/usages?${usageQuery.toString()}`)
+    if (buckets.status() === 200) {
+      expect(await buckets.json()).toEqual([])
+    } else {
+      expect(buckets.status()).toBe(404)
+    }
+
+    const alert = await page.request.get(`/v1/alerts/${scenario.alertID}`)
+    expect(alert.status()).toBe(404)
+    const exportJob = await page.request.get(`/v1/exports/${scenario.exportID}`)
+    expect(exportJob.status()).toBe(404)
+    const deleteKey = await page.request.delete(`/v1/auth/api-keys/${scenario.apiKeyID}`)
+    expect(deleteKey.status()).toBe(404)
+  },
 }
 
 async function fillDimension(
@@ -772,6 +969,11 @@ async function waitForCompletedExportJob(api: APIRequestContext, id: string): Pr
   }).toBe('completed')
 
   return latest as ExportJobResponse
+}
+
+async function expectListExcludes(response: APIResponse, key: string, value: string) {
+  const payload = await response.json() as { items?: Array<Record<string, unknown>> }
+  expect((payload.items || []).some((item) => item[key] === value)).toBe(false)
 }
 
 async function withAPIKeyContext<T>(

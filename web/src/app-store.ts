@@ -1532,6 +1532,15 @@ export const appStoreActions = {
 }
 
 function errorMessage(err: unknown, fallback: string) {
+  if (err instanceof APIError) {
+    if (err.status === 401 || err.code === 'unauthorized') {
+      return 'Your session has expired. Sign in again to continue.'
+    }
+    if (err.status === 403 || err.code === 'forbidden') {
+      return 'You do not have access to this action in the current workspace.'
+    }
+  }
+
   return err instanceof Error ? err.message : fallback
 }
 

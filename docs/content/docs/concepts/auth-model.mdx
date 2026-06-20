@@ -16,6 +16,16 @@ Social login maps external accounts into Open Spanner users through provider ide
 
 Social login only creates dashboard sessions. It does not create API keys, bypass API key scopes, or change service authentication.
 
+## Workspaces
+
+Each dashboard user works inside a workspace. Meters, usage events, subjects, alert rules, alert destinations, export jobs, saved queries, and API keys are scoped to that workspace.
+
+This means two dashboard users can use the same Open Spanner deployment without seeing each other's metering data. A user only sees the meters, usage, alerts, exports, and keys that belong to their current workspace.
+
+API keys inherit the workspace where they were created. When a backend service sends usage with an API key, Open Spanner writes and reads data in that key's workspace. The service does not send a workspace ID in each request.
+
+Use separate dashboard users when you want hard separation between environments, customers, or internal teams. Use separate API keys inside a workspace when you want different backend services to have different permissions.
+
 ## Social Login Configuration
 
 OAuth providers all use the same configuration shape:
@@ -58,6 +68,8 @@ Authorization: Bearer <api_key>
 
 Create API keys from the dashboard. Copy them when they are created; the full key is not shown again.
 
+API keys should be used from trusted server-side code. Do not put Open Spanner API keys in browser or mobile clients.
+
 ## Scopes And Meter Access
 
 API keys can be limited by operation and by meter name. Use scopes to decide what a backend service can do, then optionally set an allowed meter list when the key should only work for specific meters.
@@ -73,3 +85,12 @@ Common scopes:
 - `system:read` reads operational stats.
 
 Leave the allowed meter list empty when a trusted backend service should work across all meters. Add meter names when a key belongs to one service or pipeline.
+
+Good starting points:
+
+- Ingestion services usually need `usage:write`.
+- Reporting services usually need `usage:read`, `exports:read`, and `exports:write`.
+- Provisioning services that create meters need `meters:read` and `meters:write`.
+- Alert automation needs `alerts:read` and `alerts:write`.
+
+Use the smallest set of scopes that matches the service. If a key only writes one meter, set both the scope and the allowed meter list.
