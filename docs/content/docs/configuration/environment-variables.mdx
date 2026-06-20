@@ -39,7 +39,16 @@ description: Runtime configuration for the Open Spanner service.
 
 ## Social Login
 
-Open Spanner supports dashboard sign-in with Google and GitHub in addition to email/password login. Social login creates the same HttpOnly dashboard session cookies as password login.
+Open Spanner supports dashboard sign-in with email/password and configured OAuth providers. Google and GitHub are built in today, and each provider follows the same variable pattern:
+
+```text
+OPEN_SPANNER_<PROVIDER>_OAUTH_ENABLED
+OPEN_SPANNER_<PROVIDER>_OAUTH_CLIENT_ID
+OPEN_SPANNER_<PROVIDER>_OAUTH_CLIENT_SECRET
+OPEN_SPANNER_<PROVIDER>_OAUTH_REDIRECT_URL
+```
+
+Use `GOOGLE` or `GITHUB` for the built-in providers. Social login creates the same HttpOnly dashboard session cookies as password login.
 
 Provider buttons are shown only when the provider is enabled and has credentials. To keep credentials configured but hide a provider:
 

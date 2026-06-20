@@ -310,7 +310,16 @@ See [Environment Variables](docs/content/docs/configuration/environment-variable
 
 ### Social Login
 
-Dashboard users can sign in with email/password, Google, or GitHub. Social providers are shown only when enabled and configured with credentials.
+Dashboard users can sign in with email/password or a configured OAuth provider. Google and GitHub are built in today. Each provider uses the same configuration pattern:
+
+```text
+OPEN_SPANNER_<PROVIDER>_OAUTH_ENABLED
+OPEN_SPANNER_<PROVIDER>_OAUTH_CLIENT_ID
+OPEN_SPANNER_<PROVIDER>_OAUTH_CLIENT_SECRET
+OPEN_SPANNER_<PROVIDER>_OAUTH_REDIRECT_URL
+```
+
+Use `GOOGLE` or `GITHUB` for the built-in providers. Provider buttons are shown only when the provider is enabled and configured with credentials.
 
 Local callback URLs:
 

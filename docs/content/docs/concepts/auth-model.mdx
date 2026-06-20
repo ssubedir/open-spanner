@@ -7,7 +7,7 @@ Open Spanner separates dashboard login from service authentication. People sign 
 
 ## Dashboard Sign-In
 
-Dashboard users can sign in with email and password. Deployments can also enable social login providers for the dashboard:
+Dashboard users can sign in with email and password. Deployments can also enable OAuth providers for the dashboard. Open Spanner currently ships with:
 
 - Google OAuth/OIDC
 - GitHub OAuth
@@ -18,7 +18,18 @@ Social login only creates dashboard sessions. It does not create API keys, bypas
 
 ## Social Login Configuration
 
-Providers are enabled only when both conditions are true:
+OAuth providers all use the same configuration shape:
+
+```text
+OPEN_SPANNER_<PROVIDER>_OAUTH_ENABLED
+OPEN_SPANNER_<PROVIDER>_OAUTH_CLIENT_ID
+OPEN_SPANNER_<PROVIDER>_OAUTH_CLIENT_SECRET
+OPEN_SPANNER_<PROVIDER>_OAUTH_REDIRECT_URL
+```
+
+For the built-in providers, `<PROVIDER>` is `GOOGLE` or `GITHUB`.
+
+Providers are shown on the login page only when both conditions are true:
 
 - The provider is enabled with `OPEN_SPANNER_*_OAUTH_ENABLED=true`.
 - The provider has a client ID and client secret.
@@ -31,6 +42,13 @@ OPEN_SPANNER_GITHUB_OAUTH_ENABLED=true
 ```
 
 The login page reads `/v1/auth/providers` and only shows enabled providers.
+
+OAuth callbacks use the provider ID in the route:
+
+```text
+/v1/auth/oauth/google/callback
+/v1/auth/oauth/github/callback
+```
 
 ## API Keys
 
