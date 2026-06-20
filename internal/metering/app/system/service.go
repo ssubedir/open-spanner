@@ -2,6 +2,7 @@ package system
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	domainmeter "github.com/ssubedir/open-spanner/internal/metering/domain/meter"
@@ -36,28 +37,54 @@ func NewService(meterRepo domainmeter.Repository, usageRepo domainusage.Reposito
 }
 
 func (s *service) Stats(ctx context.Context) (StatsResult, error) {
-	meters, err := s.meterRepo.Count(ctx)
-	if err != nil {
-		return StatsResult{}, err
-	}
-	usageEvents, err := s.usageRepo.CountEvents(ctx)
-	if err != nil {
-		return StatsResult{}, err
-	}
-	pruneRuns, err := s.usageRepo.CountPruneRuns(ctx)
-	if err != nil {
-		return StatsResult{}, err
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var (
+		firstErr error
+		once     sync.Once
+		result   StatsResult
+		runs     []domainusage.PruneRun
+		wg       sync.WaitGroup
+	)
+
+	run := func(fn func() error) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := fn(); err != nil {
+				once.Do(func() {
+					firstErr = err
+					cancel()
+				})
+			}
+		}()
 	}
 
-	result := StatsResult{
-		Meters:      meters,
-		UsageEvents: usageEvents,
-		PruneRuns:   pruneRuns,
-	}
+	run(func() error {
+		meters, err := s.meterRepo.Count(ctx)
+		result.Meters = meters
+		return err
+	})
+	run(func() error {
+		usageEvents, err := s.usageRepo.CountEvents(ctx)
+		result.UsageEvents = usageEvents
+		return err
+	})
+	run(func() error {
+		pruneRuns, err := s.usageRepo.CountPruneRuns(ctx)
+		result.PruneRuns = pruneRuns
+		return err
+	})
+	run(func() error {
+		var err error
+		runs, err = s.usageRepo.FindPruneRuns(ctx, domainusage.NewRunQuery(1, time.Time{}, ""))
+		return err
+	})
 
-	runs, err := s.usageRepo.FindPruneRuns(ctx, domainusage.NewRunQuery(1, time.Time{}, ""))
-	if err != nil {
-		return StatsResult{}, err
+	wg.Wait()
+	if firstErr != nil {
+		return StatsResult{}, firstErr
 	}
 	if len(runs) > 0 {
 		result.LastPruneRun = LastPruneRunResult{

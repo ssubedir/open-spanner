@@ -26,6 +26,7 @@ export function ExportsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const load = useCallback(() => appStoreActions.loadUsageExportJobs(exportJobPageSize), [])
   const hasActiveExportJobs = useMemo(() => exportJobs.some(isActiveExportJob), [exportJobs])
+  const metricsLoading = exportJobStatus === 'idle' || (exportJobStatus === 'loading' && exportJobs.length === 0)
   const filteredJobs = useMemo(
     () => statusFilter === 'all' ? exportJobs : exportJobs.filter((job) => job.status === statusFilter),
     [exportJobs, statusFilter],
@@ -56,9 +57,9 @@ export function ExportsPage() {
       />
 
       <section className="exports-grid">
-        <MetricCard icon={<Clock3 />} label="Active" value={stats.active} helper="Queued or running" />
-        <MetricCard icon={<CheckCircle2 />} label="Completed" value={stats.completed} helper="Ready files" />
-        <MetricCard icon={<AlertTriangle />} label="Needs Action" value={stats.needsAction} helper="Failed or canceled" />
+        <MetricCard icon={<Clock3 />} label="Active" loading={metricsLoading} value={stats.active} helper="Queued or running" />
+        <MetricCard icon={<CheckCircle2 />} label="Completed" loading={metricsLoading} value={stats.completed} helper="Ready files" />
+        <MetricCard icon={<AlertTriangle />} label="Needs Action" loading={metricsLoading} value={stats.needsAction} helper="Failed or canceled" />
       </section>
 
       <div className="exports-filter-bar" aria-label="Export status filters">

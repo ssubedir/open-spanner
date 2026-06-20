@@ -11,12 +11,13 @@ import { formatDate, formatNumber } from '../lib/format'
 import { useInitialLoad } from '../lib/hooks'
 
 export function OverviewPage() {
-  const { error, ingestions, pinnedUsageQueries, stats, subjects } = useSelector(appStore, (state) => state.overview)
+  const { error, ingestions, pinnedUsageQueries, stats, status, subjects } = useSelector(appStore, (state) => state.overview)
   const router = useRouter()
   const load = useCallback(() => appStoreActions.loadOverview(), [])
 
   useInitialLoad(load)
 
+  const metricsLoading = !stats && (status === 'idle' || status === 'loading')
   const lastPrune = stats?.last_prune_run
   const lastPruneLabel = lastPrune?.dry_run ? 'Retention dry run' : lastPrune ? 'Retention cleanup' : 'Retention'
   const lastPruneHelper = lastPrune
@@ -41,9 +42,9 @@ export function OverviewPage() {
       {error ? <div className="error-banner">{error}</div> : null}
 
       <section className="metric-grid overview-metrics" aria-label="Operational metrics">
-        <MetricCard icon={<Boxes />} label="Meters" value={stats?.meters ?? 0} helper="Configured billable signals" />
-        <MetricCard icon={<BarChart3 />} label="Usage Events" value={stats?.usage_events ?? 0} helper="Raw events accepted" />
-        <MetricCard icon={<Clock />} label={lastPruneLabel} value={lastPrune?.deleted ?? 0} helper={lastPruneHelper} />
+        <MetricCard icon={<Boxes />} label="Meters" loading={metricsLoading} value={stats?.meters ?? 0} helper="Configured billable signals" />
+        <MetricCard icon={<BarChart3 />} label="Usage Events" loading={metricsLoading} value={stats?.usage_events ?? 0} helper="Raw events accepted" />
+        <MetricCard icon={<Clock />} label={lastPruneLabel} loading={metricsLoading} value={lastPrune?.deleted ?? 0} helper={lastPruneHelper} />
       </section>
 
       {pinnedUsageQueries.length > 0 ? (
