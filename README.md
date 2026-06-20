@@ -35,7 +35,7 @@ Read the hosted docs at [ssubedir.github.io/open-spanner/docs](https://ssubedir.
 - Alert rules that watch usage windows and deliver webhook notifications.
 - Dashboard auth with HttpOnly cookies and scoped API keys for service clients.
 - SQLite and Postgres storage, including Postgres JSONB metadata filtering.
-- Embedded React dashboard and Swagger UI.
+- Embedded React dashboard.
 - Generated REST SDKs for Go, TypeScript, Python, and C#.
 - Go stream SDK for gRPC usage ingestion.
 
@@ -60,7 +60,6 @@ Useful local endpoints:
 | Endpoint | Purpose |
 | --- | --- |
 | `http://localhost:18081/login` | Dashboard login |
-| `http://localhost:18081/docs` | Swagger UI |
 | `http://localhost:18081/health` | Liveness |
 | `http://localhost:18081/ready` | Readiness |
 | `localhost:18090` | gRPC usage ingestion |
@@ -288,7 +287,7 @@ Common runtime variables:
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `OPEN_SPANNER_HTTP_ADDR` | `:18081` | HTTP dashboard, REST API, Swagger UI, and health endpoints. |
+| `OPEN_SPANNER_HTTP_ADDR` | `:18081` | HTTP dashboard, REST API, and health endpoints. |
 | `OPEN_SPANNER_GRPC_ADDR` | `:18090` | gRPC usage ingestion listen address. |
 | `OPEN_SPANNER_GITHUB_OAUTH_ENABLED` | `true` | Enables GitHub sign-in when credentials are configured. |
 | `OPEN_SPANNER_GITHUB_OAUTH_CLIENT_ID` | | Enables GitHub sign-in when set with `OPEN_SPANNER_GITHUB_OAUTH_CLIENT_SECRET`. |

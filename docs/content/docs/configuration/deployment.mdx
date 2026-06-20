@@ -11,7 +11,7 @@ Run Open Spanner as separate processes against the same Postgres database:
 
 | Process | Purpose | Required when |
 | --- | --- | --- |
-| API | Serves the dashboard, REST API, Swagger UI, and gRPC usage ingestion. | Always |
+| API | Serves the dashboard, REST API, and gRPC usage ingestion. | Always |
 | Export worker | Claims queued export jobs and writes CSV artifacts. | Dashboard export jobs are enabled |
 | Alert worker | Evaluates alert rules and delivers webhooks. | Alerts are enabled |
 | Postgres | Stores users, sessions, API keys, meters, usage events, jobs, alerts, and query state. | Production deployments |
@@ -88,7 +88,7 @@ With Postgres, multiple export workers and alert workers can run at the same tim
 
 Keep Postgres private to the deployment network. Expose:
 
-- HTTP for dashboard, REST, Swagger UI, health checks, and readiness checks.
+- HTTP for dashboard, REST, health checks, and readiness checks.
 - gRPC only to trusted backend services that use stream ingestion.
 
 Open Spanner does not terminate TLS itself. Put it behind your platform ingress, load balancer, or reverse proxy and terminate TLS there. If you expose gRPC outside a private network, use a proxy that supports gRPC over HTTP/2.

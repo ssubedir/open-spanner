@@ -745,6 +745,84 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/auth/oauth/{provider}": {
+            "get": {
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Start OAuth login",
+                "operationId": "startOAuth",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "OAuth provider",
+                        "name": "provider",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "Found"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/auth/oauth/{provider}/callback": {
+            "get": {
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Complete OAuth login",
+                "operationId": "completeOAuth",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "OAuth provider",
+                        "name": "provider",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "Found"
+                    }
+                }
+            }
+        },
+        "/v1/auth/providers": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "List OAuth providers",
+                "operationId": "listOAuthProviders",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_auth.OAuthProviderListResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/auth/session": {
             "get": {
                 "produces": [
@@ -3054,6 +3132,31 @@ const docTemplate = `{
                 },
                 "user": {
                     "$ref": "#/definitions/internal_metering_adapters_http_auth.UserResponse"
+                }
+            }
+        },
+        "internal_metering_adapters_http_auth.OAuthProviderListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_auth.OAuthProviderResponse"
+                    }
+                }
+            }
+        },
+        "internal_metering_adapters_http_auth.OAuthProviderResponse": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
                 }
             }
         },

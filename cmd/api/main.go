@@ -16,7 +16,6 @@ import (
 	"github.com/ssubedir/open-spanner/internal/metering/workers/retention"
 	serverhttp "github.com/ssubedir/open-spanner/internal/server/http"
 	"github.com/ssubedir/open-spanner/internal/ui"
-	swaggerdocs "github.com/ssubedir/open-spanner/openapi"
 	"google.golang.org/grpc"
 )
 
@@ -33,8 +32,6 @@ func main() {
 
 	router := chi.NewRouter()
 	router.Get("/health", health)
-	router.Get("/docs", swaggerUI)
-	router.Get("/swagger/doc.json", swaggerDoc)
 	ui.RegisterRoutes(router)
 	app, err := bootstrap.RegisterRoutes(context.Background(), router, cfg)
 	if err != nil {
@@ -116,44 +113,4 @@ func ready(checker readyChecker) http.HandlerFunc {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
-}
-
-func swaggerDoc(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write([]byte(swaggerdocs.SwaggerInfo.ReadDoc()))
-}
-
-func swaggerUI(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(`<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Open Spanner API Docs</title>
-    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
-    <style>
-      body {
-        margin: 0;
-        background: #f7f8fb;
-      }
-      .swagger-ui .topbar {
-        display: none;
-      }
-    </style>
-  </head>
-  <body>
-    <div id="swagger-ui"></div>
-    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
-    <script>
-      window.ui = SwaggerUIBundle({
-        url: "/swagger/doc.json",
-        dom_id: "#swagger-ui",
-        deepLinking: true,
-        presets: [SwaggerUIBundle.presets.apis],
-        layout: "BaseLayout"
-      });
-    </script>
-  </body>
-</html>`))
 }
