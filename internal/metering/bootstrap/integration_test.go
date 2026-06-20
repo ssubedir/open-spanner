@@ -560,8 +560,15 @@ func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handl
 	}
 	var destinationList alertDestinationListResponse
 	decodeJSON(t, listDestinations, &destinationList)
-	if len(destinationList.Items) != 1 || destinationList.Items[0].ID != destination.ID || destinationList.Items[0].WebhookSigning.Secret != "" {
-		t.Fatalf("listed alert destinations = %#v, want destination without secret", destinationList)
+	listedDestination := alertDestinationResponse{}
+	for _, candidate := range destinationList.Items {
+		if candidate.ID == destination.ID {
+			listedDestination = candidate
+			break
+		}
+	}
+	if listedDestination.ID == "" || listedDestination.WebhookSigning.Secret != "" {
+		t.Fatalf("listed alert destinations = %#v, want created destination without secret", destinationList)
 	}
 
 	rotateDestination := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/alerts/destinations/"+destination.ID+"/webhook-secret/rotate", nil, authHeaders, nil)

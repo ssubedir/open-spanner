@@ -1,24 +1,17 @@
 package auth
 
 import (
-	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/github"
-	"golang.org/x/oauth2/google"
-	"google.golang.org/api/idtoken"
 
 	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/config"
@@ -35,36 +28,21 @@ const (
 )
 
 type Handler struct {
-	gitHubOAuth      config.GitHubOAuthConfig
-	googleOAuth      config.GoogleOAuthConfig
 	httpClient       *http.Client
 	oauthFailurePath string
+	oauthProviders   []OAuthProvider
 	oauthSuccessPath string
 	service          appauth.Service
 	verifier         idTokenVerifier
 }
 
 type HandlerOptions struct {
-	GitHubOAuth      config.GitHubOAuthConfig
-	GoogleOAuth      config.GoogleOAuthConfig
 	HTTPClient       *http.Client
+	OAuth            config.OAuthConfigs
 	OAuthFailurePath string
 	OAuthSuccessPath string
+	OAuthProviders   []OAuthProvider
 	Verifier         idTokenVerifier
-}
-
-type idTokenVerifier interface {
-	Validate(ctx context.Context, idToken string, audience string) (*idtoken.Payload, error)
-}
-
-type googleIDTokenVerifier struct{}
-
-func (googleIDTokenVerifier) Validate(ctx context.Context, rawIDToken string, audience string) (*idtoken.Payload, error) {
-	validator, err := idtoken.NewValidator(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return validator.Validate(ctx, rawIDToken, audience)
 }
 
 func NewHandler(service appauth.Service, options ...HandlerOptions) *Handler {
@@ -76,8 +54,6 @@ func NewHandler(service appauth.Service, options ...HandlerOptions) *Handler {
 		verifier:         googleIDTokenVerifier{},
 	}
 	if len(options) > 0 {
-		handler.gitHubOAuth = options[0].GitHubOAuth
-		handler.googleOAuth = options[0].GoogleOAuth
 		if options[0].HTTPClient != nil {
 			handler.httpClient = options[0].HTTPClient
 		}
@@ -90,6 +66,17 @@ func NewHandler(service appauth.Service, options ...HandlerOptions) *Handler {
 		if options[0].Verifier != nil {
 			handler.verifier = options[0].Verifier
 		}
+		handler.oauthProviders = oauthProviders(options[0].OAuthProviders)
+		if len(handler.oauthProviders) == 0 {
+			handler.oauthProviders = defaultOAuthProviders(
+				options[0].OAuth,
+				handler.httpClient,
+				handler.verifier,
+			)
+		}
+	}
+	if len(handler.oauthProviders) == 0 {
+		handler.oauthProviders = defaultOAuthProviders(config.OAuthConfigs{}, handler.httpClient, handler.verifier)
 	}
 	return handler
 }
@@ -172,10 +159,15 @@ func (h *Handler) CreateSession(w http.ResponseWriter, r *http.Request) {
 // @Success 200 {object} OAuthProviderListResponse
 // @Router /v1/auth/providers [get]
 func (h *Handler) ListOAuthProviders(w http.ResponseWriter, r *http.Request) {
-	respond.JSON(w, http.StatusOK, OAuthProviderListResponse{Items: []OAuthProviderResponse{
-		{Enabled: h.oauthEnabled("google"), ID: "google", Name: "Google"},
-		{Enabled: h.oauthEnabled("github"), ID: "github", Name: "GitHub"},
-	}})
+	providers := make([]OAuthProviderResponse, 0, len(h.oauthProviders))
+	for _, provider := range h.oauthProviders {
+		providers = append(providers, OAuthProviderResponse{
+			Enabled: provider.Enabled(),
+			ID:      provider.ID(),
+			Name:    provider.Name(),
+		})
+	}
+	respond.JSON(w, http.StatusOK, OAuthProviderListResponse{Items: providers})
 }
 
 // StartOAuth redirects the user to an OAuth/OIDC provider.
@@ -189,8 +181,8 @@ func (h *Handler) ListOAuthProviders(w http.ResponseWriter, r *http.Request) {
 // @Failure 500 {object} respond.ErrorResponse
 // @Router /v1/auth/oauth/{provider} [get]
 func (h *Handler) StartOAuth(w http.ResponseWriter, r *http.Request) {
-	provider := oauthProvider(r)
-	if !h.oauthEnabled(provider) {
+	provider, ok := h.oauthProvider(oauthProviderID(r))
+	if !ok {
 		respond.Error(w, http.StatusNotFound, "not_found", "oauth provider is not enabled")
 		return
 	}
@@ -201,8 +193,8 @@ func (h *Handler) StartOAuth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	redirectURL := h.oauthRedirectURL(r, provider)
-	oauthConfig, ok := h.oauthConfig(provider, redirectURL)
-	if !ok {
+	oauthConfig := provider.Config(redirectURL)
+	if oauthConfig == nil {
 		respond.Error(w, http.StatusNotFound, "not_found", "oauth provider is not enabled")
 		return
 	}
@@ -221,8 +213,8 @@ func (h *Handler) StartOAuth(w http.ResponseWriter, r *http.Request) {
 // @Failure 302
 // @Router /v1/auth/oauth/{provider}/callback [get]
 func (h *Handler) CompleteOAuth(w http.ResponseWriter, r *http.Request) {
-	provider := oauthProvider(r)
-	if !h.oauthEnabled(provider) {
+	provider, ok := h.oauthProvider(oauthProviderID(r))
+	if !ok {
 		http.Redirect(w, r, h.oauthFailurePath, http.StatusFound)
 		return
 	}
@@ -246,8 +238,8 @@ func (h *Handler) CompleteOAuth(w http.ResponseWriter, r *http.Request) {
 	if cookieRedirectURL, err := tokenFromCookie(r, oauthRedirectCookieName); err == nil {
 		redirectURL = cookieRedirectURL
 	}
-	oauthConfig, ok := h.oauthConfig(provider, redirectURL)
-	if !ok {
+	oauthConfig := provider.Config(redirectURL)
+	if oauthConfig == nil {
 		http.Redirect(w, r, h.oauthFailurePath, http.StatusFound)
 		return
 	}
@@ -256,7 +248,7 @@ func (h *Handler) CompleteOAuth(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, h.oauthFailurePath, http.StatusFound)
 		return
 	}
-	identity, err := h.oauthIdentity(r.Context(), provider, token)
+	identity, err := provider.Identity(r.Context(), token)
 	if err != nil {
 		http.Redirect(w, r, h.oauthFailurePath, http.StatusFound)
 		return
@@ -571,159 +563,17 @@ func apiKeyFromRequest(r *http.Request) string {
 	return ""
 }
 
-type oauthIdentity struct {
-	Provider      string
-	Subject       string
-	Email         string
-	EmailVerified bool
-}
-
-func oauthProvider(r *http.Request) string {
+func oauthProviderID(r *http.Request) string {
 	return strings.ToLower(strings.TrimSpace(chi.URLParam(r, "provider")))
 }
 
-func (h *Handler) oauthConfig(provider string, redirectURL string) (*oauth2.Config, bool) {
-	switch provider {
-	case "github":
-		if !h.oauthEnabled(provider) {
-			return nil, false
-		}
-		return &oauth2.Config{
-			ClientID:     h.gitHubOAuth.ClientID,
-			ClientSecret: h.gitHubOAuth.ClientSecret,
-			Endpoint:     github.Endpoint,
-			RedirectURL:  redirectURL,
-			Scopes:       []string{"read:user", "user:email"},
-		}, true
-	case "google":
-		if !h.oauthEnabled(provider) {
-			return nil, false
-		}
-		return &oauth2.Config{
-			ClientID:     h.googleOAuth.ClientID,
-			ClientSecret: h.googleOAuth.ClientSecret,
-			Endpoint:     google.Endpoint,
-			RedirectURL:  redirectURL,
-			Scopes:       []string{"openid", "email", "profile"},
-		}, true
-	default:
-		return nil, false
-	}
-}
-
-func (h *Handler) oauthIdentity(ctx context.Context, provider string, token *oauth2.Token) (oauthIdentity, error) {
-	switch provider {
-	case "github":
-		return h.gitHubIdentity(ctx, token)
-	case "google":
-		return h.googleIdentity(ctx, token)
-	default:
-		return oauthIdentity{}, domain.ErrUnauthorized
-	}
-}
-
-func (h *Handler) googleIdentity(ctx context.Context, token *oauth2.Token) (oauthIdentity, error) {
-	rawIDToken, ok := token.Extra("id_token").(string)
-	if !ok || strings.TrimSpace(rawIDToken) == "" {
-		return oauthIdentity{}, domain.ErrUnauthorized
-	}
-	payload, err := h.verifier.Validate(ctx, rawIDToken, h.googleOAuth.ClientID)
-	if err != nil {
-		return oauthIdentity{}, err
-	}
-	email, _ := payload.Claims["email"].(string)
-	return oauthIdentity{
-		Provider:      "google",
-		Subject:       payload.Subject,
-		Email:         email,
-		EmailVerified: claimBool(payload.Claims["email_verified"]),
-	}, nil
-}
-
-func (h *Handler) gitHubIdentity(ctx context.Context, token *oauth2.Token) (oauthIdentity, error) {
-	var user struct {
-		ID    int64  `json:"id"`
-		Email string `json:"email"`
-	}
-	if err := h.getGitHubJSON(ctx, token, "https://api.github.com/user", &user); err != nil {
-		return oauthIdentity{}, err
-	}
-	if user.ID == 0 {
-		return oauthIdentity{}, domain.ErrUnauthorized
-	}
-
-	var emails []struct {
-		Email    string `json:"email"`
-		Primary  bool   `json:"primary"`
-		Verified bool   `json:"verified"`
-	}
-	if err := h.getGitHubJSON(ctx, token, "https://api.github.com/user/emails", &emails); err != nil {
-		return oauthIdentity{}, err
-	}
-
-	email := ""
-	for _, candidate := range emails {
-		if candidate.Primary && candidate.Verified && strings.TrimSpace(candidate.Email) != "" {
-			email = candidate.Email
-			break
-		}
-	}
-	if email == "" {
-		for _, candidate := range emails {
-			if candidate.Verified && strings.TrimSpace(candidate.Email) != "" {
-				email = candidate.Email
-				break
-			}
-		}
-	}
-	if email == "" && strings.TrimSpace(user.Email) != "" {
-		email = user.Email
-	}
-	if email == "" {
-		return oauthIdentity{}, domain.ErrUnauthorized
-	}
-
-	return oauthIdentity{
-		Provider:      "github",
-		Subject:       strconv.FormatInt(user.ID, 10),
-		Email:         email,
-		EmailVerified: true,
-	}, nil
-}
-
-func (h *Handler) getGitHubJSON(ctx context.Context, token *oauth2.Token, endpoint string, target any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
-	req.Header.Set("User-Agent", "open-spanner")
-
-	res, err := h.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer res.Body.Close()
-	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return domain.ErrUnauthorized
-	}
-	return json.NewDecoder(res.Body).Decode(target)
-}
-
-func (h *Handler) oauthRedirectURL(r *http.Request, provider string) string {
+func (h *Handler) oauthRedirectURL(r *http.Request, provider OAuthProvider) string {
 	if origin := redirectOrigin(r.URL.Query().Get("redirect_origin")); origin != "" {
-		return origin + "/v1/auth/oauth/" + provider + "/callback"
+		return origin + "/v1/auth/oauth/" + provider.ID() + "/callback"
 	}
-	var redirectURL string
-	switch provider {
-	case "github":
-		redirectURL = strings.TrimSpace(h.gitHubOAuth.RedirectURL)
-	case "google":
-		redirectURL = strings.TrimSpace(h.googleOAuth.RedirectURL)
-	}
+	redirectURL := strings.TrimSpace(provider.RedirectURL())
 	if redirectURL == "" {
-		redirectURL = requestURL(r, "/v1/auth/oauth/"+provider+"/callback")
+		redirectURL = requestURL(r, "/v1/auth/oauth/"+provider.ID()+"/callback")
 	}
 	return redirectURL
 }
@@ -737,17 +587,6 @@ func redirectOrigin(value string) string {
 		return ""
 	}
 	return parsed.Scheme + "://" + parsed.Host
-}
-
-func (h *Handler) oauthEnabled(provider string) bool {
-	switch provider {
-	case "github":
-		return h.gitHubOAuth.Enabled && strings.TrimSpace(h.gitHubOAuth.ClientID) != "" && strings.TrimSpace(h.gitHubOAuth.ClientSecret) != ""
-	case "google":
-		return h.googleOAuth.Enabled && strings.TrimSpace(h.googleOAuth.ClientID) != "" && strings.TrimSpace(h.googleOAuth.ClientSecret) != ""
-	default:
-		return false
-	}
 }
 
 func requestURL(r *http.Request, path string) string {
@@ -764,6 +603,15 @@ func requestURL(r *http.Request, path string) string {
 		host = r.Host
 	}
 	return fmt.Sprintf("%s://%s%s", scheme, host, path)
+}
+
+func (h *Handler) oauthProvider(id string) (OAuthProvider, bool) {
+	for _, provider := range h.oauthProviders {
+		if strings.EqualFold(provider.ID(), id) && provider.Enabled() {
+			return provider, true
+		}
+	}
+	return nil, false
 }
 
 func claimBool(value any) bool {

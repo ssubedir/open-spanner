@@ -35,11 +35,11 @@ func TestLoadDefaultsToSQLite(t *testing.T) {
 	if cfg.AlertWorkerTimeout != time.Minute {
 		t.Fatalf("alert worker timeout = %s, want 1m", cfg.AlertWorkerTimeout)
 	}
-	if cfg.GitHubOAuth.ClientID != "" || cfg.GitHubOAuth.ClientSecret != "" || !cfg.GitHubOAuth.Enabled || cfg.GitHubOAuth.RedirectURL != "" {
-		t.Fatalf("github oauth config = %#v, want empty defaults", cfg.GitHubOAuth)
+	if cfg.OAuth.GitHub.ClientID != "" || cfg.OAuth.GitHub.ClientSecret != "" || !cfg.OAuth.GitHub.Enabled || cfg.OAuth.GitHub.RedirectURL != "" {
+		t.Fatalf("github oauth config = %#v, want empty defaults", cfg.OAuth.GitHub)
 	}
-	if cfg.GoogleOAuth.ClientID != "" || cfg.GoogleOAuth.ClientSecret != "" || !cfg.GoogleOAuth.Enabled || cfg.GoogleOAuth.RedirectURL != "" {
-		t.Fatalf("google oauth config = %#v, want empty defaults", cfg.GoogleOAuth)
+	if cfg.OAuth.Google.ClientID != "" || cfg.OAuth.Google.ClientSecret != "" || !cfg.OAuth.Google.Enabled || cfg.OAuth.Google.RedirectURL != "" {
+		t.Fatalf("google oauth config = %#v, want empty defaults", cfg.OAuth.Google)
 	}
 }
 

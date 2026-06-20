@@ -75,7 +75,7 @@ export function LoginPage() {
             <div className="auth-oauth-list">
               {providers.map((provider) => (
                 <a className="button button-outline button-default auth-oauth-button" href={`/v1/auth/oauth/${provider.id}?redirect_origin=${oauthOrigin}`} key={provider.id}>
-                  <ProviderMark provider={provider.id} />
+                  <ProviderMark provider={provider.id} name={provider.name} />
                   Sign in with {provider.name}
                 </a>
               ))}
@@ -91,7 +91,7 @@ export function LoginPage() {
   )
 }
 
-function ProviderMark({ provider }: { provider: string }) {
+function ProviderMark({ name, provider }: { name: string; provider: string }) {
   if (provider === 'github') {
     return (
       <svg className="provider-mark" aria-hidden="true" viewBox="0 0 24 24">
@@ -104,12 +104,25 @@ function ProviderMark({ provider }: { provider: string }) {
       </svg>
     )
   }
+  if (provider === 'google') {
+    return (
+      <svg className="provider-mark" aria-hidden="true" viewBox="0 0 24 24">
+        <path d="M21.6 12.23c0-.74-.07-1.45-.19-2.14H12v4.05h5.38a4.6 4.6 0 0 1-2 3.02v2.51h3.24c1.9-1.75 2.98-4.32 2.98-7.44Z" fill="#4285f4" />
+        <path d="M12 22c2.7 0 4.98-.9 6.62-2.43l-3.24-2.51c-.9.6-2.04.95-3.38.95-2.61 0-4.82-1.76-5.61-4.13H3.05v2.59A10 10 0 0 0 12 22Z" fill="#34a853" />
+        <path d="M6.39 13.88a6.01 6.01 0 0 1 0-3.76V7.53H3.05a10 10 0 0 0 0 8.94l3.34-2.59Z" fill="#fbbc05" />
+        <path d="M12 5.99c1.47 0 2.79.5 3.82 1.5l2.87-2.87A9.62 9.62 0 0 0 12 2a10 10 0 0 0-8.95 5.53l3.34 2.59C7.18 7.75 9.39 5.99 12 5.99Z" fill="#ea4335" />
+      </svg>
+    )
+  }
+
   return (
-    <svg className="provider-mark" aria-hidden="true" viewBox="0 0 24 24">
-      <path d="M21.6 12.23c0-.74-.07-1.45-.19-2.14H12v4.05h5.38a4.6 4.6 0 0 1-2 3.02v2.51h3.24c1.9-1.75 2.98-4.32 2.98-7.44Z" fill="#4285f4" />
-      <path d="M12 22c2.7 0 4.98-.9 6.62-2.43l-3.24-2.51c-.9.6-2.04.95-3.38.95-2.61 0-4.82-1.76-5.61-4.13H3.05v2.59A10 10 0 0 0 12 22Z" fill="#34a853" />
-      <path d="M6.39 13.88a6.01 6.01 0 0 1 0-3.76V7.53H3.05a10 10 0 0 0 0 8.94l3.34-2.59Z" fill="#fbbc05" />
-      <path d="M12 5.99c1.47 0 2.79.5 3.82 1.5l2.87-2.87A9.62 9.62 0 0 0 12 2a10 10 0 0 0-8.95 5.53l3.34 2.59C7.18 7.75 9.39 5.99 12 5.99Z" fill="#ea4335" />
-    </svg>
+    <span className="provider-mark provider-mark-fallback" aria-hidden="true">
+      {providerInitial(name, provider)}
+    </span>
   )
+}
+
+function providerInitial(name: string, provider: string) {
+  const value = (name || provider).trim()
+  return value ? value[0].toUpperCase() : '?'
 }

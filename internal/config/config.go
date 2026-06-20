@@ -13,8 +13,7 @@ import (
 type Config struct {
 	HTTPAddr                string
 	GRPCAddr                string
-	GitHubOAuth             GitHubOAuthConfig
-	GoogleOAuth             GoogleOAuthConfig
+	OAuth                   OAuthConfigs
 	DBDriver                string
 	SQLitePath              string
 	PostgresDSN             string
@@ -35,18 +34,16 @@ type Config struct {
 	RetentionPruneTimeout   time.Duration
 }
 
-type GitHubOAuthConfig struct {
+type OAuthConfig struct {
 	ClientID     string
 	ClientSecret string
 	Enabled      bool
 	RedirectURL  string
 }
 
-type GoogleOAuthConfig struct {
-	ClientID     string
-	ClientSecret string
-	Enabled      bool
-	RedirectURL  string
+type OAuthConfigs struct {
+	GitHub OAuthConfig
+	Google OAuthConfig
 }
 
 type DBPoolConfig struct {
@@ -116,11 +113,11 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
-	gitHubOAuthEnabled, err := envBool("OPEN_SPANNER_GITHUB_OAUTH_ENABLED", true)
+	gitHubOAuth, err := loadOAuthConfig("GITHUB")
 	if err != nil {
 		return Config{}, err
 	}
-	googleOAuthEnabled, err := envBool("OPEN_SPANNER_GOOGLE_OAUTH_ENABLED", true)
+	googleOAuth, err := loadOAuthConfig("GOOGLE")
 	if err != nil {
 		return Config{}, err
 	}
@@ -128,17 +125,9 @@ func Load() (Config, error) {
 	cfg := Config{
 		HTTPAddr: env("OPEN_SPANNER_HTTP_ADDR", ":18081"),
 		GRPCAddr: env("OPEN_SPANNER_GRPC_ADDR", ":18090"),
-		GitHubOAuth: GitHubOAuthConfig{
-			ClientID:     env("OPEN_SPANNER_GITHUB_OAUTH_CLIENT_ID", ""),
-			ClientSecret: env("OPEN_SPANNER_GITHUB_OAUTH_CLIENT_SECRET", ""),
-			Enabled:      gitHubOAuthEnabled,
-			RedirectURL:  env("OPEN_SPANNER_GITHUB_OAUTH_REDIRECT_URL", ""),
-		},
-		GoogleOAuth: GoogleOAuthConfig{
-			ClientID:     env("OPEN_SPANNER_GOOGLE_OAUTH_CLIENT_ID", ""),
-			ClientSecret: env("OPEN_SPANNER_GOOGLE_OAUTH_CLIENT_SECRET", ""),
-			Enabled:      googleOAuthEnabled,
-			RedirectURL:  env("OPEN_SPANNER_GOOGLE_OAUTH_REDIRECT_URL", ""),
+		OAuth: OAuthConfigs{
+			GitHub: gitHubOAuth,
+			Google: googleOAuth,
 		},
 		DBDriver:                strings.ToLower(env("OPEN_SPANNER_DB_DRIVER", "sqlite")),
 		SQLitePath:              env("OPEN_SPANNER_SQLITE_PATH", "open-spanner.db"),
@@ -165,6 +154,20 @@ func Load() (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func loadOAuthConfig(provider string) (OAuthConfig, error) {
+	prefix := "OPEN_SPANNER_" + strings.ToUpper(provider) + "_OAUTH_"
+	enabled, err := envBool(prefix+"ENABLED", true)
+	if err != nil {
+		return OAuthConfig{}, err
+	}
+	return OAuthConfig{
+		ClientID:     env(prefix+"CLIENT_ID", ""),
+		ClientSecret: env(prefix+"CLIENT_SECRET", ""),
+		Enabled:      enabled,
+		RedirectURL:  env(prefix+"REDIRECT_URL", ""),
+	}, nil
 }
 
 func (cfg Config) Validate() error {
