@@ -182,7 +182,9 @@ func TestWorkerCancelsPruneAfterTimeout(t *testing.T) {
 	if !pruner.waitForCancellations(1, 200*time.Millisecond) {
 		t.Fatal("worker did not cancel prune after timeout")
 	}
-	if !logs.contains("retention prune failed") {
+	if !waitFor(t, 200*time.Millisecond, func() bool {
+		return logs.contains("retention prune failed")
+	}) {
 		t.Fatalf("logs = %#v, want failed prune log", logs.entries())
 	}
 }
