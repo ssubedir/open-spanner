@@ -290,10 +290,24 @@ export type AuthSession = {
   user: AuthUser
 }
 
+export type OAuthProvider = {
+  enabled: boolean
+  id: string
+  name: string
+}
+
+export type OAuthProviderList = {
+  items: OAuthProvider[]
+}
+
 export type APIKey = {
   id: string
   name: string
   prefix: string
+  scopes: string[]
+  allowed_meters: string[]
+  expires_at?: string | null
+  revoked_at?: string | null
   created_at: string
   last_used_at: string | null
 }
@@ -303,6 +317,26 @@ export type APIKeyList = {
 }
 
 export type APIKeyCreateResponse = APIKey & {
+  key: string
+}
+
+export type APIKeyCreateRequest = {
+  name: string
+  scopes?: string[]
+  allowed_meters?: string[]
+  expires_at?: string
+}
+
+type APIKeyPayload = Omit<APIKey, 'allowed_meters' | 'scopes'> & {
+  allowed_meters?: string[] | null
+  scopes?: string[] | null
+}
+
+type APIKeyListPayload = {
+  items?: APIKeyPayload[] | null
+}
+
+type APIKeyCreatePayload = APIKeyPayload & {
   key: string
 }
 
@@ -516,6 +550,10 @@ export async function createAuthSession(input: { email: string; password: string
   })
 }
 
+export async function listOAuthProviders() {
+  return request<OAuthProviderList>('/v1/auth/providers')
+}
+
 async function apiError(response: Response) {
   const payload = await response.json().catch(() => ({ error: { code: '', message: response.statusText } }))
   const message = typeof payload.error === 'string' ? payload.error : payload.error?.message
@@ -531,14 +569,21 @@ export async function deleteAuthSession() {
 }
 
 export async function listAPIKeys() {
-  return request<APIKeyList>('/v1/auth/api-keys')
+  const response = await request<APIKeyListPayload>('/v1/auth/api-keys')
+  return {
+    items: (response.items || []).map(normalizeAPIKey),
+  }
 }
 
-export async function createAPIKey(input: { name: string }) {
-  return request<APIKeyCreateResponse>('/v1/auth/api-keys', {
+export async function createAPIKey(input: APIKeyCreateRequest) {
+  const response = await request<APIKeyCreatePayload>('/v1/auth/api-keys', {
     body: JSON.stringify(input),
     method: 'POST',
   })
+  return {
+    ...normalizeAPIKey(response),
+    key: response.key,
+  }
 }
 
 export async function deleteAPIKey(id: string) {
@@ -607,16 +652,24 @@ export async function evaluateAlertRule(id: string) {
   })
 }
 
-export async function listAlertEvents(limit = 25) {
-  return request<AlertEventList>(`/v1/alerts/events?limit=${limit}`)
+export async function listAlertEvents(limit = 25, cursor = '') {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (cursor) {
+    params.set('cursor', cursor)
+  }
+  return request<AlertEventList>(`/v1/alerts/events?${params.toString()}`)
 }
 
 export async function getSystemStats() {
   return request<SystemStats>('/v1/system/stats')
 }
 
-export async function listSubjects(limit = 8) {
-  return request<SubjectList>(`/v1/subjects?limit=${limit}`)
+export async function listSubjects(limit = 8, cursor = '') {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (cursor) {
+    params.set('cursor', cursor)
+  }
+  return request<SubjectList>(`/v1/subjects?${params.toString()}`)
 }
 
 export async function listSubjectEvents(subject: string, limit = 25) {
@@ -742,8 +795,12 @@ export async function retryUsageExportJob(id: string) {
   })
 }
 
-export async function listUsageExportJobs(limit = 8) {
-  return request<UsageExportJobList>(`/v1/exports?limit=${limit}`)
+export async function listUsageExportJobs(limit = 8, cursor = '') {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (cursor) {
+    params.set('cursor', cursor)
+  }
+  return request<UsageExportJobList>(`/v1/exports?${params.toString()}`)
 }
 
 export async function downloadUsageExportJob(job: Pick<UsageExportJob, 'download_url' | 'id'>) {
@@ -807,4 +864,12 @@ export async function deleteSavedUsageQuery(id: string) {
   return request<void>(`/v1/usage/saved-queries/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   })
+}
+
+function normalizeAPIKey(key: APIKeyPayload): APIKey {
+  return {
+    ...key,
+    allowed_meters: Array.isArray(key.allowed_meters) ? key.allowed_meters : [],
+    scopes: Array.isArray(key.scopes) ? key.scopes : [],
+  }
 }

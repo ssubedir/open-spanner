@@ -39,23 +39,9 @@ type FindSavedQueryByIDParams struct {
 	ID     string
 }
 
-type FindSavedQueryByIDRow struct {
-	ID          string
-	UserID      string
-	Name        string
-	QueryJson   json.RawMessage
-	GroupBy     json.RawMessage
-	BucketSize  string
-	ResultLimit int32
-	Pinned      bool
-	Position    int32
-	CreatedAt   string
-	UpdatedAt   string
-}
-
-func (q *Queries) FindSavedQueryByID(ctx context.Context, arg FindSavedQueryByIDParams) (FindSavedQueryByIDRow, error) {
+func (q *Queries) FindSavedQueryByID(ctx context.Context, arg FindSavedQueryByIDParams) (UsageSavedQuery, error) {
 	row := q.db.QueryRowContext(ctx, findSavedQueryByID, arg.UserID, arg.ID)
-	var i FindSavedQueryByIDRow
+	var i UsageSavedQuery
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
@@ -79,29 +65,15 @@ WHERE user_id = $1
 ORDER BY pinned DESC, position ASC, updated_at DESC, id DESC
 `
 
-type ListSavedQueriesRow struct {
-	ID          string
-	UserID      string
-	Name        string
-	QueryJson   json.RawMessage
-	GroupBy     json.RawMessage
-	BucketSize  string
-	ResultLimit int32
-	Pinned      bool
-	Position    int32
-	CreatedAt   string
-	UpdatedAt   string
-}
-
-func (q *Queries) ListSavedQueries(ctx context.Context, userID string) ([]ListSavedQueriesRow, error) {
+func (q *Queries) ListSavedQueries(ctx context.Context, userID string) ([]UsageSavedQuery, error) {
 	rows, err := q.db.QueryContext(ctx, listSavedQueries, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListSavedQueriesRow{}
+	items := []UsageSavedQuery{}
 	for rows.Next() {
-		var i ListSavedQueriesRow
+		var i UsageSavedQuery
 		if err := rows.Scan(
 			&i.ID,
 			&i.UserID,

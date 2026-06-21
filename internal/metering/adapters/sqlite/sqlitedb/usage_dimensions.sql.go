@@ -19,25 +19,27 @@ FROM (
 		ELSE CAST(json_extract(metadata, CAST(?1 AS TEXT)) AS TEXT)
 	END AS value
 	FROM usage_events
-	WHERE meter_name = ?2
+	WHERE workspace_id = ?2
+		AND meter_name = ?3
 		AND json_type(metadata, CAST(?1 AS TEXT)) IS NOT NULL
-		AND (CAST(?3 AS TEXT) IS NULL OR subject = CAST(?3 AS TEXT))
-		AND (CAST(?4 AS TEXT) IS NULL OR event_time >= CAST(?4 AS TEXT))
-		AND (CAST(?5 AS TEXT) IS NULL OR event_time < CAST(?5 AS TEXT))
+		AND (CAST(?4 AS TEXT) IS NULL OR subject = CAST(?4 AS TEXT))
+		AND (CAST(?5 AS TEXT) IS NULL OR event_time >= CAST(?5 AS TEXT))
+		AND (CAST(?6 AS TEXT) IS NULL OR event_time < CAST(?6 AS TEXT))
 ) discovered
 WHERE value IS NOT NULL AND value != ''
 GROUP BY value
 ORDER BY usage_events DESC, value ASC
-LIMIT ?6
+LIMIT ?7
 `
 
 type ListUsageDimensionValuesParams struct {
-	Path      string
-	MeterName string
-	Subject   sql.NullString
-	FromTime  sql.NullString
-	ToTime    sql.NullString
-	Limit     int64
+	Path        string
+	WorkspaceID string
+	MeterName   string
+	Subject     sql.NullString
+	FromTime    sql.NullString
+	ToTime      sql.NullString
+	Limit       int64
 }
 
 type ListUsageDimensionValuesRow struct {
@@ -48,6 +50,7 @@ type ListUsageDimensionValuesRow struct {
 func (q *Queries) ListUsageDimensionValues(ctx context.Context, arg ListUsageDimensionValuesParams) ([]ListUsageDimensionValuesRow, error) {
 	rows, err := q.db.QueryContext(ctx, listUsageDimensionValues,
 		arg.Path,
+		arg.WorkspaceID,
 		arg.MeterName,
 		arg.Subject,
 		arg.FromTime,

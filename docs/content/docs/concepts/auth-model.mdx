@@ -5,6 +5,61 @@ description: Browser sessions for people, API keys for services.
 
 Open Spanner separates dashboard login from service authentication. People sign in through the dashboard; backend services, SDKs, workers, and scripts use API keys.
 
+## Dashboard Sign-In
+
+Dashboard users can sign in with email and password. Deployments can also enable OAuth providers for the dashboard. Open Spanner currently ships with:
+
+- Google OAuth/OIDC
+- GitHub OAuth
+
+Social login maps external accounts into Open Spanner users through provider identities. The internal user remains the canonical dashboard user, while each social account is linked by provider and provider subject. If a verified social email matches an existing dashboard user, Open Spanner links that provider identity to the existing user instead of creating a duplicate.
+
+Social login only creates dashboard sessions. It does not create API keys, bypass API key scopes, or change service authentication.
+
+## Workspaces
+
+Each dashboard user works inside a workspace. Meters, usage events, subjects, alert rules, alert destinations, export jobs, saved queries, and API keys are scoped to that workspace.
+
+This means two dashboard users can use the same Open Spanner deployment without seeing each other's metering data. A user only sees the meters, usage, alerts, exports, and keys that belong to their current workspace.
+
+API keys inherit the workspace where they were created. When a backend service sends usage with an API key, Open Spanner writes and reads data in that key's workspace. The service does not send a workspace ID in each request.
+
+Use separate dashboard users when you want hard separation between environments, customers, or internal teams. Use separate API keys inside a workspace when you want different backend services to have different permissions.
+
+## Social Login Configuration
+
+OAuth providers all use the same configuration shape:
+
+```text
+OPEN_SPANNER_<PROVIDER>_OAUTH_ENABLED
+OPEN_SPANNER_<PROVIDER>_OAUTH_CLIENT_ID
+OPEN_SPANNER_<PROVIDER>_OAUTH_CLIENT_SECRET
+OPEN_SPANNER_<PROVIDER>_OAUTH_REDIRECT_URL
+```
+
+For the built-in providers, `<PROVIDER>` is `GOOGLE` or `GITHUB`.
+
+Providers are shown on the login page only when both conditions are true:
+
+- The provider is enabled with `OPEN_SPANNER_*_OAUTH_ENABLED=true`.
+- The provider has a client ID and client secret.
+
+Use these flags to hide or disable providers without deleting their credentials:
+
+```sh
+OPEN_SPANNER_GOOGLE_OAUTH_ENABLED=false
+OPEN_SPANNER_GITHUB_OAUTH_ENABLED=true
+```
+
+The login page reads `/v1/auth/providers` and only shows enabled providers.
+
+OAuth callbacks use the provider ID in the route:
+
+```text
+/v1/auth/oauth/google/callback
+/v1/auth/oauth/github/callback
+```
+
 ## API Keys
 
 ```text
@@ -13,6 +68,29 @@ Authorization: Bearer <api_key>
 
 Create API keys from the dashboard. Copy them when they are created; the full key is not shown again.
 
-## Current Scope
+API keys should be used from trusted server-side code. Do not put Open Spanner API keys in browser or mobile clients.
 
-API keys authenticate service clients. They are not scoped to a specific meter or operation yet, so treat them like production secrets.
+## Scopes And Meter Access
+
+API keys can be limited by operation and by meter name. Use scopes to decide what a backend service can do, then optionally set an allowed meter list when the key should only work for specific meters.
+
+Common scopes:
+
+- `usage:write` records usage events through REST or gRPC.
+- `usage:read` queries usage buckets, dimensions, breakdowns, and raw events.
+- `meters:read` reads meter definitions.
+- `meters:write` creates or edits meter definitions.
+- `alerts:read` and `alerts:write` manage alert rules and destinations.
+- `exports:read` and `exports:write` download or queue usage exports.
+- `system:read` reads operational stats.
+
+Leave the allowed meter list empty when a trusted backend service should work across all meters. Add meter names when a key belongs to one service or pipeline.
+
+Good starting points:
+
+- Ingestion services usually need `usage:write`.
+- Reporting services usually need `usage:read`, `exports:read`, and `exports:write`.
+- Provisioning services that create meters need `meters:read` and `meters:write`.
+- Alert automation needs `alerts:read` and `alerts:write`.
+
+Use the smallest set of scopes that matches the service. If a key only writes one meter, set both the scope and the allowed meter list.

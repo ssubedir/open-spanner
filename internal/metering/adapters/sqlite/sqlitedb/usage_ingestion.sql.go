@@ -13,11 +13,17 @@ import (
 const findBulkUsageIngestion = `-- name: FindBulkUsageIngestion :one
 SELECT response
 FROM bulk_usage_ingestions
-WHERE idempotency_key = ?
+WHERE workspace_id = ?1
+	AND idempotency_key = ?2
 `
 
-func (q *Queries) FindBulkUsageIngestion(ctx context.Context, idempotencyKey string) (string, error) {
-	row := q.db.QueryRowContext(ctx, findBulkUsageIngestion, idempotencyKey)
+type FindBulkUsageIngestionParams struct {
+	WorkspaceID    string
+	IdempotencyKey string
+}
+
+func (q *Queries) FindBulkUsageIngestion(ctx context.Context, arg FindBulkUsageIngestionParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, findBulkUsageIngestion, arg.WorkspaceID, arg.IdempotencyKey)
 	var response string
 	err := row.Scan(&response)
 	return response, err
@@ -26,12 +32,29 @@ func (q *Queries) FindBulkUsageIngestion(ctx context.Context, idempotencyKey str
 const findUsageEventByID = `-- name: FindUsageEventByID :one
 SELECT id, idempotency_key, subject, meter_name, quantity, event_time, received_at, metadata
 FROM usage_events
-WHERE id = ?
+WHERE workspace_id = ?1
+	AND id = ?2
 `
 
-func (q *Queries) FindUsageEventByID(ctx context.Context, id string) (UsageEvent, error) {
-	row := q.db.QueryRowContext(ctx, findUsageEventByID, id)
-	var i UsageEvent
+type FindUsageEventByIDParams struct {
+	WorkspaceID string
+	ID          string
+}
+
+type FindUsageEventByIDRow struct {
+	ID             string
+	IdempotencyKey sql.NullString
+	Subject        string
+	MeterName      string
+	Quantity       float64
+	EventTime      string
+	ReceivedAt     string
+	Metadata       string
+}
+
+func (q *Queries) FindUsageEventByID(ctx context.Context, arg FindUsageEventByIDParams) (FindUsageEventByIDRow, error) {
+	row := q.db.QueryRowContext(ctx, findUsageEventByID, arg.WorkspaceID, arg.ID)
+	var i FindUsageEventByIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.IdempotencyKey,
@@ -48,12 +71,29 @@ func (q *Queries) FindUsageEventByID(ctx context.Context, id string) (UsageEvent
 const findUsageEventByIdempotencyKey = `-- name: FindUsageEventByIdempotencyKey :one
 SELECT id, idempotency_key, subject, meter_name, quantity, event_time, received_at, metadata
 FROM usage_events
-WHERE idempotency_key = ?
+WHERE workspace_id = ?1
+	AND idempotency_key = ?2
 `
 
-func (q *Queries) FindUsageEventByIdempotencyKey(ctx context.Context, idempotencyKey sql.NullString) (UsageEvent, error) {
-	row := q.db.QueryRowContext(ctx, findUsageEventByIdempotencyKey, idempotencyKey)
-	var i UsageEvent
+type FindUsageEventByIdempotencyKeyParams struct {
+	WorkspaceID    string
+	IdempotencyKey sql.NullString
+}
+
+type FindUsageEventByIdempotencyKeyRow struct {
+	ID             string
+	IdempotencyKey sql.NullString
+	Subject        string
+	MeterName      string
+	Quantity       float64
+	EventTime      string
+	ReceivedAt     string
+	Metadata       string
+}
+
+func (q *Queries) FindUsageEventByIdempotencyKey(ctx context.Context, arg FindUsageEventByIdempotencyKeyParams) (FindUsageEventByIdempotencyKeyRow, error) {
+	row := q.db.QueryRowContext(ctx, findUsageEventByIdempotencyKey, arg.WorkspaceID, arg.IdempotencyKey)
+	var i FindUsageEventByIdempotencyKeyRow
 	err := row.Scan(
 		&i.ID,
 		&i.IdempotencyKey,
@@ -68,24 +108,31 @@ func (q *Queries) FindUsageEventByIdempotencyKey(ctx context.Context, idempotenc
 }
 
 const saveBulkUsageIngestion = `-- name: SaveBulkUsageIngestion :exec
-INSERT INTO bulk_usage_ingestions (idempotency_key, response, created_at)
-VALUES (?, ?, ?)
+INSERT INTO bulk_usage_ingestions (workspace_id, idempotency_key, response, created_at)
+VALUES (?, ?, ?, ?)
 `
 
 type SaveBulkUsageIngestionParams struct {
+	WorkspaceID    string
 	IdempotencyKey string
 	Response       string
 	CreatedAt      string
 }
 
 func (q *Queries) SaveBulkUsageIngestion(ctx context.Context, arg SaveBulkUsageIngestionParams) error {
-	_, err := q.db.ExecContext(ctx, saveBulkUsageIngestion, arg.IdempotencyKey, arg.Response, arg.CreatedAt)
+	_, err := q.db.ExecContext(ctx, saveBulkUsageIngestion,
+		arg.WorkspaceID,
+		arg.IdempotencyKey,
+		arg.Response,
+		arg.CreatedAt,
+	)
 	return err
 }
 
 const saveUsageEvent = `-- name: SaveUsageEvent :exec
 INSERT INTO usage_events (
 	id,
+	workspace_id,
 	idempotency_key,
 	subject,
 	meter_name,
@@ -95,18 +142,20 @@ INSERT INTO usage_events (
 	metadata
 ) VALUES (
 	?1,
-	NULLIF(CAST(?2 AS TEXT), ''),
-	?3,
+	?2,
+	NULLIF(CAST(?3 AS TEXT), ''),
 	?4,
 	?5,
 	?6,
 	?7,
-	?8
+	?8,
+	?9
 )
 `
 
 type SaveUsageEventParams struct {
 	ID             string
+	WorkspaceID    string
 	IdempotencyKey string
 	Subject        string
 	MeterName      string
@@ -119,6 +168,7 @@ type SaveUsageEventParams struct {
 func (q *Queries) SaveUsageEvent(ctx context.Context, arg SaveUsageEventParams) error {
 	_, err := q.db.ExecContext(ctx, saveUsageEvent,
 		arg.ID,
+		arg.WorkspaceID,
 		arg.IdempotencyKey,
 		arg.Subject,
 		arg.MeterName,

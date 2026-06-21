@@ -8,17 +8,6 @@ import (
 	"database/sql"
 )
 
-type AlertDestination struct {
-	ID            string
-	Name          string
-	Type          string
-	Enabled       int64
-	WebhookUrl    string
-	WebhookSecret string
-	CreatedAt     string
-	UpdatedAt     string
-}
-
 type AlertEvaluationJob struct {
 	RuleID      string
 	RunAfter    string
@@ -26,24 +15,6 @@ type AlertEvaluationJob struct {
 	Attempts    int64
 	CreatedAt   string
 	UpdatedAt   string
-}
-
-type AlertRule struct {
-	ID                        string
-	Name                      string
-	MeterName                 string
-	Enabled                   int64
-	Subject                   string
-	Metadata                  string
-	WindowSeconds             int64
-	Comparator                string
-	Threshold                 float64
-	EvaluationIntervalSeconds int64
-	GroupBy                   string
-	DestinationID             string
-	NextEvaluateAt            string
-	CreatedAt                 string
-	UpdatedAt                 string
 }
 
 type AlertState struct {
@@ -58,13 +29,39 @@ type AlertState struct {
 }
 
 type AuthApiKey struct {
-	ID         string
-	UserID     string
-	Name       string
-	TokenHash  string
-	Prefix     string
-	CreatedAt  string
-	LastUsedAt sql.NullString
+	ID            string
+	UserID        string
+	WorkspaceID   string
+	Name          string
+	TokenHash     string
+	Prefix        string
+	Scopes        string
+	AllowedMeters string
+	ExpiresAt     sql.NullString
+	RevokedAt     sql.NullString
+	CreatedAt     string
+	LastUsedAt    sql.NullString
+}
+
+type AuthIdentity struct {
+	ID            string
+	UserID        string
+	Provider      string
+	Subject       string
+	Email         string
+	EmailVerified int64
+	CreatedAt     string
+	UpdatedAt     string
+}
+
+type AuthSession struct {
+	ID          string
+	UserID      string
+	WorkspaceID string
+	TokenHash   string
+	Kind        string
+	ExpiresAt   string
+	CreatedAt   string
 }
 
 type AuthUser struct {
@@ -74,41 +71,39 @@ type AuthUser struct {
 	CreatedAt    string
 }
 
-type Meter struct {
-	ID                 string
-	Name               string
-	Description        string
-	Unit               string
-	Aggregation        string
-	Dimensions         string
-	EventRetentionDays int64
-	CreatedAt          string
-}
-
-type UsageEvent struct {
-	ID             string
-	IdempotencyKey sql.NullString
-	Subject        string
-	MeterName      string
-	Quantity       float64
-	EventTime      string
-	ReceivedAt     string
-	Metadata       string
-}
-
-type UsageIngestion struct {
-	ID         string
-	Kind       string
-	Accepted   int64
-	Duplicates int64
-	Failed     int64
-	CreatedAt  string
-}
-
-type UsagePruneRun struct {
+type AuthWorkspace struct {
 	ID        string
-	DryRun    int64
-	Deleted   int64
-	Meters    string
+	Name      string
 	CreatedAt string
+}
+
+type UsageExportJob struct {
+	ID           string
+	WorkspaceID  string
+	Kind         string
+	Status       string
+	Format       string
+	QueryJson    string
+	Error        string
+	Attempts     int64
+	LockedUntil  sql.NullString
+	ArtifactPath string
+	ArtifactSize int64
+	CreatedAt    string
+	UpdatedAt    string
+	CompletedAt  sql.NullString
+}
+
+type UsageSavedQuery struct {
+	ID          string
+	UserID      string
+	Name        string
+	QueryJson   string
+	GroupBy     string
+	BucketSize  string
+	ResultLimit int64
+	Pinned      int64
+	Position    int64
+	CreatedAt   string
+	UpdatedAt   string
 }

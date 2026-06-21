@@ -5,10 +5,11 @@ SELECT pg_try_advisory_xact_lock($1);
 WITH deleted AS (
 	SELECT usage_events.id
 	FROM usage_events
-	WHERE usage_events.meter_name = $1
-		AND usage_events.event_time < $2
+	WHERE usage_events.workspace_id = sqlc.arg('workspace_id')::text
+		AND usage_events.meter_name = sqlc.arg('meter_name')::text
+		AND usage_events.event_time < sqlc.arg('event_time')::text
 	ORDER BY usage_events.event_time ASC, usage_events.id ASC
-	LIMIT $3
+	LIMIT sqlc.arg('limit')::int
 )
 DELETE FROM usage_events
 WHERE usage_events.id IN (SELECT deleted.id FROM deleted);
@@ -16,17 +17,19 @@ WHERE usage_events.id IN (SELECT deleted.id FROM deleted);
 -- name: CountPrunableUsageEvents :one
 SELECT COUNT(*)
 FROM usage_events
-WHERE meter_name = $1
-	AND event_time < $2;
+WHERE workspace_id = sqlc.arg('workspace_id')::text
+	AND meter_name = sqlc.arg('meter_name')::text
+	AND event_time < sqlc.arg('event_time')::text;
 
 -- name: SaveUsagePruneRun :exec
-INSERT INTO usage_prune_runs (id, dry_run, deleted, meters, created_at)
-VALUES ($1, $2, $3, $4, $5);
+INSERT INTO usage_prune_runs (id, workspace_id, dry_run, deleted, meters, created_at)
+VALUES ($1, $2, $3, $4, $5, $6);
 
 -- name: ListUsagePruneRuns :many
 SELECT id, dry_run, deleted, meters, created_at
 FROM usage_prune_runs
-WHERE (sqlc.narg('cursor_created_at')::text IS NULL
+WHERE workspace_id = sqlc.arg('workspace_id')::text
+	AND (sqlc.narg('cursor_created_at')::text IS NULL
 	OR (created_at < sqlc.narg('cursor_created_at')::text
 		OR (created_at = sqlc.narg('cursor_created_at')::text AND id < sqlc.narg('cursor_id')::text)))
 ORDER BY created_at DESC, id DESC
@@ -34,16 +37,18 @@ LIMIT sqlc.arg('limit')::int;
 
 -- name: CountUsagePruneRuns :one
 SELECT COUNT(*)
-FROM usage_prune_runs;
+FROM usage_prune_runs
+WHERE workspace_id = sqlc.arg('workspace_id')::text;
 
 -- name: SaveUsageIngestionRun :exec
-INSERT INTO usage_ingestions (id, kind, accepted, duplicates, failed, created_at)
-VALUES ($1, $2, $3, $4, $5, $6);
+INSERT INTO usage_ingestions (id, workspace_id, kind, accepted, duplicates, failed, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7);
 
 -- name: ListUsageIngestionRuns :many
 SELECT id, kind, accepted, duplicates, failed, created_at
 FROM usage_ingestions
-WHERE (sqlc.narg('cursor_created_at')::text IS NULL
+WHERE workspace_id = sqlc.arg('workspace_id')::text
+	AND (sqlc.narg('cursor_created_at')::text IS NULL
 	OR (created_at < sqlc.narg('cursor_created_at')::text
 		OR (created_at = sqlc.narg('cursor_created_at')::text AND id < sqlc.narg('cursor_id')::text)))
 ORDER BY created_at DESC, id DESC
@@ -52,6 +57,7 @@ LIMIT sqlc.arg('limit')::int;
 -- name: SaveUsageExportJob :exec
 INSERT INTO usage_export_jobs (
 	id,
+	workspace_id,
 	kind,
 	status,
 	format,
@@ -65,17 +71,19 @@ INSERT INTO usage_export_jobs (
 	updated_at,
 	completed_at
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13);
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14);
 
 -- name: FindUsageExportJob :one
-SELECT id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at
+SELECT id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at
 FROM usage_export_jobs
-WHERE id = $1;
+WHERE workspace_id = sqlc.arg('workspace_id')::text
+	AND id = sqlc.arg('id')::text;
 
 -- name: ListUsageExportJobs :many
-SELECT id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at
+SELECT id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at
 FROM usage_export_jobs
-WHERE (sqlc.narg('cursor_created_at')::text IS NULL
+WHERE workspace_id = sqlc.arg('workspace_id')::text
+	AND (sqlc.narg('cursor_created_at')::text IS NULL
 	OR (created_at < sqlc.narg('cursor_created_at')::text
 		OR (created_at = sqlc.narg('cursor_created_at')::text AND id < sqlc.narg('cursor_id')::text)))
 ORDER BY created_at DESC, id DESC
@@ -99,7 +107,7 @@ SET status = 'running',
 	error = '',
 	updated_at = sqlc.arg('now')::text
 WHERE id = (SELECT id FROM next_job)
-RETURNING id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at;
+RETURNING id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at;
 
 -- name: CompleteUsageExportJob :one
 UPDATE usage_export_jobs
@@ -111,8 +119,9 @@ SET status = 'completed',
 	updated_at = sqlc.arg('completed_at')::text,
 	completed_at = sqlc.arg('completed_at')::text
 WHERE id = sqlc.arg('id')::text
+	AND workspace_id = sqlc.arg('workspace_id')::text
 	AND status = 'running'
-RETURNING id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at;
+RETURNING id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at;
 
 -- name: FailUsageExportJob :one
 UPDATE usage_export_jobs
@@ -122,8 +131,9 @@ SET status = 'failed',
 	updated_at = sqlc.arg('failed_at')::text,
 	completed_at = sqlc.arg('failed_at')::text
 WHERE id = sqlc.arg('id')::text
+	AND workspace_id = sqlc.arg('workspace_id')::text
 	AND status = 'running'
-RETURNING id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at;
+RETURNING id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at;
 
 -- name: CancelUsageExportJob :one
 UPDATE usage_export_jobs
@@ -133,8 +143,9 @@ SET status = 'canceled',
 	updated_at = sqlc.arg('canceled_at')::text,
 	completed_at = sqlc.arg('canceled_at')::text
 WHERE id = sqlc.arg('id')::text
+	AND workspace_id = sqlc.arg('workspace_id')::text
 	AND status IN ('queued', 'running')
-RETURNING id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at;
+RETURNING id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at;
 
 -- name: RetryUsageExportJob :one
 UPDATE usage_export_jobs
@@ -147,5 +158,6 @@ SET status = 'queued',
 	updated_at = sqlc.arg('retried_at')::text,
 	completed_at = NULL
 WHERE id = sqlc.arg('id')::text
+	AND workspace_id = sqlc.arg('workspace_id')::text
 	AND status IN ('failed', 'canceled')
-RETURNING id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at;
+RETURNING id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, artifact_path, artifact_size, created_at, updated_at, completed_at;

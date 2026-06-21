@@ -1,5 +1,6 @@
 import type React from 'react'
 import { useId } from 'react'
+import { Loader2 } from 'lucide-react'
 
 import { Card } from './ui/card'
 import { Button } from './ui/button'
@@ -19,13 +20,15 @@ export function PageHeader({ action, description, eyebrow, icon, title }: { acti
   )
 }
 
-export function MetricCard({ helper, icon, label, value }: { helper: string; icon: React.ReactNode; label: string; value: number }) {
+export function MetricCard({ helper, icon, label, loading = false, value }: { helper: string; icon: React.ReactNode; label: string; loading?: boolean; value: number }) {
   return (
     <Card className="metric-card">
       <div className="metric-icon">{icon}</div>
       <div>
         <span>{label}</span>
-        <strong>{formatNumber(value)}</strong>
+        <strong aria-busy={loading}>
+          {loading ? <Loader2 aria-label="Loading metric" className="metric-loading spin" /> : formatNumber(value)}
+        </strong>
         <small>{helper}</small>
       </div>
     </Card>

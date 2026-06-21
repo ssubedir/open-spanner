@@ -7,6 +7,14 @@ description: Runtime configuration for the Open Spanner service.
 | --- | --- | --- |
 | `OPEN_SPANNER_HTTP_ADDR` | `:18081` | API listen address. |
 | `OPEN_SPANNER_GRPC_ADDR` | `:18090` | gRPC listen address for backend usage ingestion. |
+| `OPEN_SPANNER_GITHUB_OAUTH_ENABLED` | `true` | Enables GitHub OAuth login when credentials are configured. |
+| `OPEN_SPANNER_GITHUB_OAUTH_CLIENT_ID` | | Enables GitHub OAuth login when set with `OPEN_SPANNER_GITHUB_OAUTH_CLIENT_SECRET`. |
+| `OPEN_SPANNER_GITHUB_OAUTH_CLIENT_SECRET` | | GitHub OAuth client secret. |
+| `OPEN_SPANNER_GITHUB_OAUTH_REDIRECT_URL` | | Optional GitHub OAuth callback URL; defaults to the request host plus `/v1/auth/oauth/github/callback`. |
+| `OPEN_SPANNER_GOOGLE_OAUTH_ENABLED` | `true` | Enables Google OAuth/OIDC login when credentials are configured. |
+| `OPEN_SPANNER_GOOGLE_OAUTH_CLIENT_ID` | | Enables Google OAuth/OIDC login when set with `OPEN_SPANNER_GOOGLE_OAUTH_CLIENT_SECRET`. |
+| `OPEN_SPANNER_GOOGLE_OAUTH_CLIENT_SECRET` | | Google OAuth client secret. |
+| `OPEN_SPANNER_GOOGLE_OAUTH_REDIRECT_URL` | | Optional Google OAuth callback URL; defaults to the request host plus `/v1/auth/oauth/google/callback`. |
 | `OPEN_SPANNER_DB_DRIVER` | `sqlite` | Storage driver: `sqlite` or `postgres`. |
 | `OPEN_SPANNER_SQLITE_PATH` | `open-spanner.db` | SQLite database path. |
 | `OPEN_SPANNER_POSTGRES_DSN` | | Postgres connection string when `OPEN_SPANNER_DB_DRIVER=postgres`. |
@@ -28,6 +36,49 @@ description: Runtime configuration for the Open Spanner service.
 | `OPEN_SPANNER_RETENTION_PRUNE_ENABLED` | `false` | Enable automatic retention pruning. |
 | `OPEN_SPANNER_RETENTION_PRUNE_INTERVAL` | `1h` | Background prune interval. |
 | `OPEN_SPANNER_RETENTION_PRUNE_TIMEOUT` | `30m` | Maximum duration for one background prune run. |
+
+## Social Login
+
+Open Spanner supports dashboard sign-in with email/password and configured OAuth providers. Google and GitHub are built in today, and each provider follows the same variable pattern:
+
+```text
+OPEN_SPANNER_<PROVIDER>_OAUTH_ENABLED
+OPEN_SPANNER_<PROVIDER>_OAUTH_CLIENT_ID
+OPEN_SPANNER_<PROVIDER>_OAUTH_CLIENT_SECRET
+OPEN_SPANNER_<PROVIDER>_OAUTH_REDIRECT_URL
+```
+
+Use `GOOGLE` or `GITHUB` for the built-in providers. Social login creates the same HttpOnly dashboard session cookies as password login.
+
+Provider buttons are shown only when the provider is enabled and has credentials. To keep credentials configured but hide a provider:
+
+```sh
+OPEN_SPANNER_GOOGLE_OAUTH_ENABLED=false
+OPEN_SPANNER_GITHUB_OAUTH_ENABLED=true
+```
+
+The local callback URLs are:
+
+```text
+http://localhost:18081/v1/auth/oauth/google/callback
+http://localhost:18081/v1/auth/oauth/github/callback
+```
+
+When using the Vite dashboard dev server, also add:
+
+```text
+http://localhost:5173/v1/auth/oauth/google/callback
+http://localhost:5173/v1/auth/oauth/github/callback
+```
+
+Set explicit redirect URLs when the public browser URL differs from the API listen address:
+
+```sh
+OPEN_SPANNER_GOOGLE_OAUTH_REDIRECT_URL=https://open-spanner.example.com/v1/auth/oauth/google/callback
+OPEN_SPANNER_GITHUB_OAUTH_REDIRECT_URL=https://open-spanner.example.com/v1/auth/oauth/github/callback
+```
+
+For Google, create a Web application OAuth client and add the callback URL under authorized redirect URIs. For GitHub, create an OAuth App and use the matching callback URL.
 
 ## Docker Compose Variables
 

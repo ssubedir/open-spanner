@@ -8,7 +8,8 @@ WITH filtered AS (
 		quantity,
 		event_time::timestamptz AS event_at
 	FROM usage_events
-	WHERE meter_name = sqlc.arg('meter_name')
+	WHERE workspace_id = sqlc.arg('workspace_id')::text
+		AND meter_name = sqlc.arg('meter_name')
 		AND event_time >= sqlc.arg('from_time')::text
 		AND event_time < sqlc.arg('to_time')::text
 		AND (sqlc.narg('subject')::text IS NULL OR subject = sqlc.narg('subject')::text)

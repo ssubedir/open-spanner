@@ -32,6 +32,8 @@ export function SubjectsPage({ routeSubject = '' }: SubjectsPageProps) {
     exportError,
     exporting,
     items,
+    loadingMore,
+    nextCursor,
     searchQuery,
     selectedSubject,
     status,
@@ -45,6 +47,7 @@ export function SubjectsPage({ routeSubject = '' }: SubjectsPageProps) {
     () => filterSubjects(items, searchQuery),
     [items, searchQuery],
   )
+  const metricsLoading = status === 'idle' || (status === 'loading' && items.length === 0)
   const selectedStats = items.find((subject) => subject.subject === selectedSubject) ?? null
   const meterSummaries = useMemo(() => summarizeMeters(events), [events])
 
@@ -78,9 +81,9 @@ export function SubjectsPage({ routeSubject = '' }: SubjectsPageProps) {
       {error ? <div className="error-banner">{error}</div> : null}
 
       <section className="metric-grid subject-metrics" aria-label="Subject metrics">
-        <MetricCard icon={<Users />} label="Subjects" value={items.length} helper="Subjects with usage" />
-        <MetricCard icon={<Hash />} label="Usage Events" value={sumSubjects(items, 'usage_events')} helper="Events in subject index" />
-        <MetricCard icon={<Database />} label="Meter Links" value={sumSubjects(items, 'meters')} helper="Distinct subject meters" />
+        <MetricCard icon={<Users />} label="Subjects" loading={metricsLoading} value={items.length} helper="Subjects with usage" />
+        <MetricCard icon={<Hash />} label="Usage Events" loading={metricsLoading} value={sumSubjects(items, 'usage_events')} helper="Events in subject index" />
+        <MetricCard icon={<Database />} label="Meter Links" loading={metricsLoading} value={sumSubjects(items, 'meters')} helper="Distinct subject meters" />
       </section>
 
       <section className="subject-grid">
@@ -90,9 +93,6 @@ export function SubjectsPage({ routeSubject = '' }: SubjectsPageProps) {
               <CardTitle>Subjects</CardTitle>
               <CardDescription>Recent activity ordered by last event.</CardDescription>
             </div>
-            <Badge variant={status === 'loading' ? 'muted' : visibleSubjects.length > 0 ? 'success' : 'muted'}>
-              {status === 'loading' ? 'Loading' : `${visibleSubjects.length} rows`}
-            </Badge>
           </CardHeader>
           <CardContent>
             <div className="subject-toolbar">
@@ -123,6 +123,14 @@ export function SubjectsPage({ routeSubject = '' }: SubjectsPageProps) {
                 formatDate(subject.last_event_at),
               ])}
             />
+            {nextCursor ? (
+              <div className="pagination-actions">
+                <Button disabled={loadingMore} onClick={() => void appStoreActions.loadMoreSubjects()} type="button" variant="outline">
+                  {loadingMore ? <Loader2 className="spin" aria-hidden="true" /> : null}
+                  Load more subjects
+                </Button>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
 
@@ -188,7 +196,6 @@ export function SubjectsPage({ routeSubject = '' }: SubjectsPageProps) {
               <CardTitle>Recent Events</CardTitle>
               <CardDescription>{selectedSubject ? `Latest usage for ${selectedSubject}` : 'Latest usage for the selected subject.'}</CardDescription>
             </div>
-            <Badge variant={events.length > 0 ? 'success' : 'muted'}>{events.length} rows</Badge>
           </CardHeader>
           <CardContent>
             <DataTable

@@ -13,6 +13,7 @@ import (
 type Config struct {
 	HTTPAddr                string
 	GRPCAddr                string
+	OAuth                   OAuthConfigs
 	DBDriver                string
 	SQLitePath              string
 	PostgresDSN             string
@@ -31,6 +32,18 @@ type Config struct {
 	RetentionPruneEnabled   bool
 	RetentionPruneInterval  time.Duration
 	RetentionPruneTimeout   time.Duration
+}
+
+type OAuthConfig struct {
+	ClientID     string
+	ClientSecret string
+	Enabled      bool
+	RedirectURL  string
+}
+
+type OAuthConfigs struct {
+	GitHub OAuthConfig
+	Google OAuthConfig
 }
 
 type DBPoolConfig struct {
@@ -100,9 +113,22 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	gitHubOAuth, err := loadOAuthConfig("GITHUB")
+	if err != nil {
+		return Config{}, err
+	}
+	googleOAuth, err := loadOAuthConfig("GOOGLE")
+	if err != nil {
+		return Config{}, err
+	}
+
 	cfg := Config{
-		HTTPAddr:                env("OPEN_SPANNER_HTTP_ADDR", ":18081"),
-		GRPCAddr:                env("OPEN_SPANNER_GRPC_ADDR", ":18090"),
+		HTTPAddr: env("OPEN_SPANNER_HTTP_ADDR", ":18081"),
+		GRPCAddr: env("OPEN_SPANNER_GRPC_ADDR", ":18090"),
+		OAuth: OAuthConfigs{
+			GitHub: gitHubOAuth,
+			Google: googleOAuth,
+		},
 		DBDriver:                strings.ToLower(env("OPEN_SPANNER_DB_DRIVER", "sqlite")),
 		SQLitePath:              env("OPEN_SPANNER_SQLITE_PATH", "open-spanner.db"),
 		PostgresDSN:             env("OPEN_SPANNER_POSTGRES_DSN", ""),
@@ -128,6 +154,20 @@ func Load() (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func loadOAuthConfig(provider string) (OAuthConfig, error) {
+	prefix := "OPEN_SPANNER_" + strings.ToUpper(provider) + "_OAUTH_"
+	enabled, err := envBool(prefix+"ENABLED", true)
+	if err != nil {
+		return OAuthConfig{}, err
+	}
+	return OAuthConfig{
+		ClientID:     env(prefix+"CLIENT_ID", ""),
+		ClientSecret: env(prefix+"CLIENT_SECRET", ""),
+		Enabled:      enabled,
+		RedirectURL:  env(prefix+"REDIRECT_URL", ""),
+	}, nil
 }
 
 func (cfg Config) Validate() error {

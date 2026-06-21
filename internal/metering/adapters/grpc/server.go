@@ -8,7 +8,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-func NewServer(usageService appusage.Service, alertService appalert.Service, authService appauth.Service, opts ...grpc.ServerOption) *grpc.Server {
+func NewServer(usageService appusage.Service, alertService appalert.Service, authService appauth.Service, authorizer appauth.Authorizer, opts ...grpc.ServerOption) *grpc.Server {
 	serverOptions := []grpc.ServerOption{
 		grpc.ChainUnaryInterceptor(UnaryAuthInterceptor(authService)),
 		grpc.ChainStreamInterceptor(StreamAuthInterceptor(authService)),
@@ -16,6 +16,6 @@ func NewServer(usageService appusage.Service, alertService appalert.Service, aut
 	serverOptions = append(serverOptions, opts...)
 
 	server := grpc.NewServer(serverOptions...)
-	pb.RegisterUsageServiceServer(server, NewUsageServer(usageService, alertService))
+	pb.RegisterUsageServiceServer(server, NewUsageServer(usageService, alertService, authorizer))
 	return server
 }

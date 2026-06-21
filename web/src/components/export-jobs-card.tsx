@@ -12,16 +12,22 @@ export function ExportJobsCard({
   downloadingID,
   emptyLabel = 'Queued exports will appear here.',
   error,
+  hasMore = false,
   jobs,
+  loadingMore = false,
   mutatingID,
+  onLoadMore,
   status,
   title = 'Export Jobs',
 }: {
   downloadingID: string
   emptyLabel?: string
   error: string
+  hasMore?: boolean
   jobs: UsageExportJob[]
+  loadingMore?: boolean
   mutatingID: string
+  onLoadMore?: () => void
   status: string
   title?: string
 }) {
@@ -50,6 +56,14 @@ export function ExportJobsCard({
         ) : (
           <div className="breakdown-empty">{emptyLabel}</div>
         )}
+        {hasMore && onLoadMore ? (
+          <div className="pagination-actions">
+            <Button disabled={loadingMore} onClick={onLoadMore} type="button" variant="outline">
+              {loadingMore ? <Loader2 className="spin" aria-hidden="true" /> : null}
+              Load more jobs
+            </Button>
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   )

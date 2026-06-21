@@ -15,25 +15,27 @@ SELECT value, COUNT(*)::bigint AS usage_events
 FROM (
 	SELECT (metadata #>> string_to_array($1::text, '.'))::text AS value
 	FROM usage_events
-	WHERE meter_name = $2
+	WHERE workspace_id = $2::text
+		AND meter_name = $3
 		AND metadata #>> string_to_array($1::text, '.') IS NOT NULL
-		AND ($3::text IS NULL OR subject = $3::text)
-		AND ($4::text IS NULL OR event_time >= $4::text)
-		AND ($5::text IS NULL OR event_time < $5::text)
+		AND ($4::text IS NULL OR subject = $4::text)
+		AND ($5::text IS NULL OR event_time >= $5::text)
+		AND ($6::text IS NULL OR event_time < $6::text)
 ) discovered
 WHERE value IS NOT NULL AND value != ''
 GROUP BY value
 ORDER BY usage_events DESC, value ASC
-LIMIT $6::int
+LIMIT $7::int
 `
 
 type ListUsageDimensionValuesParams struct {
-	Field     string
-	MeterName string
-	Subject   sql.NullString
-	FromTime  sql.NullString
-	ToTime    sql.NullString
-	Limit     int32
+	Field       string
+	WorkspaceID string
+	MeterName   string
+	Subject     sql.NullString
+	FromTime    sql.NullString
+	ToTime      sql.NullString
+	Limit       int32
 }
 
 type ListUsageDimensionValuesRow struct {
@@ -44,6 +46,7 @@ type ListUsageDimensionValuesRow struct {
 func (q *Queries) ListUsageDimensionValues(ctx context.Context, arg ListUsageDimensionValuesParams) ([]ListUsageDimensionValuesRow, error) {
 	rows, err := q.db.QueryContext(ctx, listUsageDimensionValues,
 		arg.Field,
+		arg.WorkspaceID,
 		arg.MeterName,
 		arg.Subject,
 		arg.FromTime,

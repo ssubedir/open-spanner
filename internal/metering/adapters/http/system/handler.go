@@ -16,12 +16,6 @@ func NewHandler(service appsystem.Service) *Handler {
 	return &Handler{service: service}
 }
 
-func (h *Handler) RegisterRoutes(router interface {
-	Get(pattern string, handlerFn http.HandlerFunc)
-}) {
-	router.Get("/system/stats", h.Stats)
-}
-
 // Stats returns operational system stats.
 //
 // @Summary Get system stats

@@ -14,9 +14,10 @@ Queued work is handled by separate worker binaries:
 
 1. A service sends an API key with the request.
 2. The HTTP or gRPC layer authenticates the key or dashboard cookie.
-3. Metering handlers validate request shape and pass commands into the application layer.
-4. The domain layer applies meter, usage, query, and retention rules.
-5. A storage adapter writes to or reads from SQLite or Postgres.
+3. The authorization layer checks scopes and meter restrictions.
+4. Metering handlers validate request shape and pass commands into the application layer.
+5. The domain layer applies meter, usage, query, alert, export, and retention rules.
+6. A storage adapter writes to or reads from SQLite or Postgres.
 
 ## Storage Model
 
@@ -27,7 +28,7 @@ Postgres and SQLite share the same domain behavior but use database-specific SQL
 ## API Surfaces
 
 - Dashboard routes use cookie sessions.
-- Service routes accept API keys.
+- Service routes accept scoped API keys.
 - SDKs expose meters and usage operations.
 - gRPC stream ingestion accepts API keys from backend services.
-- Swagger UI exposes the full REST reference.
+- Generated OpenAPI artifacts document the REST API for SDK and reference workflows.

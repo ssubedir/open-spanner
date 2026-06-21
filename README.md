@@ -33,9 +33,9 @@ Read the hosted docs at [ssubedir.github.io/open-spanner/docs](https://ssubedir.
 - Bucketed usage queries with filters, breakdowns, dimensions, and pagination.
 - Direct CSV exports for focused requests and queued export jobs for larger files.
 - Alert rules that watch usage windows and deliver webhook notifications.
-- Dashboard auth with HttpOnly cookies and API keys for service clients.
+- Dashboard auth with HttpOnly cookies and scoped API keys for service clients.
 - SQLite and Postgres storage, including Postgres JSONB metadata filtering.
-- Embedded React dashboard and Swagger UI.
+- Embedded React dashboard.
 - Generated REST SDKs for Go, TypeScript, Python, and C#.
 - Go stream SDK for gRPC usage ingestion.
 
@@ -60,7 +60,6 @@ Useful local endpoints:
 | Endpoint | Purpose |
 | --- | --- |
 | `http://localhost:18081/login` | Dashboard login |
-| `http://localhost:18081/docs` | Swagger UI |
 | `http://localhost:18081/health` | Liveness |
 | `http://localhost:18081/ready` | Readiness |
 | `localhost:18090` | gRPC usage ingestion |
@@ -138,7 +137,7 @@ task run:alert-worker:postgres
 
 ## First Usage Flow
 
-Create a dashboard user, then create an API key from the API Keys page. Copy the key when it is created; the full key is not shown again.
+Create a dashboard user, then create an API key from the API Keys page. Give the key `meters:write`, `meters:read`, `usage:write`, and `usage:read` for this flow. Copy the key when it is created; the full key is not shown again.
 
 ```sh
 API_KEY="osp_..."
@@ -278,7 +277,7 @@ Recommended production shape:
 | Alert worker | Run separately from the API when alert rules are enabled. |
 | TLS | Terminate TLS at your ingress, load balancer, or reverse proxy. |
 | gRPC | Expose only to trusted backend services that emit usage. |
-| Secrets | Protect Postgres credentials, API keys, and webhook signing secrets. |
+| Secrets | Protect Postgres credentials, scoped API keys, and webhook signing secrets. |
 
 See [Production Deployment](docs/content/docs/configuration/deployment.mdx) for the checklist.
 
@@ -288,8 +287,16 @@ Common runtime variables:
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `OPEN_SPANNER_HTTP_ADDR` | `:18081` | HTTP dashboard, REST API, Swagger UI, and health endpoints. |
+| `OPEN_SPANNER_HTTP_ADDR` | `:18081` | HTTP dashboard, REST API, and health endpoints. |
 | `OPEN_SPANNER_GRPC_ADDR` | `:18090` | gRPC usage ingestion listen address. |
+| `OPEN_SPANNER_GITHUB_OAUTH_ENABLED` | `true` | Enables GitHub sign-in when credentials are configured. |
+| `OPEN_SPANNER_GITHUB_OAUTH_CLIENT_ID` | | Enables GitHub sign-in when set with `OPEN_SPANNER_GITHUB_OAUTH_CLIENT_SECRET`. |
+| `OPEN_SPANNER_GITHUB_OAUTH_CLIENT_SECRET` | | GitHub OAuth client secret. |
+| `OPEN_SPANNER_GITHUB_OAUTH_REDIRECT_URL` | | Optional callback URL; defaults to the request host plus `/v1/auth/oauth/github/callback`. |
+| `OPEN_SPANNER_GOOGLE_OAUTH_ENABLED` | `true` | Enables Google sign-in when credentials are configured. |
+| `OPEN_SPANNER_GOOGLE_OAUTH_CLIENT_ID` | | Enables Google sign-in when set with `OPEN_SPANNER_GOOGLE_OAUTH_CLIENT_SECRET`. |
+| `OPEN_SPANNER_GOOGLE_OAUTH_CLIENT_SECRET` | | Google OAuth client secret. |
+| `OPEN_SPANNER_GOOGLE_OAUTH_REDIRECT_URL` | | Optional callback URL; defaults to the request host plus `/v1/auth/oauth/google/callback`. |
 | `OPEN_SPANNER_DB_DRIVER` | `sqlite` | Storage driver: `sqlite` or `postgres`. |
 | `OPEN_SPANNER_SQLITE_PATH` | `open-spanner.db` | SQLite database path. |
 | `OPEN_SPANNER_POSTGRES_DSN` | | Postgres connection string. |
@@ -299,6 +306,40 @@ Common runtime variables:
 | `OPEN_SPANNER_RETENTION_PRUNE_ENABLED` | `false` | Enables automatic retention pruning. |
 
 See [Environment Variables](docs/content/docs/configuration/environment-variables.mdx) for the full list.
+
+### Social Login
+
+Dashboard users can sign in with email/password or a configured OAuth provider. Google and GitHub are built in today. Each provider uses the same configuration pattern:
+
+```text
+OPEN_SPANNER_<PROVIDER>_OAUTH_ENABLED
+OPEN_SPANNER_<PROVIDER>_OAUTH_CLIENT_ID
+OPEN_SPANNER_<PROVIDER>_OAUTH_CLIENT_SECRET
+OPEN_SPANNER_<PROVIDER>_OAUTH_REDIRECT_URL
+```
+
+Use `GOOGLE` or `GITHUB` for the built-in providers. Provider buttons are shown only when the provider is enabled and configured with credentials.
+
+Local callback URLs:
+
+```text
+http://localhost:18081/v1/auth/oauth/google/callback
+http://localhost:18081/v1/auth/oauth/github/callback
+```
+
+For Vite dashboard development, also allow:
+
+```text
+http://localhost:5173/v1/auth/oauth/google/callback
+http://localhost:5173/v1/auth/oauth/github/callback
+```
+
+Disable a configured provider without removing credentials:
+
+```sh
+OPEN_SPANNER_GOOGLE_OAUTH_ENABLED=false
+OPEN_SPANNER_GITHUB_OAUTH_ENABLED=true
+```
 
 ## Examples And Tests
 

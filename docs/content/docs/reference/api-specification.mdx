@@ -5,11 +5,12 @@ description: Where to find the full Open Spanner API reference.
 
 ## REST
 
-The running service serves Swagger UI at:
+The running service does not serve Swagger UI or a live OpenAPI endpoint. Open Spanner keeps the runtime HTTP surface focused on the dashboard, REST API, and health endpoints.
 
-```text
-http://localhost:18081/docs
-```
+The REST API specification is generated into the repository under:
+
+- `openapi/swagger.json`
+- `openapi/openapi.json`
 
 The full REST API includes dashboard auth, API key management, meter operations, usage ingestion, usage querying, direct CSV exports, queued export jobs, alerts, system stats, and operational endpoints.
 

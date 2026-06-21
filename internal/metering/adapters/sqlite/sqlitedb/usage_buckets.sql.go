@@ -22,10 +22,11 @@ WITH filtered AS (
 		quantity,
 		event_time AS event_at
 	FROM usage_events
-	WHERE meter_name = ?4
-		AND event_time >= CAST(?5 AS TEXT)
-		AND event_time < CAST(?6 AS TEXT)
-		AND (CAST(?7 AS TEXT) IS NULL OR subject = CAST(?7 AS TEXT))
+	WHERE workspace_id = ?4
+		AND meter_name = ?5
+		AND event_time >= CAST(?6 AS TEXT)
+		AND event_time < CAST(?7 AS TEXT)
+		AND (CAST(?8 AS TEXT) IS NULL OR subject = CAST(?8 AS TEXT))
 ),
 ranked AS (
 	SELECT
@@ -61,6 +62,7 @@ type ListUsageBucketsParams struct {
 	Aggregation string
 	BucketSize  string
 	Limit       int64
+	WorkspaceID string
 	MeterName   string
 	FromTime    string
 	ToTime      string
@@ -77,6 +79,7 @@ func (q *Queries) ListUsageBuckets(ctx context.Context, arg ListUsageBucketsPara
 		arg.Aggregation,
 		arg.BucketSize,
 		arg.Limit,
+		arg.WorkspaceID,
 		arg.MeterName,
 		arg.FromTime,
 		arg.ToTime,

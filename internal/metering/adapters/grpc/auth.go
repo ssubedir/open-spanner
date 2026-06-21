@@ -33,8 +33,11 @@ func StreamAuthInterceptor(service appauth.Service) grpc.StreamServerInterceptor
 }
 
 func UserFromContext(ctx context.Context) (appauth.UserResult, bool) {
-	user, ok := ctx.Value(userContextKey{}).(appauth.UserResult)
-	return user, ok
+	return appauth.UserFromContext(ctx)
+}
+
+func PrincipalFromContext(ctx context.Context) (appauth.Principal, bool) {
+	return appauth.PrincipalFromContext(ctx)
 }
 
 func authenticateContext(ctx context.Context, service appauth.Service) (context.Context, error) {
@@ -43,11 +46,13 @@ func authenticateContext(ctx context.Context, service appauth.Service) (context.
 		return ctx, domain.ErrUnauthorized
 	}
 
-	user, err := service.AuthenticateAPIKey(ctx, token)
+	principal, err := service.AuthenticateAPIKeyPrincipal(ctx, token)
 	if err != nil {
 		return ctx, err
 	}
-	return context.WithValue(ctx, userContextKey{}, user), nil
+	ctx = appauth.WithPrincipal(ctx, principal)
+	ctx = context.WithValue(ctx, userContextKey{}, principal.User)
+	return ctx, nil
 }
 
 func apiKeyFromMetadata(ctx context.Context) string {

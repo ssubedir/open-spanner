@@ -65,7 +65,7 @@ func runIntegrationGRPCUsageFlow(t *testing.T, cfg config.Config, namespace stri
 	})
 
 	listener := bufconn.Listen(1024 * 1024)
-	grpcServer := grpcadapter.NewServer(app.UsageService, app.AlertService, app.AuthService)
+	grpcServer := grpcadapter.NewServer(app.UsageService, app.AlertService, app.AuthService, app.Authorizer)
 	go func() {
 		_ = grpcServer.Serve(listener)
 	}()
@@ -109,6 +109,17 @@ func runIntegrationGRPCUsageFlow(t *testing.T, cfg config.Config, namespace stri
 	if createMeter.Code != http.StatusCreated {
 		t.Fatalf("create meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
 	}
+	deniedMeter := "grpc_denied_" + suffix
+	createDeniedMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name":        deniedMeter,
+		"description": "gRPC denied API calls",
+		"unit":        "call",
+		"aggregation": "sum",
+		"dimensions":  meterDimensionsFromSchema(map[string]string{}),
+	}, authHeaders, nil)
+	if createDeniedMeter.Code != http.StatusCreated {
+		t.Fatalf("create denied meter status = %d, want %d: %s", createDeniedMeter.Code, http.StatusCreated, createDeniedMeter.Body.String())
+	}
 
 	grpcCtx := metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+apiKey)
 	bulk, err := client.CreateUsageBulk(grpcCtx, &pb.CreateUsageBulkRequest{
@@ -140,6 +151,19 @@ func runIntegrationGRPCUsageFlow(t *testing.T, cfg config.Config, namespace stri
 	}
 	if streamResult.GetAcceptedCount() != 1 || streamResult.GetDuplicateCount() != 0 || streamResult.GetFailedCount() != 0 {
 		t.Fatalf("grpc stream result = accepted %d duplicate %d failed %d, want 1/0/0", streamResult.GetAcceptedCount(), streamResult.GetDuplicateCount(), streamResult.GetFailedCount())
+	}
+
+	limitedAPIKey := createTestDashboardAPIKeyWithPayload(t, router, "grpc-limited+"+suffix+"@example.com", map[string]any{
+		"name":           "grpc-limited-stream",
+		"scopes":         []string{"usage:write"},
+		"allowed_meters": []string{meterName},
+	})
+	limitedCtx := metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+limitedAPIKey)
+	_, err = client.CreateUsage(limitedCtx, &pb.CreateUsageRequest{
+		Event: grpcUsageEvent("grpc-denied-"+suffix, "org_denied_"+suffix, deniedMeter, 1, "2026-06-08T13:00:00Z", map[string]any{}),
+	})
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("limited grpc status = %v, want %v: %v", status.Code(err), codes.PermissionDenied, err)
 	}
 
 	eventsRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/usageevents?meter="+meterName+"&limit=10", nil, authHeaders, nil)

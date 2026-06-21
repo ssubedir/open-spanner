@@ -18,6 +18,8 @@ func serviceError(err error) error {
 		return status.Error(codes.InvalidArgument, err.Error())
 	case errors.Is(err, domain.ErrUnauthorized):
 		return status.Error(codes.Unauthenticated, err.Error())
+	case errors.Is(err, domain.ErrForbidden):
+		return status.Error(codes.PermissionDenied, err.Error())
 	case errors.Is(err, domain.ErrNotFound):
 		return status.Error(codes.NotFound, err.Error())
 	case errors.Is(err, domain.ErrConflict):

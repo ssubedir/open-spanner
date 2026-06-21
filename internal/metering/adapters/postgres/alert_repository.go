@@ -7,6 +7,7 @@ import (
 	"errors"
 	"time"
 
+	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/postgres/postgresdb"
 	appalert "github.com/ssubedir/open-spanner/internal/metering/app/alert"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
@@ -21,8 +22,13 @@ func NewAlertRepository(store *Store) *AlertRepository {
 }
 
 func (r *AlertRepository) SaveDestination(ctx context.Context, destination appalert.Destination) (appalert.Destination, error) {
-	err := queriesFor(ctx, r.queries).SaveAlertDestination(ctx, postgresdb.SaveAlertDestinationParams{
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return appalert.Destination{}, err
+	}
+	err = queriesFor(ctx, r.queries).SaveAlertDestination(ctx, postgresdb.SaveAlertDestinationParams{
 		ID:            destination.ID,
+		WorkspaceID:   workspaceID,
 		Name:          destination.Name,
 		Type:          string(destination.Type),
 		Enabled:       destination.Enabled,
@@ -38,11 +44,16 @@ func (r *AlertRepository) SaveDestination(ctx context.Context, destination appal
 }
 
 func (r *AlertRepository) FindDestinations(ctx context.Context, query appalert.DestinationQuery) ([]appalert.Destination, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := queriesFor(ctx, r.queries).ListAlertDestinations(ctx, postgresdb.ListAlertDestinationsParams{
-		ID:      alertStringValue(query.ID),
-		Type:    alertStringValue(query.Type),
-		Enabled: alertBoolValue(query.Enabled),
-		Limit:   int32(query.Limit),
+		WorkspaceID: workspaceID,
+		ID:          alertStringValue(query.ID),
+		Type:        alertStringValue(query.Type),
+		Enabled:     alertBoolValue(query.Enabled),
+		Limit:       int32(query.Limit),
 	})
 	if err != nil {
 		return nil, err
@@ -59,7 +70,14 @@ func (r *AlertRepository) FindDestinations(ctx context.Context, query appalert.D
 }
 
 func (r *AlertRepository) DeleteDestination(ctx context.Context, id string) error {
-	rows, err := queriesFor(ctx, r.queries).DeleteAlertDestination(ctx, id)
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return err
+	}
+	rows, err := queriesFor(ctx, r.queries).DeleteAlertDestination(ctx, postgresdb.DeleteAlertDestinationParams{
+		WorkspaceID: workspaceID,
+		ID:          id,
+	})
 	if err != nil {
 		return err
 	}
@@ -70,6 +88,10 @@ func (r *AlertRepository) DeleteDestination(ctx context.Context, id string) erro
 }
 
 func (r *AlertRepository) SaveRule(ctx context.Context, rule appalert.Rule) (appalert.Rule, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return appalert.Rule{}, err
+	}
 	metadata, err := json.Marshal(rule.Metadata)
 	if err != nil {
 		return appalert.Rule{}, err
@@ -77,6 +99,7 @@ func (r *AlertRepository) SaveRule(ctx context.Context, rule appalert.Rule) (app
 
 	err = queriesFor(ctx, r.queries).SaveAlertRule(ctx, postgresdb.SaveAlertRuleParams{
 		ID:                        rule.ID,
+		WorkspaceID:               workspaceID,
 		Name:                      rule.Name,
 		MeterName:                 rule.MeterName,
 		Enabled:                   rule.Enabled,
@@ -100,7 +123,12 @@ func (r *AlertRepository) SaveRule(ctx context.Context, rule appalert.Rule) (app
 }
 
 func (r *AlertRepository) FindRules(ctx context.Context, query appalert.RuleQuery) ([]appalert.Rule, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := queriesFor(ctx, r.queries).ListAlertRules(ctx, postgresdb.ListAlertRulesParams{
+		WorkspaceID:   workspaceID,
 		ID:            alertStringValue(query.ID),
 		MeterName:     alertStringValue(query.MeterName),
 		DestinationID: alertStringValue(query.DestinationID),
@@ -123,7 +151,14 @@ func (r *AlertRepository) FindRules(ctx context.Context, query appalert.RuleQuer
 }
 
 func (r *AlertRepository) DeleteRule(ctx context.Context, id string) error {
-	rows, err := queriesFor(ctx, r.queries).DeleteAlertRule(ctx, id)
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return err
+	}
+	rows, err := queriesFor(ctx, r.queries).DeleteAlertRule(ctx, postgresdb.DeleteAlertRuleParams{
+		WorkspaceID: workspaceID,
+		ID:          id,
+	})
 	if err != nil {
 		return err
 	}
@@ -151,10 +186,15 @@ func (r *AlertRepository) SaveState(ctx context.Context, state appalert.State) (
 }
 
 func (r *AlertRepository) FindState(ctx context.Context, ruleID string, groupKey string, groupValue string) (appalert.State, bool, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return appalert.State{}, false, err
+	}
 	row, err := queriesFor(ctx, r.queries).FindAlertState(ctx, postgresdb.FindAlertStateParams{
-		RuleID:     ruleID,
-		GroupKey:   groupKey,
-		GroupValue: groupValue,
+		RuleID:      ruleID,
+		WorkspaceID: workspaceID,
+		GroupKey:    groupKey,
+		GroupValue:  groupValue,
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return appalert.State{}, false, nil
@@ -171,9 +211,14 @@ func (r *AlertRepository) FindState(ctx context.Context, ruleID string, groupKey
 }
 
 func (r *AlertRepository) FindStates(ctx context.Context, ruleID string, limit int) ([]appalert.State, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := queriesFor(ctx, r.queries).ListAlertStates(ctx, postgresdb.ListAlertStatesParams{
-		RuleID: ruleID,
-		Limit:  int32(limit),
+		RuleID:      ruleID,
+		WorkspaceID: workspaceID,
+		Limit:       int32(limit),
 	})
 	if err != nil {
 		return nil, err
@@ -226,7 +271,12 @@ func (r *AlertRepository) SaveDelivery(ctx context.Context, delivery appalert.De
 }
 
 func (r *AlertRepository) FindEvents(ctx context.Context, query appalert.EventQuery) ([]appalert.Event, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := queriesFor(ctx, r.queries).ListAlertEvents(ctx, postgresdb.ListAlertEventsParams{
+		WorkspaceID:     workspaceID,
 		RuleID:          alertStringValue(query.RuleID),
 		CursorCreatedAt: alertTimeValue(query.CreatedAt),
 		CursorID:        alertStringValue(query.ID),
@@ -276,7 +326,11 @@ func (r *AlertRepository) ClaimEvaluationJob(ctx context.Context, now time.Time,
 	if err != nil {
 		return appalert.EvaluationJob{}, err
 	}
-	return postgresAlertEvaluationJob(row)
+	workspaceID, err := queriesFor(ctx, r.queries).FindWorkspaceIDForAlertRule(ctx, row.RuleID)
+	if err != nil {
+		return appalert.EvaluationJob{}, err
+	}
+	return postgresAlertEvaluationJob(row, workspaceID)
 }
 
 func (r *AlertRepository) CompleteEvaluationJob(ctx context.Context, ruleID string) error {
@@ -320,7 +374,7 @@ func (r *AlertRepository) UpdateRuleNextEvaluation(ctx context.Context, id strin
 	return nil
 }
 
-func postgresAlertDestination(row postgresdb.AlertDestination) (appalert.Destination, error) {
+func postgresAlertDestination(row postgresdb.ListAlertDestinationsRow) (appalert.Destination, error) {
 	createdAt, err := time.Parse(time.RFC3339Nano, row.CreatedAt)
 	if err != nil {
 		return appalert.Destination{}, err
@@ -341,7 +395,7 @@ func postgresAlertDestination(row postgresdb.AlertDestination) (appalert.Destina
 	}, nil
 }
 
-func postgresAlertRule(row postgresdb.AlertRule) (appalert.Rule, error) {
+func postgresAlertRule(row postgresdb.ListAlertRulesRow) (appalert.Rule, error) {
 	metadata := map[string]string{}
 	if len(row.Metadata) > 0 {
 		if err := json.Unmarshal(row.Metadata, &metadata); err != nil {
@@ -473,7 +527,7 @@ func postgresAlertDelivery(row postgresdb.ListAlertEventsRow) *appalert.Delivery
 	}
 }
 
-func postgresAlertEvaluationJob(row postgresdb.AlertEvaluationJob) (appalert.EvaluationJob, error) {
+func postgresAlertEvaluationJob(row postgresdb.AlertEvaluationJob, workspaceID string) (appalert.EvaluationJob, error) {
 	runAfter, err := time.Parse(time.RFC3339Nano, row.RunAfter)
 	if err != nil {
 		return appalert.EvaluationJob{}, err
@@ -495,6 +549,7 @@ func postgresAlertEvaluationJob(row postgresdb.AlertEvaluationJob) (appalert.Eva
 	}
 
 	return appalert.EvaluationJob{
+		WorkspaceID: workspaceID,
 		RuleID:      row.RuleID,
 		RunAfter:    runAfter,
 		LockedUntil: lockedUntil,

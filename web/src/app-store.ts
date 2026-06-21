@@ -30,6 +30,7 @@ import {
   listIngestions,
   listMeterStats,
   listMeters,
+  listOAuthProviders,
   listSavedUsageQueries,
   listSubjectEvents,
   listSubjects,
@@ -53,12 +54,14 @@ import {
   type AlertRuleRequest,
   type AlertRuleUpdateRequest,
   type APIKey,
+  type APIKeyCreateRequest,
   type APIKeyCreateResponse,
   type AuthSession,
   type Meter,
   type MeterCreateRequest,
   type MeterStats,
   type MeterUpdateRequest,
+  type OAuthProvider,
   type SavedUsageQuery,
   type UsageBucket,
   type UsageBucketExportQuery,
@@ -128,6 +131,7 @@ type AppState = {
     checked: boolean
     loading: boolean
     loginError: string
+    providers: OAuthProvider[]
     registerError: string
     session: AuthSession | null
   }
@@ -150,6 +154,8 @@ type AppState = {
     editing: AlertRule | null
     error: string
     events: AlertEvent[]
+    eventLoadingMore: boolean
+    eventNextCursor: string
     eventStatus: LoadState
     items: AlertRule[]
     meters: Meter[]
@@ -185,6 +191,8 @@ type AppState = {
     exportError: string
     exporting: boolean
     items: SubjectStats[]
+    loadingMore: boolean
+    nextCursor: string
     searchQuery: string
     selectedSubject: string
     status: LoadState
@@ -203,8 +211,10 @@ type AppState = {
     exportError: string
     exportJobDownloading: string
     exportJobError: string
+    exportJobLoadingMore: boolean
     exportJobLimit: number
     exportJobMutating: string
+    exportJobNextCursor: string
     exportJobStatus: LoadState
     exportJobs: UsageExportJob[]
     exporting: UsageExportKind
@@ -224,14 +234,21 @@ type AppState = {
   }
 }
 
+type UserDataState = Pick<AppState, 'apiKeys' | 'alerts' | 'meters' | 'overview' | 'subjects' | 'usage'>
+
 let meterDimensionID = 0
 const domainSubjectField = 'subject'
+const alertEventPageSize = 25
+const subjectPageSize = 50
+const exportJobPageSize = 50
+let userDataGeneration = 0
 
 export const appStore = createStore<AppState>({
   auth: {
     checked: false,
     loading: false,
     loginError: '',
+    providers: [],
     registerError: '',
     session: null,
   },
@@ -254,6 +271,8 @@ export const appStore = createStore<AppState>({
     editing: null,
     error: '',
     events: [],
+    eventLoadingMore: false,
+    eventNextCursor: '',
     eventStatus: 'idle',
     items: [],
     meters: [],
@@ -289,6 +308,8 @@ export const appStore = createStore<AppState>({
     exportError: '',
     exporting: false,
     items: [],
+    loadingMore: false,
+    nextCursor: '',
     searchQuery: '',
     selectedSubject: '',
     status: 'idle',
@@ -307,8 +328,10 @@ export const appStore = createStore<AppState>({
     exportError: '',
     exportJobDownloading: '',
     exportJobError: '',
+    exportJobLoadingMore: false,
     exportJobLimit: 8,
     exportJobMutating: '',
+    exportJobNextCursor: '',
     exportJobStatus: 'idle',
     exportJobs: [],
     exporting: '',
@@ -328,6 +351,133 @@ export const appStore = createStore<AppState>({
   },
 })
 
+function currentUserDataGeneration() {
+  return userDataGeneration
+}
+
+function isCurrentUserDataGeneration(generation: number) {
+  return generation === userDataGeneration
+}
+
+function resetUserDataState() {
+  userDataGeneration += 1
+  appStore.setState((state) => ({
+    ...state,
+    ...initialUserDataState(),
+  }))
+}
+
+function setAuthSession(update: Omit<Partial<AppState['auth']>, 'session'> & { session: AuthSession | null }) {
+  const previousUserID = appStore.state.auth.session?.user.id ?? ''
+  const nextUserID = update.session?.user.id ?? ''
+  if (previousUserID !== nextUserID) {
+    resetUserDataState()
+  }
+  setAuthState(update)
+}
+
+function initialUserDataState(): UserDataState {
+  return {
+    apiKeys: {
+      creating: false,
+      createdKey: null,
+      deleting: null,
+      error: '',
+      items: [],
+      saving: false,
+      status: 'idle',
+    },
+    alerts: {
+      creating: false,
+      destinationCreating: false,
+      destinationDeleting: null,
+      destinationEditing: null,
+      destinations: [],
+      deleting: null,
+      editing: null,
+      error: '',
+      events: [],
+      eventLoadingMore: false,
+      eventNextCursor: '',
+      eventStatus: 'idle',
+      items: [],
+      meters: [],
+      saving: false,
+      selectedEvent: null,
+      signingSecret: null,
+      status: 'idle',
+    },
+    meters: {
+      creating: false,
+      createDimensions: [newMeterDimensionDraft()],
+      deleting: null,
+      editDimensions: [],
+      editing: null,
+      error: '',
+      items: [],
+      saving: false,
+      stats: {},
+      status: 'idle',
+    },
+    overview: {
+      error: '',
+      ingestions: [],
+      pinnedUsageQueries: [],
+      stats: null,
+      status: 'idle',
+      subjects: [],
+    },
+    subjects: {
+      detailStatus: 'idle',
+      error: '',
+      events: [],
+      exportError: '',
+      exporting: false,
+      items: [],
+      loadingMore: false,
+      nextCursor: '',
+      searchQuery: '',
+      selectedSubject: '',
+      status: 'idle',
+    },
+    usage: {
+      bucketSize: 'day',
+      breakdownError: '',
+      breakdowns: {},
+      breakdownStatus: 'idle',
+      buckets: [],
+      dimensionValues: {},
+      error: '',
+      events: [],
+      eventsError: '',
+      eventsStatus: 'idle',
+      exportError: '',
+      exportJobDownloading: '',
+      exportJobError: '',
+      exportJobLoadingMore: false,
+      exportJobLimit: 8,
+      exportJobMutating: '',
+      exportJobNextCursor: '',
+      exportJobStatus: 'idle',
+      exportJobs: [],
+      exporting: '',
+      filterQuery: defaultFilterQuery(),
+      groupBy: [],
+      limit: 500,
+      meters: [],
+      savedQueryDeleting: null,
+      savedQueryError: '',
+      savedQueryName: '',
+      savedQuerySaving: false,
+      savedQueryStatus: 'idle',
+      savedQueries: [],
+      selectedSavedQueryID: '',
+      selectedUsageEvent: null,
+      status: 'idle',
+    },
+  }
+}
+
 export const appStoreActions = {
   clearCreatedAPIKey() {
     setAPIKeysState({ createdKey: null })
@@ -335,7 +485,7 @@ export const appStoreActions = {
   clearAlertSigningSecret() {
     setAlertsState({ signingSecret: null })
   },
-  async createAPIKey(input: { name: string }) {
+  async createAPIKey(input: APIKeyCreateRequest) {
     setAPIKeysState({ createdKey: null, error: '', saving: true })
     try {
       const createdKey = await createAPIKeyRequest(input)
@@ -403,25 +553,32 @@ export const appStoreActions = {
     }
   },
   async loadAlerts() {
-    setAlertsState({ error: '', eventStatus: 'loading', status: 'loading' })
+    const generation = currentUserDataGeneration()
+    setAlertsState({ error: '', eventLoadingMore: false, eventStatus: 'loading', status: 'loading' })
     try {
-      const meters = await listMeters()
-      setAlertsState({ meters: meters.items })
-
-      const [rules, events, destinations] = await Promise.all([
+      const [meters, rules, events, destinations] = await Promise.all([
+        listMeters(),
         listAlertRules(),
-        listAlertEvents(),
+        listAlertEvents(alertEventPageSize),
         listAlertDestinations(),
       ])
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
       setAlertsState((state) => ({
         destinations: destinations.items,
         events: events.items,
+        eventNextCursor: events.next_cursor || '',
         eventStatus: 'ready',
         items: rules.items,
+        meters: meters.items,
         selectedEvent: state.selectedEvent ? events.items.find((event) => event.id === state.selectedEvent?.id) ?? null : null,
         status: 'ready',
       }))
     } catch (err) {
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
       setAlertsState({
         error: errorMessage(err, 'Unable to load alerts'),
         eventStatus: 'error',
@@ -430,22 +587,58 @@ export const appStoreActions = {
     }
   },
   async loadAlertEvents(options: { quiet?: boolean } = {}) {
+    const generation = currentUserDataGeneration()
     if (!options.quiet) {
       setAlertsState({ error: '', eventStatus: 'loading' })
     }
 
     try {
-      const events = await listAlertEvents()
+      const events = await listAlertEvents(alertEventPageSize)
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
       setAlertsState((state) => ({
-        events: events.items,
+        events: options.quiet && state.events.length > events.items.length ? mergeAlertEvents(events.items, state.events) : events.items,
+        eventNextCursor: options.quiet && state.events.length > events.items.length ? state.eventNextCursor : events.next_cursor || '',
         eventStatus: 'ready',
         selectedEvent: state.selectedEvent ? events.items.find((event) => event.id === state.selectedEvent?.id) ?? state.selectedEvent : null,
       }))
     } catch (err) {
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
       setAlertsState({
         error: errorMessage(err, 'Unable to load alert events'),
         eventStatus: 'error',
       })
+    }
+  },
+  async loadMoreAlertEvents() {
+    const cursor = appStore.state.alerts.eventNextCursor
+    if (!cursor || appStore.state.alerts.eventLoadingMore) {
+      return
+    }
+
+    const generation = currentUserDataGeneration()
+    setAlertsState({ error: '', eventLoadingMore: true })
+    try {
+      const events = await listAlertEvents(alertEventPageSize, cursor)
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setAlertsState((state) => ({
+        events: appendUniqueByKey(state.events, events.items, (event) => event.id),
+        eventNextCursor: events.next_cursor || '',
+      }))
+    } catch (err) {
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setAlertsState({ error: errorMessage(err, 'Unable to load more alert events') })
+    } finally {
+      if (isCurrentUserDataGeneration(generation)) {
+        setAlertsState({ eventLoadingMore: false })
+      }
     }
   },
   async createAlert(input: AlertRuleRequest) {
@@ -601,69 +794,108 @@ export const appStoreActions = {
 
     setAuthState({ loading: true, loginError: '' })
     try {
-      const session = await refreshAuthSession()
-      setAuthState({ checked: true, loading: false, session })
+      const [session, providers] = await Promise.all([refreshAuthSession(), listOAuthProviders()])
+      setAuthSession({ checked: true, loading: false, providers: providers.items, session })
       return session?.user ?? null
     } catch {
-      setAuthState({ checked: true, loading: false, session: null })
+      setAuthSession({ checked: true, loading: false, session: null })
       return null
     }
   },
   async loadAPIKeys() {
+    const generation = currentUserDataGeneration()
     setAPIKeysState({ error: '', status: 'loading' })
     try {
       const keys = await listAPIKeys()
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
       setAPIKeysState({ items: keys.items, status: 'ready' })
     } catch (err) {
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
       setAPIKeysState({ error: errorMessage(err, 'Unable to load API keys'), status: 'error' })
     }
   },
   async loadMeters() {
+    const generation = currentUserDataGeneration()
     setMetersState({ error: '', status: 'loading' })
     try {
       const [nextMeters, nextStats] = await Promise.all([listMeters(), listMeterStats()])
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
       setMetersState({
         items: nextMeters.items,
         stats: Object.fromEntries(nextStats.items.map((item) => [item.meter, item])),
         status: 'ready',
       })
     } catch (err) {
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
       setMetersState({ error: errorMessage(err, 'Unable to load meters'), status: 'error' })
     }
   },
   async loadOverview() {
+    const generation = currentUserDataGeneration()
     setOverviewState({ error: '', status: 'loading' })
     try {
-      const [nextStats, nextSubjects, nextIngestions, savedQueries, meters] = await Promise.all([
+      const [nextStats, nextSubjects, nextIngestions] = await Promise.all([
         getSystemStats(),
         listSubjects(),
         listIngestions(),
-        listSavedUsageQueries(),
-        listMeters(),
       ])
-      const pinned = savedQueries.items
-        .filter((query) => query.pinned)
-        .sort((left, right) => left.position - right.position || left.name.localeCompare(right.name))
-        .slice(0, 6)
-      const pinnedUsageQueries = await Promise.all(pinned.map((query) => summarizePinnedUsageQuery(query, meters.items)))
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
       setOverviewState({
         ingestions: nextIngestions.items,
-        pinnedUsageQueries,
         stats: nextStats,
         status: 'ready',
         subjects: nextSubjects.items,
       })
+
+      try {
+        const [savedQueries, meters] = await Promise.all([
+          listSavedUsageQueries(),
+          listMeters(),
+        ])
+        const pinned = savedQueries.items
+          .filter((query) => query.pinned)
+          .sort((left, right) => left.position - right.position || left.name.localeCompare(right.name))
+          .slice(0, 6)
+        const pinnedUsageQueries = await Promise.all(pinned.map((query) => summarizePinnedUsageQuery(query, meters.items)))
+        if (!isCurrentUserDataGeneration(generation)) {
+          return
+        }
+        setOverviewState({ pinnedUsageQueries })
+      } catch (err) {
+        if (!isCurrentUserDataGeneration(generation)) {
+          return
+        }
+        setOverviewState({ error: errorMessage(err, 'Unable to load pinned usage queries') })
+      }
     } catch (err) {
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
       setOverviewState({ error: errorMessage(err, 'Unable to load overview'), status: 'error' })
     }
   },
   async loadSubjects(preferredSubject = '') {
-    setSubjectsState({ error: '', status: 'loading' })
+    const generation = currentUserDataGeneration()
+    setSubjectsState({ error: '', loadingMore: false, status: 'loading' })
     try {
-      const subjects = await listSubjects(50)
+      const subjects = await listSubjects(subjectPageSize)
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
       const selectedSubject = preferredSubject.trim() || selectedSubjectForList(appStore.state.subjects.selectedSubject, subjects.items)
       setSubjectsState({
         items: subjects.items,
+        nextCursor: subjects.next_cursor || '',
         selectedSubject,
         status: 'ready',
       })
@@ -673,7 +905,38 @@ export const appStoreActions = {
         setSubjectsState({ detailStatus: 'idle', events: [] })
       }
     } catch (err) {
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
       setSubjectsState({ error: errorMessage(err, 'Unable to load subjects'), status: 'error' })
+    }
+  },
+  async loadMoreSubjects() {
+    const cursor = appStore.state.subjects.nextCursor
+    if (!cursor || appStore.state.subjects.loadingMore) {
+      return
+    }
+
+    const generation = currentUserDataGeneration()
+    setSubjectsState({ error: '', loadingMore: true })
+    try {
+      const subjects = await listSubjects(subjectPageSize, cursor)
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setSubjectsState((state) => ({
+        items: appendUniqueByKey(state.items, subjects.items, (subject) => subject.subject),
+        nextCursor: subjects.next_cursor || '',
+      }))
+    } catch (err) {
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setSubjectsState({ error: errorMessage(err, 'Unable to load more subjects') })
+    } finally {
+      if (isCurrentUserDataGeneration(generation)) {
+        setSubjectsState({ loadingMore: false })
+      }
     }
   },
   async loadSubjectEvents(subject: string) {
@@ -682,11 +945,18 @@ export const appStoreActions = {
       return
     }
 
+    const generation = currentUserDataGeneration()
     setSubjectsState({ detailStatus: 'loading', error: '', exportError: '', selectedSubject: subject })
     try {
       const events = await listSubjectEvents(subject, 25)
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
       setSubjectsState({ detailStatus: 'ready', events })
     } catch (err) {
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
       setSubjectsState({ detailStatus: 'error', error: errorMessage(err, 'Unable to load subject activity'), events: [] })
     }
   },
@@ -707,6 +977,7 @@ export const appStoreActions = {
     }
   },
   async loadUsageControls() {
+    const generation = currentUserDataGeneration()
     setUsageState({
       error: '',
       exportError: '',
@@ -720,10 +991,15 @@ export const appStoreActions = {
       const [nextMeters, savedQueries, exportJobs] = await Promise.all([
         listMeters(),
         listSavedUsageQueries(),
-        listUsageExportJobs(),
+        listUsageExportJobs(exportJobPageSize),
       ])
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
       setUsageState((state) => ({
-        exportJobLimit: 8,
+        exportJobLimit: exportJobPageSize,
+        exportJobLoadingMore: false,
+        exportJobNextCursor: exportJobs.next_cursor || '',
         exportJobs: exportJobs.items,
         exportJobStatus: 'ready',
         meters: nextMeters.items,
@@ -733,6 +1009,9 @@ export const appStoreActions = {
         status: 'ready',
       }))
     } catch (err) {
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
       setUsageState({
         error: errorMessage(err, 'Unable to load usage controls'),
         exportJobError: errorMessage(err, 'Unable to load export jobs'),
@@ -743,16 +1022,58 @@ export const appStoreActions = {
       })
     }
   },
-  async loadUsageExportJobs(limit = appStore.state.usage.exportJobLimit || 8) {
-    setUsageState({ exportJobError: '', exportJobStatus: 'loading' })
+  async loadUsageExportJobs(limit = appStore.state.usage.exportJobLimit || exportJobPageSize, options: { preserveLoaded?: boolean; quiet?: boolean } = {}) {
+    const generation = currentUserDataGeneration()
+    if (!options.quiet) {
+      setUsageState({ exportJobError: '', exportJobStatus: 'loading' })
+    }
     try {
       const exportJobs = await listUsageExportJobs(limit)
-      setUsageState({ exportJobLimit: limit, exportJobs: exportJobs.items, exportJobStatus: 'ready' })
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setUsageState((state) => ({
+        exportJobLimit: limit,
+        exportJobNextCursor: options.preserveLoaded && state.exportJobs.length > exportJobs.items.length ? state.exportJobNextCursor : exportJobs.next_cursor || '',
+        exportJobs: options.preserveLoaded && state.exportJobs.length > exportJobs.items.length ? mergeByID(exportJobs.items, state.exportJobs) : exportJobs.items,
+        exportJobStatus: 'ready',
+      }))
     } catch (err) {
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
       setUsageState({
         exportJobError: errorMessage(err, 'Unable to load export jobs'),
         exportJobStatus: 'error',
       })
+    }
+  },
+  async loadMoreUsageExportJobs(limit = appStore.state.usage.exportJobLimit || exportJobPageSize) {
+    const cursor = appStore.state.usage.exportJobNextCursor
+    if (!cursor || appStore.state.usage.exportJobLoadingMore) {
+      return
+    }
+
+    const generation = currentUserDataGeneration()
+    setUsageState({ exportJobError: '', exportJobLoadingMore: true })
+    try {
+      const exportJobs = await listUsageExportJobs(limit, cursor)
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setUsageState((state) => ({
+        exportJobs: appendUniqueByKey(state.exportJobs, exportJobs.items, (job) => job.id),
+        exportJobNextCursor: exportJobs.next_cursor || '',
+      }))
+    } catch (err) {
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setUsageState({ exportJobError: errorMessage(err, 'Unable to load more export jobs') })
+    } finally {
+      if (isCurrentUserDataGeneration(generation)) {
+        setUsageState({ exportJobLoadingMore: false })
+      }
     }
   },
   async loadUsageDimensionValues() {
@@ -776,6 +1097,7 @@ export const appStoreActions = {
       // Discovery is still useful without a complete time window.
     }
 
+    const generation = currentUserDataGeneration()
     try {
       const values = await Promise.all(fields.map(async (field) => {
         const response = await listUsageDimensionValues({
@@ -788,8 +1110,14 @@ export const appStoreActions = {
         })
         return [field, response.items] as const
       }))
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
       setUsageState({ dimensionValues: Object.fromEntries(values) })
     } catch {
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
       setUsageState({ dimensionValues: {} })
     }
   },
@@ -813,6 +1141,7 @@ export const appStoreActions = {
       return
     }
 
+    const generation = currentUserDataGeneration()
     setUsageState({ breakdownError: '', breakdownStatus: 'loading' })
     try {
       const filter = usageFilterFromQuery(query, metadataTypesByField(meters, scope.meter))
@@ -828,8 +1157,14 @@ export const appStoreActions = {
         })
         return [field, response.items] as const
       }))
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
       setUsageState({ breakdowns: Object.fromEntries(breakdowns), breakdownStatus: 'ready' })
     } catch (err) {
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
       setUsageState({
         breakdownError: errorMessage(err, 'Unable to load usage breakdowns'),
         breakdowns: {},
@@ -838,13 +1173,14 @@ export const appStoreActions = {
     }
   },
   async login(input: { email: string; password: string }) {
-    setAuthState({ loading: true, loginError: '', registerError: '' })
+    resetUserDataState()
+    setAuthState({ loading: true, loginError: '', registerError: '', session: null })
     try {
       const session = await createAuthSession(input)
-      setAuthState({ checked: true, loading: false, session })
+      setAuthSession({ checked: true, loading: false, session })
       return session
     } catch (err) {
-      setAuthState({
+      setAuthSession({
         checked: true,
         loading: false,
         loginError: authErrorMessage(err, 'Unable to sign in'),
@@ -854,7 +1190,8 @@ export const appStoreActions = {
     }
   },
   async logout() {
-    setAuthState({ loading: true })
+    resetUserDataState()
+    setAuthState({ loading: true, session: null })
     try {
       await deleteAuthSession()
     } finally {
@@ -862,14 +1199,15 @@ export const appStoreActions = {
     }
   },
   async register(input: { email: string; password: string }) {
-    setAuthState({ loading: true, loginError: '', registerError: '' })
+    resetUserDataState()
+    setAuthState({ loading: true, loginError: '', registerError: '', session: null })
     try {
       await createAuthUser(input)
       const session = await createAuthSession(input)
-      setAuthState({ checked: true, loading: false, session })
+      setAuthSession({ checked: true, loading: false, session })
       return session
     } catch (err) {
-      setAuthState({
+      setAuthSession({
         checked: true,
         loading: false,
         registerError: registerErrorMessage(err, 'Unable to create account'),
@@ -1048,6 +1386,7 @@ export const appStoreActions = {
     })
   },
   async submitUsageQuery(groupByValue: string[], limit = 500, bucketSize = 'day') {
+    const generation = currentUserDataGeneration()
     setUsageState({ error: '', events: [], eventsError: '', eventsStatus: 'idle', exportError: '', selectedUsageEvent: null, status: 'loading' })
     try {
       const query = appStore.state.usage.filterQuery
@@ -1065,17 +1404,30 @@ export const appStoreActions = {
         subject: scope.subject || undefined,
         to: timeRange.to,
       })
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
       setUsageState({ buckets, status: 'ready' })
     } catch (err) {
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
       setUsageState({ error: errorMessage(err, 'Unable to query usage'), status: 'error' })
     }
   },
   async loadCurrentUsageEvents(limit = 500) {
+    const generation = currentUserDataGeneration()
     setUsageState({ eventsError: '', eventsStatus: 'loading', selectedUsageEvent: null })
     try {
       const events = await listUsageEvents(currentUsageEventQuery(limit))
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
       setUsageState({ events: events.items, eventsStatus: 'ready' })
     } catch (err) {
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
       setUsageState({ eventsError: errorMessage(err, 'Unable to load usage events'), eventsStatus: 'error' })
     }
   },
@@ -1119,6 +1471,7 @@ export const appStoreActions = {
     }
   },
   async queueCurrentUsageExport(groupByValue: string[], limit = 500, bucketSize = 'day') {
+    const generation = currentUserDataGeneration()
     setUsageState({ exportError: '', exportJobError: '', exporting: 'job' })
     try {
       const query = currentUsageBucketExportQuery(groupByValue, limit, bucketSize)
@@ -1127,15 +1480,23 @@ export const appStoreActions = {
         kind: 'usage_buckets',
         query,
       })
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
       setUsageState((state) => ({
         exportJobStatus: 'ready',
-        exportJobs: [job, ...state.exportJobs.filter((item) => item.id !== job.id)].slice(0, 8),
+        exportJobs: mergeByID([job], state.exportJobs),
       }))
-      await appStoreActions.loadUsageExportJobs()
+      await appStoreActions.loadUsageExportJobs(appStore.state.usage.exportJobLimit, { preserveLoaded: true, quiet: true })
     } catch (err) {
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
       setUsageState({ exportJobError: errorMessage(err, 'Unable to queue usage export') })
     } finally {
-      setUsageState({ exporting: '' })
+      if (isCurrentUserDataGeneration(generation)) {
+        setUsageState({ exporting: '' })
+      }
     }
   },
   async downloadUsageExport(job: UsageExportJob) {
@@ -1177,7 +1538,7 @@ export const appStoreActions = {
     try {
       const updated = await retryUsageExportJob(job.id)
       setUsageState((state) => ({ exportJobs: upsertUsageExportJob(state.exportJobs, updated) }))
-      await appStoreActions.loadUsageExportJobs(appStore.state.usage.exportJobLimit)
+      await appStoreActions.loadUsageExportJobs(appStore.state.usage.exportJobLimit, { preserveLoaded: true, quiet: true })
     } catch (err) {
       setUsageState({ exportJobError: errorMessage(err, 'Unable to retry export job') })
     } finally {
@@ -1288,6 +1649,15 @@ export const appStoreActions = {
 }
 
 function errorMessage(err: unknown, fallback: string) {
+  if (err instanceof APIError) {
+    if (err.status === 401 || err.code === 'unauthorized') {
+      return 'Your session has expired. Sign in again to continue.'
+    }
+    if (err.status === 403 || err.code === 'forbidden') {
+      return 'You do not have access to this action in the current workspace.'
+    }
+  }
+
   return err instanceof Error ? err.message : fallback
 }
 
@@ -1356,11 +1726,19 @@ function setAlertsState(update: Partial<AppState['alerts']> | ((state: AppState[
 }
 
 function mergeAlertEvents(next: AlertEvent[], current: AlertEvent[]) {
+  return mergeByID(next, current)
+}
+
+function mergeByID<T extends { id: string }>(next: T[], current: T[]) {
+  return appendUniqueByKey(next, current, (item) => item.id)
+}
+
+function appendUniqueByKey<T>(current: T[], next: T[], keyFor: (item: T) => string) {
   if (next.length === 0) {
     return current
   }
-  const nextIDs = new Set(next.map((event) => event.id))
-  return [...next, ...current.filter((event) => !nextIDs.has(event.id))].slice(0, 25)
+  const currentKeys = new Set(current.map(keyFor))
+  return [...current, ...next.filter((item) => !currentKeys.has(keyFor(item)))]
 }
 
 function alertWebhookSecretFromDestination(destination: AlertDestination): AlertWebhookSecret | null {
@@ -1398,12 +1776,12 @@ function setOverviewState(update: Partial<AppState['overview']>) {
   }))
 }
 
-function setSubjectsState(update: Partial<AppState['subjects']>) {
+function setSubjectsState(update: Partial<AppState['subjects']> | ((state: AppState['subjects']) => Partial<AppState['subjects']>)) {
   appStore.setState((state) => ({
     ...state,
     subjects: {
       ...state.subjects,
-      ...update,
+      ...(typeof update === 'function' ? update(state.subjects) : update),
     },
   }))
 }

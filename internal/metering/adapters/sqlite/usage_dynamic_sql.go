@@ -11,6 +11,7 @@ import (
 	"github.com/doug-martin/goqu/v9"
 	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	"github.com/doug-martin/goqu/v9/exp"
+	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
 	domainmeter "github.com/ssubedir/open-spanner/internal/metering/domain/meter"
 	domainusage "github.com/ssubedir/open-spanner/internal/metering/domain/usage"
@@ -40,7 +41,7 @@ func (r *UsageRepository) queryBucketsWithDynamicSQL(ctx context.Context, query 
 	if err != nil {
 		return nil, err
 	}
-	predicates, err := bucketPredicates(query)
+	predicates, err := bucketPredicates(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +147,7 @@ func (r *UsageRepository) queryBucketsWithDynamicSQL(ctx context.Context, query 
 }
 
 func (r *UsageRepository) aggregateWithDynamicSQL(ctx context.Context, query domainusage.AggregateQuery) (domainusage.Aggregate, error) {
-	predicates, err := aggregatePredicates(query)
+	predicates, err := aggregatePredicates(ctx, query)
 	if err != nil {
 		return domainusage.Aggregate{}, err
 	}
@@ -200,7 +201,7 @@ func (r *UsageRepository) findBreakdownWithDynamicSQL(ctx context.Context, query
 	if err != nil {
 		return nil, err
 	}
-	predicates, err := breakdownPredicates(query)
+	predicates, err := breakdownPredicates(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +268,7 @@ func (r *UsageRepository) findBreakdownWithDynamicSQL(ctx context.Context, query
 }
 
 func (r *UsageRepository) findEventsWithDynamicSQL(ctx context.Context, query domainusage.EventQuery) (domainusage.EventPage, error) {
-	predicates, err := eventPredicates(query)
+	predicates, err := eventPredicates(ctx, query)
 	if err != nil {
 		return domainusage.EventPage{}, err
 	}
@@ -309,8 +310,13 @@ func (r *UsageRepository) findEventsWithDynamicSQL(ctx context.Context, query do
 	return domainusage.NewEventPage(events, query.Limit()), nil
 }
 
-func bucketPredicates(query domainusage.Query) ([]exp.Expression, error) {
+func bucketPredicates(ctx context.Context, query domainusage.Query) ([]exp.Expression, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
 	predicates := []exp.Expression{
+		goqu.C("workspace_id").Eq(workspaceID),
 		goqu.C("meter_name").Eq(query.MeterName()),
 		goqu.C("event_time").Gte(formatTime(query.From())),
 		goqu.C("event_time").Lt(formatTime(query.To())),
@@ -335,8 +341,13 @@ func bucketPredicates(query domainusage.Query) ([]exp.Expression, error) {
 	return predicates, nil
 }
 
-func aggregatePredicates(query domainusage.AggregateQuery) ([]exp.Expression, error) {
+func aggregatePredicates(ctx context.Context, query domainusage.AggregateQuery) ([]exp.Expression, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
 	predicates := []exp.Expression{
+		goqu.C("workspace_id").Eq(workspaceID),
 		goqu.C("meter_name").Eq(query.MeterName()),
 		goqu.C("event_time").Gte(formatTime(query.From())),
 		goqu.C("event_time").Lt(formatTime(query.To())),
@@ -361,8 +372,13 @@ func aggregatePredicates(query domainusage.AggregateQuery) ([]exp.Expression, er
 	return predicates, nil
 }
 
-func breakdownPredicates(query domainusage.BreakdownQuery) ([]exp.Expression, error) {
+func breakdownPredicates(ctx context.Context, query domainusage.BreakdownQuery) ([]exp.Expression, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
 	predicates := []exp.Expression{
+		goqu.C("workspace_id").Eq(workspaceID),
 		goqu.C("meter_name").Eq(query.MeterName()),
 		goqu.C("event_time").Gte(formatTime(query.From())),
 		goqu.C("event_time").Lt(formatTime(query.To())),
@@ -380,8 +396,14 @@ func breakdownPredicates(query domainusage.BreakdownQuery) ([]exp.Expression, er
 	return predicates, nil
 }
 
-func eventPredicates(query domainusage.EventQuery) ([]exp.Expression, error) {
-	predicates := []exp.Expression{}
+func eventPredicates(ctx context.Context, query domainusage.EventQuery) ([]exp.Expression, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	predicates := []exp.Expression{
+		goqu.C("workspace_id").Eq(workspaceID),
+	}
 	if query.Subject() != "" {
 		predicates = append(predicates, goqu.C("subject").Eq(query.Subject()))
 	}

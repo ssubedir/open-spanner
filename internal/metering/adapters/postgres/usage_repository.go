@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"time"
 
+	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/postgres/postgresdb"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
 	domainusage "github.com/ssubedir/open-spanner/internal/metering/domain/usage"
@@ -59,6 +60,10 @@ func (r *UsageRepository) Save(ctx context.Context, event domainusage.Event) (do
 }
 
 func (r *UsageRepository) SaveBulk(ctx context.Context, idempotencyKey string, events []domainusage.Event) (domainusage.BulkSaveResult, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return domainusage.BulkSaveResult{}, err
+	}
 	if idempotencyKey != "" {
 		existing, err := r.findBulk(ctx, idempotencyKey)
 		if err == nil {
@@ -70,7 +75,7 @@ func (r *UsageRepository) SaveBulk(ctx context.Context, idempotencyKey string, e
 	}
 
 	var result domainusage.BulkSaveResult
-	err := r.store.WithinTransaction(ctx, func(txCtx context.Context) error {
+	err = r.store.WithinTransaction(ctx, func(txCtx context.Context) error {
 		accepted := make([]domainusage.Event, 0, len(events))
 		duplicates := []domainusage.Event{}
 		for _, event := range events {
@@ -97,6 +102,7 @@ func (r *UsageRepository) SaveBulk(ctx context.Context, idempotencyKey string, e
 
 		err = queriesFor(txCtx, r.queries).SaveBulkUsageIngestion(txCtx, postgresdb.SaveBulkUsageIngestionParams{
 			IdempotencyKey: idempotencyKey,
+			WorkspaceID:    workspaceID,
 			Response:       response,
 			CreatedAt:      formatTime(time.Now().UTC()),
 		})
@@ -125,11 +131,20 @@ func (r *UsageRepository) SaveBulk(ctx context.Context, idempotencyKey string, e
 }
 
 func (r *UsageRepository) save(ctx context.Context, event domainusage.Event) (domainusage.Event, error) {
-	saved, _, err := r.saveWithDuplicate(ctx, event)
+	var saved domainusage.Event
+	err := r.store.WithinTransaction(ctx, func(txCtx context.Context) error {
+		var err error
+		saved, _, err = r.saveWithDuplicate(txCtx, event)
+		return err
+	})
 	return saved, err
 }
 
 func (r *UsageRepository) saveWithDuplicate(ctx context.Context, event domainusage.Event) (domainusage.Event, bool, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return domainusage.Event{}, false, err
+	}
 	if _, err := r.findByID(ctx, event.ID()); err == nil {
 		return domainusage.Event{}, false, domain.ErrConflict
 	} else if err != sql.ErrNoRows {
@@ -153,6 +168,7 @@ func (r *UsageRepository) saveWithDuplicate(ctx context.Context, event domainusa
 
 	err = queriesFor(ctx, r.queries).SaveUsageEvent(ctx, postgresdb.SaveUsageEventParams{
 		ID:             event.ID(),
+		WorkspaceID:    workspaceID,
 		IdempotencyKey: event.IdempotencyKey(),
 		Subject:        event.Subject(),
 		MeterName:      event.MeterName(),
@@ -169,6 +185,14 @@ func (r *UsageRepository) saveWithDuplicate(ctx context.Context, event domainusa
 		if isUniqueConstraint(err) {
 			return domainusage.Event{}, false, errors.Join(domain.ErrConflict, err)
 		}
+		return domainusage.Event{}, false, err
+	}
+
+	if err := queriesFor(ctx, r.queries).IncrementWorkspaceUsageEvents(ctx, postgresdb.IncrementWorkspaceUsageEventsParams{
+		WorkspaceID: workspaceID,
+		Delta:       1,
+		UpdatedAt:   formatTime(time.Now().UTC()),
+	}); err != nil {
 		return domainusage.Event{}, false, err
 	}
 
@@ -192,7 +216,12 @@ func bucketQueryNeedsDynamicSQL(query domainusage.Query) bool {
 }
 
 func (r *UsageRepository) queryBucketsWithGeneratedSQL(ctx context.Context, query domainusage.Query) ([]domainusage.Bucket, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := queriesFor(ctx, r.queries).ListUsageBuckets(ctx, postgresdb.ListUsageBucketsParams{
+		WorkspaceID: workspaceID,
 		Aggregation: string(query.Aggregation()),
 		BucketSize:  string(query.BucketSize()),
 		Limit:       int32(query.Limit()),
@@ -220,17 +249,22 @@ func (r *UsageRepository) queryBucketsWithGeneratedSQL(ctx context.Context, quer
 }
 
 func (r *UsageRepository) FindDimensionValues(ctx context.Context, query domainusage.DimensionValueQuery) ([]domainusage.DimensionValue, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if !metadataKeyPattern.MatchString(query.Field()) {
 		return nil, fmt.Errorf("%w: unsupported metadata field %q", domain.ErrInvalidInput, query.Field())
 	}
 
 	rows, err := queriesFor(ctx, r.queries).ListUsageDimensionValues(ctx, postgresdb.ListUsageDimensionValuesParams{
-		Field:     query.Field(),
-		MeterName: query.MeterName(),
-		Subject:   eventStringValue(query.Subject()),
-		FromTime:  eventTimeValue(query.From()),
-		ToTime:    eventTimeValue(query.To()),
-		Limit:     int32(query.Limit()),
+		WorkspaceID: workspaceID,
+		Field:       query.Field(),
+		MeterName:   query.MeterName(),
+		Subject:     eventStringValue(query.Subject()),
+		FromTime:    eventTimeValue(query.From()),
+		ToTime:      eventTimeValue(query.To()),
+		Limit:       int32(query.Limit()),
 	})
 	if err != nil {
 		return nil, err
@@ -252,11 +286,16 @@ func (r *UsageRepository) FindBreakdown(ctx context.Context, query domainusage.B
 }
 
 func (r *UsageRepository) findBreakdownWithGeneratedSQL(ctx context.Context, query domainusage.BreakdownQuery) ([]domainusage.BreakdownItem, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if _, err := breakdownFieldExpression(query.Field()); err != nil {
 		return nil, err
 	}
 
 	rows, err := queriesFor(ctx, r.queries).ListUsageBreakdown(ctx, postgresdb.ListUsageBreakdownParams{
+		WorkspaceID:     workspaceID,
 		Aggregation:     string(query.Aggregation()),
 		DurationSeconds: query.To().Sub(query.From()).Seconds(),
 		Limit:           int32(query.Limit()),
@@ -287,8 +326,13 @@ func (r *UsageRepository) FindEvents(ctx context.Context, query domainusage.Even
 }
 
 func (r *UsageRepository) findEventsWithGeneratedSQL(ctx context.Context, query domainusage.EventQuery) (domainusage.EventPage, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return domainusage.EventPage{}, err
+	}
 	cursorEventTime, cursorID := eventCursorValues(query.Cursor())
 	rows, err := queriesFor(ctx, r.queries).ListUsageEvents(ctx, postgresdb.ListUsageEventsParams{
+		WorkspaceID:     workspaceID,
 		Subject:         eventStringValue(query.Subject()),
 		MeterName:       eventStringValue(query.MeterName()),
 		FromTime:        eventTimeValue(query.From()),
@@ -314,7 +358,11 @@ func (r *UsageRepository) findEventsWithGeneratedSQL(ctx context.Context, query 
 }
 
 func (r *UsageRepository) CountEvents(ctx context.Context) (int, error) {
-	count, err := queriesFor(ctx, r.queries).CountUsageEvents(ctx)
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return 0, err
+	}
+	count, err := queriesFor(ctx, r.queries).CountUsageEvents(ctx, workspaceID)
 	if err != nil {
 		return 0, err
 	}
@@ -322,7 +370,11 @@ func (r *UsageRepository) CountEvents(ctx context.Context) (int, error) {
 }
 
 func (r *UsageRepository) FindMeterStats(ctx context.Context) ([]domainusage.MeterStats, error) {
-	rows, err := queriesFor(ctx, r.queries).ListUsageMeterStats(ctx)
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := queriesFor(ctx, r.queries).ListUsageMeterStats(ctx, workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -339,8 +391,13 @@ func (r *UsageRepository) FindMeterStats(ctx context.Context) ([]domainusage.Met
 }
 
 func (r *UsageRepository) FindSubjectStats(ctx context.Context, query domainusage.SubjectStatsQuery) ([]domainusage.SubjectStats, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
 	cursorLastEventAt, cursorSubject := subjectStatsCursorValues(query)
 	rows, err := queriesFor(ctx, r.queries).ListUsageSubjectStats(ctx, postgresdb.ListUsageSubjectStatsParams{
+		WorkspaceID:       workspaceID,
 		CursorLastEventAt: cursorLastEventAt,
 		CursorSubject:     cursorSubject,
 		Limit:             int32(query.Limit()),
@@ -365,12 +422,17 @@ func (r *UsageRepository) TryPruneLock(ctx context.Context) (bool, error) {
 }
 
 func (r *UsageRepository) PruneEvents(ctx context.Context, query domainusage.PruneQuery) (int, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return 0, err
+	}
 	total := 0
 	for {
 		deleted, err := queriesFor(ctx, r.queries).PruneUsageEventsBatch(ctx, postgresdb.PruneUsageEventsBatchParams{
-			MeterName: query.MeterName(),
-			EventTime: formatTime(query.Before()),
-			Limit:     int32(pruneDeleteBatchSize),
+			WorkspaceID: workspaceID,
+			MeterName:   query.MeterName(),
+			EventTime:   formatTime(query.Before()),
+			Limit:       int32(pruneDeleteBatchSize),
 		})
 		if err != nil {
 			return 0, err
@@ -378,15 +440,29 @@ func (r *UsageRepository) PruneEvents(ctx context.Context, query domainusage.Pru
 
 		total += int(deleted)
 		if deleted < pruneDeleteBatchSize {
+			if total > 0 {
+				if err := queriesFor(ctx, r.queries).IncrementWorkspaceUsageEvents(ctx, postgresdb.IncrementWorkspaceUsageEventsParams{
+					WorkspaceID: workspaceID,
+					Delta:       -int64(total),
+					UpdatedAt:   formatTime(time.Now().UTC()),
+				}); err != nil {
+					return 0, err
+				}
+			}
 			return total, nil
 		}
 	}
 }
 
 func (r *UsageRepository) CountPrunableEvents(ctx context.Context, query domainusage.PruneQuery) (int, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return 0, err
+	}
 	count, err := queriesFor(ctx, r.queries).CountPrunableUsageEvents(ctx, postgresdb.CountPrunableUsageEventsParams{
-		MeterName: query.MeterName(),
-		EventTime: formatTime(query.Before()),
+		WorkspaceID: workspaceID,
+		MeterName:   query.MeterName(),
+		EventTime:   formatTime(query.Before()),
 	})
 	if err != nil {
 		return 0, err
@@ -395,19 +471,32 @@ func (r *UsageRepository) CountPrunableEvents(ctx context.Context, query domainu
 }
 
 func (r *UsageRepository) SavePruneRun(ctx context.Context, run domainusage.PruneRun) (domainusage.PruneRun, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return domainusage.PruneRun{}, err
+	}
 	meters, err := marshalPruneRunMeters(run.Meters())
 	if err != nil {
 		return domainusage.PruneRun{}, err
 	}
 
 	err = queriesFor(ctx, r.queries).SaveUsagePruneRun(ctx, postgresdb.SaveUsagePruneRunParams{
-		ID:        run.ID(),
-		DryRun:    int32(boolInt(run.DryRun())),
-		Deleted:   int32(run.Deleted()),
-		Meters:    meters,
-		CreatedAt: formatTime(run.CreatedAt()),
+		ID:          run.ID(),
+		WorkspaceID: workspaceID,
+		DryRun:      int32(boolInt(run.DryRun())),
+		Deleted:     int32(run.Deleted()),
+		Meters:      meters,
+		CreatedAt:   formatTime(run.CreatedAt()),
 	})
 	if err != nil {
+		return domainusage.PruneRun{}, err
+	}
+
+	if err := queriesFor(ctx, r.queries).IncrementWorkspacePruneRuns(ctx, postgresdb.IncrementWorkspacePruneRunsParams{
+		WorkspaceID: workspaceID,
+		Delta:       1,
+		UpdatedAt:   formatTime(time.Now().UTC()),
+	}); err != nil {
 		return domainusage.PruneRun{}, err
 	}
 
@@ -415,8 +504,13 @@ func (r *UsageRepository) SavePruneRun(ctx context.Context, run domainusage.Prun
 }
 
 func (r *UsageRepository) FindPruneRuns(ctx context.Context, query domainusage.RunQuery) ([]domainusage.PruneRun, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
 	cursorCreatedAt, cursorID := runCursorValues(query)
 	rows, err := queriesFor(ctx, r.queries).ListUsagePruneRuns(ctx, postgresdb.ListUsagePruneRunsParams{
+		WorkspaceID:     workspaceID,
 		CursorCreatedAt: cursorCreatedAt,
 		CursorID:        cursorID,
 		Limit:           int32(query.Limit()),
@@ -437,7 +531,11 @@ func (r *UsageRepository) FindPruneRuns(ctx context.Context, query domainusage.R
 }
 
 func (r *UsageRepository) CountPruneRuns(ctx context.Context) (int, error) {
-	count, err := queriesFor(ctx, r.queries).CountUsagePruneRuns(ctx)
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return 0, err
+	}
+	count, err := queriesFor(ctx, r.queries).CountUsagePruneRuns(ctx, workspaceID)
 	if err != nil {
 		return 0, err
 	}
@@ -445,13 +543,18 @@ func (r *UsageRepository) CountPruneRuns(ctx context.Context) (int, error) {
 }
 
 func (r *UsageRepository) SaveIngestionRun(ctx context.Context, run domainusage.IngestionRun) (domainusage.IngestionRun, error) {
-	err := queriesFor(ctx, r.queries).SaveUsageIngestionRun(ctx, postgresdb.SaveUsageIngestionRunParams{
-		ID:         run.ID(),
-		Kind:       string(run.Kind()),
-		Accepted:   int32(run.Accepted()),
-		Duplicates: int32(run.Duplicates()),
-		Failed:     int32(run.Failed()),
-		CreatedAt:  formatTime(run.CreatedAt()),
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return domainusage.IngestionRun{}, err
+	}
+	err = queriesFor(ctx, r.queries).SaveUsageIngestionRun(ctx, postgresdb.SaveUsageIngestionRunParams{
+		ID:          run.ID(),
+		WorkspaceID: workspaceID,
+		Kind:        string(run.Kind()),
+		Accepted:    int32(run.Accepted()),
+		Duplicates:  int32(run.Duplicates()),
+		Failed:      int32(run.Failed()),
+		CreatedAt:   formatTime(run.CreatedAt()),
 	})
 	if err != nil {
 		return domainusage.IngestionRun{}, err
@@ -461,8 +564,13 @@ func (r *UsageRepository) SaveIngestionRun(ctx context.Context, run domainusage.
 }
 
 func (r *UsageRepository) FindIngestionRuns(ctx context.Context, query domainusage.RunQuery) ([]domainusage.IngestionRun, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
 	cursorCreatedAt, cursorID := runCursorValues(query)
 	rows, err := queriesFor(ctx, r.queries).ListUsageIngestionRuns(ctx, postgresdb.ListUsageIngestionRunsParams{
+		WorkspaceID:     workspaceID,
 		CursorCreatedAt: cursorCreatedAt,
 		CursorID:        cursorID,
 		Limit:           int32(query.Limit()),
@@ -485,6 +593,7 @@ func (r *UsageRepository) FindIngestionRuns(ctx context.Context, query domainusa
 func (r *UsageRepository) SaveExportJob(ctx context.Context, job domainusage.ExportJob) (domainusage.ExportJob, error) {
 	err := queriesFor(ctx, r.queries).SaveUsageExportJob(ctx, postgresdb.SaveUsageExportJobParams{
 		ID:           job.ID(),
+		WorkspaceID:  job.WorkspaceID(),
 		Kind:         string(job.Kind()),
 		Status:       string(job.Status()),
 		Format:       string(job.Format()),
@@ -506,7 +615,14 @@ func (r *UsageRepository) SaveExportJob(ctx context.Context, job domainusage.Exp
 }
 
 func (r *UsageRepository) FindExportJob(ctx context.Context, id string) (domainusage.ExportJob, error) {
-	row, err := queriesFor(ctx, r.queries).FindUsageExportJob(ctx, id)
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return domainusage.ExportJob{}, err
+	}
+	row, err := queriesFor(ctx, r.queries).FindUsageExportJob(ctx, postgresdb.FindUsageExportJobParams{
+		WorkspaceID: workspaceID,
+		ID:          id,
+	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return domainusage.ExportJob{}, domain.ErrNotFound
@@ -514,12 +630,17 @@ func (r *UsageRepository) FindExportJob(ctx context.Context, id string) (domainu
 		return domainusage.ExportJob{}, err
 	}
 
-	return exportJobFromFields(row.ID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
+	return exportJobFromFields(row.ID, row.WorkspaceID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
 }
 
 func (r *UsageRepository) FindExportJobs(ctx context.Context, query domainusage.RunQuery) ([]domainusage.ExportJob, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
 	cursorCreatedAt, cursorID := runCursorValues(query)
 	rows, err := queriesFor(ctx, r.queries).ListUsageExportJobs(ctx, postgresdb.ListUsageExportJobsParams{
+		WorkspaceID:     workspaceID,
 		CursorCreatedAt: cursorCreatedAt,
 		CursorID:        cursorID,
 		Limit:           int32(query.Limit()),
@@ -530,7 +651,7 @@ func (r *UsageRepository) FindExportJobs(ctx context.Context, query domainusage.
 
 	jobs := make([]domainusage.ExportJob, 0, len(rows))
 	for _, row := range rows {
-		job, err := exportJobFromFields(row.ID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
+		job, err := exportJobFromFields(row.ID, row.WorkspaceID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -552,12 +673,17 @@ func (r *UsageRepository) ClaimExportJob(ctx context.Context, now time.Time, loc
 		return domainusage.ExportJob{}, err
 	}
 
-	return exportJobFromFields(row.ID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
+	return exportJobFromFields(row.ID, row.WorkspaceID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
 }
 
 func (r *UsageRepository) CompleteExportJob(ctx context.Context, id string, artifactPath string, artifactSize int64, completedAt time.Time) (domainusage.ExportJob, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return domainusage.ExportJob{}, err
+	}
 	row, err := queriesFor(ctx, r.queries).CompleteUsageExportJob(ctx, postgresdb.CompleteUsageExportJobParams{
 		ID:           id,
+		WorkspaceID:  workspaceID,
 		ArtifactPath: artifactPath,
 		ArtifactSize: artifactSize,
 		CompletedAt:  formatTime(completedAt),
@@ -569,14 +695,19 @@ func (r *UsageRepository) CompleteExportJob(ctx context.Context, id string, arti
 		return domainusage.ExportJob{}, err
 	}
 
-	return exportJobFromFields(row.ID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
+	return exportJobFromFields(row.ID, row.WorkspaceID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
 }
 
 func (r *UsageRepository) FailExportJob(ctx context.Context, id string, errorMessage string, failedAt time.Time) (domainusage.ExportJob, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return domainusage.ExportJob{}, err
+	}
 	row, err := queriesFor(ctx, r.queries).FailUsageExportJob(ctx, postgresdb.FailUsageExportJobParams{
-		ID:       id,
-		Error:    errorMessage,
-		FailedAt: formatTime(failedAt),
+		ID:          id,
+		WorkspaceID: workspaceID,
+		Error:       errorMessage,
+		FailedAt:    formatTime(failedAt),
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -585,13 +716,18 @@ func (r *UsageRepository) FailExportJob(ctx context.Context, id string, errorMes
 		return domainusage.ExportJob{}, err
 	}
 
-	return exportJobFromFields(row.ID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
+	return exportJobFromFields(row.ID, row.WorkspaceID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
 }
 
 func (r *UsageRepository) CancelExportJob(ctx context.Context, id string, canceledAt time.Time) (domainusage.ExportJob, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return domainusage.ExportJob{}, err
+	}
 	row, err := queriesFor(ctx, r.queries).CancelUsageExportJob(ctx, postgresdb.CancelUsageExportJobParams{
-		ID:         id,
-		CanceledAt: formatTime(canceledAt),
+		ID:          id,
+		WorkspaceID: workspaceID,
+		CanceledAt:  formatTime(canceledAt),
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -600,13 +736,18 @@ func (r *UsageRepository) CancelExportJob(ctx context.Context, id string, cancel
 		return domainusage.ExportJob{}, err
 	}
 
-	return exportJobFromFields(row.ID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
+	return exportJobFromFields(row.ID, row.WorkspaceID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
 }
 
 func (r *UsageRepository) RetryExportJob(ctx context.Context, id string, retriedAt time.Time) (domainusage.ExportJob, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return domainusage.ExportJob{}, err
+	}
 	row, err := queriesFor(ctx, r.queries).RetryUsageExportJob(ctx, postgresdb.RetryUsageExportJobParams{
-		ID:        id,
-		RetriedAt: formatTime(retriedAt),
+		ID:          id,
+		WorkspaceID: workspaceID,
+		RetriedAt:   formatTime(retriedAt),
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -615,21 +756,42 @@ func (r *UsageRepository) RetryExportJob(ctx context.Context, id string, retried
 		return domainusage.ExportJob{}, err
 	}
 
-	return exportJobFromFields(row.ID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
+	return exportJobFromFields(row.ID, row.WorkspaceID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
 }
 
 func (r *UsageRepository) findByIdempotencyKey(ctx context.Context, key string) (domainusage.Event, error) {
-	event, err := queriesFor(ctx, r.queries).FindUsageEventByIdempotencyKey(ctx, sql.NullString{String: key, Valid: true})
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return domainusage.Event{}, err
+	}
+	event, err := queriesFor(ctx, r.queries).FindUsageEventByIdempotencyKey(ctx, postgresdb.FindUsageEventByIdempotencyKeyParams{
+		WorkspaceID:    workspaceID,
+		IdempotencyKey: key,
+	})
 	return eventFromFields(event.ID, event.IdempotencyKey, event.Subject, event.MeterName, event.Quantity, event.EventTime, event.ReceivedAt, event.Metadata, err)
 }
 
 func (r *UsageRepository) findByID(ctx context.Context, id string) (domainusage.Event, error) {
-	event, err := queriesFor(ctx, r.queries).FindUsageEventByID(ctx, id)
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return domainusage.Event{}, err
+	}
+	event, err := queriesFor(ctx, r.queries).FindUsageEventByID(ctx, postgresdb.FindUsageEventByIDParams{
+		WorkspaceID: workspaceID,
+		ID:          id,
+	})
 	return eventFromFields(event.ID, event.IdempotencyKey, event.Subject, event.MeterName, event.Quantity, event.EventTime, event.ReceivedAt, event.Metadata, err)
 }
 
 func (r *UsageRepository) findBulk(ctx context.Context, idempotencyKey string) (domainusage.BulkSaveResult, error) {
-	response, err := queriesFor(ctx, r.queries).FindBulkUsageIngestion(ctx, idempotencyKey)
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return domainusage.BulkSaveResult{}, err
+	}
+	response, err := queriesFor(ctx, r.queries).FindBulkUsageIngestion(ctx, postgresdb.FindBulkUsageIngestionParams{
+		WorkspaceID:    workspaceID,
+		IdempotencyKey: idempotencyKey,
+	})
 	if err != nil {
 		return domainusage.BulkSaveResult{}, err
 	}
@@ -704,7 +866,7 @@ func ingestionRunFromFields(id string, kind string, accepted int32, duplicates i
 	return domainusage.NewIngestionRun(id, domainusage.IngestionKind(kind), int(accepted), int(duplicates), int(failed), createdAt)
 }
 
-func exportJobFromFields(id string, kind string, status string, format string, queryJSON string, errorMessage string, attempts int, lockedUntilText sql.NullString, artifactPath string, artifactSize int64, createdAtText string, updatedAtText string, completedAtText sql.NullString) (domainusage.ExportJob, error) {
+func exportJobFromFields(id string, workspaceID string, kind string, status string, format string, queryJSON string, errorMessage string, attempts int, lockedUntilText sql.NullString, artifactPath string, artifactSize int64, createdAtText string, updatedAtText string, completedAtText sql.NullString) (domainusage.ExportJob, error) {
 	createdAt, err := time.Parse(time.RFC3339Nano, createdAtText)
 	if err != nil {
 		return domainusage.ExportJob{}, err
@@ -730,6 +892,7 @@ func exportJobFromFields(id string, kind string, status string, format string, q
 
 	return domainusage.NewExportJob(
 		id,
+		workspaceID,
 		domainusage.ExportJobKind(kind),
 		domainusage.ExportJobStatus(status),
 		domainusage.ExportJobFormat(format),

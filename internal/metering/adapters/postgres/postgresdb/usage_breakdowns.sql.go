@@ -20,10 +20,11 @@ WITH filtered AS (
 		quantity,
 		event_time::timestamptz AS event_at
 	FROM usage_events
-	WHERE meter_name = $5
-		AND event_time >= $6::text
-		AND event_time < $7::text
-		AND ($8::text IS NULL OR subject = $8::text)
+	WHERE workspace_id = $5::text
+		AND meter_name = $6
+		AND event_time >= $7::text
+		AND event_time < $8::text
+		AND ($9::text IS NULL OR subject = $9::text)
 )
 SELECT
 	value,
@@ -50,6 +51,7 @@ type ListUsageBreakdownParams struct {
 	DurationSeconds float64
 	Limit           int32
 	Field           string
+	WorkspaceID     string
 	MeterName       string
 	FromTime        string
 	ToTime          string
@@ -68,6 +70,7 @@ func (q *Queries) ListUsageBreakdown(ctx context.Context, arg ListUsageBreakdown
 		arg.DurationSeconds,
 		arg.Limit,
 		arg.Field,
+		arg.WorkspaceID,
 		arg.MeterName,
 		arg.FromTime,
 		arg.ToTime,

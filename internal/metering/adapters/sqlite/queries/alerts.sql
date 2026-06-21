@@ -1,6 +1,7 @@
 -- name: SaveAlertRule :exec
 INSERT INTO alert_rules (
 	id,
+	workspace_id,
 	name,
 	meter_name,
 	enabled,
@@ -16,7 +17,7 @@ INSERT INTO alert_rules (
 	created_at,
 	updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	name = excluded.name,
 	meter_name = excluded.meter_name,
@@ -35,7 +36,8 @@ ON CONFLICT(id) DO UPDATE SET
 -- name: ListAlertRules :many
 SELECT id, name, meter_name, enabled, subject, metadata, window_seconds, comparator, threshold, evaluation_interval_seconds, group_by, destination_id, next_evaluate_at, created_at, updated_at
 FROM alert_rules
-WHERE (CAST(sqlc.narg('id') AS TEXT) IS NULL OR id = CAST(sqlc.narg('id') AS TEXT))
+WHERE workspace_id = sqlc.arg('workspace_id')
+	AND (CAST(sqlc.narg('id') AS TEXT) IS NULL OR id = CAST(sqlc.narg('id') AS TEXT))
 	AND (CAST(sqlc.narg('meter_name') AS TEXT) IS NULL OR meter_name = CAST(sqlc.narg('meter_name') AS TEXT))
 	AND (CAST(sqlc.narg('enabled') AS INTEGER) IS NULL OR enabled = CAST(sqlc.narg('enabled') AS INTEGER))
 	AND (CAST(sqlc.narg('destination_id') AS TEXT) IS NULL OR destination_id = CAST(sqlc.narg('destination_id') AS TEXT))
@@ -43,8 +45,8 @@ ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg('limit');
 
 -- name: SaveAlertDestination :exec
-INSERT INTO alert_destinations (id, name, type, enabled, webhook_url, webhook_secret, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO alert_destinations (id, workspace_id, name, type, enabled, webhook_url, webhook_secret, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	name = excluded.name,
 	type = excluded.type,
@@ -56,7 +58,8 @@ ON CONFLICT(id) DO UPDATE SET
 -- name: ListAlertDestinations :many
 SELECT id, name, type, enabled, webhook_url, webhook_secret, created_at, updated_at
 FROM alert_destinations
-WHERE (CAST(sqlc.narg('id') AS TEXT) IS NULL OR id = CAST(sqlc.narg('id') AS TEXT))
+WHERE workspace_id = sqlc.arg('workspace_id')
+	AND (CAST(sqlc.narg('id') AS TEXT) IS NULL OR id = CAST(sqlc.narg('id') AS TEXT))
 	AND (CAST(sqlc.narg('type') AS TEXT) IS NULL OR type = CAST(sqlc.narg('type') AS TEXT))
 	AND (CAST(sqlc.narg('enabled') AS INTEGER) IS NULL OR enabled = CAST(sqlc.narg('enabled') AS INTEGER))
 ORDER BY created_at DESC, id DESC
@@ -64,11 +67,13 @@ LIMIT sqlc.arg('limit');
 
 -- name: DeleteAlertDestination :execrows
 DELETE FROM alert_destinations
-WHERE id = ?;
+WHERE workspace_id = sqlc.arg('workspace_id')
+	AND id = sqlc.arg('id');
 
 -- name: DeleteAlertRule :execrows
 DELETE FROM alert_rules
-WHERE id = ?;
+WHERE workspace_id = sqlc.arg('workspace_id')
+	AND id = sqlc.arg('id');
 
 -- name: SaveAlertState :exec
 INSERT INTO alert_states (rule_id, group_key, group_value, status, value, message, evaluated_at, updated_at)
@@ -84,6 +89,12 @@ ON CONFLICT(rule_id, group_key, group_value) DO UPDATE SET
 SELECT rule_id, group_key, group_value, status, value, message, evaluated_at, updated_at
 FROM alert_states
 WHERE rule_id = sqlc.arg('rule_id')
+	AND EXISTS (
+		SELECT 1
+		FROM alert_rules
+		WHERE alert_rules.id = alert_states.rule_id
+			AND alert_rules.workspace_id = sqlc.arg('workspace_id')
+	)
 	AND group_key = sqlc.arg('group_key')
 	AND group_value = sqlc.arg('group_value');
 
@@ -91,6 +102,12 @@ WHERE rule_id = sqlc.arg('rule_id')
 SELECT rule_id, group_key, group_value, status, value, message, evaluated_at, updated_at
 FROM alert_states
 WHERE rule_id = sqlc.arg('rule_id')
+	AND EXISTS (
+		SELECT 1
+		FROM alert_rules
+		WHERE alert_rules.id = alert_states.rule_id
+			AND alert_rules.workspace_id = sqlc.arg('workspace_id')
+	)
 ORDER BY
 	CASE status
 		WHEN 'alerting' THEN 0
@@ -138,7 +155,13 @@ LEFT JOIN alert_deliveries AS delivery
 		ORDER BY attempted_at DESC, id DESC
 		LIMIT 1
 	)
-WHERE (CAST(sqlc.narg('rule_id') AS TEXT) IS NULL OR alert_events.rule_id = CAST(sqlc.narg('rule_id') AS TEXT))
+WHERE EXISTS (
+		SELECT 1
+		FROM alert_rules
+		WHERE alert_rules.id = alert_events.rule_id
+			AND alert_rules.workspace_id = sqlc.arg('workspace_id')
+	)
+	AND (CAST(sqlc.narg('rule_id') AS TEXT) IS NULL OR alert_events.rule_id = CAST(sqlc.narg('rule_id') AS TEXT))
 	AND (CAST(sqlc.narg('cursor_created_at') AS TEXT) IS NULL
 		OR (alert_events.created_at < CAST(sqlc.narg('cursor_created_at') AS TEXT)
 			OR (alert_events.created_at = CAST(sqlc.narg('cursor_created_at') AS TEXT) AND alert_events.id < CAST(sqlc.narg('cursor_id') AS TEXT))))
@@ -186,6 +209,11 @@ WHERE rule_id = (
 	LIMIT 1
 )
 RETURNING rule_id, run_after, locked_until, attempts, created_at, updated_at;
+
+-- name: FindWorkspaceIDForAlertRule :one
+SELECT workspace_id
+FROM alert_rules
+WHERE id = ?;
 
 -- name: RequeueAlertEvaluationJob :execrows
 UPDATE alert_evaluation_jobs

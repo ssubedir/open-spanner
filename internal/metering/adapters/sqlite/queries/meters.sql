@@ -1,6 +1,6 @@
 -- name: SaveMeter :exec
-INSERT INTO meters (id, name, description, unit, aggregation, dimensions, event_retention_days, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO meters (id, workspace_id, name, description, unit, aggregation, dimensions, event_retention_days, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	description = excluded.description,
 	unit = excluded.unit,
@@ -11,7 +11,8 @@ ON CONFLICT(id) DO UPDATE SET
 -- name: ListMeters :many
 SELECT id, name, description, unit, aggregation, dimensions, event_retention_days, created_at
 FROM meters
-WHERE (sqlc.narg('id') IS NULL OR id = sqlc.narg('id'))
+WHERE workspace_id = sqlc.arg('workspace_id')
+	AND (sqlc.narg('id') IS NULL OR id = sqlc.narg('id'))
 	AND (sqlc.narg('name') IS NULL OR name = sqlc.narg('name'))
 	AND (sqlc.narg('cursor') IS NULL OR name > sqlc.narg('cursor'))
 ORDER BY name
@@ -19,13 +20,16 @@ LIMIT sqlc.arg('limit');
 
 -- name: CountMeters :one
 SELECT COUNT(*)
-FROM meters;
+FROM meters
+WHERE workspace_id = sqlc.arg('workspace_id');
 
 -- name: CountUsageEventsForMeter :one
 SELECT COUNT(*)
 FROM usage_events
-WHERE meter_name = ?;
+WHERE workspace_id = sqlc.arg('workspace_id')
+	AND meter_name = sqlc.arg('meter_name');
 
 -- name: DeleteMeter :exec
 DELETE FROM meters
-WHERE id = ?;
+WHERE workspace_id = sqlc.arg('workspace_id')
+	AND id = sqlc.arg('id');

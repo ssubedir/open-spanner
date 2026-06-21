@@ -182,6 +182,82 @@ func TestAuthAPIContract(t *testing.T) {
 	}
 }
 
+func TestAuthenticatedWorkspaceIsolation(t *testing.T) {
+	router := newProtectedTestRouter()
+
+	userACookies := registerAndLogin(t, router, "tenant-a@example.com", "strong-password-a")
+	userBCookies := registerAndLogin(t, router, "tenant-b@example.com", "strong-password-b")
+
+	createMeterA := requestJSONWithCookies(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name":        "tenant_requests",
+		"description": "Tenant scoped requests",
+		"unit":        "request",
+		"aggregation": "sum",
+	}, userACookies)
+	if createMeterA.Code != http.StatusCreated {
+		t.Fatalf("create user A meter status = %d, want %d: %s", createMeterA.Code, http.StatusCreated, createMeterA.Body.String())
+	}
+	var meterA meterResponse
+	decodeJSON(t, createMeterA, &meterA)
+
+	createUsageA := requestJSONWithCookies(t, router, http.MethodPost, "/v1/usages", map[string]any{
+		"idempotency_key": "shared-idempotency-key",
+		"subject":         "org_a",
+		"meter":           "tenant_requests",
+		"quantity":        7,
+		"timestamp":       "2026-06-20T12:00:00Z",
+	}, userACookies)
+	if createUsageA.Code != http.StatusCreated {
+		t.Fatalf("create user A usage status = %d, want %d: %s", createUsageA.Code, http.StatusCreated, createUsageA.Body.String())
+	}
+
+	listMetersB := requestJSONWithCookies(t, router, http.MethodGet, "/v1/meters", nil, userBCookies)
+	if listMetersB.Code != http.StatusOK {
+		t.Fatalf("list user B meters status = %d, want %d: %s", listMetersB.Code, http.StatusOK, listMetersB.Body.String())
+	}
+	var metersB meterListResponse
+	decodeJSON(t, listMetersB, &metersB)
+	if len(metersB.Items) != 0 {
+		t.Fatalf("user B meters = %#v, want empty list", metersB.Items)
+	}
+
+	getMeterB := requestJSONWithCookies(t, router, http.MethodGet, "/v1/meters/"+meterA.ID, nil, userBCookies)
+	if getMeterB.Code != http.StatusNotFound {
+		t.Fatalf("get user A meter as user B status = %d, want %d: %s", getMeterB.Code, http.StatusNotFound, getMeterB.Body.String())
+	}
+
+	createMeterB := requestJSONWithCookies(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name":        "tenant_requests",
+		"description": "Same name in another workspace",
+		"unit":        "request",
+		"aggregation": "sum",
+	}, userBCookies)
+	if createMeterB.Code != http.StatusCreated {
+		t.Fatalf("create user B meter status = %d, want %d: %s", createMeterB.Code, http.StatusCreated, createMeterB.Body.String())
+	}
+
+	listUsageB := requestJSONWithCookies(t, router, http.MethodGet, "/v1/usages?subject=org_a&meter=tenant_requests&from=2026-06-20T00:00:00Z&to=2026-06-21T00:00:00Z&bucket_size=day", nil, userBCookies)
+	if listUsageB.Code != http.StatusOK {
+		t.Fatalf("list user B usage status = %d, want %d: %s", listUsageB.Code, http.StatusOK, listUsageB.Body.String())
+	}
+	var usageB []usageListItemResponse
+	decodeJSON(t, listUsageB, &usageB)
+	if len(usageB) != 0 {
+		t.Fatalf("user B usage = %#v, want empty list", usageB)
+	}
+
+	createUsageB := requestJSONWithCookies(t, router, http.MethodPost, "/v1/usages", map[string]any{
+		"idempotency_key": "shared-idempotency-key",
+		"subject":         "org_b",
+		"meter":           "tenant_requests",
+		"quantity":        3,
+		"timestamp":       "2026-06-20T12:00:00Z",
+	}, userBCookies)
+	if createUsageB.Code != http.StatusCreated {
+		t.Fatalf("create user B usage status = %d, want %d: %s", createUsageB.Code, http.StatusCreated, createUsageB.Body.String())
+	}
+}
+
 func TestMeterAPIContract(t *testing.T) {
 	router := newTestRouter()
 
@@ -2011,6 +2087,13 @@ func newTestRouter() http.Handler {
 	if err != nil {
 		panic(err)
 	}
+	if _, err := sqlite.NewAuthRepository(store).SaveWorkspace(context.Background(), appauth.Workspace{
+		ID:        appauth.DefaultWorkspaceID,
+		Name:      "Default",
+		CreatedAt: time.Now().UTC(),
+	}); err != nil {
+		panic(err)
+	}
 	meterRepo := sqlite.NewMeterRepository(store)
 	usageRepo := sqlite.NewUsageRepository(store)
 	authRepo := sqlite.NewAuthRepository(store)
@@ -2018,18 +2101,79 @@ func newTestRouter() http.Handler {
 	meterService := appmeter.NewService(meterRepo, usageRepo)
 	subjectService := appsubject.NewService(usageRepo)
 	usageService := appusage.NewService(meterRepo, usageRepo, store)
-	systemService := appsystem.NewService(meterRepo, usageRepo)
+	systemService := appsystem.NewService(sqlite.NewSystemRepository(store))
 
 	router := chi.NewRouter()
+	router.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := appauth.WithWorkspaceID(r.Context(), appauth.DefaultWorkspaceID)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	})
 	router.Route("/v1", func(r chi.Router) {
 		httpauth.NewHandler(authService).RegisterRoutes(r)
-		httpmeter.NewHandler(meterService).RegisterRoutes(r)
-		httpsubject.NewHandler(subjectService).RegisterRoutes(r)
-		httpusage.NewHandler(usageService).RegisterRoutes(r)
-		httpsystem.NewHandler(systemService).RegisterRoutes(r)
+		httpmeter.NewHandler(meterService).RegisterRoutes(r, nil)
+		httpsubject.NewHandler(subjectService).RegisterRoutes(r, nil)
+		httpusage.NewHandler(usageService, httpusage.HandlerOptions{}).RegisterRoutes(r, nil)
+		httpsystem.NewHandler(systemService).RegisterRoutes(r, nil)
 	})
 
 	return router
+}
+
+func newProtectedTestRouter() http.Handler {
+	store, err := sqlite.NewStore(context.Background(), ":memory:", config.DBPoolConfig{MaxOpenConns: 1})
+	if err != nil {
+		panic(err)
+	}
+	meterRepo := sqlite.NewMeterRepository(store)
+	usageRepo := sqlite.NewUsageRepository(store)
+	authRepo := sqlite.NewAuthRepository(store)
+	authService := appauth.NewService(authRepo)
+	authorizer, err := appauth.NewCasbinAuthorizer()
+	if err != nil {
+		panic(err)
+	}
+	meterService := appmeter.NewService(meterRepo, usageRepo)
+	subjectService := appsubject.NewService(usageRepo)
+	usageService := appusage.NewService(meterRepo, usageRepo, store)
+	systemService := appsystem.NewService(sqlite.NewSystemRepository(store))
+	authHandler := httpauth.NewHandler(authService)
+
+	router := chi.NewRouter()
+	router.Route("/v1", func(r chi.Router) {
+		authHandler.RegisterRoutes(r)
+		r.Group(func(protected chi.Router) {
+			protected.Use(authHandler.RequireAuth)
+			httpmeter.NewHandler(meterService).RegisterRoutes(protected, authorizer)
+			httpsubject.NewHandler(subjectService).RegisterRoutes(protected, authorizer)
+			httpusage.NewHandler(usageService, httpusage.HandlerOptions{}).RegisterRoutes(protected, authorizer)
+			httpsystem.NewHandler(systemService).RegisterRoutes(protected, authorizer)
+		})
+	})
+
+	return router
+}
+
+func registerAndLogin(t *testing.T, router http.Handler, email string, password string) []*http.Cookie {
+	t.Helper()
+
+	create := requestJSON(t, router, http.MethodPost, "/v1/auth/users", map[string]any{
+		"email":    email,
+		"password": password,
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create user %s status = %d, want %d: %s", email, create.Code, http.StatusCreated, create.Body.String())
+	}
+
+	login := requestJSON(t, router, http.MethodPost, "/v1/auth/sessions", map[string]any{
+		"email":    email,
+		"password": password,
+	})
+	if login.Code != http.StatusCreated {
+		t.Fatalf("login user %s status = %d, want %d: %s", email, login.Code, http.StatusCreated, login.Body.String())
+	}
+	return login.Result().Cookies()
 }
 
 func requestJSON(t *testing.T, handler http.Handler, method string, path string, body any) *httptest.ResponseRecorder {

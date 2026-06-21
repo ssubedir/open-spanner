@@ -115,6 +115,7 @@ type PruneMeterResult struct {
 
 type ExportJobResult struct {
 	ID           string
+	WorkspaceID  string
 	Kind         string
 	Status       string
 	Format       string
@@ -202,6 +203,7 @@ func ingestionResultFromDomain(run domainusage.IngestionRun) IngestionResult {
 func exportJobResultFromDomain(job domainusage.ExportJob) ExportJobResult {
 	return ExportJobResult{
 		ID:           job.ID(),
+		WorkspaceID:  job.WorkspaceID(),
 		Kind:         string(job.Kind()),
 		Status:       string(job.Status()),
 		Format:       string(job.Format()),

@@ -49,11 +49,17 @@ func (q *Queries) ClaimAlertEvaluationJob(ctx context.Context, arg ClaimAlertEva
 
 const deleteAlertDestination = `-- name: DeleteAlertDestination :execrows
 DELETE FROM alert_destinations
-WHERE id = ?
+WHERE workspace_id = ?1
+	AND id = ?2
 `
 
-func (q *Queries) DeleteAlertDestination(ctx context.Context, id string) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteAlertDestination, id)
+type DeleteAlertDestinationParams struct {
+	WorkspaceID string
+	ID          string
+}
+
+func (q *Queries) DeleteAlertDestination(ctx context.Context, arg DeleteAlertDestinationParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteAlertDestination, arg.WorkspaceID, arg.ID)
 	if err != nil {
 		return 0, err
 	}
@@ -75,11 +81,17 @@ func (q *Queries) DeleteAlertEvaluationJob(ctx context.Context, ruleID string) (
 
 const deleteAlertRule = `-- name: DeleteAlertRule :execrows
 DELETE FROM alert_rules
-WHERE id = ?
+WHERE workspace_id = ?1
+	AND id = ?2
 `
 
-func (q *Queries) DeleteAlertRule(ctx context.Context, id string) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteAlertRule, id)
+type DeleteAlertRuleParams struct {
+	WorkspaceID string
+	ID          string
+}
+
+func (q *Queries) DeleteAlertRule(ctx context.Context, arg DeleteAlertRuleParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteAlertRule, arg.WorkspaceID, arg.ID)
 	if err != nil {
 		return 0, err
 	}
@@ -143,18 +155,30 @@ const findAlertState = `-- name: FindAlertState :one
 SELECT rule_id, group_key, group_value, status, value, message, evaluated_at, updated_at
 FROM alert_states
 WHERE rule_id = ?1
-	AND group_key = ?2
-	AND group_value = ?3
+	AND EXISTS (
+		SELECT 1
+		FROM alert_rules
+		WHERE alert_rules.id = alert_states.rule_id
+			AND alert_rules.workspace_id = ?2
+	)
+	AND group_key = ?3
+	AND group_value = ?4
 `
 
 type FindAlertStateParams struct {
-	RuleID     string
-	GroupKey   string
-	GroupValue string
+	RuleID      string
+	WorkspaceID string
+	GroupKey    string
+	GroupValue  string
 }
 
 func (q *Queries) FindAlertState(ctx context.Context, arg FindAlertStateParams) (AlertState, error) {
-	row := q.db.QueryRowContext(ctx, findAlertState, arg.RuleID, arg.GroupKey, arg.GroupValue)
+	row := q.db.QueryRowContext(ctx, findAlertState,
+		arg.RuleID,
+		arg.WorkspaceID,
+		arg.GroupKey,
+		arg.GroupValue,
+	)
 	var i AlertState
 	err := row.Scan(
 		&i.RuleID,
@@ -169,25 +193,52 @@ func (q *Queries) FindAlertState(ctx context.Context, arg FindAlertStateParams) 
 	return i, err
 }
 
+const findWorkspaceIDForAlertRule = `-- name: FindWorkspaceIDForAlertRule :one
+SELECT workspace_id
+FROM alert_rules
+WHERE id = ?
+`
+
+func (q *Queries) FindWorkspaceIDForAlertRule(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRowContext(ctx, findWorkspaceIDForAlertRule, id)
+	var workspace_id string
+	err := row.Scan(&workspace_id)
+	return workspace_id, err
+}
+
 const listAlertDestinations = `-- name: ListAlertDestinations :many
 SELECT id, name, type, enabled, webhook_url, webhook_secret, created_at, updated_at
 FROM alert_destinations
-WHERE (CAST(?1 AS TEXT) IS NULL OR id = CAST(?1 AS TEXT))
-	AND (CAST(?2 AS TEXT) IS NULL OR type = CAST(?2 AS TEXT))
-	AND (CAST(?3 AS INTEGER) IS NULL OR enabled = CAST(?3 AS INTEGER))
+WHERE workspace_id = ?1
+	AND (CAST(?2 AS TEXT) IS NULL OR id = CAST(?2 AS TEXT))
+	AND (CAST(?3 AS TEXT) IS NULL OR type = CAST(?3 AS TEXT))
+	AND (CAST(?4 AS INTEGER) IS NULL OR enabled = CAST(?4 AS INTEGER))
 ORDER BY created_at DESC, id DESC
-LIMIT ?4
+LIMIT ?5
 `
 
 type ListAlertDestinationsParams struct {
-	ID      sql.NullString
-	Type    sql.NullString
-	Enabled sql.NullInt64
-	Limit   int64
+	WorkspaceID string
+	ID          sql.NullString
+	Type        sql.NullString
+	Enabled     sql.NullInt64
+	Limit       int64
 }
 
-func (q *Queries) ListAlertDestinations(ctx context.Context, arg ListAlertDestinationsParams) ([]AlertDestination, error) {
+type ListAlertDestinationsRow struct {
+	ID            string
+	Name          string
+	Type          string
+	Enabled       int64
+	WebhookUrl    string
+	WebhookSecret string
+	CreatedAt     string
+	UpdatedAt     string
+}
+
+func (q *Queries) ListAlertDestinations(ctx context.Context, arg ListAlertDestinationsParams) ([]ListAlertDestinationsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listAlertDestinations,
+		arg.WorkspaceID,
 		arg.ID,
 		arg.Type,
 		arg.Enabled,
@@ -197,9 +248,9 @@ func (q *Queries) ListAlertDestinations(ctx context.Context, arg ListAlertDestin
 		return nil, err
 	}
 	defer rows.Close()
-	items := []AlertDestination{}
+	items := []ListAlertDestinationsRow{}
 	for rows.Next() {
-		var i AlertDestination
+		var i ListAlertDestinationsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
@@ -250,15 +301,22 @@ LEFT JOIN alert_deliveries AS delivery
 		ORDER BY attempted_at DESC, id DESC
 		LIMIT 1
 	)
-WHERE (CAST(?1 AS TEXT) IS NULL OR alert_events.rule_id = CAST(?1 AS TEXT))
-	AND (CAST(?2 AS TEXT) IS NULL
-		OR (alert_events.created_at < CAST(?2 AS TEXT)
-			OR (alert_events.created_at = CAST(?2 AS TEXT) AND alert_events.id < CAST(?3 AS TEXT))))
+WHERE EXISTS (
+		SELECT 1
+		FROM alert_rules
+		WHERE alert_rules.id = alert_events.rule_id
+			AND alert_rules.workspace_id = ?1
+	)
+	AND (CAST(?2 AS TEXT) IS NULL OR alert_events.rule_id = CAST(?2 AS TEXT))
+	AND (CAST(?3 AS TEXT) IS NULL
+		OR (alert_events.created_at < CAST(?3 AS TEXT)
+			OR (alert_events.created_at = CAST(?3 AS TEXT) AND alert_events.id < CAST(?4 AS TEXT))))
 ORDER BY alert_events.created_at DESC, alert_events.id DESC
-LIMIT ?4
+LIMIT ?5
 `
 
 type ListAlertEventsParams struct {
+	WorkspaceID     string
 	RuleID          sql.NullString
 	CursorCreatedAt sql.NullString
 	CursorID        sql.NullString
@@ -286,6 +344,7 @@ type ListAlertEventsRow struct {
 
 func (q *Queries) ListAlertEvents(ctx context.Context, arg ListAlertEventsParams) ([]ListAlertEventsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listAlertEvents,
+		arg.WorkspaceID,
 		arg.RuleID,
 		arg.CursorCreatedAt,
 		arg.CursorID,
@@ -332,15 +391,17 @@ func (q *Queries) ListAlertEvents(ctx context.Context, arg ListAlertEventsParams
 const listAlertRules = `-- name: ListAlertRules :many
 SELECT id, name, meter_name, enabled, subject, metadata, window_seconds, comparator, threshold, evaluation_interval_seconds, group_by, destination_id, next_evaluate_at, created_at, updated_at
 FROM alert_rules
-WHERE (CAST(?1 AS TEXT) IS NULL OR id = CAST(?1 AS TEXT))
-	AND (CAST(?2 AS TEXT) IS NULL OR meter_name = CAST(?2 AS TEXT))
-	AND (CAST(?3 AS INTEGER) IS NULL OR enabled = CAST(?3 AS INTEGER))
-	AND (CAST(?4 AS TEXT) IS NULL OR destination_id = CAST(?4 AS TEXT))
+WHERE workspace_id = ?1
+	AND (CAST(?2 AS TEXT) IS NULL OR id = CAST(?2 AS TEXT))
+	AND (CAST(?3 AS TEXT) IS NULL OR meter_name = CAST(?3 AS TEXT))
+	AND (CAST(?4 AS INTEGER) IS NULL OR enabled = CAST(?4 AS INTEGER))
+	AND (CAST(?5 AS TEXT) IS NULL OR destination_id = CAST(?5 AS TEXT))
 ORDER BY created_at DESC, id DESC
-LIMIT ?5
+LIMIT ?6
 `
 
 type ListAlertRulesParams struct {
+	WorkspaceID   string
 	ID            sql.NullString
 	MeterName     sql.NullString
 	Enabled       sql.NullInt64
@@ -348,8 +409,27 @@ type ListAlertRulesParams struct {
 	Limit         int64
 }
 
-func (q *Queries) ListAlertRules(ctx context.Context, arg ListAlertRulesParams) ([]AlertRule, error) {
+type ListAlertRulesRow struct {
+	ID                        string
+	Name                      string
+	MeterName                 string
+	Enabled                   int64
+	Subject                   string
+	Metadata                  string
+	WindowSeconds             int64
+	Comparator                string
+	Threshold                 float64
+	EvaluationIntervalSeconds int64
+	GroupBy                   string
+	DestinationID             string
+	NextEvaluateAt            string
+	CreatedAt                 string
+	UpdatedAt                 string
+}
+
+func (q *Queries) ListAlertRules(ctx context.Context, arg ListAlertRulesParams) ([]ListAlertRulesRow, error) {
 	rows, err := q.db.QueryContext(ctx, listAlertRules,
+		arg.WorkspaceID,
 		arg.ID,
 		arg.MeterName,
 		arg.Enabled,
@@ -360,9 +440,9 @@ func (q *Queries) ListAlertRules(ctx context.Context, arg ListAlertRulesParams) 
 		return nil, err
 	}
 	defer rows.Close()
-	items := []AlertRule{}
+	items := []ListAlertRulesRow{}
 	for rows.Next() {
-		var i AlertRule
+		var i ListAlertRulesRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
@@ -397,6 +477,12 @@ const listAlertStates = `-- name: ListAlertStates :many
 SELECT rule_id, group_key, group_value, status, value, message, evaluated_at, updated_at
 FROM alert_states
 WHERE rule_id = ?1
+	AND EXISTS (
+		SELECT 1
+		FROM alert_rules
+		WHERE alert_rules.id = alert_states.rule_id
+			AND alert_rules.workspace_id = ?2
+	)
 ORDER BY
 	CASE status
 		WHEN 'alerting' THEN 0
@@ -407,16 +493,17 @@ ORDER BY
 	updated_at DESC,
 	group_key ASC,
 	group_value ASC
-LIMIT ?2
+LIMIT ?3
 `
 
 type ListAlertStatesParams struct {
-	RuleID string
-	Limit  int64
+	RuleID      string
+	WorkspaceID string
+	Limit       int64
 }
 
 func (q *Queries) ListAlertStates(ctx context.Context, arg ListAlertStatesParams) ([]AlertState, error) {
-	rows, err := q.db.QueryContext(ctx, listAlertStates, arg.RuleID, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, listAlertStates, arg.RuleID, arg.WorkspaceID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -502,8 +589,8 @@ func (q *Queries) SaveAlertDelivery(ctx context.Context, arg SaveAlertDeliveryPa
 }
 
 const saveAlertDestination = `-- name: SaveAlertDestination :exec
-INSERT INTO alert_destinations (id, name, type, enabled, webhook_url, webhook_secret, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO alert_destinations (id, workspace_id, name, type, enabled, webhook_url, webhook_secret, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	name = excluded.name,
 	type = excluded.type,
@@ -515,6 +602,7 @@ ON CONFLICT(id) DO UPDATE SET
 
 type SaveAlertDestinationParams struct {
 	ID            string
+	WorkspaceID   string
 	Name          string
 	Type          string
 	Enabled       int64
@@ -527,6 +615,7 @@ type SaveAlertDestinationParams struct {
 func (q *Queries) SaveAlertDestination(ctx context.Context, arg SaveAlertDestinationParams) error {
 	_, err := q.db.ExecContext(ctx, saveAlertDestination,
 		arg.ID,
+		arg.WorkspaceID,
 		arg.Name,
 		arg.Type,
 		arg.Enabled,
@@ -571,6 +660,7 @@ func (q *Queries) SaveAlertEvent(ctx context.Context, arg SaveAlertEventParams) 
 const saveAlertRule = `-- name: SaveAlertRule :exec
 INSERT INTO alert_rules (
 	id,
+	workspace_id,
 	name,
 	meter_name,
 	enabled,
@@ -586,7 +676,7 @@ INSERT INTO alert_rules (
 	created_at,
 	updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	name = excluded.name,
 	meter_name = excluded.meter_name,
@@ -605,6 +695,7 @@ ON CONFLICT(id) DO UPDATE SET
 
 type SaveAlertRuleParams struct {
 	ID                        string
+	WorkspaceID               string
 	Name                      string
 	MeterName                 string
 	Enabled                   int64
@@ -624,6 +715,7 @@ type SaveAlertRuleParams struct {
 func (q *Queries) SaveAlertRule(ctx context.Context, arg SaveAlertRuleParams) error {
 	_, err := q.db.ExecContext(ctx, saveAlertRule,
 		arg.ID,
+		arg.WorkspaceID,
 		arg.Name,
 		arg.MeterName,
 		arg.Enabled,

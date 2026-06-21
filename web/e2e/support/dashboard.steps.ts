@@ -20,6 +20,25 @@ export type UsageScenario = {
   to: string
 }
 
+export type ScopedAPIKeyScenario = {
+  allowedMeter: string
+  deniedMeter: string
+  key: string
+  name: string
+  subject: string
+}
+
+export type WorkspaceIsolationScenario = {
+  alertID: string
+  alertName: string
+  apiKeyID: string
+  apiKeyName: string
+  destinationName: string
+  exportID: string
+  meterName: string
+  subject: string
+}
+
 export type CSVDownload = {
   filename: string
   text: string
@@ -70,7 +89,10 @@ export const Given = {
 
   async anAPIKeyExists(page: Page): Promise<string> {
     const response = await page.request.post('/v1/auth/api-keys', {
-      data: { name: `e2e-export-${uniqueID()}` },
+      data: {
+        name: `e2e-export-${uniqueID()}`,
+        scopes: ['usage:read', 'exports:read', 'exports:write'],
+      },
     })
     expect(response.status()).toBe(201)
 
@@ -333,6 +355,199 @@ export const When = {
       return response.json() as Promise<ExportJobResponse>
     })
   },
+
+  async theUserCreatesAScopedUsageWriteAPIKey(page: Page, allowedMeter: string): Promise<ScopedAPIKeyScenario> {
+    const id = uniqueID()
+    const scenario = {
+      allowedMeter,
+      deniedMeter: `denied_api_requests_${id}`,
+      key: '',
+      name: `usage-writer-${id}`,
+      subject: `org_scoped_key_${id}`,
+    }
+
+    await page.goto('/api-keys')
+    await expect(page.getByRole('heading', { name: 'SDK access' })).toBeVisible()
+    await page.getByRole('button', { name: 'New key' }).click()
+    await expect(page.getByRole('dialog', { name: 'Create API Key' })).toBeVisible()
+
+    await page.locator('input[name="name"]').fill(scenario.name)
+    await setScope(page, 'usage:write', true)
+    await setScope(page, 'usage:read', false)
+    await setScope(page, 'meters:read', false)
+    await setScope(page, 'meters:write', false)
+    await page.locator('textarea[name="allowed_meters"]').fill(allowedMeter)
+    await page.getByRole('button', { name: 'Create key' }).click()
+
+    const secretPanel = page.locator('section[aria-label="Created API key"]')
+    await expect(secretPanel).toBeVisible()
+    await expect(secretPanel).toContainText(scenario.name)
+    const key = (await secretPanel.locator('code').textContent())?.trim()
+    expect(key).toBeTruthy()
+    scenario.key = key || ''
+
+    const table = page.locator('.api-key-table-card')
+    await expect(table).toContainText(scenario.name)
+    await expect(table).toContainText('Write usage')
+    await expect(table).toContainText(`meters: ${allowedMeter}`)
+
+    return scenario
+  },
+
+  async theScopedAPIKeyWritesAllowedUsage(page: Page, scenario: ScopedAPIKeyScenario) {
+    await withAPIKeyContext(page, scenario.key, async (api) => {
+      const response = await api.post('/v1/usages', {
+        data: {
+          idempotency_key: `scoped-key-allowed-${uniqueID()}`,
+          metadata: {
+            'region-name': 'us-east-1',
+            service: { tier: 'gold' },
+            status_code: '200',
+          },
+          meter: scenario.allowedMeter,
+          quantity: 1,
+          subject: scenario.subject,
+          timestamp: new Date().toISOString(),
+        },
+      })
+      expect(response.status()).toBe(201)
+    })
+  },
+
+  async theScopedAPIKeyAttemptsDeniedUsage(page: Page, scenario: ScopedAPIKeyScenario) {
+    await withAPIKeyContext(page, scenario.key, async (api) => {
+      const writeResponse = await api.post('/v1/usages', {
+        data: {
+          idempotency_key: `scoped-key-denied-${uniqueID()}`,
+          metadata: { endpoint: '/denied' },
+          meter: scenario.deniedMeter,
+          quantity: 1,
+          subject: scenario.subject,
+          timestamp: new Date().toISOString(),
+        },
+      })
+      expect(writeResponse.status()).toBe(403)
+
+      const readQuery = new URLSearchParams({
+        bucket_size: 'day',
+        from: new Date(Date.now() - 60 * 60_000).toISOString(),
+        limit: '100',
+        meter: scenario.allowedMeter,
+        to: new Date(Date.now() + 60 * 60_000).toISOString(),
+      })
+      const readResponse = await api.get(`/v1/usages?${readQuery.toString()}`)
+      expect(readResponse.status()).toBe(403)
+    })
+  },
+
+  async theSignedInUserCreatesWorkspaceOwnedResources(page: Page): Promise<WorkspaceIsolationScenario> {
+    const id = uniqueID()
+    const meterName = `workspace_meter_${id}`
+    const subject = `workspace_subject_${id}`
+    const apiKeyName = `workspace-sdk-${id}`
+    const destinationName = `Workspace webhook ${id}`
+    const alertName = `Workspace threshold ${id}`
+
+    const keyResponse = await page.request.post('/v1/auth/api-keys', {
+      data: {
+        name: apiKeyName,
+        scopes: ['usage:write', 'usage:read', 'meters:read'],
+      },
+    })
+    expect(keyResponse.status()).toBe(201)
+    const key = await keyResponse.json() as { id: string }
+
+    const meterResponse = await page.request.post('/v1/meters', {
+      data: {
+        aggregation: 'sum',
+        description: 'Workspace isolation meter',
+        dimensions: [
+          {
+            deprecated: false,
+            description: 'Endpoint path',
+            display_name: 'Endpoint',
+            name: 'endpoint',
+            required: true,
+            type: 'string',
+          },
+        ],
+        event_retention_days: 30,
+        name: meterName,
+        unit: 'request',
+      },
+    })
+    expect(meterResponse.status()).toBe(201)
+
+    const usageResponse = await page.request.post('/v1/usages', {
+      data: {
+        idempotency_key: `workspace-isolation-${id}`,
+        metadata: { endpoint: '/workspace-owner' },
+        meter: meterName,
+        quantity: 3,
+        subject,
+        timestamp: new Date().toISOString(),
+      },
+    })
+    expect(usageResponse.status()).toBe(201)
+
+    const destinationResponse = await page.request.post('/v1/alerts/destinations', {
+      data: {
+        enabled: true,
+        name: destinationName,
+        type: 'webhook',
+        webhook_url: 'https://example.com/open-spanner/workspace-isolation',
+      },
+    })
+    expect(destinationResponse.status()).toBe(201)
+    const destination = await destinationResponse.json() as { id: string }
+
+    const alertResponse = await page.request.post('/v1/alerts', {
+      data: {
+        comparator: 'gte',
+        destination_id: destination.id,
+        enabled: true,
+        evaluation_interval_seconds: 60,
+        meter: meterName,
+        name: alertName,
+        threshold: 1,
+        window_seconds: 3600,
+      },
+    })
+    expect(alertResponse.status()).toBe(201)
+    const alert = await alertResponse.json() as { id: string }
+
+    const exportResponse = await page.request.post('/v1/exports', {
+      data: {
+        format: 'csv',
+        kind: 'usage_buckets',
+        query: {
+          bucket_size: 'day',
+          from: new Date(Date.now() - 60 * 60_000).toISOString(),
+          limit: 100,
+          meter: meterName,
+          to: new Date(Date.now() + 60 * 60_000).toISOString(),
+        },
+      },
+    })
+    expect(exportResponse.status()).toBe(202)
+    const exportJob = await exportResponse.json() as { id: string }
+
+    return {
+      alertID: alert.id,
+      alertName,
+      apiKeyID: key.id,
+      apiKeyName,
+      destinationName,
+      exportID: exportJob.id,
+      meterName,
+      subject,
+    }
+  },
+
+  async theUserSignsOut(page: Page) {
+    await page.request.delete('/v1/auth/session')
+    await page.goto('/login')
+  },
 }
 
 export const Then = {
@@ -357,6 +572,7 @@ export const Then = {
     await expect(results).toContainText('service.tier')
     await expect(results).toContainText('gold')
     await expect(results).toContainText('12')
+    await Then.usageChartShowsCurrentBuckets(page)
   },
 
   async advancedQueryReturnsOnlyMatchingUsage(page: Page, meterName: string) {
@@ -369,6 +585,17 @@ export const Then = {
     await expect(results).toContainText('12')
     await expect(results).not.toContainText('silver')
     await expect(results).not.toContainText('eu-west-1')
+    await Then.usageChartShowsCurrentBuckets(page)
+  },
+
+  async usageChartShowsCurrentBuckets(page: Page) {
+    const chart = page.locator('.usage-chart-card')
+    await expect(chart).toContainText('Usage Over Time')
+    await expect(chart.getByLabel('Chart bucket')).toBeVisible()
+    await expect(chart.getByLabel('Chart type')).toBeVisible()
+    await expect(chart.getByLabel('Cumulative chart')).toBeVisible()
+    await expect(chart.locator('canvas')).toBeVisible()
+    await expect(chart).toContainText('12')
   },
 
   async advancedUsageBucketCSVIncludesMatchingUsage(download: CSVDownload, scenario: UsageScenario) {
@@ -549,6 +776,107 @@ export const Then = {
     expect(response.text).toContain(',12,')
     expect(response.text).not.toContain('silver')
   },
+
+  async scopedAPIKeyUsageWriteWasRecorded(page: Page, scenario: ScopedAPIKeyScenario) {
+    await page.goto('/usage')
+    await expect(page.getByRole('heading', { name: 'Usage buckets' })).toBeVisible()
+    await selectMeterFilter(page, scenario.allowedMeter)
+    await setUsageDateRange(page, {
+      from: toLocalDateTime(new Date(Date.now() - 60 * 60_000)),
+      meterName: scenario.allowedMeter,
+      primarySubject: scenario.subject,
+      timestamp: new Date().toISOString(),
+      to: toLocalDateTime(new Date(Date.now() + 60 * 60_000)),
+    })
+    await page.getByRole('button', { name: 'Run Query' }).click()
+
+    const results = page.locator('.usage-results-card')
+    await expect(results).toContainText(scenario.allowedMeter)
+    await expect(results).toContainText('1')
+
+    await page.getByRole('button', { name: 'View Events' }).click()
+    const events = page.locator('.usage-events-card')
+    await expect(events).toContainText(scenario.allowedMeter)
+    await expect(events).toContainText(scenario.subject)
+    await expect(events).toContainText('1')
+  },
+
+  async workspaceOwnedDataIsHiddenFromCurrentUser(page: Page, scenario: WorkspaceIsolationScenario) {
+    await page.goto('/meters')
+    await expect(page.getByRole('heading', { name: 'Meter definitions' })).toBeVisible()
+    await expect(page.locator('.meter-table-card')).not.toContainText(scenario.meterName)
+
+    await page.goto('/usage')
+    await expect(page.getByRole('heading', { name: 'Usage buckets' })).toBeVisible()
+    await expect(page.locator('body')).not.toContainText(scenario.meterName)
+    await expect(page.locator('body')).not.toContainText(scenario.subject)
+
+    await page.goto('/subjects')
+    await expect(page.getByRole('heading', { name: 'Subject activity' })).toBeVisible()
+    await expect(page.locator('.subject-list-card')).not.toContainText(scenario.subject)
+
+    await page.goto('/alerts')
+    await expect(page.getByRole('heading', { name: 'Threshold rules' })).toBeVisible()
+    await expect(page.locator('.alert-rules-card')).not.toContainText(scenario.alertName)
+    await expect(page.locator('.alert-destinations-card')).not.toContainText(scenario.destinationName)
+
+    await page.goto('/exports')
+    await expect(page.getByRole('heading', { name: 'Export jobs' })).toBeVisible()
+    await expect(page.locator('.usage-export-card')).not.toContainText(scenario.meterName)
+
+    await page.goto('/api-keys')
+    await expect(page.getByRole('heading', { name: 'SDK access' })).toBeVisible()
+    await expect(page.locator('.api-key-table-card')).not.toContainText(scenario.apiKeyName)
+
+    await page.goto('/overview')
+    await expect(page.getByRole('heading', { name: 'Metering operations' })).toBeVisible()
+    await expect(page.locator('.overview-grid')).not.toContainText(scenario.subject)
+  },
+
+  async workspaceOwnedAPIResourcesAreHiddenFromCurrentUser(page: Page, scenario: WorkspaceIsolationScenario) {
+    const [meters, apiKeys, alerts, destinations, subjects, events, exports] = await Promise.all([
+      page.request.get('/v1/meters'),
+      page.request.get('/v1/auth/api-keys'),
+      page.request.get('/v1/alerts'),
+      page.request.get('/v1/alerts/destinations'),
+      page.request.get('/v1/subjects?limit=50'),
+      page.request.get('/v1/usageevents?limit=50'),
+      page.request.get('/v1/exports?limit=50'),
+    ])
+
+    for (const response of [meters, apiKeys, alerts, destinations, subjects, events, exports]) {
+      expect(response.status()).toBe(200)
+    }
+
+    await expectListExcludes(meters, 'name', scenario.meterName)
+    await expectListExcludes(apiKeys, 'name', scenario.apiKeyName)
+    await expectListExcludes(alerts, 'name', scenario.alertName)
+    await expectListExcludes(destinations, 'name', scenario.destinationName)
+    await expectListExcludes(subjects, 'subject', scenario.subject)
+    await expectListExcludes(events, 'subject', scenario.subject)
+    await expectListExcludes(exports, 'id', scenario.exportID)
+
+    const usageQuery = new URLSearchParams({
+      bucket_size: 'day',
+      from: new Date(Date.now() - 60 * 60_000).toISOString(),
+      limit: '100',
+      meter: scenario.meterName,
+      to: new Date(Date.now() + 60 * 60_000).toISOString(),
+    })
+    const buckets = await page.request.get(`/v1/usages?${usageQuery.toString()}`)
+    if (buckets.status() === 200) {
+      expect(await buckets.json()).toEqual([])
+    } else {
+      expect(buckets.status()).toBe(404)
+    }
+
+    const alert = await page.request.get(`/v1/alerts/${scenario.alertID}`)
+    expect(alert.status()).toBe(404)
+    const exportJob = await page.request.get(`/v1/exports/${scenario.exportID}`)
+    expect(exportJob.status()).toBe(404)
+    const deleteKey = await page.request.delete(`/v1/auth/api-keys/${scenario.apiKeyID}`)
+    expect(deleteKey.status()).toBe(404)
+  },
 }
 
 async function fillDimension(
@@ -602,6 +930,15 @@ async function setRuleValue(row: ReturnType<Page['locator']>, value: string) {
   await valueControl.fill(value)
 }
 
+async function setScope(page: Page, scope: string, enabled: boolean) {
+  const checkbox = page.locator(`input[name="scopes"][value="${scope}"]`)
+  if (enabled) {
+    await checkbox.check()
+    return
+  }
+  await checkbox.uncheck()
+}
+
 async function queryRulePairs(page: Page) {
   return page.locator('.filter-builder .rule').evaluateAll((rows) => rows.map((row) => {
     const field = (row.querySelector('.rule-fields') as HTMLSelectElement | null)?.value || ''
@@ -644,6 +981,11 @@ async function waitForCompletedExportJob(api: APIRequestContext, id: string): Pr
   }).toBe('completed')
 
   return latest as ExportJobResponse
+}
+
+async function expectListExcludes(response: APIResponse, key: string, value: string) {
+  const payload = await response.json() as { items?: Array<Record<string, unknown>> }
+  expect((payload.items || []).some((item) => item[key] === value)).toBe(false)
 }
 
 async function withAPIKeyContext<T>(

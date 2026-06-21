@@ -11,7 +11,10 @@ type LoginRequest struct {
 }
 
 type CreateAPIKeyRequest struct {
-	Name string `json:"name"`
+	Name          string   `json:"name"`
+	Scopes        []string `json:"scopes,omitempty"`
+	AllowedMeters []string `json:"allowed_meters,omitempty"`
+	ExpiresAt     string   `json:"expires_at,omitempty"`
 }
 
 type UserResponse struct {
@@ -34,12 +37,26 @@ type SessionResponse struct {
 	User UserResponse `json:"user"`
 }
 
+type OAuthProviderResponse struct {
+	Enabled bool   `json:"enabled"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+}
+
+type OAuthProviderListResponse struct {
+	Items []OAuthProviderResponse `json:"items"`
+}
+
 type APIKeyResponse struct {
-	ID         string  `json:"id"`
-	Name       string  `json:"name"`
-	Prefix     string  `json:"prefix"`
-	CreatedAt  string  `json:"created_at"`
-	LastUsedAt *string `json:"last_used_at,omitempty"`
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	Prefix        string   `json:"prefix"`
+	Scopes        []string `json:"scopes"`
+	AllowedMeters []string `json:"allowed_meters"`
+	ExpiresAt     *string  `json:"expires_at,omitempty"`
+	RevokedAt     *string  `json:"revoked_at,omitempty"`
+	CreatedAt     string   `json:"created_at"`
+	LastUsedAt    *string  `json:"last_used_at,omitempty"`
 }
 
 type APIKeyCreateResponse struct {

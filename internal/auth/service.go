@@ -29,9 +29,14 @@ const (
 )
 
 type Repository interface {
+	SaveWorkspace(ctx context.Context, workspace Workspace) (Workspace, error)
+	SaveWorkspaceMembership(ctx context.Context, membership WorkspaceMembership) (WorkspaceMembership, error)
+	FindDefaultWorkspaceByUserID(ctx context.Context, userID string) (Workspace, error)
 	SaveUser(ctx context.Context, user User) (User, error)
 	FindUserByID(ctx context.Context, id string) (User, error)
 	FindUserByEmail(ctx context.Context, email string) (User, error)
+	SaveIdentity(ctx context.Context, identity Identity) (Identity, error)
+	FindIdentityByProviderSubject(ctx context.Context, provider string, subject string) (Identity, error)
 	SaveSession(ctx context.Context, session Session) (Session, error)
 	FindSessionByTokenHash(ctx context.Context, tokenHash string, kind string, now time.Time) (Session, error)
 	DeleteSessionByTokenHash(ctx context.Context, tokenHash string) error
@@ -49,23 +54,53 @@ type User struct {
 	CreatedAt    time.Time
 }
 
-type Session struct {
+type Workspace struct {
 	ID        string
-	UserID    string
-	TokenHash string
-	Kind      string
-	ExpiresAt time.Time
+	Name      string
 	CreatedAt time.Time
 }
 
+type WorkspaceMembership struct {
+	WorkspaceID string
+	UserID      string
+	Role        string
+	CreatedAt   time.Time
+}
+
+type Identity struct {
+	ID            string
+	UserID        string
+	Provider      string
+	Subject       string
+	Email         string
+	EmailVerified bool
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type Session struct {
+	ID          string
+	UserID      string
+	WorkspaceID string
+	TokenHash   string
+	Kind        string
+	ExpiresAt   time.Time
+	CreatedAt   time.Time
+}
+
 type APIKey struct {
-	ID         string
-	UserID     string
-	Name       string
-	TokenHash  string
-	Prefix     string
-	CreatedAt  time.Time
-	LastUsedAt *time.Time
+	ID            string
+	UserID        string
+	WorkspaceID   string
+	Name          string
+	TokenHash     string
+	Prefix        string
+	Scopes        []string
+	AllowedMeters []string
+	ExpiresAt     *time.Time
+	RevokedAt     *time.Time
+	CreatedAt     time.Time
+	LastUsedAt    *time.Time
 }
 
 type CreateUserCommand struct {
@@ -78,23 +113,39 @@ type LoginCommand struct {
 	Password string
 }
 
+type ExternalIdentityLoginCommand struct {
+	Provider      string
+	Subject       string
+	Email         string
+	EmailVerified bool
+}
+
 type CreateAPIKeyCommand struct {
-	UserID string
-	Name   string
+	UserID        string
+	Name          string
+	Scopes        []string
+	AllowedMeters []string
+	ExpiresAt     *time.Time
 }
 
 type UserResult struct {
-	ID        string
-	Email     string
-	CreatedAt time.Time
+	ID          string
+	Email       string
+	WorkspaceID string
+	CreatedAt   time.Time
 }
 
 type APIKeyResult struct {
-	ID         string
-	Name       string
-	Prefix     string
-	CreatedAt  time.Time
-	LastUsedAt *time.Time
+	ID            string
+	WorkspaceID   string
+	Name          string
+	Prefix        string
+	Scopes        []string
+	AllowedMeters []string
+	ExpiresAt     *time.Time
+	RevokedAt     *time.Time
+	CreatedAt     time.Time
+	LastUsedAt    *time.Time
 }
 
 type CreateAPIKeyResult struct {
@@ -162,7 +213,12 @@ func (s Service) CreateUser(ctx context.Context, cmd CreateUserCommand) (UserRes
 		return UserResult{}, err
 	}
 
-	return userResult(user), nil
+	workspace, err := s.ensureDefaultWorkspace(ctx, user)
+	if err != nil {
+		return UserResult{}, err
+	}
+
+	return userResult(user, workspace.ID), nil
 }
 
 func (s Service) CreateAPIKey(ctx context.Context, cmd CreateAPIKeyCommand) (CreateAPIKeyResult, error) {
@@ -170,9 +226,22 @@ func (s Service) CreateAPIKey(ctx context.Context, cmd CreateAPIKeyCommand) (Cre
 	if userID == "" {
 		return CreateAPIKeyResult{}, errors.Join(domain.ErrInvalidInput, errors.New("user id is required"))
 	}
+	workspaceID, err := RequireWorkspaceID(ctx)
+	if err != nil {
+		return CreateAPIKeyResult{}, err
+	}
 	name := strings.TrimSpace(cmd.Name)
 	if name == "" {
 		return CreateAPIKeyResult{}, errors.Join(domain.ErrInvalidInput, errors.New("name is required"))
+	}
+	scopes, err := normalizeAPIKeyScopes(cmd.Scopes)
+	if err != nil {
+		return CreateAPIKeyResult{}, err
+	}
+	allowedMeters := normalizeAllowedMeters(cmd.AllowedMeters)
+	expiresAt := cmd.ExpiresAt
+	if expiresAt != nil && !expiresAt.After(s.now().UTC()) {
+		return CreateAPIKeyResult{}, errors.Join(domain.ErrInvalidInput, errors.New("expires_at must be in the future"))
 	}
 
 	token, err := newSessionToken(apiKeyPrefix, s.tokenBytes)
@@ -181,12 +250,16 @@ func (s Service) CreateAPIKey(ctx context.Context, cmd CreateAPIKeyCommand) (Cre
 	}
 
 	key, err := s.repo.SaveAPIKey(ctx, APIKey{
-		ID:        uuid.NewString(),
-		UserID:    userID,
-		Name:      name,
-		TokenHash: HashToken(token),
-		Prefix:    tokenPrefix(token),
-		CreatedAt: s.now().UTC(),
+		ID:            uuid.NewString(),
+		UserID:        userID,
+		WorkspaceID:   workspaceID,
+		Name:          name,
+		TokenHash:     HashToken(token),
+		Prefix:        tokenPrefix(token),
+		Scopes:        scopes,
+		AllowedMeters: allowedMeters,
+		ExpiresAt:     expiresAt,
+		CreatedAt:     s.now().UTC(),
 	})
 	if err != nil {
 		return CreateAPIKeyResult{}, err
@@ -234,6 +307,77 @@ func (s Service) Login(ctx context.Context, cmd LoginCommand) (LoginResult, erro
 		return LoginResult{}, unauthorized()
 	}
 
+	return s.createLoginResult(ctx, user)
+}
+
+func (s Service) LoginWithExternalIdentity(ctx context.Context, cmd ExternalIdentityLoginCommand) (LoginResult, error) {
+	provider := strings.ToLower(strings.TrimSpace(cmd.Provider))
+	subject := strings.TrimSpace(cmd.Subject)
+	if provider == "" || subject == "" {
+		return LoginResult{}, unauthorized()
+	}
+
+	identity, err := s.repo.FindIdentityByProviderSubject(ctx, provider, subject)
+	if err == nil {
+		user, err := s.repo.FindUserByID(ctx, identity.UserID)
+		if err != nil {
+			if errors.Is(err, domain.ErrNotFound) {
+				return LoginResult{}, unauthorized()
+			}
+			return LoginResult{}, err
+		}
+		return s.createLoginResult(ctx, user)
+	}
+	if !errors.Is(err, domain.ErrNotFound) {
+		return LoginResult{}, err
+	}
+	if !cmd.EmailVerified {
+		return LoginResult{}, unauthorized()
+	}
+	email, err := normalizeEmail(cmd.Email)
+	if err != nil {
+		return LoginResult{}, unauthorized()
+	}
+
+	user, err := s.repo.FindUserByEmail(ctx, email)
+	if err != nil {
+		if !errors.Is(err, domain.ErrNotFound) {
+			return LoginResult{}, err
+		}
+		user, err = s.repo.SaveUser(ctx, User{
+			ID:           uuid.NewString(),
+			Email:        email,
+			PasswordHash: "",
+			CreatedAt:    s.now().UTC(),
+		})
+		if err != nil {
+			return LoginResult{}, err
+		}
+	}
+
+	now := s.now().UTC()
+	if _, err := s.repo.SaveIdentity(ctx, Identity{
+		ID:            uuid.NewString(),
+		UserID:        user.ID,
+		Provider:      provider,
+		Subject:       subject,
+		Email:         email,
+		EmailVerified: true,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}); err != nil {
+		return LoginResult{}, err
+	}
+
+	return s.createLoginResult(ctx, user)
+}
+
+func (s Service) createLoginResult(ctx context.Context, user User) (LoginResult, error) {
+	workspace, err := s.ensureDefaultWorkspace(ctx, user)
+	if err != nil {
+		return LoginResult{}, err
+	}
+
 	accessToken, err := newSessionToken(accessTokenPrefix, s.tokenBytes)
 	if err != nil {
 		return LoginResult{}, err
@@ -245,23 +389,25 @@ func (s Service) Login(ctx context.Context, cmd LoginCommand) (LoginResult, erro
 
 	now := s.now().UTC()
 	accessSession, err := s.repo.SaveSession(ctx, Session{
-		ID:        uuid.NewString(),
-		UserID:    user.ID,
-		TokenHash: HashToken(accessToken),
-		Kind:      TokenKindAccess,
-		CreatedAt: now,
-		ExpiresAt: now.Add(s.accessTokenTTL),
+		ID:          uuid.NewString(),
+		UserID:      user.ID,
+		WorkspaceID: workspace.ID,
+		TokenHash:   HashToken(accessToken),
+		Kind:        TokenKindAccess,
+		CreatedAt:   now,
+		ExpiresAt:   now.Add(s.accessTokenTTL),
 	})
 	if err != nil {
 		return LoginResult{}, err
 	}
 	refreshSession, err := s.repo.SaveSession(ctx, Session{
-		ID:        uuid.NewString(),
-		UserID:    user.ID,
-		TokenHash: HashToken(refreshToken),
-		Kind:      TokenKindRefresh,
-		CreatedAt: now,
-		ExpiresAt: now.Add(s.refreshTokenTTL),
+		ID:          uuid.NewString(),
+		UserID:      user.ID,
+		WorkspaceID: workspace.ID,
+		TokenHash:   HashToken(refreshToken),
+		Kind:        TokenKindRefresh,
+		CreatedAt:   now,
+		ExpiresAt:   now.Add(s.refreshTokenTTL),
 	})
 	if err != nil {
 		return LoginResult{}, err
@@ -273,7 +419,7 @@ func (s Service) Login(ctx context.Context, cmd LoginCommand) (LoginResult, erro
 		RefreshToken:     refreshToken,
 		RefreshExpiresAt: refreshSession.ExpiresAt,
 		TokenType:        "Bearer",
-		User:             userResult(user),
+		User:             userResult(user, workspace.ID),
 	}, nil
 }
 
@@ -282,33 +428,71 @@ func (s Service) AuthenticateSession(ctx context.Context, token string) (UserRes
 }
 
 func (s Service) AuthenticateAPIKey(ctx context.Context, token string) (UserResult, error) {
+	principal, err := s.AuthenticateAPIKeyPrincipal(ctx, token)
+	if err != nil {
+		return UserResult{}, err
+	}
+	return principal.User, nil
+}
+
+func (s Service) AuthenticateSessionPrincipal(ctx context.Context, token string) (Principal, error) {
+	user, err := s.AuthenticateSession(ctx, token)
+	if err != nil {
+		return Principal{}, err
+	}
+	return Principal{
+		Kind:        PrincipalKindSession,
+		ID:          user.ID,
+		User:        user,
+		WorkspaceID: user.WorkspaceID,
+	}, nil
+}
+
+func (s Service) AuthenticateAPIKeyPrincipal(ctx context.Context, token string) (Principal, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
-		return UserResult{}, unauthorized()
+		return Principal{}, unauthorized()
 	}
 
 	key, err := s.repo.FindAPIKeyByTokenHash(ctx, HashToken(token))
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
-			return UserResult{}, unauthorized()
+			return Principal{}, unauthorized()
 		}
-		return UserResult{}, err
+		return Principal{}, err
 	}
 
 	now := s.now().UTC()
+	if key.RevokedAt != nil {
+		return Principal{}, unauthorized()
+	}
+	if key.ExpiresAt != nil && !key.ExpiresAt.After(now) {
+		return Principal{}, unauthorized()
+	}
 	if err := s.repo.UpdateAPIKeyLastUsed(ctx, key.ID, now); err != nil {
-		return UserResult{}, err
+		return Principal{}, err
 	}
 
 	user, err := s.repo.FindUserByID(ctx, key.UserID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
-			return UserResult{}, unauthorized()
+			return Principal{}, unauthorized()
 		}
-		return UserResult{}, err
+		return Principal{}, err
 	}
 
-	return userResult(user), nil
+	result := userResult(user, key.WorkspaceID)
+	return Principal{
+		Kind:          PrincipalKindAPIKey,
+		ID:            key.ID,
+		User:          result,
+		WorkspaceID:   key.WorkspaceID,
+		APIKeyID:      key.ID,
+		Scopes:        append([]string(nil), key.Scopes...),
+		AllowedMeters: append([]string(nil), key.AllowedMeters...),
+		ExpiresAt:     key.ExpiresAt,
+		RevokedAt:     key.RevokedAt,
+	}, nil
 }
 
 func (s Service) RefreshSession(ctx context.Context, token string) (RefreshResult, error) {
@@ -332,23 +516,25 @@ func (s Service) RefreshSession(ctx context.Context, token string) (RefreshResul
 
 	now := s.now().UTC()
 	accessSession, err := s.repo.SaveSession(ctx, Session{
-		ID:        uuid.NewString(),
-		UserID:    user.ID,
-		TokenHash: HashToken(accessToken),
-		Kind:      TokenKindAccess,
-		CreatedAt: now,
-		ExpiresAt: now.Add(s.accessTokenTTL),
+		ID:          uuid.NewString(),
+		UserID:      user.ID,
+		WorkspaceID: user.WorkspaceID,
+		TokenHash:   HashToken(accessToken),
+		Kind:        TokenKindAccess,
+		CreatedAt:   now,
+		ExpiresAt:   now.Add(s.accessTokenTTL),
 	})
 	if err != nil {
 		return RefreshResult{}, err
 	}
 	refreshSession, err := s.repo.SaveSession(ctx, Session{
-		ID:        uuid.NewString(),
-		UserID:    user.ID,
-		TokenHash: HashToken(refreshToken),
-		Kind:      TokenKindRefresh,
-		CreatedAt: now,
-		ExpiresAt: now.Add(s.refreshTokenTTL),
+		ID:          uuid.NewString(),
+		UserID:      user.ID,
+		WorkspaceID: user.WorkspaceID,
+		TokenHash:   HashToken(refreshToken),
+		Kind:        TokenKindRefresh,
+		CreatedAt:   now,
+		ExpiresAt:   now.Add(s.refreshTokenTTL),
 	})
 	if err != nil {
 		return RefreshResult{}, err
@@ -386,7 +572,12 @@ func (s Service) authenticateToken(ctx context.Context, token string, kind strin
 		return UserResult{}, err
 	}
 
-	return userResult(user), nil
+	workspaceID := strings.TrimSpace(session.WorkspaceID)
+	if workspaceID == "" {
+		return UserResult{}, errors.Join(domain.ErrUnauthorized, errors.New("workspace is required"))
+	}
+
+	return userResult(user, workspaceID), nil
 }
 
 func (s Service) DeleteSession(ctx context.Context, token string) error {
@@ -460,20 +651,64 @@ func unauthorized() error {
 	return errors.Join(domain.ErrUnauthorized, errors.New("invalid credentials"))
 }
 
-func userResult(user User) UserResult {
+func (s Service) ensureDefaultWorkspace(ctx context.Context, user User) (Workspace, error) {
+	workspace, err := s.repo.FindDefaultWorkspaceByUserID(ctx, user.ID)
+	if err == nil {
+		return workspace, nil
+	}
+	if !errors.Is(err, domain.ErrNotFound) {
+		return Workspace{}, err
+	}
+
+	now := s.now().UTC()
+	workspace = Workspace{
+		ID:        uuid.NewString(),
+		Name:      defaultWorkspaceName(user.Email),
+		CreatedAt: now,
+	}
+	workspace, err = s.repo.SaveWorkspace(ctx, workspace)
+	if err != nil {
+		return Workspace{}, err
+	}
+	_, err = s.repo.SaveWorkspaceMembership(ctx, WorkspaceMembership{
+		WorkspaceID: workspace.ID,
+		UserID:      user.ID,
+		Role:        "owner",
+		CreatedAt:   now,
+	})
+	if err != nil {
+		return Workspace{}, err
+	}
+	return workspace, nil
+}
+
+func defaultWorkspaceName(email string) string {
+	if local, _, ok := strings.Cut(email, "@"); ok && strings.TrimSpace(local) != "" {
+		return local + "'s workspace"
+	}
+	return "Personal workspace"
+}
+
+func userResult(user User, workspaceID string) UserResult {
 	return UserResult{
-		ID:        user.ID,
-		Email:     user.Email,
-		CreatedAt: user.CreatedAt,
+		ID:          user.ID,
+		Email:       user.Email,
+		WorkspaceID: workspaceID,
+		CreatedAt:   user.CreatedAt,
 	}
 }
 
 func apiKeyResult(key APIKey) APIKeyResult {
 	return APIKeyResult{
-		ID:         key.ID,
-		Name:       key.Name,
-		Prefix:     key.Prefix,
-		CreatedAt:  key.CreatedAt,
-		LastUsedAt: key.LastUsedAt,
+		ID:            key.ID,
+		WorkspaceID:   key.WorkspaceID,
+		Name:          key.Name,
+		Prefix:        key.Prefix,
+		Scopes:        append([]string(nil), key.Scopes...),
+		AllowedMeters: append([]string(nil), key.AllowedMeters...),
+		ExpiresAt:     key.ExpiresAt,
+		RevokedAt:     key.RevokedAt,
+		CreatedAt:     key.CreatedAt,
+		LastUsedAt:    key.LastUsedAt,
 	}
 }
