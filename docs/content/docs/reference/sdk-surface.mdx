@@ -7,6 +7,7 @@ SDKs expose the application-facing subset of the REST API:
 
 - `GET /health`
 - `GET /ready`
+- `POST /v1/entitlements/check`
 - `GET /v1/meters`
 - `POST /v1/meters`
 - `GET /v1/meters/{id}`
@@ -14,18 +15,22 @@ SDKs expose the application-facing subset of the REST API:
 - `DELETE /v1/meters/{id}`
 - `POST /v1/usages`
 - `POST /v1/usages/bulk`
-- `GET /v1/usages/dimensions`
 - `GET /v1/usages/export`
+- `GET /v1/usages/dimensions`
+- `POST /v1/usages/breakdowns/search`
 - `POST /v1/usages/export`
 - `POST /v1/usages/search`
 
-The SDK export methods use the direct CSV export endpoints. Queued export jobs are REST-only so backend SDKs stay focused on meter definitions, ingestion, usage queries, and direct exports.
+The SDK entitlement method uses `POST /v1/entitlements/check` so backend services can ask whether a subject has remaining quota before allowing more usage.
+
+The SDK export methods use the direct CSV export endpoints. Queued export jobs and plan management are REST-only so backend SDKs stay focused on meter definitions, ingestion, usage queries, direct exports, and entitlement checks.
 
 These endpoints are intentionally excluded from SDKs:
 
 - Dashboard auth and sessions
 - User registration
 - API key creation and deletion
+- Plan creation, updates, deletion, and subject assignment
 - System stats
 - Subject admin views
 - Raw usage event admin views

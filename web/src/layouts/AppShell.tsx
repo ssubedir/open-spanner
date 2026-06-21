@@ -1,6 +1,6 @@
 import { Link, Outlet, useRouter } from '@tanstack/react-router'
 import { useSelector } from '@tanstack/react-store'
-import { BarChart3, BellRing, Boxes, FileArchive, Gauge, KeyRound, LayoutDashboard, LogOut, Users } from 'lucide-react'
+import { BarChart3, BellRing, Boxes, FileArchive, Gauge, KeyRound, LayoutDashboard, LogOut, PackageCheck, Users } from 'lucide-react'
 
 import { appStore, appStoreActions } from '../app-store'
 import { Button } from '../components/ui/button'
@@ -17,6 +17,7 @@ const navGroups = [
     items: [
       { description: 'Definitions', icon: Boxes, label: 'Meters', to: '/meters' },
       { description: 'Accounts and customers', icon: Users, label: 'Subjects', to: '/subjects' },
+      { description: 'Limits and quota', icon: PackageCheck, label: 'Plans', to: '/plans' },
       { description: 'Query and breakdowns', icon: BarChart3, label: 'Usage', to: '/usage' },
       { description: 'Threshold rules', icon: BellRing, label: 'Alerts', to: '/alerts' },
       { description: 'CSV job history', icon: FileArchive, label: 'Exports', to: '/exports' },

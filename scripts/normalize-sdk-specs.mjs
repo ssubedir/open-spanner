@@ -18,6 +18,8 @@ const schemaNames = new Map([
   ["internal_metering_adapters_http_auth.RefreshResponse", "AuthRefreshResponse"],
   ["internal_metering_adapters_http_auth.SessionResponse", "AuthSessionResponse"],
   ["internal_metering_adapters_http_auth.UserResponse", "AuthUser"],
+  ["internal_metering_adapters_http_entitlement.CheckRequest", "EntitlementCheckRequest"],
+  ["internal_metering_adapters_http_entitlement.CheckResponse", "EntitlementCheckResponse"],
   ["internal_metering_adapters_http_meter.CreateRequest", "MeterCreateRequest"],
   ["internal_metering_adapters_http_meter.DimensionRequest", "MeterDimensionRequest"],
   ["internal_metering_adapters_http_meter.DimensionResponse", "MeterDimension"],
@@ -58,6 +60,7 @@ const spec = JSON.parse(fs.readFileSync(inputPath, "utf8"));
 const sdkOperations = new Map([
   ["/health", new Set(["get"])],
   ["/ready", new Set(["get"])],
+  ["/v1/entitlements/check", new Set(["post"])],
   ["/v1/meters", new Set(["get", "post"])],
   ["/v1/meters/{id}", new Set(["delete", "get", "put"])],
   ["/v1/usages", new Set(["post"])],
@@ -136,6 +139,7 @@ function renameSchemaContainer(container) {
 renameSchemaContainer(spec.definitions);
 renameSchemaContainer(spec.components?.schemas);
 rewriteRefs(spec);
+delete spec.components?.requestBodies;
 pruneUnreferencedSchemas(spec);
 
 fs.writeFileSync(outputPath, `${JSON.stringify(spec, null, 2)}\n`);

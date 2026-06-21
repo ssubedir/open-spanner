@@ -1,5 +1,7 @@
 """Contains all the data models used in inputs/outputs"""
 
+from .entitlement_check_request import EntitlementCheckRequest
+from .entitlement_check_response import EntitlementCheckResponse
 from .error_body import ErrorBody
 from .error_response import ErrorResponse
 from .internal_metering_adapters_http_usage_filter_request import InternalMeteringAdaptersHttpUsageFilterRequest
@@ -25,6 +27,8 @@ from .usage_event import UsageEvent
 from .usage_event_metadata import UsageEventMetadata
 
 __all__ = (
+    "EntitlementCheckRequest",
+    "EntitlementCheckResponse",
     "ErrorBody",
     "ErrorResponse",
     "InternalMeteringAdaptersHttpUsageFilterRequest",

@@ -5,6 +5,7 @@
     "meters",
     "meter-dimensions",
     "usage",
+    "plans-entitlements",
     "alerts",
     "auth-model",
     "query-model",

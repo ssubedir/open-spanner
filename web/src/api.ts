@@ -99,6 +99,98 @@ export type MeterDimensionRequest = {
   deprecated: boolean
 }
 
+export type PlanLimit = {
+  id: string
+  meter: string
+  period: string
+  limit: number
+  warning_percent: number
+  created_at: string
+  updated_at: string
+}
+
+export type Plan = {
+  id: string
+  name: string
+  description: string
+  limits: PlanLimit[]
+  created_at: string
+  updated_at: string
+}
+
+export type PlanList = {
+  items: Plan[]
+}
+
+export type PlanLimitRequest = {
+  meter: string
+  period: string
+  limit: number
+  warning_percent?: number
+}
+
+export type PlanSaveRequest = {
+  name: string
+  description?: string
+  limits: PlanLimitRequest[]
+}
+
+export type PlanAssignment = {
+  subject: string
+  plan_id: string
+  plan_name: string
+  assigned_at: string
+  updated_at: string
+}
+
+export type PlanAssignmentList = {
+  items: PlanAssignment[]
+}
+
+export type PlanProgressItem = {
+  meter: string
+  period: string
+  state: string
+  current: number
+  limit: number
+  remaining: number
+  percent: number
+  warning_percent: number
+  from: string
+  to: string
+  unit: string
+  aggregation: string
+}
+
+export type SubjectPlanProgress = {
+  subject: string
+  plan: Plan
+  items: PlanProgressItem[]
+}
+
+export type EntitlementCheckRequest = {
+  subject: string
+  meter: string
+  quantity?: number
+}
+
+export type EntitlementCheckResult = {
+  allowed: boolean
+  state: string
+  subject: string
+  meter: string
+  quantity: number
+  current: number
+  limit: number
+  remaining: number
+  plan_id?: string
+  plan_name?: string
+  period?: string
+  from?: string
+  to?: string
+  message: string
+}
+
 export type UsageEvent = {
   id: string
   idempotency_key?: string
@@ -705,6 +797,58 @@ export async function updateMeter(id: string, input: MeterUpdateRequest) {
 export async function deleteMeter(id: string) {
   return request<void>(`/v1/meters/${encodeURIComponent(id)}`, {
     method: 'DELETE',
+  })
+}
+
+export async function listPlans(limit = 100) {
+  return request<PlanList>(`/v1/plans?limit=${limit}`)
+}
+
+export async function createPlan(input: PlanSaveRequest) {
+  return request<Plan>('/v1/plans', {
+    body: JSON.stringify(input),
+    method: 'POST',
+  })
+}
+
+export async function updatePlan(id: string, input: PlanSaveRequest) {
+  return request<Plan>(`/v1/plans/${encodeURIComponent(id)}`, {
+    body: JSON.stringify(input),
+    method: 'PUT',
+  })
+}
+
+export async function deletePlan(id: string) {
+  return request<void>(`/v1/plans/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function listPlanAssignments(limit = 100) {
+  return request<PlanAssignmentList>(`/v1/plans/assignments?limit=${limit}`)
+}
+
+export async function assignSubjectPlan(subject: string, planID: string) {
+  return request<PlanAssignment>(`/v1/plans/subjects/${encodeURIComponent(subject)}`, {
+    body: JSON.stringify({ plan_id: planID }),
+    method: 'PUT',
+  })
+}
+
+export async function deleteSubjectPlanAssignment(subject: string) {
+  return request<void>(`/v1/plans/subjects/${encodeURIComponent(subject)}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function getSubjectPlanProgress(subject: string) {
+  return request<SubjectPlanProgress>(`/v1/plans/subjects/${encodeURIComponent(subject)}/progress`)
+}
+
+export async function checkEntitlement(input: EntitlementCheckRequest) {
+  return request<EntitlementCheckResult>('/v1/entitlements/check', {
+    body: JSON.stringify(input),
+    method: 'POST',
   })
 }
 

@@ -623,6 +623,17 @@ svg {
   font-weight: 650;
 }
 
+.info-banner {
+  margin-bottom: 16px;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius);
+  padding: 11px 13px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 14px;
+  font-weight: 650;
+}
+
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1171,6 +1182,224 @@ svg {
 .api-key-prefix .mono {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.plans-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 420px);
+  grid-template-areas:
+    "plans side"
+    "assignments side";
+  align-items: start;
+  gap: 14px;
+  max-width: 1480px;
+}
+
+.plans-table-card,
+.plan-subject-panel-card,
+.plan-progress-result-card,
+.plan-assignment-table-card {
+  min-width: 0;
+}
+
+.plans-table-card {
+  grid-area: plans;
+}
+
+.plans-side-column {
+  grid-area: side;
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.plan-assignment-table-card {
+  grid-area: assignments;
+}
+
+.plans-table-card .table,
+.plan-assignment-table-card .table {
+  min-width: 680px;
+  font-size: 12.5px;
+}
+
+.plan-subject-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.plan-subject-actions .button {
+  width: 100%;
+  justify-content: center;
+}
+
+.stack-cell {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.stack-cell small {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-limit-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-width: 520px;
+}
+
+.plan-limit-chips .badge {
+  display: inline-flex;
+  gap: 5px;
+}
+
+.compact-form {
+  display: grid;
+  gap: 10px;
+}
+
+.compact-form label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.compact-form input,
+.compact-form select {
+  min-height: 38px;
+}
+
+.plan-progress-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 0;
+}
+
+.plan-progress-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.plan-progress-heading > div {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.plan-progress-heading strong {
+  color: var(--foreground);
+  font-size: 14px;
+}
+
+.plan-progress-heading small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.plan-progress-item {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  background: #f8fafc;
+}
+
+.plan-progress-item > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.quota-bar {
+  overflow: hidden;
+  height: 7px;
+  border-radius: 999px;
+  background: #e2e8f0;
+}
+
+.quota-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+}
+
+.plan-progress-item small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.modal-panel.plan-modal {
+  width: min(780px, 100%);
+  max-height: calc(100vh - 36px);
+  overflow: hidden;
+}
+
+.modal-panel.plan-small-modal {
+  width: min(480px, 100%);
+}
+
+.plan-modal-form {
+  max-height: calc(100vh - 128px);
+  overflow: auto;
+}
+
+.plan-single-column-form {
+  grid-template-columns: 1fr;
+}
+
+.plan-single-column-form label {
+  grid-column: auto;
+}
+
+.plan-limit-editor {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+}
+
+.plan-limit-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.plan-limit-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) 120px 120px 110px 36px;
+  gap: 8px;
+  align-items: end;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  background: #f8fafc;
+}
+
+.plan-limit-row label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.plan-limit-row input,
+.plan-limit-row select {
+  min-height: 36px;
 }
 
 .alert-destination-url {
@@ -3039,6 +3268,19 @@ select:disabled,
     grid-template-columns: 1fr;
   }
 
+  .plans-layout {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "plans"
+      "side"
+      "assignments";
+    max-width: none;
+  }
+
+  .plans-side-column {
+    grid-template-columns: 1fr;
+  }
+
   .query-summary {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -3066,6 +3308,15 @@ select:disabled,
   }
 
   .query-actions .button:last-child {
+    grid-column: auto;
+  }
+
+  .plan-limit-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) 36px;
+  }
+
+  .plan-limit-row label:nth-child(3),
+  .plan-limit-row label:nth-child(4) {
     grid-column: auto;
   }
 
@@ -3139,6 +3390,7 @@ select:disabled,
 
   .metric-grid,
   .exports-grid,
+  .plan-limit-row,
   .form-grid,
   .subject-snapshot,
   .saved-query-controls,
@@ -3181,6 +3433,11 @@ select:disabled,
   .meter-create-form .schema-row > .button {
     grid-column: 2;
     grid-row: auto;
+  }
+
+  .plan-limit-row > .button {
+    grid-column: 1 / -1;
+    width: 100%;
   }
 
   .filter-builder .ruleGroup-header,

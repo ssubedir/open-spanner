@@ -15,6 +15,7 @@ import { Route as DashboardRouteRouteImport } from './routes/_dashboard/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DashboardUsageRouteRouteImport } from './routes/_dashboard/usage/route'
 import { Route as DashboardSubjectsRouteRouteImport } from './routes/_dashboard/subjects/route'
+import { Route as DashboardPlansRouteRouteImport } from './routes/_dashboard/plans/route'
 import { Route as DashboardOverviewRouteRouteImport } from './routes/_dashboard/overview/route'
 import { Route as DashboardMetersRouteRouteImport } from './routes/_dashboard/meters/route'
 import { Route as DashboardExportsRouteRouteImport } from './routes/_dashboard/exports/route'
@@ -49,6 +50,11 @@ const DashboardUsageRouteRoute = DashboardUsageRouteRouteImport.update({
 const DashboardSubjectsRouteRoute = DashboardSubjectsRouteRouteImport.update({
   id: '/subjects',
   path: '/subjects',
+  getParentRoute: () => DashboardRouteRoute,
+} as any)
+const DashboardPlansRouteRoute = DashboardPlansRouteRouteImport.update({
+  id: '/plans',
+  path: '/plans',
   getParentRoute: () => DashboardRouteRoute,
 } as any)
 const DashboardOverviewRouteRoute = DashboardOverviewRouteRouteImport.update({
@@ -92,6 +98,7 @@ export interface FileRoutesByFullPath {
   '/exports': typeof DashboardExportsRouteRoute
   '/meters': typeof DashboardMetersRouteRoute
   '/overview': typeof DashboardOverviewRouteRoute
+  '/plans': typeof DashboardPlansRouteRoute
   '/subjects': typeof DashboardSubjectsRouteRoute
   '/usage': typeof DashboardUsageRouteRoute
   '/subjects/$subject': typeof DashboardSubjectsSubjectRoute
@@ -105,6 +112,7 @@ export interface FileRoutesByTo {
   '/exports': typeof DashboardExportsRouteRoute
   '/meters': typeof DashboardMetersRouteRoute
   '/overview': typeof DashboardOverviewRouteRoute
+  '/plans': typeof DashboardPlansRouteRoute
   '/subjects': typeof DashboardSubjectsRouteRoute
   '/usage': typeof DashboardUsageRouteRoute
   '/subjects/$subject': typeof DashboardSubjectsSubjectRoute
@@ -120,6 +128,7 @@ export interface FileRoutesById {
   '/_dashboard/exports': typeof DashboardExportsRouteRoute
   '/_dashboard/meters': typeof DashboardMetersRouteRoute
   '/_dashboard/overview': typeof DashboardOverviewRouteRoute
+  '/_dashboard/plans': typeof DashboardPlansRouteRoute
   '/_dashboard/subjects': typeof DashboardSubjectsRouteRoute
   '/_dashboard/usage': typeof DashboardUsageRouteRoute
   '/_dashboard/subjects_/$subject': typeof DashboardSubjectsSubjectRoute
@@ -135,6 +144,7 @@ export interface FileRouteTypes {
     | '/exports'
     | '/meters'
     | '/overview'
+    | '/plans'
     | '/subjects'
     | '/usage'
     | '/subjects/$subject'
@@ -148,6 +158,7 @@ export interface FileRouteTypes {
     | '/exports'
     | '/meters'
     | '/overview'
+    | '/plans'
     | '/subjects'
     | '/usage'
     | '/subjects/$subject'
@@ -162,6 +173,7 @@ export interface FileRouteTypes {
     | '/_dashboard/exports'
     | '/_dashboard/meters'
     | '/_dashboard/overview'
+    | '/_dashboard/plans'
     | '/_dashboard/subjects'
     | '/_dashboard/usage'
     | '/_dashboard/subjects_/$subject'
@@ -218,6 +230,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardSubjectsRouteRouteImport
       parentRoute: typeof DashboardRouteRoute
     }
+    '/_dashboard/plans': {
+      id: '/_dashboard/plans'
+      path: '/plans'
+      fullPath: '/plans'
+      preLoaderRoute: typeof DashboardPlansRouteRouteImport
+      parentRoute: typeof DashboardRouteRoute
+    }
     '/_dashboard/overview': {
       id: '/_dashboard/overview'
       path: '/overview'
@@ -269,6 +288,7 @@ interface DashboardRouteRouteChildren {
   DashboardExportsRouteRoute: typeof DashboardExportsRouteRoute
   DashboardMetersRouteRoute: typeof DashboardMetersRouteRoute
   DashboardOverviewRouteRoute: typeof DashboardOverviewRouteRoute
+  DashboardPlansRouteRoute: typeof DashboardPlansRouteRoute
   DashboardSubjectsRouteRoute: typeof DashboardSubjectsRouteRoute
   DashboardUsageRouteRoute: typeof DashboardUsageRouteRoute
   DashboardSubjectsSubjectRoute: typeof DashboardSubjectsSubjectRoute
@@ -280,6 +300,7 @@ const DashboardRouteRouteChildren: DashboardRouteRouteChildren = {
   DashboardExportsRouteRoute: DashboardExportsRouteRoute,
   DashboardMetersRouteRoute: DashboardMetersRouteRoute,
   DashboardOverviewRouteRoute: DashboardOverviewRouteRoute,
+  DashboardPlansRouteRoute: DashboardPlansRouteRoute,
   DashboardSubjectsRouteRoute: DashboardSubjectsRouteRoute,
   DashboardUsageRouteRoute: DashboardUsageRouteRoute,
   DashboardSubjectsSubjectRoute: DashboardSubjectsSubjectRoute,

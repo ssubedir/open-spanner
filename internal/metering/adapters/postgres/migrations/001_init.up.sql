@@ -93,6 +93,48 @@ CREATE TABLE meters (
 CREATE INDEX idx_meters_workspace_name
 	ON meters (workspace_id, name);
 
+CREATE TABLE plans (
+	id TEXT PRIMARY KEY,
+	workspace_id TEXT NOT NULL REFERENCES auth_workspaces(id) ON DELETE CASCADE,
+	name TEXT NOT NULL,
+	description TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	UNIQUE (workspace_id, name)
+);
+
+CREATE INDEX idx_plans_workspace_name
+	ON plans (workspace_id, name);
+
+CREATE TABLE plan_limits (
+	id TEXT PRIMARY KEY,
+	workspace_id TEXT NOT NULL REFERENCES auth_workspaces(id) ON DELETE CASCADE,
+	plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+	meter_name TEXT NOT NULL,
+	period TEXT NOT NULL,
+	limit_value DOUBLE PRECISION NOT NULL,
+	warning_percent DOUBLE PRECISION NOT NULL DEFAULT 80,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	UNIQUE (workspace_id, plan_id, meter_name, period),
+	FOREIGN KEY (workspace_id, meter_name) REFERENCES meters(workspace_id, name)
+);
+
+CREATE INDEX idx_plan_limits_workspace_plan
+	ON plan_limits (workspace_id, plan_id);
+
+CREATE TABLE plan_subject_assignments (
+	workspace_id TEXT NOT NULL REFERENCES auth_workspaces(id) ON DELETE CASCADE,
+	subject TEXT NOT NULL,
+	plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+	assigned_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	PRIMARY KEY (workspace_id, subject)
+);
+
+CREATE INDEX idx_plan_subject_assignments_workspace_plan
+	ON plan_subject_assignments (workspace_id, plan_id, subject);
+
 CREATE TABLE usage_events (
 	id TEXT PRIMARY KEY,
 	workspace_id TEXT NOT NULL REFERENCES auth_workspaces(id) ON DELETE CASCADE,

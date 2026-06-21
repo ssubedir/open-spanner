@@ -2,6 +2,7 @@
 #pragma warning disable CS0618
 using Microsoft.Kiota.Abstractions.Extensions;
 using Microsoft.Kiota.Abstractions;
+using OpenSpanner.V1.Entitlements;
 using OpenSpanner.V1.Meters;
 using OpenSpanner.V1.Usages;
 using System.Collections.Generic;
@@ -16,6 +17,11 @@ namespace OpenSpanner.V1
     [global::System.CodeDom.Compiler.GeneratedCode("Kiota", "1.0.0")]
     public partial class V1RequestBuilder : BaseRequestBuilder
     {
+        /// <summary>The entitlements property</summary>
+        public global::OpenSpanner.V1.Entitlements.EntitlementsRequestBuilder Entitlements
+        {
+            get => new global::OpenSpanner.V1.Entitlements.EntitlementsRequestBuilder(PathParameters, RequestAdapter);
+        }
         /// <summary>The meters property</summary>
         public global::OpenSpanner.V1.Meters.MetersRequestBuilder Meters
         {

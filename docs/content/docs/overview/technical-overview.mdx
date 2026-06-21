@@ -16,12 +16,12 @@ Queued work is handled by separate worker binaries:
 2. The HTTP or gRPC layer authenticates the key or dashboard cookie.
 3. The authorization layer checks scopes and meter restrictions.
 4. Metering handlers validate request shape and pass commands into the application layer.
-5. The domain layer applies meter, usage, query, alert, export, and retention rules.
+5. The domain layer applies meter, usage, plan, entitlement, alert, export, and retention rules.
 6. A storage adapter writes to or reads from SQLite or Postgres.
 
 ## Storage Model
 
-Meters are configuration records. Usage events are immutable facts with idempotency keys. Usage queries aggregate retained events at request time using SQL.
+Meters and plans are configuration records. Usage events are immutable facts with idempotency keys. Usage queries and entitlement checks aggregate retained events at request time using SQL.
 
 Postgres and SQLite share the same domain behavior but use database-specific SQL where it matters for performance.
 
@@ -29,6 +29,6 @@ Postgres and SQLite share the same domain behavior but use database-specific SQL
 
 - Dashboard routes use cookie sessions.
 - Service routes accept scoped API keys.
-- SDKs expose meters and usage operations.
+- SDKs expose meters, usage operations, direct exports, and entitlement checks.
 - gRPC stream ingestion accepts API keys from backend services.
 - Generated OpenAPI artifacts document the REST API for SDK and reference workflows.

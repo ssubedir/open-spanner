@@ -31,6 +31,8 @@ const (
 	ActionAlertsWrite  Action = "alerts:write"
 	ActionExportsRead  Action = "exports:read"
 	ActionExportsWrite Action = "exports:write"
+	ActionPlansRead    Action = "plans:read"
+	ActionPlansWrite   Action = "plans:write"
 	ActionSystemRead   Action = "system:read"
 )
 
@@ -39,6 +41,7 @@ const (
 	ResourceMeter  = "meter"
 	ResourceAlert  = "alert"
 	ResourceExport = "export"
+	ResourcePlan   = "plan"
 	ResourceSystem = "system"
 )
 
@@ -47,6 +50,7 @@ var DefaultAPIKeyScopes = []string{
 	string(ActionUsageRead),
 	string(ActionMetersRead),
 	string(ActionMetersWrite),
+	string(ActionPlansRead),
 }
 
 var allowedAPIKeyScopes = map[string]struct{}{
@@ -58,11 +62,14 @@ var allowedAPIKeyScopes = map[string]struct{}{
 	string(ActionAlertsWrite):  {},
 	string(ActionExportsRead):  {},
 	string(ActionExportsWrite): {},
+	string(ActionPlansRead):    {},
+	string(ActionPlansWrite):   {},
 	string(ActionSystemRead):   {},
 	"usage:*":                  {},
 	"meters:*":                 {},
 	"alerts:*":                 {},
 	"exports:*":                {},
+	"plans:*":                  {},
 	"system:*":                 {},
 	"*":                        {},
 }
@@ -128,6 +135,8 @@ m = (p.sub == "*" || p.sub == r.sub) && (p.obj == "*" || p.obj == r.obj) && (p.a
 		{string(PrincipalKindAPIKey), ResourceAlert, string(ActionAlertsWrite)},
 		{string(PrincipalKindAPIKey), ResourceExport, string(ActionExportsRead)},
 		{string(PrincipalKindAPIKey), ResourceExport, string(ActionExportsWrite)},
+		{string(PrincipalKindAPIKey), ResourcePlan, string(ActionPlansRead)},
+		{string(PrincipalKindAPIKey), ResourcePlan, string(ActionPlansWrite)},
 		{string(PrincipalKindAPIKey), ResourceSystem, string(ActionSystemRead)},
 	} {
 		if _, err := enforcer.AddPolicy(policy); err != nil {

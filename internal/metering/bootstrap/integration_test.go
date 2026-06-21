@@ -219,6 +219,27 @@ func TestIntegrationPostgresWorkspaceIsolation(t *testing.T) {
 	}, "postgres")
 }
 
+func TestIntegrationSQLitePlanEntitlementFlow(t *testing.T) {
+	runIntegrationPlanEntitlementFlow(t, config.Config{
+		DBDriver:   "sqlite",
+		SQLitePath: ":memory:",
+		DBPool:     config.DBPoolConfig{MaxOpenConns: 1},
+	}, "sqlite")
+}
+
+func TestIntegrationPostgresPlanEntitlementFlow(t *testing.T) {
+	dsn := os.Getenv("OPEN_SPANNER_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set OPEN_SPANNER_TEST_POSTGRES_DSN to run Postgres bootstrap integration tests")
+	}
+
+	runIntegrationPlanEntitlementFlow(t, config.Config{
+		DBDriver:    "postgres",
+		PostgresDSN: dsn,
+		DBPool:      config.DBPoolConfig{MaxOpenConns: 1},
+	}, "postgres")
+}
+
 func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace string) {
 	t.Helper()
 
@@ -675,6 +696,153 @@ func runIntegrationWorkspaceIsolationFlow(t *testing.T, cfg config.Config, names
 	if deleteOwnerKey.Code != http.StatusNotFound {
 		t.Fatalf("other workspace delete api key status = %d, want %d: %s", deleteOwnerKey.Code, http.StatusNotFound, deleteOwnerKey.Body.String())
 	}
+}
+
+func runIntegrationPlanEntitlementFlow(t *testing.T, cfg config.Config, namespace string) {
+	t.Helper()
+
+	if cfg.ExportStoragePath == "" {
+		cfg.ExportStoragePath = t.TempDir()
+	}
+
+	ctx := context.Background()
+	router := chi.NewRouter()
+	app, err := RegisterRoutes(ctx, router, cfg)
+	if err != nil {
+		t.Fatalf("register routes: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := app.Cleanup(); err != nil {
+			t.Fatalf("cleanup: %v", err)
+		}
+	})
+
+	suffix := namespace + "_plans_" + strconv.FormatInt(time.Now().UTC().UnixNano(), 36)
+	identity := createTestDashboardIdentity(t, router, "plans+"+suffix+"@example.com")
+	meterName := "quota_api_calls_" + suffix
+	subject := "quota_subject_" + suffix
+
+	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name":        meterName,
+		"description": "Plan entitlement quota meter",
+		"unit":        "call",
+		"aggregation": "sum",
+		"dimensions":  []any{},
+	}, identity.Headers, nil)
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create plan meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
+	}
+
+	planPayload := map[string]any{
+		"name":        "Pro " + suffix,
+		"description": "Plan entitlement integration test",
+		"limits": []map[string]any{
+			{
+				"meter":           meterName,
+				"period":          "month",
+				"limit":           10,
+				"warning_percent": 60,
+			},
+		},
+	}
+	createPlan := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/plans", planPayload, identity.Headers, nil)
+	if createPlan.Code != http.StatusCreated {
+		t.Fatalf("create plan status = %d, want %d: %s", createPlan.Code, http.StatusCreated, createPlan.Body.String())
+	}
+	var plan planTestResponse
+	decodeJSON(t, createPlan, &plan)
+	if plan.ID == "" || len(plan.Limits) != 1 || plan.Limits[0].Meter != meterName {
+		t.Fatalf("created plan = %#v, want one limit for %q", plan, meterName)
+	}
+
+	assign := requestJSONWithHeaders(t, router, http.MethodPut, "/v1/plans/subjects/"+url.PathEscape(subject), map[string]any{
+		"plan_id": plan.ID,
+	}, identity.Headers, nil)
+	if assign.Code != http.StatusOK {
+		t.Fatalf("assign plan status = %d, want %d: %s", assign.Code, http.StatusOK, assign.Body.String())
+	}
+	var assignment planAssignmentTestResponse
+	decodeJSON(t, assign, &assignment)
+	if assignment.Subject != subject || assignment.PlanID != plan.ID {
+		t.Fatalf("assignment = %#v, want subject %q on plan %q", assignment, subject, plan.ID)
+	}
+
+	createSDKKey := requestJSON(t, router, http.MethodPost, "/v1/auth/api-keys", map[string]any{
+		"name": "entitlement-sdk-" + suffix,
+	}, identity.Cookies)
+	if createSDKKey.Code != http.StatusCreated {
+		t.Fatalf("create entitlement sdk key status = %d, want %d: %s", createSDKKey.Code, http.StatusCreated, createSDKKey.Body.String())
+	}
+	var sdkKey apiKeyCreateTestResponse
+	decodeJSON(t, createSDKKey, &sdkKey)
+	sdkHeaders := map[string]string{"Authorization": "Bearer " + sdkKey.Key}
+
+	deniedPlanCreate := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/plans", map[string]any{
+		"name":   "Blocked " + suffix,
+		"limits": []map[string]any{{"meter": meterName, "period": "month", "limit": 1}},
+	}, sdkHeaders, nil)
+	if deniedPlanCreate.Code != http.StatusForbidden {
+		t.Fatalf("sdk plan create status = %d, want %d: %s", deniedPlanCreate.Code, http.StatusForbidden, deniedPlanCreate.Body.String())
+	}
+
+	createUsage := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages", map[string]any{
+		"idempotency_key": "plan-entitlement-" + suffix,
+		"subject":         subject,
+		"meter":           meterName,
+		"quantity":        7,
+		"timestamp":       time.Now().UTC().Format(time.RFC3339),
+		"metadata":        map[string]any{},
+	}, sdkHeaders, nil)
+	if createUsage.Code != http.StatusCreated {
+		t.Fatalf("create entitlement usage status = %d, want %d: %s", createUsage.Code, http.StatusCreated, createUsage.Body.String())
+	}
+
+	progressRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/plans/subjects/"+url.PathEscape(subject)+"/progress", nil, sdkHeaders, nil)
+	if progressRes.Code != http.StatusOK {
+		t.Fatalf("progress status = %d, want %d: %s", progressRes.Code, http.StatusOK, progressRes.Body.String())
+	}
+	var progress planProgressTestResponse
+	decodeJSON(t, progressRes, &progress)
+	if progress.Subject != subject || progress.Plan.ID != plan.ID || len(progress.Items) != 1 {
+		t.Fatalf("progress = %#v, want one item for subject %q plan %q", progress, subject, plan.ID)
+	}
+	assertFloatNear(t, progress.Items[0].Current, 7, "progress current")
+	assertFloatNear(t, progress.Items[0].Limit, 10, "progress limit")
+	assertFloatNear(t, progress.Items[0].Remaining, 3, "progress remaining")
+	if progress.Items[0].State != "warning" {
+		t.Fatalf("progress state = %q, want warning", progress.Items[0].State)
+	}
+
+	allowed := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/entitlements/check", map[string]any{
+		"subject":  subject,
+		"meter":    meterName,
+		"quantity": 2,
+	}, sdkHeaders, nil)
+	if allowed.Code != http.StatusOK {
+		t.Fatalf("allowed entitlement status = %d, want %d: %s", allowed.Code, http.StatusOK, allowed.Body.String())
+	}
+	var allowedCheck entitlementCheckTestResponse
+	decodeJSON(t, allowed, &allowedCheck)
+	if !allowedCheck.Allowed || allowedCheck.State != "warning" {
+		t.Fatalf("allowed check = %#v, want allowed warning", allowedCheck)
+	}
+	assertFloatNear(t, allowedCheck.Current, 7, "allowed current")
+	assertFloatNear(t, allowedCheck.Remaining, 1, "allowed remaining")
+
+	denied := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/entitlements/check", map[string]any{
+		"subject":  subject,
+		"meter":    meterName,
+		"quantity": 4,
+	}, sdkHeaders, nil)
+	if denied.Code != http.StatusOK {
+		t.Fatalf("denied entitlement status = %d, want %d: %s", denied.Code, http.StatusOK, denied.Body.String())
+	}
+	var deniedCheck entitlementCheckTestResponse
+	decodeJSON(t, denied, &deniedCheck)
+	if deniedCheck.Allowed || deniedCheck.State != "exceeded" {
+		t.Fatalf("denied check = %#v, want denied exceeded", deniedCheck)
+	}
+	assertFloatNear(t, deniedCheck.Remaining, 0, "denied remaining")
 }
 
 func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handler, authHeaders map[string]string, meterName string, suffix string) {
@@ -2237,6 +2405,8 @@ func fullAccessAPIKeyPayload(name string) map[string]any {
 			"alerts:read",
 			"exports:write",
 			"exports:read",
+			"plans:write",
+			"plans:read",
 			"system:read",
 		},
 	}
@@ -2436,6 +2606,59 @@ type usageExportJobResponse struct {
 
 type usageExportJobListTestResponse struct {
 	Items []usageExportJobResponse `json:"items"`
+}
+
+type planLimitTestResponse struct {
+	ID             string  `json:"id"`
+	Meter          string  `json:"meter"`
+	Period         string  `json:"period"`
+	Limit          float64 `json:"limit"`
+	WarningPercent float64 `json:"warning_percent"`
+}
+
+type planTestResponse struct {
+	ID          string                  `json:"id"`
+	Name        string                  `json:"name"`
+	Description string                  `json:"description"`
+	Limits      []planLimitTestResponse `json:"limits"`
+}
+
+type planAssignmentTestResponse struct {
+	Subject  string `json:"subject"`
+	PlanID   string `json:"plan_id"`
+	PlanName string `json:"plan_name"`
+}
+
+type planProgressItemTestResponse struct {
+	Meter          string  `json:"meter"`
+	Period         string  `json:"period"`
+	State          string  `json:"state"`
+	Current        float64 `json:"current"`
+	Limit          float64 `json:"limit"`
+	Remaining      float64 `json:"remaining"`
+	Percent        float64 `json:"percent"`
+	WarningPercent float64 `json:"warning_percent"`
+}
+
+type planProgressTestResponse struct {
+	Subject string                         `json:"subject"`
+	Plan    planTestResponse               `json:"plan"`
+	Items   []planProgressItemTestResponse `json:"items"`
+}
+
+type entitlementCheckTestResponse struct {
+	Allowed   bool    `json:"allowed"`
+	State     string  `json:"state"`
+	Subject   string  `json:"subject"`
+	Meter     string  `json:"meter"`
+	Quantity  float64 `json:"quantity"`
+	Current   float64 `json:"current"`
+	Limit     float64 `json:"limit"`
+	Remaining float64 `json:"remaining"`
+	PlanID    string  `json:"plan_id"`
+	PlanName  string  `json:"plan_name"`
+	Period    string  `json:"period"`
+	Message   string  `json:"message"`
 }
 
 type alertRuleResponse struct {

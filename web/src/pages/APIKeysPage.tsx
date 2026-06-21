@@ -19,10 +19,12 @@ const apiKeyScopes = [
   { value: 'alerts:write', label: 'Write alerts', group: 'Alerts', description: 'Manage alert rules and destinations.' },
   { value: 'exports:read', label: 'Read exports', group: 'Exports', description: 'List and download usage exports.' },
   { value: 'exports:write', label: 'Write exports', group: 'Exports', description: 'Queue, cancel, and retry export jobs.' },
+  { value: 'plans:read', label: 'Read plans', group: 'Plans', description: 'Check plan limits and remaining quota for backend decisions.' },
+  { value: 'plans:write', label: 'Write plans', group: 'Plans', description: 'Manage plans and subject assignments.' },
   { value: 'system:read', label: 'Read system', group: 'System', description: 'Read operational stats for the workspace.' },
 ]
 
-const defaultAPIKeyScopes = new Set(['usage:write', 'usage:read', 'meters:read', 'meters:write'])
+const defaultAPIKeyScopes = new Set(['usage:write', 'usage:read', 'meters:read', 'meters:write', 'plans:read'])
 const apiKeyScopeGroups = Array.from(new Set(apiKeyScopes.map((scope) => scope.group)))
 
 const apiKeyExpirationPresets = [

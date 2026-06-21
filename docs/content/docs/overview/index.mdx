@@ -10,6 +10,7 @@ Use it when your product needs answers like:
 - How many API requests did `org_123` make last month?
 - How many tokens were consumed by each model or region?
 - Which customers crossed a usage threshold?
+- Is a customer still within their plan quota?
 - What usage data should be exported into billing or analytics?
 
 ## Product Model
@@ -19,11 +20,12 @@ Open Spanner has three core ideas:
 - **Meters** define what can be measured.
 - **Usage events** record facts against a meter.
 - **Usage queries** aggregate those facts into time buckets.
+- **Plans** define quota limits and subject assignments.
 
-The dashboard helps people set up and inspect the system. API keys and SDKs connect trusted backend services that create meters, write usage, query buckets, and export data.
+The dashboard helps people set up and inspect the system. API keys and SDKs connect trusted backend services that create meters, write usage, query buckets, check entitlements, and export data.
 
 ## What It Is Not
 
-Open Spanner is not a payment processor, invoice generator, entitlement system, or customer identity provider. It gives those systems clean usage data to work with.
+Open Spanner is not a payment processor, invoice generator, tax engine, or customer identity provider. It gives those systems clean usage and quota data to work with.
 
 The main control-plane surface is HTTP plus generated SDK packages. gRPC is scoped to trusted backend usage ingestion.

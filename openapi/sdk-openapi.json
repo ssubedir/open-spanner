@@ -38,6 +38,68 @@
         }
       }
     },
+    "/v1/entitlements/check": {
+      "post": {
+        "tags": [
+          "plans"
+        ],
+        "summary": "Check entitlement quota",
+        "operationId": "checkEntitlement",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntitlementCheckRequest"
+              }
+            }
+          },
+          "description": "Entitlement check",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntitlementCheckResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/meters": {
       "get": {
         "tags": [
@@ -966,6 +1028,69 @@
             "type": "string"
           }
         }
+      },
+      "EntitlementCheckRequest": {
+        "type": "object",
+        "properties": {
+          "meter": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "number"
+          },
+          "subject": {
+            "type": "string"
+          }
+        },
+        "title": "EntitlementCheckRequest"
+      },
+      "EntitlementCheckResponse": {
+        "type": "object",
+        "properties": {
+          "allowed": {
+            "type": "boolean"
+          },
+          "current": {
+            "type": "number"
+          },
+          "from": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "message": {
+            "type": "string"
+          },
+          "meter": {
+            "type": "string"
+          },
+          "period": {
+            "type": "string"
+          },
+          "plan_id": {
+            "type": "string"
+          },
+          "plan_name": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "number"
+          },
+          "remaining": {
+            "type": "number"
+          },
+          "state": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "title": "EntitlementCheckResponse"
       },
       "MeterCreateRequest": {
         "type": "object",

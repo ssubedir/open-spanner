@@ -10,6 +10,7 @@ import {
   createAuthSession,
   createAuthUser,
   createMeter as createMeterRequest,
+  createPlan as createPlanRequest,
   createSavedUsageQuery,
   createUsageExportJob,
   deleteAlertRule,
@@ -17,12 +18,16 @@ import {
   deleteAPIKey as deleteAPIKeyRequest,
   deleteAuthSession,
   deleteMeter as deleteMeterRequest,
+  deletePlan as deletePlanRequest,
+  deleteSubjectPlanAssignment as deleteSubjectPlanAssignmentRequest,
   deleteSavedUsageQuery,
   downloadUsageExportJob,
   exportUsageBuckets,
   exportUsageEvents,
   evaluateAlertRule,
   getSystemStats,
+  getSubjectPlanProgress,
+  assignSubjectPlan as assignSubjectPlanRequest,
   listAlertEvents,
   listAlertDestinations,
   listAlertRules,
@@ -31,6 +36,8 @@ import {
   listMeterStats,
   listMeters,
   listOAuthProviders,
+  listPlanAssignments,
+  listPlans,
   listSavedUsageQueries,
   listSubjectEvents,
   listSubjects,
@@ -42,6 +49,7 @@ import {
   refreshAuthSession,
   rotateAlertDestinationSecret as rotateAlertDestinationSecretRequest,
   retryUsageExportJob,
+  updatePlan as updatePlanRequest,
   updateAlertDestination as updateAlertDestinationRequest,
   updateAlertRule,
   updateMeter as updateMeterRequest,
@@ -62,7 +70,11 @@ import {
   type MeterStats,
   type MeterUpdateRequest,
   type OAuthProvider,
+  type Plan,
+  type PlanAssignment,
+  type PlanSaveRequest,
   type SavedUsageQuery,
+  type SubjectPlanProgress,
   type UsageBucket,
   type UsageBucketExportQuery,
   type UsageBreakdown,
@@ -176,6 +188,21 @@ type AppState = {
     stats: Record<string, MeterStats>
     status: LoadState
   }
+  plans: {
+    assignments: PlanAssignment[]
+    assigning: boolean
+    creating: boolean
+    deleting: Plan | null
+    editing: Plan | null
+    error: string
+    items: Plan[]
+    meters: Meter[]
+    progress: SubjectPlanProgress | null
+    progressStatus: LoadState
+    progressSubject: string
+    saving: boolean
+    status: LoadState
+  }
   overview: {
     error: string
     ingestions: IngestionRun[]
@@ -234,7 +261,7 @@ type AppState = {
   }
 }
 
-type UserDataState = Pick<AppState, 'apiKeys' | 'alerts' | 'meters' | 'overview' | 'subjects' | 'usage'>
+type UserDataState = Pick<AppState, 'apiKeys' | 'alerts' | 'meters' | 'overview' | 'plans' | 'subjects' | 'usage'>
 
 let meterDimensionID = 0
 const domainSubjectField = 'subject'
@@ -291,6 +318,21 @@ export const appStore = createStore<AppState>({
     items: [],
     saving: false,
     stats: {},
+    status: 'idle',
+  },
+  plans: {
+    assignments: [],
+    assigning: false,
+    creating: false,
+    deleting: null,
+    editing: null,
+    error: '',
+    items: [],
+    meters: [],
+    progress: null,
+    progressStatus: 'idle',
+    progressSubject: '',
+    saving: false,
     status: 'idle',
   },
   overview: {
@@ -417,6 +459,21 @@ function initialUserDataState(): UserDataState {
       items: [],
       saving: false,
       stats: {},
+      status: 'idle',
+    },
+    plans: {
+      assignments: [],
+      assigning: false,
+      creating: false,
+      deleting: null,
+      editing: null,
+      error: '',
+      items: [],
+      meters: [],
+      progress: null,
+      progressStatus: 'idle',
+      progressSubject: '',
+      saving: false,
       status: 'idle',
     },
     overview: {
@@ -836,6 +893,134 @@ export const appStoreActions = {
         return
       }
       setMetersState({ error: errorMessage(err, 'Unable to load meters'), status: 'error' })
+    }
+  },
+  async loadPlans() {
+    const generation = currentUserDataGeneration()
+    setPlansState({ error: '', progressStatus: appStore.state.plans.progressStatus === 'idle' ? 'idle' : appStore.state.plans.progressStatus, status: 'loading' })
+    try {
+      const [plans, assignments, meters] = await Promise.all([
+        listPlans(),
+        listPlanAssignments(),
+        listMeters(),
+      ])
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setPlansState({
+        assignments: assignments.items,
+        items: plans.items,
+        meters: meters.items,
+        status: 'ready',
+      })
+    } catch (err) {
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setPlansState({ error: errorMessage(err, 'Unable to load plans'), status: 'error' })
+    }
+  },
+  async createPlan(input: PlanSaveRequest) {
+    setPlansState({ error: '', saving: true })
+    try {
+      await createPlanRequest(input)
+      await appStoreActions.loadPlans()
+      setPlansState({ creating: false })
+    } catch (err) {
+      setPlansState({ error: errorMessage(err, 'Unable to create plan') })
+      throw err
+    } finally {
+      setPlansState({ saving: false })
+    }
+  },
+  async updateEditingPlan(input: PlanSaveRequest) {
+    const editing = appStore.state.plans.editing
+    if (!editing) {
+      return
+    }
+    setPlansState({ error: '', saving: true })
+    try {
+      await updatePlanRequest(editing.id, input)
+      await appStoreActions.loadPlans()
+      setPlansState({ editing: null })
+    } catch (err) {
+      setPlansState({ error: errorMessage(err, 'Unable to update plan') })
+      throw err
+    } finally {
+      setPlansState({ saving: false })
+    }
+  },
+  async deleteSelectedPlan() {
+    const deleting = appStore.state.plans.deleting
+    if (!deleting) {
+      return
+    }
+    setPlansState({ error: '', saving: true })
+    try {
+      await deletePlanRequest(deleting.id)
+      setPlansState((state) => ({
+        deleting: null,
+        items: state.items.filter((plan) => plan.id !== deleting.id),
+      }))
+    } catch (err) {
+      setPlansState({ error: errorMessage(err, 'Unable to delete plan') })
+      throw err
+    } finally {
+      setPlansState({ saving: false })
+    }
+  },
+  async assignSubjectPlan(subject: string, planID: string) {
+    setPlansState({ assigning: true, error: '' })
+    try {
+      const assignment = await assignSubjectPlanRequest(subject, planID)
+      setPlansState((state) => ({
+        assignments: [assignment, ...state.assignments.filter((item) => item.subject !== assignment.subject)],
+      }))
+      if (appStore.state.plans.progressSubject === assignment.subject) {
+        await appStoreActions.loadSubjectPlanProgress(assignment.subject)
+      }
+    } catch (err) {
+      setPlansState({ error: errorMessage(err, 'Unable to assign plan') })
+      throw err
+    } finally {
+      setPlansState({ assigning: false })
+    }
+  },
+  async deleteSubjectPlanAssignment(subject: string) {
+    setPlansState({ assigning: true, error: '' })
+    try {
+      await deleteSubjectPlanAssignmentRequest(subject)
+      setPlansState((state) => ({
+        assignments: state.assignments.filter((item) => item.subject !== subject),
+        progress: state.progress?.subject === subject ? null : state.progress,
+        progressStatus: state.progress?.subject === subject ? 'idle' : state.progressStatus,
+      }))
+    } catch (err) {
+      setPlansState({ error: errorMessage(err, 'Unable to remove assignment') })
+      throw err
+    } finally {
+      setPlansState({ assigning: false })
+    }
+  },
+  async loadSubjectPlanProgress(subject = appStore.state.plans.progressSubject) {
+    const normalized = subject.trim()
+    if (!normalized) {
+      setPlansState({ progress: null, progressStatus: 'idle', progressSubject: '' })
+      return
+    }
+    const generation = currentUserDataGeneration()
+    setPlansState({ error: '', progressStatus: 'loading', progressSubject: normalized })
+    try {
+      const progress = await getSubjectPlanProgress(normalized)
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setPlansState({ progress, progressStatus: 'ready' })
+    } catch (err) {
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setPlansState({ error: errorMessage(err, 'Unable to load plan progress'), progress: null, progressStatus: 'error' })
     }
   },
   async loadOverview() {
@@ -1291,6 +1476,18 @@ export const appStoreActions = {
   },
   setMeterDeleting(deleting: Meter | null) {
     setMetersState({ deleting })
+  },
+  setPlanCreating(creating: boolean) {
+    setPlansState({ creating })
+  },
+  setPlanEditing(editing: Plan | null) {
+    setPlansState({ editing })
+  },
+  setPlanDeleting(deleting: Plan | null) {
+    setPlansState({ deleting })
+  },
+  setPlanProgressSubject(progressSubject: string) {
+    setPlansState({ progressSubject })
   },
   setAPIKeyCreating(creating: boolean) {
     setAPIKeysState({ creating })
@@ -1762,6 +1959,16 @@ function setMetersState(update: Partial<AppState['meters']> | ((state: AppState[
     meters: {
       ...state.meters,
       ...(typeof update === 'function' ? update(state.meters) : update),
+    },
+  }))
+}
+
+function setPlansState(update: Partial<AppState['plans']> | ((state: AppState['plans']) => Partial<AppState['plans']>)) {
+  appStore.setState((state) => ({
+    ...state,
+    plans: {
+      ...state.plans,
+      ...(typeof update === 'function' ? update(state.plans) : update),
     },
   }))
 }

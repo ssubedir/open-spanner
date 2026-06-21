@@ -7,18 +7,19 @@ Use it when you need to answer questions like:
 - How many API requests did a customer make this month?
 - Which model, region, or plan produced the most usage?
 - Did a customer cross a usage threshold?
+- Is a customer within their plan quota?
 - What usage should be exported into billing, finance, or analytics?
 - Can we replay or retry usage writes without double-counting?
 
-Open Spanner is not a payment processor, invoice generator, entitlement system, or customer identity provider. It gives those systems a clean usage record to work with.
+Open Spanner is not a payment processor, invoice generator, tax engine, or customer identity provider. It gives those systems a clean usage and quota record to work with.
 
 ## Product Surfaces
 
 | Surface | Use it for |
 | --- | --- |
-| Dashboard | Sign in, define meters, inspect usage, create API keys, manage exports, and view alert activity. |
-| REST API | Meter management, usage writes, usage queries, exports, and operational endpoints. |
-| Official SDKs | Typed backend clients for REST operations in Go, TypeScript, Python, and C#. |
+| Dashboard | Sign in, define meters, inspect usage, manage plans, create API keys, manage exports, and view alert activity. |
+| REST API | Meter management, usage writes, usage queries, entitlement checks, exports, and operational endpoints. |
+| Official SDKs | Typed backend clients for meters, usage, direct exports, and entitlement checks in Go, TypeScript, Python, and C#. |
 | gRPC streaming | High-throughput usage ingestion from trusted backend services. |
 | Workers | Queued CSV export processing and alert threshold evaluation. |
 | Storage | SQLite for local/single-node use, Postgres for production deployments. |
@@ -31,6 +32,7 @@ Read the hosted docs at [ssubedir.github.io/open-spanner/docs](https://ssubedir.
 - Idempotent single and bulk usage ingestion.
 - gRPC stream ingestion for backend service-to-service usage pipelines.
 - Bucketed usage queries with filters, breakdowns, dimensions, and pagination.
+- Plans, subject assignments, quota progress, and entitlement checks.
 - Direct CSV exports for focused requests and queued export jobs for larger files.
 - Alert rules that watch usage windows and deliver webhook notifications.
 - Dashboard auth with HttpOnly cookies and scoped API keys for service clients.

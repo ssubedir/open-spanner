@@ -24,6 +24,35 @@ export type InternalMeteringAdaptersHttpUsageSearchRequest = {
 };
 
 /**
+ * EntitlementCheckRequest
+ */
+export type EntitlementCheckRequest = {
+    meter?: string;
+    quantity?: number;
+    subject?: string;
+};
+
+/**
+ * EntitlementCheckResponse
+ */
+export type EntitlementCheckResponse = {
+    allowed?: boolean;
+    current?: number;
+    from?: string;
+    limit?: number;
+    message?: string;
+    meter?: string;
+    period?: string;
+    plan_id?: string;
+    plan_name?: string;
+    quantity?: number;
+    remaining?: number;
+    state?: string;
+    subject?: string;
+    to?: string;
+};
+
+/**
  * MeterCreateRequest
  */
 export type MeterCreateRequest = {
@@ -263,6 +292,42 @@ export type ReadinessCheckResponses = {
 };
 
 export type ReadinessCheckResponse = ReadinessCheckResponses[keyof ReadinessCheckResponses];
+
+export type CheckEntitlementData = {
+    /**
+     * Entitlement check
+     */
+    body: EntitlementCheckRequest;
+    path?: never;
+    query?: never;
+    url: '/v1/entitlements/check';
+};
+
+export type CheckEntitlementErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorResponse;
+};
+
+export type CheckEntitlementError = CheckEntitlementErrors[keyof CheckEntitlementErrors];
+
+export type CheckEntitlementResponses = {
+    /**
+     * OK
+     */
+    200: EntitlementCheckResponse;
+};
+
+export type CheckEntitlementResponse = CheckEntitlementResponses[keyof CheckEntitlementResponses];
 
 export type ListMetersData = {
     body?: never;

@@ -14,7 +14,7 @@ Run Open Spanner as separate processes against the same Postgres database:
 | API | Serves the dashboard, REST API, and gRPC usage ingestion. | Always |
 | Export worker | Claims queued export jobs and writes CSV artifacts. | Dashboard export jobs are enabled |
 | Alert worker | Evaluates alert rules and delivers webhooks. | Alerts are enabled |
-| Postgres | Stores users, sessions, API keys, meters, usage events, jobs, alerts, and query state. | Production deployments |
+| Postgres | Stores users, sessions, API keys, meters, plans, usage events, jobs, alerts, and query state. | Production deployments |
 
 SQLite is useful for demos and small single-node installs. Use Postgres when you need normal production operations such as backups, connection pooling, multiple API instances, multiple workers, or managed database observability.
 
@@ -116,7 +116,7 @@ Only put API keys in trusted backend services, workers, or server-side jobs. Do 
 
 ## Data Protection
 
-Back up Postgres. It is the system of record for meters, usage events, API keys, sessions, alert rules, alert state, and export job records.
+Back up Postgres. It is the system of record for meters, plans, subject assignments, usage events, API keys, sessions, alert rules, alert state, and export job records.
 
 Export CSV files are generated artifacts. If your finance or audit workflow treats generated files as evidence, back up the export storage path too. Otherwise, export files can be regenerated while the source usage events are still retained.
 
