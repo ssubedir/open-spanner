@@ -113,6 +113,9 @@ export type Plan = {
   id: string
   name: string
   description: string
+  version: number
+  parent_plan_id?: string
+  is_current: boolean
   limits: PlanLimit[]
   created_at: string
   updated_at: string
@@ -136,10 +139,14 @@ export type PlanSaveRequest = {
 }
 
 export type PlanAssignment = {
+  id: string
   subject: string
   plan_id: string
   plan_name: string
+  plan_version: number
+  active: boolean
   assigned_at: string
+  unassigned_at?: string
   updated_at: string
 }
 
@@ -867,8 +874,12 @@ export async function deletePlan(id: string) {
   })
 }
 
-export async function listPlanAssignments(limit = 100) {
-  return request<PlanAssignmentList>(`/v1/plans/assignments?limit=${limit}`)
+export async function listPlanAssignments(limit = 100, includeHistory = false) {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (includeHistory) {
+    params.set('include_history', 'true')
+  }
+  return request<PlanAssignmentList>(`/v1/plans/assignments?${params.toString()}`)
 }
 
 export async function assignSubjectPlan(subject: string, planID: string) {

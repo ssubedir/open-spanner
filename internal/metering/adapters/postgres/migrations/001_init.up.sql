@@ -98,13 +98,20 @@ CREATE TABLE plans (
 	workspace_id TEXT NOT NULL REFERENCES auth_workspaces(id) ON DELETE CASCADE,
 	name TEXT NOT NULL,
 	description TEXT NOT NULL DEFAULT '',
+	version INTEGER NOT NULL DEFAULT 1,
+	parent_plan_id TEXT REFERENCES plans(id) ON DELETE SET NULL,
+	is_current BOOLEAN NOT NULL DEFAULT TRUE,
 	created_at TEXT NOT NULL,
 	updated_at TEXT NOT NULL,
-	UNIQUE (workspace_id, name)
+	UNIQUE (workspace_id, name, version)
 );
 
 CREATE INDEX idx_plans_workspace_name
-	ON plans (workspace_id, name);
+	ON plans (workspace_id, name, is_current);
+
+CREATE UNIQUE INDEX idx_plans_workspace_current_name
+	ON plans (workspace_id, name)
+	WHERE is_current;
 
 CREATE TABLE plan_limits (
 	id TEXT PRIMARY KEY,
@@ -124,16 +131,22 @@ CREATE INDEX idx_plan_limits_workspace_plan
 	ON plan_limits (workspace_id, plan_id);
 
 CREATE TABLE plan_subject_assignments (
+	id TEXT PRIMARY KEY,
 	workspace_id TEXT NOT NULL REFERENCES auth_workspaces(id) ON DELETE CASCADE,
 	subject TEXT NOT NULL,
 	plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
 	assigned_at TEXT NOT NULL,
+	unassigned_at TEXT,
 	updated_at TEXT NOT NULL,
-	PRIMARY KEY (workspace_id, subject)
+	UNIQUE (workspace_id, subject, assigned_at)
 );
 
+CREATE UNIQUE INDEX idx_plan_subject_assignments_active_subject
+	ON plan_subject_assignments (workspace_id, subject)
+	WHERE unassigned_at IS NULL;
+
 CREATE INDEX idx_plan_subject_assignments_workspace_plan
-	ON plan_subject_assignments (workspace_id, plan_id, subject);
+	ON plan_subject_assignments (workspace_id, plan_id, subject, unassigned_at);
 
 CREATE TABLE entitlement_states (
 	workspace_id TEXT NOT NULL REFERENCES auth_workspaces(id) ON DELETE CASCADE,

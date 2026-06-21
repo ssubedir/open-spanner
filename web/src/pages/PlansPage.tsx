@@ -11,7 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
-import type { EntitlementEvent, EntitlementState, Meter, Plan, PlanLimit, PlanSaveRequest, SubjectPlanProgress } from '../api'
+import type { EntitlementEvent, EntitlementState, Meter, Plan, PlanAssignment, PlanLimit, PlanSaveRequest, SubjectPlanProgress } from '../api'
 import { formatDate, formatNumber } from '../lib/format'
 import { useInitialLoad } from '../lib/hooks'
 
@@ -34,6 +34,7 @@ export function PlansPage() {
   const {
     assigning,
     assignments,
+    assignmentHistory,
     creating,
     deleting,
     editing,
@@ -135,7 +136,10 @@ export function PlansPage() {
               headers={['Plan', 'Limits', 'Updated', 'Actions']}
               rows={items.map((plan) => [
                 <span className="grid min-w-[220px] gap-1">
-                  <strong>{plan.name}</strong>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <strong>{plan.name}</strong>
+                    <Badge variant="muted">v{plan.version}</Badge>
+                  </span>
                   {plan.description ? <small className="max-w-[360px] truncate text-xs text-muted">{plan.description}</small> : null}
                 </span>,
                 <LimitChips limits={plan.limits} />,
@@ -238,7 +242,10 @@ export function PlansPage() {
               headers={['Subject', 'Plan', 'Updated', 'Actions']}
               rows={assignments.map((assignment) => [
                 <span className="mono">{assignment.subject}</span>,
-                assignment.plan_name,
+                <span className="flex items-center gap-2">
+                  {assignment.plan_name}
+                  <Badge variant="muted">v{assignment.plan_version}</Badge>
+                </span>,
                 formatDate(assignment.updated_at),
                 <span className="table-actions">
                   <Button
@@ -264,6 +271,18 @@ export function PlansPage() {
                 </span>,
               ])}
             />
+          </CardContent>
+        </Card>
+
+        <Card className="min-w-0">
+          <CardHeader className="!px-4 !py-3">
+            <div>
+              <CardTitle>Assignment History</CardTitle>
+              <CardDescription>Plan versions assigned to subjects over time.</CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <AssignmentHistoryTable assignments={assignmentHistory} />
           </CardContent>
         </Card>
       </div>
@@ -292,7 +311,7 @@ export function PlansPage() {
                   <SelectValue placeholder="Select plan" />
                 </SelectTrigger>
                 <SelectContent position="popper">
-                  {items.map((plan) => <SelectItem key={plan.id} value={plan.id}>{plan.name}</SelectItem>)}
+                  {items.map((plan) => <SelectItem key={plan.id} value={plan.id}>{plan.name} v{plan.version}</SelectItem>)}
                 </SelectContent>
               </Select>
             </Label>
@@ -526,6 +545,25 @@ function EntitlementStateTable({ states }: { states: EntitlementState[] }) {
         <span>{formatNumber(state.current)} / {formatNumber(state.limit)}</span>,
         <StateBadge state={state.state} />,
         formatDate(state.updated_at),
+      ])}
+    />
+  )
+}
+
+function AssignmentHistoryTable({ assignments }: { assignments: PlanAssignment[] }) {
+  return (
+    <DataTable
+      emptyLabel="No assignment history yet"
+      headers={['Subject', 'Plan', 'Status', 'Assigned', 'Ended']}
+      rows={assignments.map((assignment) => [
+        <span className="mono">{assignment.subject}</span>,
+        <span className="flex items-center gap-2">
+          {assignment.plan_name}
+          <Badge variant="muted">v{assignment.plan_version}</Badge>
+        </span>,
+        assignment.active ? <Badge variant="success">Active</Badge> : <Badge variant="muted">Ended</Badge>,
+        formatDate(assignment.assigned_at),
+        assignment.unassigned_at ? formatDate(assignment.unassigned_at) : <span className="muted">-</span>,
       ])}
     />
   )

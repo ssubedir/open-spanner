@@ -404,13 +404,21 @@ definitions:
     type: object
   internal_metering_adapters_http_entitlement.AssignmentResponse:
     properties:
+      active:
+        type: boolean
       assigned_at:
+        type: string
+      id:
         type: string
       plan_id:
         type: string
       plan_name:
         type: string
+      plan_version:
+        type: integer
       subject:
+        type: string
+      unassigned_at:
         type: string
       updated_at:
         type: string
@@ -540,14 +548,20 @@ definitions:
         type: string
       id:
         type: string
+      is_current:
+        type: boolean
       limits:
         items:
           $ref: '#/definitions/internal_metering_adapters_http_entitlement.LimitResponse'
         type: array
       name:
         type: string
+      parent_plan_id:
+        type: string
       updated_at:
         type: string
+      version:
+        type: integer
     type: object
   internal_metering_adapters_http_entitlement.PlanSaveRequest:
     properties:
@@ -2444,6 +2458,10 @@ paths:
         in: query
         name: plan_id
         type: string
+      - description: Include ended assignments
+        in: query
+        name: include_history
+        type: boolean
       - description: Page size
         in: query
         name: limit

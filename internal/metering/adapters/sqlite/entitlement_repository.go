@@ -26,12 +26,15 @@ func (r *EntitlementRepository) SavePlan(ctx context.Context, plan appentitlemen
 		return appentitlement.Plan{}, err
 	}
 	err = queriesFor(ctx, r.queries).SavePlan(ctx, sqlitedb.SavePlanParams{
-		ID:          plan.ID,
-		WorkspaceID: workspaceID,
-		Name:        plan.Name,
-		Description: plan.Description,
-		CreatedAt:   formatTime(plan.CreatedAt),
-		UpdatedAt:   formatTime(plan.UpdatedAt),
+		ID:           plan.ID,
+		WorkspaceID:  workspaceID,
+		Name:         plan.Name,
+		Description:  plan.Description,
+		Version:      int64(plan.Version),
+		ParentPlanID: planStringValue(plan.ParentPlanID),
+		IsCurrent:    sqliteBool(plan.IsCurrent),
+		CreatedAt:    formatTime(plan.CreatedAt),
+		UpdatedAt:    formatTime(plan.UpdatedAt),
 	})
 	if err != nil {
 		if isUniqueConstraint(err) {
@@ -40,6 +43,25 @@ func (r *EntitlementRepository) SavePlan(ctx context.Context, plan appentitlemen
 		return appentitlement.Plan{}, err
 	}
 	return plan, nil
+}
+
+func (r *EntitlementRepository) RetirePlan(ctx context.Context, id string, updatedAt time.Time) error {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return err
+	}
+	rows, err := queriesFor(ctx, r.queries).RetirePlan(ctx, sqlitedb.RetirePlanParams{
+		UpdatedAt:   formatTime(updatedAt),
+		WorkspaceID: workspaceID,
+		ID:          id,
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }
 
 func (r *EntitlementRepository) FindPlans(ctx context.Context, query appentitlement.PlanQuery) ([]appentitlement.Plan, error) {
@@ -51,6 +73,7 @@ func (r *EntitlementRepository) FindPlans(ctx context.Context, query appentitlem
 		WorkspaceID: workspaceID,
 		ID:          planStringValue(query.ID),
 		Name:        planStringValue(query.Name),
+		CurrentOnly: sqliteBool(query.CurrentOnly),
 		Limit:       int64(query.Limit),
 	})
 	if err != nil {
@@ -160,7 +183,21 @@ func (r *EntitlementRepository) SaveSubjectAssignment(ctx context.Context, assig
 	if err != nil {
 		return appentitlement.SubjectAssignment{}, err
 	}
+	now := assignment.UpdatedAt
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	endAt := formatTime(now)
+	if _, err := queriesFor(ctx, r.queries).EndCurrentPlanSubjectAssignment(ctx, sqlitedb.EndCurrentPlanSubjectAssignmentParams{
+		UnassignedAt: sql.NullString{String: endAt, Valid: true},
+		UpdatedAt:    endAt,
+		WorkspaceID:  workspaceID,
+		Subject:      assignment.Subject,
+	}); err != nil {
+		return appentitlement.SubjectAssignment{}, err
+	}
 	err = queriesFor(ctx, r.queries).SavePlanSubjectAssignment(ctx, sqlitedb.SavePlanSubjectAssignmentParams{
+		ID:          assignment.ID,
 		WorkspaceID: workspaceID,
 		Subject:     assignment.Subject,
 		PlanID:      assignment.PlanID,
@@ -173,7 +210,7 @@ func (r *EntitlementRepository) SaveSubjectAssignment(ctx context.Context, assig
 		}
 		return appentitlement.SubjectAssignment{}, err
 	}
-	assignments, err := r.FindSubjectAssignments(ctx, appentitlement.AssignmentQuery{Subject: assignment.Subject, Limit: 1})
+	assignments, err := r.FindSubjectAssignments(ctx, appentitlement.AssignmentQuery{Subject: assignment.Subject, PlanID: assignment.PlanID, ActiveOnly: true, Limit: 1})
 	if err != nil {
 		return appentitlement.SubjectAssignment{}, err
 	}
@@ -192,6 +229,7 @@ func (r *EntitlementRepository) FindSubjectAssignments(ctx context.Context, quer
 		WorkspaceID: workspaceID,
 		Subject:     planStringValue(query.Subject),
 		PlanID:      planStringValue(query.PlanID),
+		ActiveOnly:  sqliteBool(query.ActiveOnly),
 		Limit:       int64(query.Limit),
 	})
 	if err != nil {
@@ -213,9 +251,12 @@ func (r *EntitlementRepository) DeleteSubjectAssignment(ctx context.Context, sub
 	if err != nil {
 		return err
 	}
+	now := formatTime(time.Now().UTC())
 	rows, err := queriesFor(ctx, r.queries).DeletePlanSubjectAssignment(ctx, sqlitedb.DeletePlanSubjectAssignmentParams{
-		WorkspaceID: workspaceID,
-		Subject:     subject,
+		UnassignedAt: sql.NullString{String: now, Valid: true},
+		UpdatedAt:    now,
+		WorkspaceID:  workspaceID,
+		Subject:      subject,
 	})
 	if err != nil {
 		return err
@@ -465,11 +506,14 @@ func sqlitePlan(row sqlitedb.ListPlansRow) (appentitlement.Plan, error) {
 		return appentitlement.Plan{}, err
 	}
 	return appentitlement.Plan{
-		ID:          row.ID,
-		Name:        row.Name,
-		Description: row.Description,
-		CreatedAt:   createdAt,
-		UpdatedAt:   updatedAt,
+		ID:           row.ID,
+		Name:         row.Name,
+		Description:  row.Description,
+		Version:      int(row.Version),
+		ParentPlanID: row.ParentPlanID.String,
+		IsCurrent:    row.IsCurrent != 0,
+		CreatedAt:    createdAt,
+		UpdatedAt:    updatedAt,
 	}, nil
 }
 
@@ -503,12 +547,19 @@ func sqlitePlanSubjectAssignment(row sqlitedb.ListPlanSubjectAssignmentsRow) (ap
 	if err != nil {
 		return appentitlement.SubjectAssignment{}, err
 	}
+	unassignedAt, err := parseNullableEntitlementTime(row.UnassignedAt)
+	if err != nil {
+		return appentitlement.SubjectAssignment{}, err
+	}
 	return appentitlement.SubjectAssignment{
-		Subject:    row.Subject,
-		PlanID:     row.PlanID,
-		PlanName:   row.PlanName,
-		AssignedAt: assignedAt,
-		UpdatedAt:  updatedAt,
+		ID:           row.ID,
+		Subject:      row.Subject,
+		PlanID:       row.PlanID,
+		PlanName:     row.PlanName,
+		PlanVersion:  int(row.PlanVersion),
+		AssignedAt:   assignedAt,
+		UnassignedAt: unassignedAt,
+		UpdatedAt:    updatedAt,
 	}, nil
 }
 
@@ -645,6 +696,13 @@ func entitlementTimeValue(value time.Time) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: formatTime(value), Valid: true}
+}
+
+func sqliteBool(value bool) int64 {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func parseEntitlementTime(value string) (time.Time, error) {

@@ -1,18 +1,30 @@
 -- name: SavePlan :exec
-INSERT INTO plans (id, workspace_id, name, description, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO plans (id, workspace_id, name, description, version, parent_plan_id, is_current, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 ON CONFLICT(id) DO UPDATE SET
 	name = excluded.name,
 	description = excluded.description,
+	version = excluded.version,
+	parent_plan_id = excluded.parent_plan_id,
+	is_current = excluded.is_current,
 	updated_at = excluded.updated_at;
 
+-- name: RetirePlan :execrows
+UPDATE plans
+SET is_current = FALSE,
+	updated_at = sqlc.arg('updated_at')
+WHERE workspace_id = sqlc.arg('workspace_id')::text
+	AND id = sqlc.arg('id')::text
+	AND is_current = TRUE;
+
 -- name: ListPlans :many
-SELECT id, name, description, created_at, updated_at
+SELECT id, name, description, version, parent_plan_id, is_current, created_at, updated_at
 FROM plans
 WHERE workspace_id = sqlc.arg('workspace_id')::text
 	AND (sqlc.narg('id')::text IS NULL OR id = sqlc.narg('id')::text)
 	AND (sqlc.narg('name')::text IS NULL OR name = sqlc.narg('name')::text)
-ORDER BY name
+	AND (NOT sqlc.arg('current_only')::boolean OR is_current = TRUE)
+ORDER BY name, version DESC
 LIMIT sqlc.arg('limit')::int;
 
 -- name: DeletePlan :execrows
@@ -49,26 +61,35 @@ WHERE workspace_id = sqlc.arg('workspace_id')::text
 	AND plan_id = sqlc.arg('plan_id')::text;
 
 -- name: SavePlanSubjectAssignment :exec
-INSERT INTO plan_subject_assignments (workspace_id, subject, plan_id, assigned_at, updated_at)
-VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT(workspace_id, subject) DO UPDATE SET
-	plan_id = excluded.plan_id,
-	updated_at = excluded.updated_at;
+INSERT INTO plan_subject_assignments (id, workspace_id, subject, plan_id, assigned_at, unassigned_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, NULL, $6);
+
+-- name: EndCurrentPlanSubjectAssignment :execrows
+UPDATE plan_subject_assignments
+SET unassigned_at = sqlc.arg('unassigned_at'),
+	updated_at = sqlc.arg('updated_at')
+WHERE workspace_id = sqlc.arg('workspace_id')::text
+	AND subject = sqlc.arg('subject')::text
+	AND unassigned_at IS NULL;
 
 -- name: ListPlanSubjectAssignments :many
-SELECT a.subject, a.plan_id, p.name AS plan_name, a.assigned_at, a.updated_at
+SELECT a.id, a.subject, a.plan_id, p.name AS plan_name, p.version AS plan_version, a.assigned_at, a.unassigned_at, a.updated_at
 FROM plan_subject_assignments a
 JOIN plans p ON p.workspace_id = a.workspace_id AND p.id = a.plan_id
 WHERE a.workspace_id = sqlc.arg('workspace_id')::text
 	AND (sqlc.narg('subject')::text IS NULL OR a.subject = sqlc.narg('subject')::text)
 	AND (sqlc.narg('plan_id')::text IS NULL OR a.plan_id = sqlc.narg('plan_id')::text)
-ORDER BY a.updated_at DESC, a.subject ASC
+	AND (NOT sqlc.arg('active_only')::boolean OR a.unassigned_at IS NULL)
+ORDER BY a.updated_at DESC, a.assigned_at DESC, a.subject ASC
 LIMIT sqlc.arg('limit')::int;
 
 -- name: DeletePlanSubjectAssignment :execrows
-DELETE FROM plan_subject_assignments
+UPDATE plan_subject_assignments
+SET unassigned_at = sqlc.arg('unassigned_at'),
+	updated_at = sqlc.arg('updated_at')
 WHERE workspace_id = sqlc.arg('workspace_id')::text
-	AND subject = sqlc.arg('subject')::text;
+	AND subject = sqlc.arg('subject')::text
+	AND unassigned_at IS NULL;
 
 -- name: GetEntitlementState :one
 SELECT workspace_id, subject, meter_name, plan_id, plan_name, period, state, current_value, limit_value, remaining_value, warning_percent, message, evaluated_at, updated_at

@@ -1885,6 +1885,12 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "boolean",
+                        "description": "Include ended assignments",
+                        "name": "include_history",
+                        "in": "query"
+                    },
+                    {
                         "type": "integer",
                         "description": "Page size",
                         "name": "limit",
@@ -3843,7 +3849,13 @@ const docTemplate = `{
         "internal_metering_adapters_http_entitlement.AssignmentResponse": {
             "type": "object",
             "properties": {
+                "active": {
+                    "type": "boolean"
+                },
                 "assigned_at": {
+                    "type": "string"
+                },
+                "id": {
                     "type": "string"
                 },
                 "plan_id": {
@@ -3852,7 +3864,13 @@ const docTemplate = `{
                 "plan_name": {
                     "type": "string"
                 },
+                "plan_version": {
+                    "type": "integer"
+                },
                 "subject": {
+                    "type": "string"
+                },
+                "unassigned_at": {
                     "type": "string"
                 },
                 "updated_at": {
@@ -4051,6 +4069,9 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
+                "is_current": {
+                    "type": "boolean"
+                },
                 "limits": {
                     "type": "array",
                     "items": {
@@ -4060,8 +4081,14 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "parent_plan_id": {
+                    "type": "string"
+                },
                 "updated_at": {
                     "type": "string"
+                },
+                "version": {
+                    "type": "integer"
                 }
             }
         },

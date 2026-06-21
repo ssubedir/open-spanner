@@ -2324,6 +2324,14 @@
                         }
                     },
                     {
+                        "description": "Include ended assignments",
+                        "name": "include_history",
+                        "in": "query",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
                         "description": "Page size",
                         "name": "limit",
                         "in": "query",
@@ -4644,7 +4652,13 @@
             "internal_metering_adapters_http_entitlement.AssignmentResponse": {
                 "type": "object",
                 "properties": {
+                    "active": {
+                        "type": "boolean"
+                    },
                     "assigned_at": {
+                        "type": "string"
+                    },
+                    "id": {
                         "type": "string"
                     },
                     "plan_id": {
@@ -4653,7 +4667,13 @@
                     "plan_name": {
                         "type": "string"
                     },
+                    "plan_version": {
+                        "type": "integer"
+                    },
                     "subject": {
+                        "type": "string"
+                    },
+                    "unassigned_at": {
                         "type": "string"
                     },
                     "updated_at": {
@@ -4852,6 +4872,9 @@
                     "id": {
                         "type": "string"
                     },
+                    "is_current": {
+                        "type": "boolean"
+                    },
                     "limits": {
                         "type": "array",
                         "items": {
@@ -4861,8 +4884,14 @@
                     "name": {
                         "type": "string"
                     },
+                    "parent_plan_id": {
+                        "type": "string"
+                    },
                     "updated_at": {
                         "type": "string"
+                    },
+                    "version": {
+                        "type": "integer"
                     }
                 }
             },

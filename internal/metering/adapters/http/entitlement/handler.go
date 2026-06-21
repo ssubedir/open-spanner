@@ -212,6 +212,7 @@ func (h *Handler) DeleteSubjectAssignment(w http.ResponseWriter, r *http.Request
 // @Produce json
 // @Param subject query string false "Subject"
 // @Param plan_id query string false "Plan ID"
+// @Param include_history query bool false "Include ended assignments"
 // @Param limit query int false "Page size"
 // @Success 200 {object} AssignmentListResponse
 // @Failure 400 {object} respond.ErrorResponse
@@ -223,10 +224,16 @@ func (h *Handler) ListSubjectAssignments(w http.ResponseWriter, r *http.Request)
 		respond.ValidationError(w, err)
 		return
 	}
+	includeHistory, err := request.ParseOptionalBool("include_history", r.URL.Query().Get("include_history"))
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
 	assignments, err := h.service.ListSubjectAssignments(r.Context(), appentitlement.AssignmentListQuery{
-		Subject: r.URL.Query().Get("subject"),
-		PlanID:  r.URL.Query().Get("plan_id"),
-		Limit:   limit,
+		Subject:        r.URL.Query().Get("subject"),
+		PlanID:         r.URL.Query().Get("plan_id"),
+		IncludeHistory: includeHistory,
+		Limit:          limit,
 	})
 	if err != nil {
 		respond.ServiceError(w, err)
@@ -392,12 +399,15 @@ func planResponse(result appentitlement.PlanResult) PlanResponse {
 		limits = append(limits, limitResponse(limit))
 	}
 	return PlanResponse{
-		ID:          result.Plan.ID,
-		Name:        result.Plan.Name,
-		Description: result.Plan.Description,
-		Limits:      limits,
-		CreatedAt:   formatTime(result.Plan.CreatedAt),
-		UpdatedAt:   formatTime(result.Plan.UpdatedAt),
+		ID:           result.Plan.ID,
+		Name:         result.Plan.Name,
+		Description:  result.Plan.Description,
+		Version:      result.Plan.Version,
+		ParentPlanID: result.Plan.ParentPlanID,
+		IsCurrent:    result.Plan.IsCurrent,
+		Limits:       limits,
+		CreatedAt:    formatTime(result.Plan.CreatedAt),
+		UpdatedAt:    formatTime(result.Plan.UpdatedAt),
 	}
 }
 
@@ -415,11 +425,15 @@ func limitResponse(limit appentitlement.PlanLimit) LimitResponse {
 
 func assignmentResponse(assignment appentitlement.SubjectAssignment) AssignmentResponse {
 	return AssignmentResponse{
-		Subject:    assignment.Subject,
-		PlanID:     assignment.PlanID,
-		PlanName:   assignment.PlanName,
-		AssignedAt: formatTime(assignment.AssignedAt),
-		UpdatedAt:  formatTime(assignment.UpdatedAt),
+		ID:           assignment.ID,
+		Subject:      assignment.Subject,
+		PlanID:       assignment.PlanID,
+		PlanName:     assignment.PlanName,
+		PlanVersion:  assignment.PlanVersion,
+		Active:       assignment.UnassignedAt.IsZero(),
+		AssignedAt:   formatTime(assignment.AssignedAt),
+		UnassignedAt: optionalTime(assignment.UnassignedAt),
+		UpdatedAt:    formatTime(assignment.UpdatedAt),
 	}
 }
 

@@ -125,18 +125,57 @@ func (q *Queries) DeletePlanLimits(ctx context.Context, arg DeletePlanLimitsPara
 }
 
 const deletePlanSubjectAssignment = `-- name: DeletePlanSubjectAssignment :execrows
-DELETE FROM plan_subject_assignments
-WHERE workspace_id = ?1
-	AND subject = ?2
+UPDATE plan_subject_assignments
+SET unassigned_at = ?1,
+	updated_at = ?2
+WHERE workspace_id = ?3
+	AND subject = ?4
+	AND unassigned_at IS NULL
 `
 
 type DeletePlanSubjectAssignmentParams struct {
-	WorkspaceID string
-	Subject     string
+	UnassignedAt sql.NullString
+	UpdatedAt    string
+	WorkspaceID  string
+	Subject      string
 }
 
 func (q *Queries) DeletePlanSubjectAssignment(ctx context.Context, arg DeletePlanSubjectAssignmentParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deletePlanSubjectAssignment, arg.WorkspaceID, arg.Subject)
+	result, err := q.db.ExecContext(ctx, deletePlanSubjectAssignment,
+		arg.UnassignedAt,
+		arg.UpdatedAt,
+		arg.WorkspaceID,
+		arg.Subject,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const endCurrentPlanSubjectAssignment = `-- name: EndCurrentPlanSubjectAssignment :execrows
+UPDATE plan_subject_assignments
+SET unassigned_at = ?1,
+	updated_at = ?2
+WHERE workspace_id = ?3
+	AND subject = ?4
+	AND unassigned_at IS NULL
+`
+
+type EndCurrentPlanSubjectAssignmentParams struct {
+	UnassignedAt sql.NullString
+	UpdatedAt    string
+	WorkspaceID  string
+	Subject      string
+}
+
+func (q *Queries) EndCurrentPlanSubjectAssignment(ctx context.Context, arg EndCurrentPlanSubjectAssignmentParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, endCurrentPlanSubjectAssignment,
+		arg.UnassignedAt,
+		arg.UpdatedAt,
+		arg.WorkspaceID,
+		arg.Subject,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -526,29 +565,34 @@ func (q *Queries) ListPlanLimits(ctx context.Context, arg ListPlanLimitsParams) 
 }
 
 const listPlanSubjectAssignments = `-- name: ListPlanSubjectAssignments :many
-SELECT a.subject, a.plan_id, p.name AS plan_name, a.assigned_at, a.updated_at
+SELECT a.id, a.subject, a.plan_id, p.name AS plan_name, p.version AS plan_version, a.assigned_at, a.unassigned_at, a.updated_at
 FROM plan_subject_assignments a
 JOIN plans p ON p.workspace_id = a.workspace_id AND p.id = a.plan_id
 WHERE a.workspace_id = ?1
 	AND (?2 IS NULL OR a.subject = ?2)
 	AND (?3 IS NULL OR a.plan_id = ?3)
-ORDER BY a.updated_at DESC, a.subject ASC
-LIMIT ?4
+	AND (?4 = 0 OR a.unassigned_at IS NULL)
+ORDER BY a.updated_at DESC, a.assigned_at DESC, a.subject ASC
+LIMIT ?5
 `
 
 type ListPlanSubjectAssignmentsParams struct {
 	WorkspaceID string
 	Subject     interface{}
 	PlanID      interface{}
+	ActiveOnly  interface{}
 	Limit       int64
 }
 
 type ListPlanSubjectAssignmentsRow struct {
-	Subject    string
-	PlanID     string
-	PlanName   string
-	AssignedAt string
-	UpdatedAt  string
+	ID           string
+	Subject      string
+	PlanID       string
+	PlanName     string
+	PlanVersion  int64
+	AssignedAt   string
+	UnassignedAt sql.NullString
+	UpdatedAt    string
 }
 
 func (q *Queries) ListPlanSubjectAssignments(ctx context.Context, arg ListPlanSubjectAssignmentsParams) ([]ListPlanSubjectAssignmentsRow, error) {
@@ -556,6 +600,7 @@ func (q *Queries) ListPlanSubjectAssignments(ctx context.Context, arg ListPlanSu
 		arg.WorkspaceID,
 		arg.Subject,
 		arg.PlanID,
+		arg.ActiveOnly,
 		arg.Limit,
 	)
 	if err != nil {
@@ -566,10 +611,13 @@ func (q *Queries) ListPlanSubjectAssignments(ctx context.Context, arg ListPlanSu
 	for rows.Next() {
 		var i ListPlanSubjectAssignmentsRow
 		if err := rows.Scan(
+			&i.ID,
 			&i.Subject,
 			&i.PlanID,
 			&i.PlanName,
+			&i.PlanVersion,
 			&i.AssignedAt,
+			&i.UnassignedAt,
 			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
@@ -586,28 +634,33 @@ func (q *Queries) ListPlanSubjectAssignments(ctx context.Context, arg ListPlanSu
 }
 
 const listPlans = `-- name: ListPlans :many
-SELECT id, name, description, created_at, updated_at
+SELECT id, name, description, version, parent_plan_id, is_current, created_at, updated_at
 FROM plans
 WHERE workspace_id = ?1
 	AND (?2 IS NULL OR id = ?2)
 	AND (?3 IS NULL OR name = ?3)
-ORDER BY name
-LIMIT ?4
+	AND (?4 = 0 OR is_current = 1)
+ORDER BY name, version DESC
+LIMIT ?5
 `
 
 type ListPlansParams struct {
 	WorkspaceID string
 	ID          interface{}
 	Name        interface{}
+	CurrentOnly interface{}
 	Limit       int64
 }
 
 type ListPlansRow struct {
-	ID          string
-	Name        string
-	Description string
-	CreatedAt   string
-	UpdatedAt   string
+	ID           string
+	Name         string
+	Description  string
+	Version      int64
+	ParentPlanID sql.NullString
+	IsCurrent    int64
+	CreatedAt    string
+	UpdatedAt    string
 }
 
 func (q *Queries) ListPlans(ctx context.Context, arg ListPlansParams) ([]ListPlansRow, error) {
@@ -615,6 +668,7 @@ func (q *Queries) ListPlans(ctx context.Context, arg ListPlansParams) ([]ListPla
 		arg.WorkspaceID,
 		arg.ID,
 		arg.Name,
+		arg.CurrentOnly,
 		arg.Limit,
 	)
 	if err != nil {
@@ -628,6 +682,9 @@ func (q *Queries) ListPlans(ctx context.Context, arg ListPlansParams) ([]ListPla
 			&i.ID,
 			&i.Name,
 			&i.Description,
+			&i.Version,
+			&i.ParentPlanID,
+			&i.IsCurrent,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -670,6 +727,29 @@ func (q *Queries) RequeueEntitlementCheckJob(ctx context.Context, arg RequeueEnt
 		arg.Subject,
 		arg.MeterName,
 	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const retirePlan = `-- name: RetirePlan :execrows
+UPDATE plans
+SET is_current = 0,
+	updated_at = ?1
+WHERE workspace_id = ?2
+	AND id = ?3
+	AND is_current = 1
+`
+
+type RetirePlanParams struct {
+	UpdatedAt   string
+	WorkspaceID string
+	ID          string
+}
+
+func (q *Queries) RetirePlan(ctx context.Context, arg RetirePlanParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, retirePlan, arg.UpdatedAt, arg.WorkspaceID, arg.ID)
 	if err != nil {
 		return 0, err
 	}
@@ -787,21 +867,27 @@ func (q *Queries) SaveEntitlementState(ctx context.Context, arg SaveEntitlementS
 }
 
 const savePlan = `-- name: SavePlan :exec
-INSERT INTO plans (id, workspace_id, name, description, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO plans (id, workspace_id, name, description, version, parent_plan_id, is_current, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	name = excluded.name,
 	description = excluded.description,
+	version = excluded.version,
+	parent_plan_id = excluded.parent_plan_id,
+	is_current = excluded.is_current,
 	updated_at = excluded.updated_at
 `
 
 type SavePlanParams struct {
-	ID          string
-	WorkspaceID string
-	Name        string
-	Description string
-	CreatedAt   string
-	UpdatedAt   string
+	ID           string
+	WorkspaceID  string
+	Name         string
+	Description  string
+	Version      int64
+	ParentPlanID sql.NullString
+	IsCurrent    int64
+	CreatedAt    string
+	UpdatedAt    string
 }
 
 func (q *Queries) SavePlan(ctx context.Context, arg SavePlanParams) error {
@@ -810,6 +896,9 @@ func (q *Queries) SavePlan(ctx context.Context, arg SavePlanParams) error {
 		arg.WorkspaceID,
 		arg.Name,
 		arg.Description,
+		arg.Version,
+		arg.ParentPlanID,
+		arg.IsCurrent,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)
@@ -855,14 +944,12 @@ func (q *Queries) SavePlanLimit(ctx context.Context, arg SavePlanLimitParams) er
 }
 
 const savePlanSubjectAssignment = `-- name: SavePlanSubjectAssignment :exec
-INSERT INTO plan_subject_assignments (workspace_id, subject, plan_id, assigned_at, updated_at)
-VALUES (?, ?, ?, ?, ?)
-ON CONFLICT(workspace_id, subject) DO UPDATE SET
-	plan_id = excluded.plan_id,
-	updated_at = excluded.updated_at
+INSERT INTO plan_subject_assignments (id, workspace_id, subject, plan_id, assigned_at, unassigned_at, updated_at)
+VALUES (?, ?, ?, ?, ?, NULL, ?)
 `
 
 type SavePlanSubjectAssignmentParams struct {
+	ID          string
 	WorkspaceID string
 	Subject     string
 	PlanID      string
@@ -872,6 +959,7 @@ type SavePlanSubjectAssignmentParams struct {
 
 func (q *Queries) SavePlanSubjectAssignment(ctx context.Context, arg SavePlanSubjectAssignmentParams) error {
 	_, err := q.db.ExecContext(ctx, savePlanSubjectAssignment,
+		arg.ID,
 		arg.WorkspaceID,
 		arg.Subject,
 		arg.PlanID,

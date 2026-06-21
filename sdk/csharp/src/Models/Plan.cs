@@ -38,6 +38,8 @@ namespace OpenSpanner.Models
 #else
         public string Id { get; set; }
 #endif
+        /// <summary>The is_current property</summary>
+        public bool? IsCurrent { get; set; }
         /// <summary>The limits property</summary>
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
 #nullable enable
@@ -54,6 +56,14 @@ namespace OpenSpanner.Models
 #else
         public string Name { get; set; }
 #endif
+        /// <summary>The parent_plan_id property</summary>
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
+#nullable enable
+        public string? ParentPlanId { get; set; }
+#nullable restore
+#else
+        public string ParentPlanId { get; set; }
+#endif
         /// <summary>The updated_at property</summary>
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
 #nullable enable
@@ -62,6 +72,8 @@ namespace OpenSpanner.Models
 #else
         public string UpdatedAt { get; set; }
 #endif
+        /// <summary>The version property</summary>
+        public int? Version { get; set; }
         /// <summary>
         /// Instantiates a new <see cref="global::OpenSpanner.Models.Plan"/> and sets the default values.
         /// </summary>
@@ -90,9 +102,12 @@ namespace OpenSpanner.Models
                 { "created_at", n => { CreatedAt = n.GetStringValue(); } },
                 { "description", n => { Description = n.GetStringValue(); } },
                 { "id", n => { Id = n.GetStringValue(); } },
+                { "is_current", n => { IsCurrent = n.GetBoolValue(); } },
                 { "limits", n => { Limits = n.GetCollectionOfObjectValues<global::OpenSpanner.Models.PlanLimit>(global::OpenSpanner.Models.PlanLimit.CreateFromDiscriminatorValue)?.AsList(); } },
                 { "name", n => { Name = n.GetStringValue(); } },
+                { "parent_plan_id", n => { ParentPlanId = n.GetStringValue(); } },
                 { "updated_at", n => { UpdatedAt = n.GetStringValue(); } },
+                { "version", n => { Version = n.GetIntValue(); } },
             };
         }
         /// <summary>
@@ -105,9 +120,12 @@ namespace OpenSpanner.Models
             writer.WriteStringValue("created_at", CreatedAt);
             writer.WriteStringValue("description", Description);
             writer.WriteStringValue("id", Id);
+            writer.WriteBoolValue("is_current", IsCurrent);
             writer.WriteCollectionOfObjectValues<global::OpenSpanner.Models.PlanLimit>("limits", Limits);
             writer.WriteStringValue("name", Name);
+            writer.WriteStringValue("parent_plan_id", ParentPlanId);
             writer.WriteStringValue("updated_at", UpdatedAt);
+            writer.WriteIntValue("version", Version);
             writer.WriteAdditionalData(AdditionalData);
         }
     }

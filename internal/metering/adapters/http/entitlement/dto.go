@@ -17,12 +17,15 @@ type PlanSaveRequest struct {
 
 // PlanResponse is a plan with its configured limits.
 type PlanResponse struct {
-	ID          string          `json:"id"`
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	Limits      []LimitResponse `json:"limits"`
-	CreatedAt   string          `json:"created_at"`
-	UpdatedAt   string          `json:"updated_at"`
+	ID           string          `json:"id"`
+	Name         string          `json:"name"`
+	Description  string          `json:"description"`
+	Version      int             `json:"version"`
+	ParentPlanID string          `json:"parent_plan_id,omitempty"`
+	IsCurrent    bool            `json:"is_current"`
+	Limits       []LimitResponse `json:"limits"`
+	CreatedAt    string          `json:"created_at"`
+	UpdatedAt    string          `json:"updated_at"`
 }
 
 // LimitResponse is a plan limit.
@@ -48,11 +51,15 @@ type AssignmentRequest struct {
 
 // AssignmentResponse is a subject plan assignment.
 type AssignmentResponse struct {
-	Subject    string `json:"subject"`
-	PlanID     string `json:"plan_id"`
-	PlanName   string `json:"plan_name"`
-	AssignedAt string `json:"assigned_at"`
-	UpdatedAt  string `json:"updated_at"`
+	ID           string `json:"id"`
+	Subject      string `json:"subject"`
+	PlanID       string `json:"plan_id"`
+	PlanName     string `json:"plan_name"`
+	PlanVersion  int    `json:"plan_version"`
+	Active       bool   `json:"active"`
+	AssignedAt   string `json:"assigned_at"`
+	UnassignedAt string `json:"unassigned_at,omitempty"`
+	UpdatedAt    string `json:"updated_at"`
 }
 
 // AssignmentListResponse is a list of subject assignments.

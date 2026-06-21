@@ -1055,6 +1055,9 @@
         "id": {
           "type": "string"
         },
+        "is_current": {
+          "type": "boolean"
+        },
         "limits": {
           "type": "array",
           "items": {
@@ -1064,8 +1067,14 @@
         "name": {
           "type": "string"
         },
+        "parent_plan_id": {
+          "type": "string"
+        },
         "updated_at": {
           "type": "string"
+        },
+        "version": {
+          "type": "integer"
         }
       },
       "title": "Plan"

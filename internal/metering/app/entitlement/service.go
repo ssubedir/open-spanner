@@ -55,6 +55,7 @@ const (
 
 type Repository interface {
 	SavePlan(ctx context.Context, plan Plan) (Plan, error)
+	RetirePlan(ctx context.Context, id string, updatedAt time.Time) error
 	FindPlans(ctx context.Context, query PlanQuery) ([]Plan, error)
 	DeletePlan(ctx context.Context, id string) error
 	ReplacePlanLimits(ctx context.Context, planID string, limits []PlanLimit) error
@@ -122,11 +123,14 @@ func NewService(repo Repository, meterRepo domainmeter.Repository, usageRepo Usa
 }
 
 type Plan struct {
-	ID          string
-	Name        string
-	Description string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID           string
+	Name         string
+	Description  string
+	Version      int
+	ParentPlanID string
+	IsCurrent    bool
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 type PlanLimit struct {
@@ -141,11 +145,14 @@ type PlanLimit struct {
 }
 
 type SubjectAssignment struct {
-	Subject    string
-	PlanID     string
-	PlanName   string
-	AssignedAt time.Time
-	UpdatedAt  time.Time
+	ID           string
+	Subject      string
+	PlanID       string
+	PlanName     string
+	PlanVersion  int
+	AssignedAt   time.Time
+	UnassignedAt time.Time
+	UpdatedAt    time.Time
 }
 
 type EntitlementState struct {
@@ -214,15 +221,17 @@ type CheckJob struct {
 }
 
 type PlanQuery struct {
-	ID    string
-	Name  string
-	Limit int
+	ID          string
+	Name        string
+	CurrentOnly bool
+	Limit       int
 }
 
 type AssignmentQuery struct {
-	Subject string
-	PlanID  string
-	Limit   int
+	Subject    string
+	PlanID     string
+	ActiveOnly bool
+	Limit      int
 }
 
 type StateQuery struct {
@@ -309,9 +318,10 @@ type DeleteSubjectAssignmentCommand struct {
 }
 
 type AssignmentListQuery struct {
-	Subject string
-	PlanID  string
-	Limit   int
+	Subject        string
+	PlanID         string
+	IncludeHistory bool
+	Limit          int
 }
 
 type SubjectProgressQuery struct {
@@ -461,21 +471,27 @@ func (s *service) UpdatePlan(ctx context.Context, cmd UpdatePlanCommand) (PlanRe
 	}
 
 	now := s.now()
-	plan, limits, err := s.normalizePlan(ctx, id, cmd.Name, cmd.Description, cmd.Limits, existing.Plan.CreatedAt)
+	plan, limits, err := s.normalizePlan(ctx, "", cmd.Name, cmd.Description, cmd.Limits, now)
 	if err != nil {
 		return PlanResult{}, err
 	}
-	plan.UpdatedAt = now
+	plan.Version = existing.Plan.Version + 1
+	plan.ParentPlanID = existing.Plan.ID
+	plan.IsCurrent = true
 	for i := range limits {
+		limits[i].PlanID = plan.ID
 		limits[i].CreatedAt = now
 		limits[i].UpdatedAt = now
 	}
 
 	err = s.transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
+		if err := s.repo.RetirePlan(txCtx, existing.Plan.ID, now); err != nil {
+			return err
+		}
 		if _, err := s.repo.SavePlan(txCtx, plan); err != nil {
 			return err
 		}
-		return s.repo.ReplacePlanLimits(txCtx, id, limits)
+		return s.repo.ReplacePlanLimits(txCtx, plan.ID, limits)
 	})
 	if err != nil {
 		return PlanResult{}, err
@@ -504,7 +520,7 @@ func (s *service) GetPlan(ctx context.Context, query GetPlanQuery) (PlanResult, 
 }
 
 func (s *service) ListPlans(ctx context.Context, query ListPlansQuery) (PlanListResult, error) {
-	plans, err := s.repo.FindPlans(ctx, PlanQuery{Limit: normalizeLimit(query.Limit)})
+	plans, err := s.repo.FindPlans(ctx, PlanQuery{CurrentOnly: true, Limit: normalizeLimit(query.Limit)})
 	if err != nil {
 		return PlanListResult{}, err
 	}
@@ -538,13 +554,20 @@ func (s *service) AssignSubject(ctx context.Context, cmd AssignSubjectCommand) (
 
 	now := s.now()
 	assignment := SubjectAssignment{
-		Subject:    subject,
-		PlanID:     plan.Plan.ID,
-		PlanName:   plan.Plan.Name,
-		AssignedAt: now,
-		UpdatedAt:  now,
+		ID:          uuid.NewString(),
+		Subject:     subject,
+		PlanID:      plan.Plan.ID,
+		PlanName:    plan.Plan.Name,
+		PlanVersion: plan.Plan.Version,
+		AssignedAt:  now,
+		UpdatedAt:   now,
 	}
-	saved, err := s.repo.SaveSubjectAssignment(ctx, assignment)
+	var saved SubjectAssignment
+	err = s.transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
+		var err error
+		saved, err = s.repo.SaveSubjectAssignment(txCtx, assignment)
+		return err
+	})
 	if err != nil {
 		return SubjectAssignmentResult{}, err
 	}
@@ -561,9 +584,10 @@ func (s *service) DeleteSubjectAssignment(ctx context.Context, cmd DeleteSubject
 
 func (s *service) ListSubjectAssignments(ctx context.Context, query AssignmentListQuery) (SubjectAssignmentListResult, error) {
 	assignments, err := s.repo.FindSubjectAssignments(ctx, AssignmentQuery{
-		Subject: strings.TrimSpace(query.Subject),
-		PlanID:  strings.TrimSpace(query.PlanID),
-		Limit:   normalizeLimit(query.Limit),
+		Subject:    strings.TrimSpace(query.Subject),
+		PlanID:     strings.TrimSpace(query.PlanID),
+		ActiveOnly: !query.IncludeHistory,
+		Limit:      normalizeLimit(query.Limit),
 	})
 	if err != nil {
 		return SubjectAssignmentListResult{}, err
@@ -913,6 +937,8 @@ func (s *service) normalizePlan(ctx context.Context, id, name, description strin
 		ID:          id,
 		Name:        name,
 		Description: description,
+		Version:     1,
+		IsCurrent:   true,
 		CreatedAt:   createdAt.UTC(),
 		UpdatedAt:   now,
 	}
@@ -994,7 +1020,7 @@ func (s *service) findPlan(ctx context.Context, id string) (PlanResult, error) {
 }
 
 func (s *service) findSubjectAssignment(ctx context.Context, subject string) (SubjectAssignment, error) {
-	assignments, err := s.repo.FindSubjectAssignments(ctx, AssignmentQuery{Subject: subject, Limit: 1})
+	assignments, err := s.repo.FindSubjectAssignments(ctx, AssignmentQuery{Subject: subject, ActiveOnly: true, Limit: 1})
 	if err != nil {
 		return SubjectAssignment{}, err
 	}

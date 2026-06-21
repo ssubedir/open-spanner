@@ -755,6 +755,9 @@ func runIntegrationPlanEntitlementFlow(t *testing.T, cfg config.Config, namespac
 	if plan.ID == "" || len(plan.Limits) != 1 || plan.Limits[0].Meter != meterName {
 		t.Fatalf("created plan = %#v, want one limit for %q", plan, meterName)
 	}
+	if plan.Version != 1 || !plan.IsCurrent {
+		t.Fatalf("created plan version = %#v, want current v1", plan)
+	}
 
 	assign := requestJSONWithHeaders(t, router, http.MethodPut, "/v1/plans/subjects/"+url.PathEscape(subject), map[string]any{
 		"plan_id": plan.ID,
@@ -766,6 +769,55 @@ func runIntegrationPlanEntitlementFlow(t *testing.T, cfg config.Config, namespac
 	decodeJSON(t, assign, &assignment)
 	if assignment.Subject != subject || assignment.PlanID != plan.ID {
 		t.Fatalf("assignment = %#v, want subject %q on plan %q", assignment, subject, plan.ID)
+	}
+	if assignment.ID == "" || assignment.PlanVersion != 1 || !assignment.Active {
+		t.Fatalf("assignment version = %#v, want active v1 assignment", assignment)
+	}
+
+	updatedPlanPayload := map[string]any{
+		"name":        plan.Name,
+		"description": "Plan entitlement integration test v2",
+		"limits": []map[string]any{
+			{
+				"meter":           meterName,
+				"period":          "month",
+				"limit":           20,
+				"warning_percent": 60,
+			},
+		},
+	}
+	updatePlan := requestJSONWithHeaders(t, router, http.MethodPut, "/v1/plans/"+url.PathEscape(plan.ID), updatedPlanPayload, identity.Headers, nil)
+	if updatePlan.Code != http.StatusOK {
+		t.Fatalf("update plan status = %d, want %d: %s", updatePlan.Code, http.StatusOK, updatePlan.Body.String())
+	}
+	var updatedPlan planTestResponse
+	decodeJSON(t, updatePlan, &updatedPlan)
+	if updatedPlan.ID == plan.ID || updatedPlan.ParentPlanID != plan.ID || updatedPlan.Version != 2 || !updatedPlan.IsCurrent {
+		t.Fatalf("updated plan = %#v, want new current v2 child of %q", updatedPlan, plan.ID)
+	}
+	if len(updatedPlan.Limits) != 1 {
+		t.Fatalf("updated plan limits = %#v, want one limit", updatedPlan.Limits)
+	}
+	assertFloatNear(t, updatedPlan.Limits[0].Limit, 20, "updated plan limit")
+
+	currentPlans := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/plans", nil, identity.Headers, nil)
+	if currentPlans.Code != http.StatusOK {
+		t.Fatalf("list current plans status = %d, want %d: %s", currentPlans.Code, http.StatusOK, currentPlans.Body.String())
+	}
+	var currentPlanList planListTestResponse
+	decodeJSON(t, currentPlans, &currentPlanList)
+	if len(currentPlanList.Items) != 1 || currentPlanList.Items[0].ID != updatedPlan.ID {
+		t.Fatalf("current plans = %#v, want only v2 plan %q", currentPlanList, updatedPlan.ID)
+	}
+
+	historyBeforeReassign := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/plans/assignments?include_history=true&subject="+url.QueryEscape(subject), nil, identity.Headers, nil)
+	if historyBeforeReassign.Code != http.StatusOK {
+		t.Fatalf("assignment history status = %d, want %d: %s", historyBeforeReassign.Code, http.StatusOK, historyBeforeReassign.Body.String())
+	}
+	var assignmentHistory planAssignmentListTestResponse
+	decodeJSON(t, historyBeforeReassign, &assignmentHistory)
+	if len(assignmentHistory.Items) != 1 || assignmentHistory.Items[0].PlanID != plan.ID || !assignmentHistory.Items[0].Active {
+		t.Fatalf("assignment history before reassign = %#v, want active v1 assignment", assignmentHistory)
 	}
 
 	createSDKKey := requestJSON(t, router, http.MethodPost, "/v1/auth/api-keys", map[string]any{
@@ -903,6 +955,56 @@ func runIntegrationPlanEntitlementFlow(t *testing.T, cfg config.Config, namespac
 		t.Fatalf("denied check = %#v, want denied exceeded", deniedCheck)
 	}
 	assertFloatNear(t, deniedCheck.Remaining, 0, "denied remaining")
+
+	reassign := requestJSONWithHeaders(t, router, http.MethodPut, "/v1/plans/subjects/"+url.PathEscape(subject), map[string]any{
+		"plan_id": updatedPlan.ID,
+	}, identity.Headers, nil)
+	if reassign.Code != http.StatusOK {
+		t.Fatalf("reassign plan status = %d, want %d: %s", reassign.Code, http.StatusOK, reassign.Body.String())
+	}
+	var updatedAssignment planAssignmentTestResponse
+	decodeJSON(t, reassign, &updatedAssignment)
+	if updatedAssignment.Subject != subject || updatedAssignment.PlanID != updatedPlan.ID || updatedAssignment.PlanVersion != 2 || !updatedAssignment.Active {
+		t.Fatalf("updated assignment = %#v, want active v2 assignment", updatedAssignment)
+	}
+
+	historyAfterReassign := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/plans/assignments?include_history=true&subject="+url.QueryEscape(subject), nil, identity.Headers, nil)
+	if historyAfterReassign.Code != http.StatusOK {
+		t.Fatalf("assignment history after reassign status = %d, want %d: %s", historyAfterReassign.Code, http.StatusOK, historyAfterReassign.Body.String())
+	}
+	var updatedAssignmentHistory planAssignmentListTestResponse
+	decodeJSON(t, historyAfterReassign, &updatedAssignmentHistory)
+	if len(updatedAssignmentHistory.Items) != 2 {
+		t.Fatalf("assignment history after reassign = %#v, want two rows", updatedAssignmentHistory)
+	}
+	activeV2 := false
+	endedV1 := false
+	for _, item := range updatedAssignmentHistory.Items {
+		switch {
+		case item.PlanID == updatedPlan.ID && item.PlanVersion == 2 && item.Active && item.UnassignedAt == "":
+			activeV2 = true
+		case item.PlanID == plan.ID && item.PlanVersion == 1 && !item.Active && item.UnassignedAt != "":
+			endedV1 = true
+		}
+	}
+	if !activeV2 || !endedV1 {
+		t.Fatalf("assignment history after reassign = %#v, want active v2 and ended v1", updatedAssignmentHistory)
+	}
+
+	updatedProgressRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/plans/subjects/"+url.PathEscape(subject)+"/progress", nil, sdkHeaders, nil)
+	if updatedProgressRes.Code != http.StatusOK {
+		t.Fatalf("updated progress status = %d, want %d: %s", updatedProgressRes.Code, http.StatusOK, updatedProgressRes.Body.String())
+	}
+	var updatedProgress planProgressTestResponse
+	decodeJSON(t, updatedProgressRes, &updatedProgress)
+	if updatedProgress.Plan.ID != updatedPlan.ID || updatedProgress.Plan.Version != 2 || len(updatedProgress.Items) != 1 {
+		t.Fatalf("updated progress = %#v, want v2 plan progress", updatedProgress)
+	}
+	assertFloatNear(t, updatedProgress.Items[0].Current, 7, "updated progress current")
+	assertFloatNear(t, updatedProgress.Items[0].Limit, 20, "updated progress limit")
+	if updatedProgress.Items[0].State != "ok" {
+		t.Fatalf("updated progress state = %q, want ok", updatedProgress.Items[0].State)
+	}
 }
 
 func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handler, authHeaders map[string]string, meterName string, suffix string) {
@@ -2677,16 +2779,31 @@ type planLimitTestResponse struct {
 }
 
 type planTestResponse struct {
-	ID          string                  `json:"id"`
-	Name        string                  `json:"name"`
-	Description string                  `json:"description"`
-	Limits      []planLimitTestResponse `json:"limits"`
+	ID           string                  `json:"id"`
+	Name         string                  `json:"name"`
+	Description  string                  `json:"description"`
+	Version      int                     `json:"version"`
+	ParentPlanID string                  `json:"parent_plan_id"`
+	IsCurrent    bool                    `json:"is_current"`
+	Limits       []planLimitTestResponse `json:"limits"`
+}
+
+type planListTestResponse struct {
+	Items []planTestResponse `json:"items"`
 }
 
 type planAssignmentTestResponse struct {
-	Subject  string `json:"subject"`
-	PlanID   string `json:"plan_id"`
-	PlanName string `json:"plan_name"`
+	ID           string `json:"id"`
+	Subject      string `json:"subject"`
+	PlanID       string `json:"plan_id"`
+	PlanName     string `json:"plan_name"`
+	PlanVersion  int    `json:"plan_version"`
+	Active       bool   `json:"active"`
+	UnassignedAt string `json:"unassigned_at"`
+}
+
+type planAssignmentListTestResponse struct {
+	Items []planAssignmentTestResponse `json:"items"`
 }
 
 type planProgressItemTestResponse struct {

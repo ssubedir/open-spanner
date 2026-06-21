@@ -72,9 +72,12 @@ export type Plan = {
     created_at?: string;
     description?: string;
     id?: string;
+    is_current?: boolean;
     limits?: Array<PlanLimit>;
     name?: string;
+    parent_plan_id?: string;
     updated_at?: string;
+    version?: number;
 };
 
 /**

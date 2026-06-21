@@ -194,6 +194,7 @@ type AppState = {
   }
   plans: {
     assignments: PlanAssignment[]
+    assignmentHistory: PlanAssignment[]
     assigning: boolean
     creating: boolean
     deleting: Plan | null
@@ -339,6 +340,7 @@ export const appStore = createStore<AppState>({
   },
   plans: {
     assignments: [],
+    assignmentHistory: [],
     assigning: false,
     creating: false,
     deleting: null,
@@ -491,6 +493,7 @@ function initialUserDataState(): UserDataState {
     },
     plans: {
       assignments: [],
+      assignmentHistory: [],
       assigning: false,
       creating: false,
       deleting: null,
@@ -944,15 +947,17 @@ export const appStoreActions = {
       status: 'loading',
     })
     try {
-      const [plans, assignments, meters] = await Promise.all([
+      const [plans, assignments, assignmentHistory, meters] = await Promise.all([
         listPlans(),
         listPlanAssignments(),
+        listPlanAssignments(100, true),
         listMeters(),
       ])
       if (!isCurrentUserDataGeneration(generation)) {
         return
       }
       setPlansState({
+        assignmentHistory: assignmentHistory.items,
         assignments: assignments.items,
         items: plans.items,
         meters: meters.items,
@@ -1109,6 +1114,7 @@ export const appStoreActions = {
     try {
       const assignment = await assignSubjectPlanRequest(subject, planID)
       setPlansState((state) => ({
+        assignmentHistory: [assignment, ...state.assignmentHistory.filter((item) => item.id !== assignment.id)],
         assignments: [assignment, ...state.assignments.filter((item) => item.subject !== assignment.subject)],
       }))
       if (appStore.state.plans.progressSubject === assignment.subject) {
@@ -1127,6 +1133,7 @@ export const appStoreActions = {
     try {
       await deleteSubjectPlanAssignmentRequest(subject)
       setPlansState((state) => ({
+        assignmentHistory: state.assignmentHistory.map((item) => item.subject === subject && item.active ? { ...item, active: false, unassigned_at: new Date().toISOString() } : item),
         assignments: state.assignments.filter((item) => item.subject !== subject),
         entitlementEvents: state.entitlementEvents.filter((item) => item.subject !== subject),
         entitlementStates: state.entitlementStates.filter((item) => item.subject !== subject),

@@ -27,14 +27,23 @@ type Plan struct {
 	// id
 	ID string `json:"id,omitempty"`
 
+	// is current
+	IsCurrent bool `json:"is_current,omitempty"`
+
 	// limits
 	Limits []*PlanLimit `json:"limits"`
 
 	// name
 	Name string `json:"name,omitempty"`
 
+	// parent plan id
+	ParentPlanID string `json:"parent_plan_id,omitempty"`
+
 	// updated at
 	UpdatedAt string `json:"updated_at,omitempty"`
+
+	// version
+	Version int64 `json:"version,omitempty"`
 }
 
 // Validate validates this plan
