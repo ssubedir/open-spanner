@@ -1,5 +1,6 @@
+import { useParams, useRouter } from '@tanstack/react-router'
 import { useSelector } from '@tanstack/react-store'
-import { BellRing, Copy, Eye, KeyRound, Loader2, Pencil, Play, Plus, Trash2 } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BellRing, Copy, Eye, KeyRound, Loader2, Pencil, Play, Plus, Trash2 } from 'lucide-react'
 import { type FormEvent, useCallback, useEffect } from 'react'
 
 import { appStore, appStoreActions } from '../app-store'
@@ -28,6 +29,7 @@ const comparators = [
 ] as const
 
 export function AlertsPage() {
+  const router = useRouter()
   const {
     creating,
     deleting,
@@ -37,29 +39,15 @@ export function AlertsPage() {
     destinations,
     editing,
     error,
-    eventLoadingMore,
-    eventNextCursor,
-    events,
     items,
     meters,
     saving,
-    selectedEvent,
     signingSecret,
   } = useSelector(appStore, (state) => state.alerts)
   const load = useCallback(() => appStoreActions.loadAlerts(), [])
-  const pollEvents = useCallback(() => appStoreActions.loadAlertEvents({ quiet: true }), [])
-  const selectedEventRule = selectedEvent ? ruleForEvent(items, selectedEvent) : null
   const groupByOptions = alertGroupByOptions(meters)
 
   useInitialLoad(load)
-
-  useEffect(() => {
-    const poll = window.setInterval(() => {
-      void pollEvents()
-    }, 5000)
-
-    return () => window.clearInterval(poll)
-  }, [pollEvents])
 
   async function submitCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -128,8 +116,8 @@ export function AlertsPage() {
       <PageHeader
         eyebrow="Alerts"
         icon={<BellRing />}
-        title="Threshold rules"
-        description="Track usage windows and surface threshold crossings for important meters."
+        title="Alerts"
+        description="Manage delivery destinations and threshold rules. Open a rule to inspect events."
         action={null}
       />
 
@@ -216,6 +204,10 @@ export function AlertsPage() {
               <span>{durationLabel(rule.window_seconds)}</span>,
               <RuleState rule={rule} />,
               <span className="table-actions">
+                <Button aria-label={`Open ${rule.name}`} onClick={() => void router.navigate({ to: '/alerts/$ruleId', params: { ruleId: rule.id } })} size="sm" type="button" variant="outline">
+                  Open
+                  <ArrowRight aria-hidden="true" />
+                </Button>
                 <Button aria-label={`Evaluate ${rule.name}`} disabled={saving} onClick={() => void appStoreActions.evaluateAlert(rule)} size="icon" type="button" variant="ghost">
                   <Play aria-hidden="true" />
                 </Button>
@@ -228,45 +220,6 @@ export function AlertsPage() {
               </span>,
             ])}
           />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="!px-4 !py-3">
-          <div>
-            <CardTitle>Recent Events</CardTitle>
-            <CardDescription>Triggered, resolved, and failed evaluations.</CardDescription>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <DataTable
-            emptyLabel="No alert events yet"
-            headers={['Type', 'Delivery', 'Rule', 'Value', 'Message', 'Created', 'Actions']}
-            rows={events.map((event) => {
-              const rule = ruleForEvent(items, event)
-              return [
-                <Badge variant={event.type === 'triggered' ? 'warning' : event.type === 'resolved' ? 'success' : 'muted'}>{event.type}</Badge>,
-                <DeliveryBadge event={event} />,
-                <EventRule event={event} rule={rule} />,
-                <EventValue event={event} />,
-                <span>{event.message}</span>,
-                formatDate(event.created_at),
-                <span className="table-actions">
-                  <Button aria-label={`View ${event.type} alert event`} onClick={() => appStoreActions.setAlertSelectedEvent(event)} size="icon" type="button" variant="ghost">
-                    <Eye aria-hidden="true" />
-                  </Button>
-                </span>,
-              ]
-            })}
-          />
-          {eventNextCursor ? (
-            <div className="pagination-actions">
-              <Button disabled={eventLoadingMore} onClick={() => void appStoreActions.loadMoreAlertEvents()} type="button" variant="outline">
-                {eventLoadingMore ? <Loader2 className="spin" aria-hidden="true" /> : null}
-                Load more events
-              </Button>
-            </div>
-          ) : null}
         </CardContent>
       </Card>
 
@@ -554,6 +507,152 @@ export function AlertsPage() {
         </Modal>
       ) : null}
 
+    </>
+  )
+}
+
+export function AlertRoutePage() {
+  const { ruleId } = useParams({ from: '/_dashboard/alerts_/$ruleId' })
+
+  return <AlertDetailPage ruleId={ruleId} />
+}
+
+function AlertDetailPage({ ruleId }: { ruleId: string }) {
+  const router = useRouter()
+  const {
+    error,
+    eventLoadingMore,
+    eventNextCursor,
+    eventStatus,
+    events,
+    items,
+    saving,
+    selectedEvent,
+  } = useSelector(appStore, (state) => state.alerts)
+  const load = useCallback(() => appStoreActions.loadAlerts(), [])
+  const pollEvents = useCallback(() => appStoreActions.loadAlertEvents({ quiet: true }), [])
+  const rule = items.find((item) => item.id === ruleId) ?? null
+  const ruleEvents = events.filter((event) => event.rule_id === ruleId)
+  const selectedEventRule = selectedEvent ? ruleForEvent(items, selectedEvent) : null
+
+  useInitialLoad(load)
+
+  useEffect(() => {
+    const poll = window.setInterval(() => {
+      void pollEvents()
+    }, 5000)
+
+    return () => window.clearInterval(poll)
+  }, [pollEvents])
+
+  if (!rule && eventStatus !== 'loading') {
+    return (
+      <>
+        <PageHeader
+          eyebrow="Alerts"
+          icon={<BellRing />}
+          title="Alert not found"
+          description="This threshold rule may have been deleted or belongs to another workspace."
+          action={(
+            <Button onClick={() => void router.navigate({ to: '/alerts' })} type="button" variant="outline">
+              <ArrowLeft aria-hidden="true" />
+              Back to alerts
+            </Button>
+          )}
+        />
+        {error ? <div className="error-banner">{error}</div> : null}
+      </>
+    )
+  }
+
+  return (
+    <>
+      <PageHeader
+        eyebrow="Alerts"
+        icon={<BellRing />}
+        title={rule?.name || 'Alert rule'}
+        description={rule ? `${rule.meter} ${comparatorLabel(rule.comparator)} ${formatNumber(rule.threshold)} over ${durationLabel(rule.window_seconds)}` : 'Loading alert rule.'}
+        action={(
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button onClick={() => void router.navigate({ to: '/alerts' })} type="button" variant="outline">
+              <ArrowLeft aria-hidden="true" />
+              Back
+            </Button>
+            {rule ? (
+              <Button disabled={saving} onClick={() => void appStoreActions.evaluateAlert(rule)} type="button">
+                {saving ? <Loader2 className="spin" aria-hidden="true" /> : <Play aria-hidden="true" />}
+                Evaluate
+              </Button>
+            ) : null}
+          </div>
+        )}
+      />
+
+      {error ? <div className="error-banner">{error}</div> : null}
+
+      <div className="grid max-w-[1480px] gap-4">
+        <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
+          <Card className="min-w-0">
+            <CardHeader className="!px-4 !py-3">
+              <div>
+                <CardTitle>Rule</CardTitle>
+                <CardDescription>Threshold definition and current state.</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {rule ? (
+                <DataTable
+                  className="!min-w-0"
+                  emptyLabel="No rule details"
+                  headers={['Meter', 'Condition', 'Window', 'Evaluate Per', 'State']}
+                  rows={[[
+                    <span className="mono">{rule.meter}</span>,
+                    <span>{comparatorLabel(rule.comparator)} {formatNumber(rule.threshold)}</span>,
+                    durationLabel(rule.window_seconds),
+                    rule.group_by ? groupLabel(rule.group_by) : 'total',
+                    <RuleState rule={rule} />,
+                  ]]}
+                />
+              ) : (
+                <p className="subject-empty">Loading alert rule.</p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="min-w-0">
+            <CardHeader className="!px-4 !py-3">
+              <div>
+                <CardTitle>Destination</CardTitle>
+                <CardDescription>Delivery target used when this rule changes state.</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent className="grid gap-3 !p-4">
+              {rule ? <RuleDestinationDetail rule={rule} /> : <p className="subject-empty">Loading destination.</p>}
+            </CardContent>
+          </Card>
+        </section>
+
+        <Card className="min-w-0">
+          <CardHeader className="!px-4 !py-3">
+            <div>
+              <CardTitle>Recent Events</CardTitle>
+              <CardDescription>Triggered, resolved, and failed evaluations for this rule.</CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <AlertEventTable events={ruleEvents} loading={eventStatus === 'loading'} rules={items} />
+            {eventNextCursor ? (
+              <div className="pagination-actions">
+                <Button disabled={eventLoadingMore} onClick={() => void appStoreActions.loadMoreAlertEvents()} type="button" variant="outline">
+                  {eventLoadingMore ? <Loader2 className="spin" aria-hidden="true" /> : null}
+                  Load more events
+                </Button>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      </div>
+
       {selectedEvent ? (
         <Modal className="alert-event-modal" title="Alert Event" onClose={() => appStoreActions.setAlertSelectedEvent(null)}>
           <AlertEventDetail event={selectedEvent} rule={selectedEventRule} />
@@ -625,6 +724,53 @@ function RuleDestination({ rule }: { rule: AlertRule }) {
       <Badge variant="warning">Missing</Badge>
       <small className="muted block">{rule.destination_id || 'No destination'}</small>
     </span>
+  )
+}
+
+function RuleDestinationDetail({ rule }: { rule: AlertRule }) {
+  if (!rule.destination) {
+    return (
+      <div className="grid gap-1 rounded-md border border-border bg-[#f8fafc] p-3">
+        <Badge variant="warning">Missing destination</Badge>
+        <span className="text-sm text-muted">{rule.destination_id || 'No destination selected'}</span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="grid gap-3 rounded-md border border-border bg-[#f8fafc] p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <strong>{rule.destination.name}</strong>
+        <Badge variant={rule.destination.enabled ? 'success' : 'muted'}>{rule.destination.enabled ? 'Enabled' : 'Disabled'}</Badge>
+      </div>
+      <span className="mono truncate text-sm" title={rule.destination.webhook_url}>{rule.destination.webhook_url}</span>
+      <DestinationSigning destination={rule.destination} />
+    </div>
+  )
+}
+
+function AlertEventTable({ events, loading, rules }: { events: AlertEvent[]; loading: boolean; rules: AlertRule[] }) {
+  return (
+    <DataTable
+      emptyLabel={loading ? 'Loading alert events' : 'No alert events yet'}
+      headers={['Type', 'Delivery', 'Rule', 'Value', 'Message', 'Created', 'Actions']}
+      rows={events.map((event) => {
+        const rule = ruleForEvent(rules, event)
+        return [
+          <Badge variant={event.type === 'triggered' ? 'warning' : event.type === 'resolved' ? 'success' : 'muted'}>{event.type}</Badge>,
+          <DeliveryBadge event={event} />,
+          <EventRule event={event} rule={rule} />,
+          <EventValue event={event} />,
+          <span>{event.message}</span>,
+          formatDate(event.created_at),
+          <span className="table-actions">
+            <Button aria-label={`View ${event.type} alert event`} onClick={() => appStoreActions.setAlertSelectedEvent(event)} size="icon" type="button" variant="ghost">
+              <Eye aria-hidden="true" />
+            </Button>
+          </span>,
+        ]
+      })}
+    />
   )
 }
 

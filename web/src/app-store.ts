@@ -1233,7 +1233,7 @@ export const appStoreActions = {
       if (!isCurrentUserDataGeneration(generation)) {
         return
       }
-      const selectedSubject = preferredSubject.trim() || selectedSubjectForList(appStore.state.subjects.selectedSubject, subjects.items)
+      const selectedSubject = preferredSubject.trim()
       setSubjectsState({
         items: subjects.items,
         nextCursor: subjects.next_cursor || '',
@@ -2225,13 +2225,6 @@ function setUsageState(update: Partial<AppState['usage']> | ((state: AppState['u
       ...(typeof update === 'function' ? update(state.usage) : update),
     },
   }))
-}
-
-function selectedSubjectForList(selectedSubject: string, subjects: SubjectStats[]) {
-  if (selectedSubject && subjects.some((subject) => subject.subject === selectedSubject)) {
-    return selectedSubject
-  }
-  return subjects[0]?.subject ?? ''
 }
 
 async function summarizePinnedUsageQuery(query: SavedUsageQuery, meters: Meter[]): Promise<PinnedUsageQuerySummary> {

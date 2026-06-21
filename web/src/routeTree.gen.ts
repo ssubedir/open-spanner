@@ -23,6 +23,7 @@ import { Route as DashboardApiKeysRouteRouteImport } from './routes/_dashboard/a
 import { Route as DashboardAlertsRouteRouteImport } from './routes/_dashboard/alerts/route'
 import { Route as DashboardSubjectsSubjectRouteImport } from './routes/_dashboard/subjects_.$subject'
 import { Route as DashboardPlansPlanIdRouteImport } from './routes/_dashboard/plans_.$planId'
+import { Route as DashboardAlertsRuleIdRouteImport } from './routes/_dashboard/alerts_.$ruleId'
 
 const RegisterRouteRoute = RegisterRouteRouteImport.update({
   id: '/register',
@@ -94,6 +95,11 @@ const DashboardPlansPlanIdRoute = DashboardPlansPlanIdRouteImport.update({
   path: '/plans/$planId',
   getParentRoute: () => DashboardRouteRoute,
 } as any)
+const DashboardAlertsRuleIdRoute = DashboardAlertsRuleIdRouteImport.update({
+  id: '/alerts_/$ruleId',
+  path: '/alerts/$ruleId',
+  getParentRoute: () => DashboardRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -107,6 +113,7 @@ export interface FileRoutesByFullPath {
   '/plans': typeof DashboardPlansRouteRoute
   '/subjects': typeof DashboardSubjectsRouteRoute
   '/usage': typeof DashboardUsageRouteRoute
+  '/alerts/$ruleId': typeof DashboardAlertsRuleIdRoute
   '/plans/$planId': typeof DashboardPlansPlanIdRoute
   '/subjects/$subject': typeof DashboardSubjectsSubjectRoute
 }
@@ -122,6 +129,7 @@ export interface FileRoutesByTo {
   '/plans': typeof DashboardPlansRouteRoute
   '/subjects': typeof DashboardSubjectsRouteRoute
   '/usage': typeof DashboardUsageRouteRoute
+  '/alerts/$ruleId': typeof DashboardAlertsRuleIdRoute
   '/plans/$planId': typeof DashboardPlansPlanIdRoute
   '/subjects/$subject': typeof DashboardSubjectsSubjectRoute
 }
@@ -139,6 +147,7 @@ export interface FileRoutesById {
   '/_dashboard/plans': typeof DashboardPlansRouteRoute
   '/_dashboard/subjects': typeof DashboardSubjectsRouteRoute
   '/_dashboard/usage': typeof DashboardUsageRouteRoute
+  '/_dashboard/alerts_/$ruleId': typeof DashboardAlertsRuleIdRoute
   '/_dashboard/plans_/$planId': typeof DashboardPlansPlanIdRoute
   '/_dashboard/subjects_/$subject': typeof DashboardSubjectsSubjectRoute
 }
@@ -156,6 +165,7 @@ export interface FileRouteTypes {
     | '/plans'
     | '/subjects'
     | '/usage'
+    | '/alerts/$ruleId'
     | '/plans/$planId'
     | '/subjects/$subject'
   fileRoutesByTo: FileRoutesByTo
@@ -171,6 +181,7 @@ export interface FileRouteTypes {
     | '/plans'
     | '/subjects'
     | '/usage'
+    | '/alerts/$ruleId'
     | '/plans/$planId'
     | '/subjects/$subject'
   id:
@@ -187,6 +198,7 @@ export interface FileRouteTypes {
     | '/_dashboard/plans'
     | '/_dashboard/subjects'
     | '/_dashboard/usage'
+    | '/_dashboard/alerts_/$ruleId'
     | '/_dashboard/plans_/$planId'
     | '/_dashboard/subjects_/$subject'
   fileRoutesById: FileRoutesById
@@ -298,6 +310,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardPlansPlanIdRouteImport
       parentRoute: typeof DashboardRouteRoute
     }
+    '/_dashboard/alerts_/$ruleId': {
+      id: '/_dashboard/alerts_/$ruleId'
+      path: '/alerts/$ruleId'
+      fullPath: '/alerts/$ruleId'
+      preLoaderRoute: typeof DashboardAlertsRuleIdRouteImport
+      parentRoute: typeof DashboardRouteRoute
+    }
   }
 }
 
@@ -310,6 +329,7 @@ interface DashboardRouteRouteChildren {
   DashboardPlansRouteRoute: typeof DashboardPlansRouteRoute
   DashboardSubjectsRouteRoute: typeof DashboardSubjectsRouteRoute
   DashboardUsageRouteRoute: typeof DashboardUsageRouteRoute
+  DashboardAlertsRuleIdRoute: typeof DashboardAlertsRuleIdRoute
   DashboardPlansPlanIdRoute: typeof DashboardPlansPlanIdRoute
   DashboardSubjectsSubjectRoute: typeof DashboardSubjectsSubjectRoute
 }
@@ -323,6 +343,7 @@ const DashboardRouteRouteChildren: DashboardRouteRouteChildren = {
   DashboardPlansRouteRoute: DashboardPlansRouteRoute,
   DashboardSubjectsRouteRoute: DashboardSubjectsRouteRoute,
   DashboardUsageRouteRoute: DashboardUsageRouteRoute,
+  DashboardAlertsRuleIdRoute: DashboardAlertsRuleIdRoute,
   DashboardPlansPlanIdRoute: DashboardPlansPlanIdRoute,
   DashboardSubjectsSubjectRoute: DashboardSubjectsSubjectRoute,
 }
