@@ -97,7 +97,7 @@ function FilterValueSelector({ className, disabled, handleOnChange, options, tit
     <Select
       disabled={disabled}
       onValueChange={handleOnChange}
-      value={selectedValue || undefined}
+      value={selectedValue}
     >
       <SelectTrigger className={cn('filter-builder-select w-full justify-between', className)} title={title}>
         <SelectValue placeholder="Select" />

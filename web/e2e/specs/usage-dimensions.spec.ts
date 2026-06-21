@@ -124,4 +124,21 @@ test.describe('Feature: Dashboard usage exploration', () => {
     await Then.workspaceOwnedDataIsHiddenFromCurrentUser(page, scenario)
     await Then.workspaceOwnedAPIResourcesAreHiddenFromCurrentUser(page, scenario)
   })
+
+  test('Scenario: a user inspects entitlement states and transitions', async ({ page }) => {
+    const account = await Given.aDashboardAccount(page)
+
+    await When.theUserSignsIn(page, account)
+    await Then.theDashboardIsAvailable(page, account)
+
+    const scenario = await Given.aPlanEntitlementWarningExists(page)
+
+    await When.theUserOpensPlans(page)
+    await Then.planEntitlementStateIsVisible(page, scenario)
+    await Then.planEntitlementChangeIsVisible(page, scenario)
+
+    await When.theUserOpensSubjectActivityForEntitlement(page, scenario)
+    await Then.subjectEntitlementStateIsVisible(page, scenario)
+    await Then.subjectEntitlementChangeIsVisible(page, scenario)
+  })
 })

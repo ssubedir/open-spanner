@@ -24,6 +24,7 @@ const apiEnv = dbDriver === 'postgres'
     }
 const serviceEnv = {
   ...apiEnv,
+  OPEN_SPANNER_ENTITLEMENT_WORKER_INTERVAL: '250ms',
   OPEN_SPANNER_EXPORT_STORAGE_PATH: exportStoragePath,
   OPEN_SPANNER_EXPORT_WORKER_INTERVAL: '250ms',
 }
@@ -66,6 +67,16 @@ export default defineConfig({
       timeout: 120_000,
       wait: {
         stderr: /export storage path:/,
+      },
+    },
+    {
+      command: 'go run ./cmd/entitlement-worker',
+      cwd: '..',
+      env: serviceEnv,
+      reuseExistingServer: false,
+      timeout: 120_000,
+      wait: {
+        stderr: /entitlement worker started:/,
       },
     },
     {
