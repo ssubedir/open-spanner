@@ -199,6 +199,7 @@ type AppState = {
     deleting: Plan | null
     editing: Plan | null
     error: string
+    entitlementEventLoadingMore: boolean
     entitlementEventNextCursor: string
     entitlementEventStatus: LoadState
     entitlementEvents: EntitlementEvent[]
@@ -209,6 +210,7 @@ type AppState = {
     progressStatus: LoadState
     progressSubject: string
     saving: boolean
+    selectedEntitlementEvent: EntitlementEvent | null
     status: LoadState
   }
   overview: {
@@ -221,6 +223,8 @@ type AppState = {
   }
   subjects: {
     detailStatus: LoadState
+    entitlementEventLoadingMore: boolean
+    entitlementEventNextCursor: string
     entitlementEvents: EntitlementEvent[]
     entitlementStates: EntitlementState[]
     error: string
@@ -231,6 +235,7 @@ type AppState = {
     loadingMore: boolean
     nextCursor: string
     searchQuery: string
+    selectedEntitlementEvent: EntitlementEvent | null
     selectedSubject: string
     status: LoadState
   }
@@ -276,6 +281,8 @@ type UserDataState = Pick<AppState, 'apiKeys' | 'alerts' | 'meters' | 'overview'
 let meterDimensionID = 0
 const domainSubjectField = 'subject'
 const alertEventPageSize = 25
+const entitlementEventPageSize = 25
+const subjectEntitlementEventPageSize = 10
 const subjectPageSize = 50
 const exportJobPageSize = 50
 let userDataGeneration = 0
@@ -337,6 +344,7 @@ export const appStore = createStore<AppState>({
     deleting: null,
     editing: null,
     error: '',
+    entitlementEventLoadingMore: false,
     entitlementEventNextCursor: '',
     entitlementEventStatus: 'idle',
     entitlementEvents: [],
@@ -347,6 +355,7 @@ export const appStore = createStore<AppState>({
     progressStatus: 'idle',
     progressSubject: '',
     saving: false,
+    selectedEntitlementEvent: null,
     status: 'idle',
   },
   overview: {
@@ -359,6 +368,8 @@ export const appStore = createStore<AppState>({
   },
   subjects: {
     detailStatus: 'idle',
+    entitlementEventLoadingMore: false,
+    entitlementEventNextCursor: '',
     entitlementEvents: [],
     entitlementStates: [],
     error: '',
@@ -369,6 +380,7 @@ export const appStore = createStore<AppState>({
     loadingMore: false,
     nextCursor: '',
     searchQuery: '',
+    selectedEntitlementEvent: null,
     selectedSubject: '',
     status: 'idle',
   },
@@ -484,6 +496,7 @@ function initialUserDataState(): UserDataState {
       deleting: null,
       editing: null,
       error: '',
+      entitlementEventLoadingMore: false,
       entitlementEventNextCursor: '',
       entitlementEventStatus: 'idle',
       entitlementEvents: [],
@@ -493,6 +506,7 @@ function initialUserDataState(): UserDataState {
       progress: null,
       progressStatus: 'idle',
       progressSubject: '',
+      selectedEntitlementEvent: null,
       saving: false,
       status: 'idle',
     },
@@ -506,6 +520,8 @@ function initialUserDataState(): UserDataState {
     },
     subjects: {
       detailStatus: 'idle',
+      entitlementEventLoadingMore: false,
+      entitlementEventNextCursor: '',
       entitlementEvents: [],
       entitlementStates: [],
       error: '',
@@ -516,6 +532,7 @@ function initialUserDataState(): UserDataState {
       loadingMore: false,
       nextCursor: '',
       searchQuery: '',
+      selectedEntitlementEvent: null,
       selectedSubject: '',
       status: 'idle',
     },
@@ -920,28 +937,23 @@ export const appStoreActions = {
   async loadPlans() {
     const generation = currentUserDataGeneration()
     setPlansState({
+      entitlementEventLoadingMore: false,
       entitlementEventStatus: 'loading',
       error: '',
       progressStatus: appStore.state.plans.progressStatus === 'idle' ? 'idle' : appStore.state.plans.progressStatus,
       status: 'loading',
     })
     try {
-      const [plans, assignments, meters, entitlementStates, entitlementEvents] = await Promise.all([
+      const [plans, assignments, meters] = await Promise.all([
         listPlans(),
         listPlanAssignments(),
         listMeters(),
-        listEntitlementStates({ limit: 100 }),
-        listEntitlementEvents({ limit: 25 }),
       ])
       if (!isCurrentUserDataGeneration(generation)) {
         return
       }
       setPlansState({
         assignments: assignments.items,
-        entitlementEventNextCursor: entitlementEvents.next_cursor || '',
-        entitlementEventStatus: 'ready',
-        entitlementEvents: entitlementEvents.items,
-        entitlementStates: entitlementStates.items,
         items: plans.items,
         meters: meters.items,
         status: 'ready',
@@ -951,6 +963,96 @@ export const appStoreActions = {
         return
       }
       setPlansState({ entitlementEventStatus: 'error', error: errorMessage(err, 'Unable to load plans'), status: 'error' })
+      return
+    }
+
+    try {
+      const [entitlementStates, entitlementEvents] = await Promise.all([
+        listEntitlementStates({ limit: 100 }),
+        listEntitlementEvents({ limit: entitlementEventPageSize }),
+      ])
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setPlansState((state) => ({
+        entitlementEventNextCursor: entitlementEvents.next_cursor || '',
+        entitlementEventStatus: 'ready',
+        entitlementEvents: entitlementEvents.items,
+        entitlementStates: entitlementStates.items,
+        selectedEntitlementEvent: state.selectedEntitlementEvent ? entitlementEvents.items.find((event) => event.id === state.selectedEntitlementEvent?.id) ?? state.selectedEntitlementEvent : null,
+      }))
+    } catch {
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setPlansState({
+        entitlementEventNextCursor: '',
+        entitlementEventStatus: 'error',
+        entitlementEvents: [],
+        entitlementStates: [],
+        selectedEntitlementEvent: null,
+      })
+    }
+  },
+  async loadPlanEntitlementActivity(options: { quiet?: boolean } = {}) {
+    const generation = currentUserDataGeneration()
+    if (!options.quiet) {
+      setPlansState({ entitlementEventStatus: 'loading', error: '' })
+    }
+
+    try {
+      const [states, events] = await Promise.all([
+        listEntitlementStates({ limit: 100 }),
+        listEntitlementEvents({ limit: entitlementEventPageSize }),
+      ])
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setPlansState((state) => ({
+        entitlementEventNextCursor: options.quiet && state.entitlementEvents.length > events.items.length ? state.entitlementEventNextCursor : events.next_cursor || '',
+        entitlementEventStatus: 'ready',
+        entitlementEvents: options.quiet && state.entitlementEvents.length > events.items.length ? mergeByID(events.items, state.entitlementEvents) : events.items,
+        entitlementStates: states.items,
+        selectedEntitlementEvent: state.selectedEntitlementEvent ? events.items.find((event) => event.id === state.selectedEntitlementEvent?.id) ?? state.selectedEntitlementEvent : null,
+      }))
+    } catch (err) {
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setPlansState(options.quiet
+        ? { entitlementEventStatus: 'error' }
+        : {
+            entitlementEventStatus: 'error',
+            error: errorMessage(err, 'Unable to load entitlement activity'),
+          })
+    }
+  },
+  async loadMorePlanEntitlementEvents() {
+    const cursor = appStore.state.plans.entitlementEventNextCursor
+    if (!cursor || appStore.state.plans.entitlementEventLoadingMore) {
+      return
+    }
+
+    const generation = currentUserDataGeneration()
+    setPlansState({ entitlementEventLoadingMore: true, error: '' })
+    try {
+      const events = await listEntitlementEvents({ cursor, limit: entitlementEventPageSize })
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setPlansState((state) => ({
+        entitlementEventNextCursor: events.next_cursor || '',
+        entitlementEvents: appendUniqueByKey(state.entitlementEvents, events.items, (event) => event.id),
+      }))
+    } catch (err) {
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setPlansState({ error: errorMessage(err, 'Unable to load more entitlement changes') })
+    } finally {
+      if (isCurrentUserDataGeneration(generation)) {
+        setPlansState({ entitlementEventLoadingMore: false })
+      }
     }
   },
   async createPlan(input: PlanSaveRequest) {
@@ -1123,7 +1225,7 @@ export const appStoreActions = {
       if (selectedSubject) {
         await appStoreActions.loadSubjectEvents(selectedSubject)
       } else {
-        setSubjectsState({ detailStatus: 'idle', entitlementEvents: [], entitlementStates: [], events: [] })
+        setSubjectsState({ detailStatus: 'idle', entitlementEventLoadingMore: false, entitlementEventNextCursor: '', entitlementEvents: [], entitlementStates: [], events: [], selectedEntitlementEvent: null })
       }
     } catch (err) {
       if (!isCurrentUserDataGeneration(generation)) {
@@ -1162,25 +1264,19 @@ export const appStoreActions = {
   },
   async loadSubjectEvents(subject: string) {
     if (!subject) {
-      setSubjectsState({ detailStatus: 'idle', entitlementEvents: [], entitlementStates: [], events: [], selectedSubject: '' })
+      setSubjectsState({ detailStatus: 'idle', entitlementEventLoadingMore: false, entitlementEventNextCursor: '', entitlementEvents: [], entitlementStates: [], events: [], selectedEntitlementEvent: null, selectedSubject: '' })
       return
     }
 
     const generation = currentUserDataGeneration()
-    setSubjectsState({ detailStatus: 'loading', error: '', exportError: '', selectedSubject: subject })
+    setSubjectsState({ detailStatus: 'loading', entitlementEventLoadingMore: false, error: '', exportError: '', selectedSubject: subject })
     try {
-      const [events, entitlementStates, entitlementEvents] = await Promise.all([
-        listSubjectEvents(subject, 25),
-        listEntitlementStates({ limit: 100, subject }),
-        listEntitlementEvents({ limit: 10, subject }),
-      ])
+      const events = await listSubjectEvents(subject, 25)
       if (!isCurrentUserDataGeneration(generation)) {
         return
       }
       setSubjectsState({
         detailStatus: 'ready',
-        entitlementEvents: entitlementEvents.items,
-        entitlementStates: entitlementStates.items,
         events,
       })
     } catch (err) {
@@ -1189,11 +1285,85 @@ export const appStoreActions = {
       }
       setSubjectsState({
         detailStatus: 'error',
+        entitlementEventNextCursor: '',
         entitlementEvents: [],
         entitlementStates: [],
         error: errorMessage(err, 'Unable to load subject activity'),
         events: [],
+        selectedEntitlementEvent: null,
       })
+      return
+    }
+
+    await appStoreActions.loadSubjectEntitlementActivity(subject, { quiet: true })
+  },
+  async loadSubjectEntitlementActivity(subject = appStore.state.subjects.selectedSubject, options: { quiet?: boolean } = {}) {
+    const normalized = subject.trim()
+    if (!normalized) {
+      setSubjectsState({ entitlementEventLoadingMore: false, entitlementEventNextCursor: '', entitlementEvents: [], entitlementStates: [], selectedEntitlementEvent: null })
+      return
+    }
+
+    const generation = currentUserDataGeneration()
+    if (!options.quiet) {
+      setSubjectsState({ detailStatus: 'loading', error: '' })
+    }
+
+    try {
+      const [states, events] = await Promise.all([
+        listEntitlementStates({ limit: 100, subject: normalized }),
+        listEntitlementEvents({ limit: subjectEntitlementEventPageSize, subject: normalized }),
+      ])
+      if (!isCurrentUserDataGeneration(generation) || appStore.state.subjects.selectedSubject !== normalized) {
+        return
+      }
+      setSubjectsState((state) => ({
+        detailStatus: options.quiet ? state.detailStatus : 'ready',
+        entitlementEventNextCursor: options.quiet && state.entitlementEvents.length > events.items.length ? state.entitlementEventNextCursor : events.next_cursor || '',
+        entitlementEvents: options.quiet && state.entitlementEvents.length > events.items.length ? mergeByID(events.items, state.entitlementEvents) : events.items,
+        entitlementStates: states.items,
+        selectedEntitlementEvent: state.selectedEntitlementEvent ? events.items.find((event) => event.id === state.selectedEntitlementEvent?.id) ?? state.selectedEntitlementEvent : null,
+      }))
+    } catch (err) {
+      if (!isCurrentUserDataGeneration(generation) || appStore.state.subjects.selectedSubject !== normalized) {
+        return
+      }
+      setSubjectsState({
+        ...(options.quiet ? {} : { detailStatus: 'error' as LoadState }),
+        ...(options.quiet ? {} : { error: errorMessage(err, 'Unable to load subject entitlement activity') }),
+      })
+    }
+  },
+  async loadMoreSubjectEntitlementEvents() {
+    const { entitlementEventLoadingMore, entitlementEventNextCursor, selectedSubject } = appStore.state.subjects
+    if (!selectedSubject || !entitlementEventNextCursor || entitlementEventLoadingMore) {
+      return
+    }
+
+    const generation = currentUserDataGeneration()
+    setSubjectsState({ entitlementEventLoadingMore: true, error: '' })
+    try {
+      const events = await listEntitlementEvents({
+        cursor: entitlementEventNextCursor,
+        limit: subjectEntitlementEventPageSize,
+        subject: selectedSubject,
+      })
+      if (!isCurrentUserDataGeneration(generation) || appStore.state.subjects.selectedSubject !== selectedSubject) {
+        return
+      }
+      setSubjectsState((state) => ({
+        entitlementEventNextCursor: events.next_cursor || '',
+        entitlementEvents: appendUniqueByKey(state.entitlementEvents, events.items, (event) => event.id),
+      }))
+    } catch (err) {
+      if (!isCurrentUserDataGeneration(generation) || appStore.state.subjects.selectedSubject !== selectedSubject) {
+        return
+      }
+      setSubjectsState({ error: errorMessage(err, 'Unable to load more entitlement changes') })
+    } finally {
+      if (isCurrentUserDataGeneration(generation) && appStore.state.subjects.selectedSubject === selectedSubject) {
+        setSubjectsState({ entitlementEventLoadingMore: false })
+      }
     }
   },
   async exportSelectedSubjectEvents() {
@@ -1539,6 +1709,12 @@ export const appStoreActions = {
   },
   setPlanProgressSubject(progressSubject: string) {
     setPlansState({ progressSubject })
+  },
+  setPlanSelectedEntitlementEvent(selectedEntitlementEvent: EntitlementEvent | null) {
+    setPlansState({ selectedEntitlementEvent })
+  },
+  setSubjectSelectedEntitlementEvent(selectedEntitlementEvent: EntitlementEvent | null) {
+    setSubjectsState({ selectedEntitlementEvent })
   },
   setAPIKeyCreating(creating: boolean) {
     setAPIKeysState({ creating })

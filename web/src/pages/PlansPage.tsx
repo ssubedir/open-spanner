@@ -1,9 +1,10 @@
 import { useSelector } from '@tanstack/react-store'
-import { GaugeCircle, Loader2, PackageCheck, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Eye, GaugeCircle, Loader2, PackageCheck, Pencil, Plus, Trash2 } from 'lucide-react'
 import { type FormEvent, useCallback, useEffect, useState } from 'react'
 
 import { appStore, appStoreActions } from '../app-store'
 import { DataTable, Modal, PageHeader } from '../components/dashboard'
+import { EntitlementEventDetail, EntitlementEventType } from '../components/entitlement-event-detail'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
@@ -36,6 +37,8 @@ export function PlansPage() {
     creating,
     deleting,
     editing,
+    entitlementEventLoadingMore,
+    entitlementEventNextCursor,
     entitlementEventStatus,
     entitlementEvents,
     entitlementStates,
@@ -46,12 +49,22 @@ export function PlansPage() {
     progressStatus,
     progressSubject,
     saving,
+    selectedEntitlementEvent,
   } = useSelector(appStore, (state) => state.plans)
   const [assignOpen, setAssignOpen] = useState(false)
   const [progressOpen, setProgressOpen] = useState(false)
   const load = useCallback(() => appStoreActions.loadPlans(), [])
+  const pollEntitlementActivity = useCallback(() => appStoreActions.loadPlanEntitlementActivity({ quiet: true }), [])
 
   useInitialLoad(load)
+
+  useEffect(() => {
+    const poll = window.setInterval(() => {
+      void pollEntitlementActivity()
+    }, 5000)
+
+    return () => window.clearInterval(poll)
+  }, [pollEntitlementActivity])
 
   async function submitAssignment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -195,7 +208,19 @@ export function PlansPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <EntitlementEventTable events={entitlementEvents} loading={entitlementEventStatus === 'loading'} />
+              <EntitlementEventTable
+                events={entitlementEvents}
+                loading={entitlementEventStatus === 'loading'}
+                onSelect={(event) => appStoreActions.setPlanSelectedEntitlementEvent(event)}
+              />
+              {entitlementEventNextCursor ? (
+                <div className="pagination-actions">
+                  <Button disabled={entitlementEventLoadingMore} onClick={() => void appStoreActions.loadMorePlanEntitlementEvents()} type="button" variant="outline">
+                    {entitlementEventLoadingMore ? <Loader2 className="spin" aria-hidden="true" /> : null}
+                    Load more changes
+                  </Button>
+                </div>
+              ) : null}
             </CardContent>
           </Card>
         </div>
@@ -324,6 +349,15 @@ export function PlansPage() {
               <Button onClick={() => appStoreActions.setPlanDeleting(null)} type="button" variant="outline">Cancel</Button>
               <Button disabled={saving} onClick={() => void confirmDelete()} type="button">Delete</Button>
             </div>
+          </div>
+        </Modal>
+      ) : null}
+
+      {selectedEntitlementEvent ? (
+        <Modal className="!w-full !max-w-[760px]" title="Entitlement Change" onClose={() => appStoreActions.setPlanSelectedEntitlementEvent(null)}>
+          <EntitlementEventDetail event={selectedEntitlementEvent} />
+          <div className="modal-actions">
+            <Button onClick={() => appStoreActions.setPlanSelectedEntitlementEvent(null)} type="button" variant="outline">Close</Button>
           </div>
         </Modal>
       ) : null}
@@ -497,17 +531,23 @@ function EntitlementStateTable({ states }: { states: EntitlementState[] }) {
   )
 }
 
-function EntitlementEventTable({ events, loading }: { events: EntitlementEvent[]; loading: boolean }) {
+function EntitlementEventTable({ events, loading, onSelect }: { events: EntitlementEvent[]; loading: boolean; onSelect: (event: EntitlementEvent) => void }) {
   return (
     <DataTable
       emptyLabel={loading ? 'Loading entitlement changes' : 'No entitlement changes yet'}
-      headers={['Type', 'Subject', 'Meter', 'Message', 'Created']}
+      headers={['Type', 'Subject', 'Meter', 'Usage', 'Message', 'Created', 'Actions']}
       rows={events.map((event) => [
-        <StateBadge state={event.state} />,
+        <EntitlementEventType event={event} />,
         <span className="mono">{event.subject}</span>,
         <Badge variant="muted">{event.meter}</Badge>,
+        <span>{formatNumber(event.current)} / {formatNumber(event.limit)}</span>,
         <span className="max-w-[320px] truncate">{event.message}</span>,
         formatDate(event.created_at),
+        <span className="table-actions">
+          <Button aria-label={`View ${event.type} entitlement change`} onClick={() => onSelect(event)} size="icon" type="button" variant="ghost">
+            <Eye aria-hidden="true" />
+          </Button>
+        </span>,
       ])}
     />
   )

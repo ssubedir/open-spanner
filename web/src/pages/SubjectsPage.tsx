@@ -1,12 +1,13 @@
 import { useParams, useRouter } from '@tanstack/react-router'
 import { useSelector } from '@tanstack/react-store'
-import { BarChart3, Clock, Database, Download, Hash, Loader2, Search, Users } from 'lucide-react'
+import { BarChart3, Clock, Database, Download, Eye, Hash, Loader2, Search, Users } from 'lucide-react'
 import type React from 'react'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 
 import { appStore, appStoreActions } from '../app-store'
-import type { EntitlementEvent, EntitlementState, SubjectStats, UsageEvent } from '../api'
-import { DataTable, MetricCard, PageHeader } from '../components/dashboard'
+import type { EntitlementEvent, SubjectStats, UsageEvent } from '../api'
+import { DataTable, MetricCard, Modal, PageHeader } from '../components/dashboard'
+import { EntitlementEventDetail, EntitlementEventType, EntitlementStateBadge } from '../components/entitlement-event-detail'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
@@ -29,6 +30,8 @@ export function SubjectsPage({ routeSubject = '' }: SubjectsPageProps) {
   const router = useRouter()
   const {
     detailStatus,
+    entitlementEventLoadingMore,
+    entitlementEventNextCursor,
     entitlementEvents,
     entitlementStates,
     error,
@@ -39,6 +42,7 @@ export function SubjectsPage({ routeSubject = '' }: SubjectsPageProps) {
     loadingMore,
     nextCursor,
     searchQuery,
+    selectedEntitlementEvent,
     selectedSubject,
     status,
   } = useSelector(appStore, (state) => state.subjects)
@@ -46,6 +50,17 @@ export function SubjectsPage({ routeSubject = '' }: SubjectsPageProps) {
   const load = useCallback(() => appStoreActions.loadSubjects(selectedRouteSubject), [selectedRouteSubject])
 
   useInitialLoad(load)
+
+  useEffect(() => {
+    if (!selectedSubject) {
+      return undefined
+    }
+    const poll = window.setInterval(() => {
+      void appStoreActions.loadSubjectEntitlementActivity(selectedSubject, { quiet: true })
+    }, 5000)
+
+    return () => window.clearInterval(poll)
+  }, [selectedSubject])
 
   const visibleSubjects = useMemo(
     () => filterSubjects(items, searchQuery),
@@ -247,10 +262,31 @@ export function SubjectsPage({ routeSubject = '' }: SubjectsPageProps) {
             </div>
           </CardHeader>
           <CardContent>
-            <EntitlementEventTable events={entitlementEvents} selectedSubject={selectedSubject} />
+            <EntitlementEventTable
+              events={entitlementEvents}
+              onSelect={(event) => appStoreActions.setSubjectSelectedEntitlementEvent(event)}
+              selectedSubject={selectedSubject}
+            />
+            {entitlementEventNextCursor ? (
+              <div className="pagination-actions">
+                <Button disabled={entitlementEventLoadingMore} onClick={() => void appStoreActions.loadMoreSubjectEntitlementEvents()} type="button" variant="outline">
+                  {entitlementEventLoadingMore ? <Loader2 className="spin" aria-hidden="true" /> : null}
+                  Load more changes
+                </Button>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       </section>
+
+      {selectedEntitlementEvent ? (
+        <Modal className="!w-full !max-w-[760px]" title="Entitlement Change" onClose={() => appStoreActions.setSubjectSelectedEntitlementEvent(null)}>
+          <EntitlementEventDetail event={selectedEntitlementEvent} />
+          <div className="modal-actions">
+            <Button onClick={() => appStoreActions.setSubjectSelectedEntitlementEvent(null)} type="button" variant="outline">Close</Button>
+          </div>
+        </Modal>
+      ) : null}
     </>
   )
 }
@@ -300,30 +336,26 @@ function MetadataValues({ metadata }: { metadata: Record<string, unknown> }) {
   )
 }
 
-function EntitlementEventTable({ events, selectedSubject }: { events: EntitlementEvent[]; selectedSubject: string }) {
+function EntitlementEventTable({ events, onSelect, selectedSubject }: { events: EntitlementEvent[]; onSelect: (event: EntitlementEvent) => void; selectedSubject: string }) {
   return (
     <DataTable
       emptyLabel={selectedSubject ? 'No entitlement changes for this subject' : 'Select a subject to view entitlement changes'}
-      headers={['Type', 'Meter', 'Plan', 'Message', 'Created']}
+      headers={['Type', 'Meter', 'Plan', 'Usage', 'Message', 'Created', 'Actions']}
       rows={events.map((event) => [
-        <EntitlementStateBadge state={event.state} />,
+        <EntitlementEventType event={event} />,
         <Badge variant="muted">{event.meter}</Badge>,
         event.plan_name,
+        <span>{formatNumber(event.current)} / {formatNumber(event.limit)}</span>,
         <span className="max-w-[460px] truncate">{event.message}</span>,
         formatDate(event.created_at),
+        <span className="table-actions">
+          <Button aria-label={`View ${event.type} entitlement change`} onClick={() => onSelect(event)} size="icon" type="button" variant="ghost">
+            <Eye aria-hidden="true" />
+          </Button>
+        </span>,
       ])}
     />
   )
-}
-
-function EntitlementStateBadge({ state }: { state: EntitlementState['state'] }) {
-  if (state === 'exceeded') {
-    return <Badge variant="warning">Exceeded</Badge>
-  }
-  if (state === 'warning') {
-    return <Badge variant="warning">Warning</Badge>
-  }
-  return <Badge variant="success">OK</Badge>
 }
 
 function filterSubjects(subjects: SubjectStats[], searchQuery: string) {
