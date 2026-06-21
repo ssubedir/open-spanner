@@ -572,6 +572,7 @@ export const Then = {
     await expect(results).toContainText('service.tier')
     await expect(results).toContainText('gold')
     await expect(results).toContainText('12')
+    await Then.usageChartShowsCurrentBuckets(page)
   },
 
   async advancedQueryReturnsOnlyMatchingUsage(page: Page, meterName: string) {
@@ -584,6 +585,17 @@ export const Then = {
     await expect(results).toContainText('12')
     await expect(results).not.toContainText('silver')
     await expect(results).not.toContainText('eu-west-1')
+    await Then.usageChartShowsCurrentBuckets(page)
+  },
+
+  async usageChartShowsCurrentBuckets(page: Page) {
+    const chart = page.locator('.usage-chart-card')
+    await expect(chart).toContainText('Usage Over Time')
+    await expect(chart.getByLabel('Chart bucket')).toBeVisible()
+    await expect(chart.getByLabel('Chart type')).toBeVisible()
+    await expect(chart.getByLabel('Cumulative chart')).toBeVisible()
+    await expect(chart.locator('canvas')).toBeVisible()
+    await expect(chart).toContainText('12')
   },
 
   async advancedUsageBucketCSVIncludesMatchingUsage(download: CSVDownload, scenario: UsageScenario) {

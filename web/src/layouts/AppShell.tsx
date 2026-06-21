@@ -47,11 +47,11 @@ export function AppShell() {
           <span className="brand-mark"><Gauge aria-hidden="true" /></span>
           <span>
             <strong>Open Spanner</strong>
-            <small>Admin</small>
+            <small>Dashboard</small>
           </span>
         </Link>
 
-        <nav className="nav" aria-label="Admin navigation">
+        <nav className="nav" aria-label="Dashboard navigation">
           {navGroups.map((group) => (
             <div className="nav-group" key={group.label}>
               <span className="nav-group-label">{group.label}</span>

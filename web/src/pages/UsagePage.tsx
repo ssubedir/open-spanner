@@ -1,6 +1,6 @@
 import { useSelector } from '@tanstack/react-store'
 import { BarChart3, Copy, Download, FileClock, List, Loader2, Pin, PinOff, RefreshCw, Save, Search, Trash2, X } from 'lucide-react'
-import { type FormEvent, useCallback, useEffect, useMemo } from 'react'
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 
 import { appStore, appStoreActions } from '../app-store'
 import type { UsageEvent } from '../api'
@@ -13,6 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { isActiveExportJob } from '../lib/export-jobs'
 import { formatDate, formatNumber } from '../lib/format'
 import { useInitialLoad } from '../lib/hooks'
+import { UsageChart, type UsageChartMode } from '../components/usage-chart'
 import {
   buildFilterFields,
   firstEqualRuleValue,
@@ -26,6 +27,10 @@ import {
 const maxGroupByFields = 5
 
 export function UsagePage() {
+  const [chartMode, setChartMode] = useState<UsageChartMode>('line')
+  const [chartCumulative, setChartCumulative] = useState(false)
+  const [chartShowPoints, setChartShowPoints] = useState(true)
+  const [chartStacked, setChartStacked] = useState(false)
   const {
     bucketSize,
     breakdownError,
@@ -87,6 +92,13 @@ export function UsagePage() {
     await appStoreActions.queueCurrentUsageExport(activeGroupBy, limit, bucketSize)
   }
 
+  async function changeChartBucketSize(nextBucketSize: string) {
+    appStoreActions.setUsageBucketSize(nextBucketSize)
+    if (buckets.length > 0) {
+      await appStoreActions.submitUsageQuery(activeGroupBy, limit, nextBucketSize)
+    }
+  }
+
   async function confirmDeleteSavedQuery() {
     await appStoreActions.deleteSelectedSavedUsageQuery()
   }
@@ -111,6 +123,16 @@ export function UsagePage() {
   const selectedSavedQuery = savedQueries.find((item) => item.id === selectedSavedQueryID)
   const exportInProgress = exporting !== ''
   const hasActiveExportJobs = useMemo(() => exportJobs.some(isActiveExportJob), [exportJobs])
+  const canStackChart = activeGroupBy.length > 0
+  const chartControls = useMemo(
+    () => ({
+      cumulative: chartCumulative,
+      mode: chartMode,
+      showPoints: chartShowPoints,
+      stacked: canStackChart && chartStacked,
+    }),
+    [canStackChart, chartCumulative, chartMode, chartShowPoints, chartStacked],
+  )
 
   useEffect(() => {
     void appStoreActions.loadUsageDimensionValues()
@@ -335,6 +357,76 @@ export function UsagePage() {
             ) : (
               <div className="breakdown-empty">Choose a meter and time range to view breakdowns.</div>
             )}
+          </CardContent>
+        </Card>
+
+        <Card className="usage-chart-card">
+          <CardHeader className="usage-chart-header">
+            <div>
+              <CardTitle>Usage Over Time</CardTitle>
+              <CardDescription>Graph the current query by bucket, chart type, and series behavior.</CardDescription>
+            </div>
+            <div className="usage-chart-controls" aria-label="Usage chart controls">
+              <label>
+                Chart Bucket
+                <select
+                  aria-label="Chart bucket"
+                  disabled={status === 'loading'}
+                  onChange={(event) => void changeChartBucketSize(event.target.value)}
+                  value={bucketSize}
+                >
+                  <option value="hour">Hour</option>
+                  <option value="day">Day</option>
+                  <option value="month">Month</option>
+                </select>
+              </label>
+              <label>
+                Chart Type
+                <select
+                  aria-label="Chart type"
+                  onChange={(event) => setChartMode(event.target.value as UsageChartMode)}
+                  value={chartMode}
+                >
+                  <option value="line">Line</option>
+                  <option value="area">Filled Area</option>
+                  <option value="bar">Bar</option>
+                </select>
+              </label>
+              <label
+                className={`checkbox-row usage-chart-toggle${canStackChart ? '' : ' disabled'}`}
+                title={canStackChart ? 'Stack grouped chart series.' : 'Choose a Group By field to enable stacking.'}
+              >
+                <input
+                  aria-label="Stack chart series"
+                  checked={canStackChart && chartStacked}
+                  disabled={!canStackChart}
+                  onChange={(event) => setChartStacked(event.target.checked)}
+                  type="checkbox"
+                />
+                <span>Stack</span>
+              </label>
+              <label className="checkbox-row usage-chart-toggle">
+                <input
+                  aria-label="Cumulative chart"
+                  checked={chartCumulative}
+                  onChange={(event) => setChartCumulative(event.target.checked)}
+                  type="checkbox"
+                />
+                <span>Cumulative</span>
+              </label>
+              <label className="checkbox-row usage-chart-toggle">
+                <input
+                  aria-label="Show chart points"
+                  checked={chartShowPoints}
+                  onChange={(event) => setChartShowPoints(event.target.checked)}
+                  type="checkbox"
+                />
+                <span>Points</span>
+              </label>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <UsageChart bucketSize={bucketSize} buckets={buckets} controls={chartControls} groupBy={activeGroupBy} />
           </CardContent>
         </Card>
 

@@ -1366,6 +1366,131 @@ svg {
   min-height: 420px;
 }
 
+.usage-chart-card {
+  overflow: hidden;
+}
+
+.usage-chart-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.usage-chart-controls {
+  display: flex;
+  flex: 1 1 420px;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-end;
+  justify-content: flex-end;
+}
+
+.usage-chart-controls label {
+  flex: 0 1 132px;
+  gap: 5px;
+  font-size: 11px;
+}
+
+.usage-chart-controls select {
+  min-height: 34px;
+  padding: 7px 9px;
+  font-size: 13px;
+}
+
+.usage-chart-toggle {
+  flex: 0 0 auto;
+  min-height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 9px;
+  background: #fff;
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.usage-chart-toggle input {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+}
+
+.usage-chart-toggle.disabled {
+  background: #f8fafc;
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.68;
+}
+
+.usage-chart-shell {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.usage-chart-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.usage-chart-summary strong {
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.1;
+}
+
+.usage-chart-summary span:not(:first-child)::before {
+  content: "•";
+  margin-right: 6px;
+  color: #a6b0bf;
+}
+
+.usage-chart-canvas {
+  position: relative;
+  height: 260px;
+  min-width: 0;
+}
+
+.usage-chart-empty {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  min-height: 220px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: #f8fafc;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 750;
+  text-align: center;
+}
+
+.usage-chart-empty svg {
+  width: 24px;
+  height: 24px;
+  color: var(--primary);
+}
+
+@media (max-width: 760px) {
+  .usage-chart-controls {
+    flex-basis: 100%;
+    justify-content: stretch;
+  }
+
+  .usage-chart-controls label,
+  .usage-chart-toggle {
+    flex: 1 1 124px;
+  }
+}
+
 .usage-events-card .table {
   min-width: 1040px;
 }
