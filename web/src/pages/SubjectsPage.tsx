@@ -10,6 +10,8 @@ import { DataTable, MetricCard, PageHeader } from '../components/dashboard'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
+import { Input } from '../components/ui/input'
+import { Label } from '../components/ui/label'
 import { formatDate, formatNumber } from '../lib/format'
 import { useInitialLoad } from '../lib/hooks'
 
@@ -80,47 +82,46 @@ export function SubjectsPage({ routeSubject = '' }: SubjectsPageProps) {
 
       {error ? <div className="error-banner">{error}</div> : null}
 
-      <section className="metric-grid subject-metrics" aria-label="Subject metrics">
+      <section className="mb-4 grid gap-4 md:grid-cols-3" aria-label="Subject metrics">
         <MetricCard icon={<Users />} label="Subjects" loading={metricsLoading} value={items.length} helper="Subjects with usage" />
         <MetricCard icon={<Hash />} label="Usage Events" loading={metricsLoading} value={sumSubjects(items, 'usage_events')} helper="Events in subject index" />
         <MetricCard icon={<Database />} label="Meter Links" loading={metricsLoading} value={sumSubjects(items, 'meters')} helper="Distinct subject meters" />
       </section>
 
-      <section className="subject-grid">
-        <Card className="subject-list-card">
-          <CardHeader className="subject-card-header">
+      <section className="grid gap-4 xl:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]">
+        <Card className="min-w-0">
+          <CardHeader className="!px-4 !py-3">
             <div>
               <CardTitle>Subjects</CardTitle>
               <CardDescription>Recent activity ordered by last event.</CardDescription>
             </div>
           </CardHeader>
           <CardContent>
-            <div className="subject-toolbar">
-              <label>
+            <div className="border-b border-border p-3">
+              <Label className="grid gap-1.5 text-xs font-bold text-muted">
                 Search
-                <span className="subject-search">
-                  <Search aria-hidden="true" />
-                  <input
+                <span className="relative block">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" aria-hidden="true" />
+                  <Input
                     aria-label="Search subjects"
+                    className="h-10 bg-white pl-9 text-sm"
                     onChange={(event) => appStoreActions.setSubjectSearchQuery(event.currentTarget.value)}
-                    placeholder="org_123"
+                    placeholder="Search subjects"
                     value={searchQuery}
                   />
                 </span>
-              </label>
+              </Label>
             </div>
             <DataTable
+              className="!min-w-0"
               emptyLabel={status === 'loading' ? 'Loading subjects' : 'No subjects found'}
-              headers={['Subject', 'Events', 'Meters', 'Last Event']}
+              headers={['Subject']}
               rows={visibleSubjects.map((subject) => [
                 <SubjectSelectButton
                   active={subject.subject === selectedSubject}
                   onSelect={() => selectSubject(subject.subject)}
                   subject={subject.subject}
                 />,
-                formatNumber(subject.usage_events),
-                formatNumber(subject.meters),
-                formatDate(subject.last_event_at),
               ])}
             />
             {nextCursor ? (
@@ -134,8 +135,8 @@ export function SubjectsPage({ routeSubject = '' }: SubjectsPageProps) {
           </CardContent>
         </Card>
 
-        <Card className="subject-detail-card">
-          <CardHeader className="subject-card-header">
+        <Card className="min-w-0">
+          <CardHeader className="!px-4 !py-3">
             <div>
               <CardTitle>{selectedSubject || 'No subject selected'}</CardTitle>
               <CardDescription>{detailDescription(selectedStats, detailStatus, selectedSubject)}</CardDescription>
@@ -190,8 +191,8 @@ export function SubjectsPage({ routeSubject = '' }: SubjectsPageProps) {
           </CardContent>
         </Card>
 
-        <Card className="span subject-events-card">
-          <CardHeader className="subject-card-header">
+        <Card className="min-w-0 xl:col-span-2 subject-events-card">
+          <CardHeader className="!px-4 !py-3">
             <div>
               <CardTitle>Recent Events</CardTitle>
               <CardDescription>{selectedSubject ? `Latest usage for ${selectedSubject}` : 'Latest usage for the selected subject.'}</CardDescription>

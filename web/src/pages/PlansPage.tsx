@@ -7,6 +7,9 @@ import { DataTable, Modal, PageHeader } from '../components/dashboard'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
+import { Input } from '../components/ui/input'
+import { Label } from '../components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
 import type { Meter, Plan, PlanLimit, PlanSaveRequest, SubjectPlanProgress } from '../api'
 import { formatDate, formatNumber } from '../lib/format'
 import { useInitialLoad } from '../lib/hooks'
@@ -88,13 +91,10 @@ export function PlansPage() {
 
       {error ? <div className="error-banner">{error}</div> : null}
 
-      {meters.length === 0 ? (
-        <div className="info-banner">Create a meter before defining plan limits.</div>
-      ) : null}
-
-      <div className="plans-layout">
-        <Card className="plans-table-card">
-          <CardHeader className="api-key-card-header">
+      <div className="grid max-w-[1480px] gap-4">
+        <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(340px,420px)]">
+        <Card className="min-w-0">
+          <CardHeader className="!px-4 !py-3">
             <div>
               <CardTitle>Plans</CardTitle>
               <CardDescription>Named packages with per-meter quota limits.</CardDescription>
@@ -105,9 +105,9 @@ export function PlansPage() {
               emptyLabel="No plans yet"
               headers={['Plan', 'Limits', 'Updated', 'Actions']}
               rows={items.map((plan) => [
-                <span className="stack-cell">
+                <span className="grid min-w-[220px] gap-1">
                   <strong>{plan.name}</strong>
-                  {plan.description ? <small>{plan.description}</small> : null}
+                  {plan.description ? <small className="max-w-[360px] truncate text-xs text-muted">{plan.description}</small> : null}
                 </span>,
                 <LimitChips limits={plan.limits} />,
                 formatDate(plan.updated_at),
@@ -124,41 +124,42 @@ export function PlansPage() {
           </CardContent>
         </Card>
 
-        <aside className="plans-side-column">
-          <Card className="plan-subject-panel-card">
-            <CardHeader>
+        <aside className="grid min-w-0">
+          <Card className="flex min-h-full min-w-0 flex-col">
+            <CardHeader className="!grid !justify-start !gap-1 !px-4 !py-3">
               <CardTitle>Subject entitlements</CardTitle>
               <CardDescription>Assign a subject to a plan, then inspect current quota progress.</CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="plan-subject-actions">
-                <Button disabled={assigning || items.length === 0} onClick={() => setAssignOpen(true)} type="button">
+            <CardContent className="!grid flex-1 content-end !p-3">
+              <div className="grid gap-2">
+                <Button className="w-full" disabled={assigning || items.length === 0} onClick={() => setAssignOpen(true)} type="button">
                   <Plus aria-hidden="true" />
                   Assign subject
                 </Button>
-                <Button disabled={progressStatus === 'loading'} onClick={() => setProgressOpen(true)} type="button" variant="outline">
+                <Button className="w-full" disabled={progressStatus === 'loading'} onClick={() => setProgressOpen(true)} type="button" variant="outline">
                   {progressStatus === 'loading' ? <Loader2 className="spin" aria-hidden="true" /> : <GaugeCircle aria-hidden="true" />}
                   Check progress
                 </Button>
               </div>
             </CardContent>
           </Card>
-
-          {progress ? (
-            <Card className="plan-progress-result-card">
-              <CardHeader>
-                <CardTitle>Usage Progress</CardTitle>
-                <CardDescription>Current window usage against assigned plan limits.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ProgressList progress={progress} />
-              </CardContent>
-            </Card>
-          ) : null}
         </aside>
+        </div>
 
-        <Card className="plan-assignment-table-card">
-          <CardHeader className="api-key-card-header">
+        {progress ? (
+          <Card className="max-w-[920px] min-w-0">
+            <CardHeader className="!grid !justify-start !gap-1 !px-4 !py-3">
+              <CardTitle>Usage Progress</CardTitle>
+              <CardDescription>Current window usage against assigned plan limits.</CardDescription>
+            </CardHeader>
+            <CardContent className="!p-3">
+              <ProgressList progress={progress} />
+            </CardContent>
+          </Card>
+        ) : null}
+
+        <Card className="min-w-0">
+          <CardHeader className="!px-4 !py-3">
             <div>
               <CardTitle>Assignments</CardTitle>
               <CardDescription>Subjects currently tied to a plan.</CardDescription>
@@ -211,19 +212,23 @@ export function PlansPage() {
       ) : null}
 
       {assignOpen ? (
-        <Modal className="plan-small-modal" title="Assign Subject" onClose={() => setAssignOpen(false)}>
-          <form className="modal-form plan-single-column-form" onSubmit={(event) => void submitAssignment(event)}>
-            <label>
+        <Modal className="!w-full !max-w-[480px]" title="Assign Subject" onClose={() => setAssignOpen(false)}>
+          <form className="modal-form !grid-cols-1" onSubmit={(event) => void submitAssignment(event)}>
+            <Label className="grid gap-1.5">
               Subject
-              <input name="subject" placeholder="org_123" required />
-            </label>
-            <label>
+              <Input name="subject" placeholder="org_123" required />
+            </Label>
+            <Label className="grid gap-1.5">
               Plan
-              <select name="plan_id" required>
-                <option value="">Select plan</option>
-                {items.map((plan) => <option key={plan.id} value={plan.id}>{plan.name}</option>)}
-              </select>
-            </label>
+              <Select name="plan_id" required>
+                <SelectTrigger className="min-h-[38px] w-full">
+                  <SelectValue placeholder="Select plan" />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  {items.map((plan) => <SelectItem key={plan.id} value={plan.id}>{plan.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </Label>
             <div className="modal-actions">
               <Button onClick={() => setAssignOpen(false)} type="button" variant="outline">Cancel</Button>
               <Button disabled={assigning || items.length === 0} type="submit">
@@ -236,17 +241,17 @@ export function PlansPage() {
       ) : null}
 
       {progressOpen ? (
-        <Modal className="plan-small-modal" title="Check Usage Progress" onClose={() => setProgressOpen(false)}>
-          <form className="modal-form plan-single-column-form" onSubmit={(event) => void submitProgress(event)}>
-            <label>
+        <Modal className="!w-full !max-w-[480px]" title="Check Usage Progress" onClose={() => setProgressOpen(false)}>
+          <form className="modal-form !grid-cols-1" onSubmit={(event) => void submitProgress(event)}>
+            <Label className="grid gap-1.5">
               Subject
-              <input
+              <Input
                 name="subject"
                 onChange={(event) => appStoreActions.setPlanProgressSubject(event.currentTarget.value)}
                 placeholder="org_123"
                 value={progressSubject}
               />
-            </label>
+            </Label>
             <div className="modal-actions">
               <Button onClick={() => setProgressOpen(false)} type="button" variant="outline">Cancel</Button>
               <Button disabled={progressStatus === 'loading'} type="submit">
@@ -319,19 +324,19 @@ function PlanModal({ meters, onClose, onSubmit, plan, saving, title }: { meters:
   }
 
   return (
-    <Modal className="plan-modal" title={title} onClose={onClose}>
-      <form className="modal-form plan-modal-form" onSubmit={(event) => void submit(event)}>
-        <label>
+    <Modal className="!w-full !max-w-[780px]" title={title} onClose={onClose}>
+      <form className="grid max-h-[calc(100vh-128px)] min-w-0 grid-cols-2 gap-2.5 overflow-auto p-4 max-md:grid-cols-1" onSubmit={(event) => void submit(event)}>
+        <Label className="grid min-w-0 gap-1.5">
           Name
-          <input defaultValue={plan?.name || ''} name="name" placeholder="Pro" required />
-        </label>
-        <label>
+          <Input defaultValue={plan?.name || ''} name="name" placeholder="Pro" required />
+        </Label>
+        <Label className="col-span-full grid min-w-0 gap-1.5">
           Description
-          <input defaultValue={plan?.description || ''} name="description" placeholder="Higher monthly quota for growing teams" />
-        </label>
+          <Input defaultValue={plan?.description || ''} name="description" placeholder="Higher monthly quota for growing teams" />
+        </Label>
 
-        <div className="plan-limit-editor">
-          <div className="plan-limit-editor-header">
+        <div className="col-span-full grid gap-2 rounded-md border border-border bg-[#f8fafc] p-2.5">
+          <div className="flex items-center justify-between gap-2.5">
             <span className="field-label">Limits</span>
             <Button onClick={addLimit} size="sm" type="button" variant="outline">
               <Plus aria-hidden="true" />
@@ -339,36 +344,45 @@ function PlanModal({ meters, onClose, onSubmit, plan, saving, title }: { meters:
             </Button>
           </div>
           {limits.map((limit) => (
-            <div className="plan-limit-row" key={limit.id}>
-              <label>
+            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_36px] items-end gap-2 rounded-md border border-[#e7ebf1] bg-white p-2 lg:grid-cols-[minmax(160px,1fr)_minmax(120px,140px)_minmax(120px,140px)_minmax(105px,125px)_36px]" key={limit.id}>
+              <Label className="col-span-full grid min-w-0 gap-1.5 lg:col-span-1">
                 Meter
-                <select required value={limit.meter} onChange={(event) => updateLimit(limit.id, { meter: event.currentTarget.value })}>
-                  <option value="">Select meter</option>
-                  {meters.map((meter) => <option key={meter.id} value={meter.name}>{meter.name}</option>)}
-                </select>
-              </label>
-              <label>
+                <Select onValueChange={(value) => updateLimit(limit.id, { meter: value })} required value={limit.meter || undefined}>
+                  <SelectTrigger className="min-h-[38px] w-full">
+                    <SelectValue placeholder="Select meter" />
+                  </SelectTrigger>
+                  <SelectContent position="popper">
+                    {meters.map((meter) => <SelectItem key={meter.id} value={meter.name}>{meter.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </Label>
+              <Label className="col-span-full grid min-w-0 gap-1.5 lg:col-span-1">
                 Period
-                <select value={limit.period} onChange={(event) => updateLimit(limit.id, { period: event.currentTarget.value })}>
-                  {periodOptions.map((period) => <option key={period.value} value={period.value}>{period.label}</option>)}
-                </select>
-              </label>
-              <label>
+                <Select onValueChange={(value) => updateLimit(limit.id, { period: value })} value={limit.period}>
+                  <SelectTrigger className="min-h-[38px] w-full">
+                    <SelectValue placeholder="Select period" />
+                  </SelectTrigger>
+                  <SelectContent position="popper">
+                    {periodOptions.map((period) => <SelectItem key={period.value} value={period.value}>{period.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </Label>
+              <Label className="col-span-full grid min-w-0 gap-1.5 lg:col-span-1">
                 Limit
-                <input min="0" required step="any" type="number" value={limit.limit} onChange={(event) => updateLimit(limit.id, { limit: event.currentTarget.value })} />
-              </label>
-              <label>
+                <Input min="0" required step="any" type="number" value={limit.limit} onChange={(event) => updateLimit(limit.id, { limit: event.currentTarget.value })} />
+              </Label>
+              <Label className="col-span-full grid min-w-0 gap-1.5 lg:col-span-1">
                 Warn %
-                <input min="1" max="100" step="any" type="number" value={limit.warningPercent} onChange={(event) => updateLimit(limit.id, { warningPercent: event.currentTarget.value })} />
-              </label>
-              <Button aria-label="Remove limit" disabled={limits.length <= 1} onClick={() => removeLimit(limit.id)} size="icon" type="button" variant="ghost">
+                <Input min="1" max="100" step="any" type="number" value={limit.warningPercent} onChange={(event) => updateLimit(limit.id, { warningPercent: event.currentTarget.value })} />
+              </Label>
+              <Button aria-label="Remove limit" className="col-start-2 self-end lg:col-start-auto" disabled={limits.length <= 1} onClick={() => removeLimit(limit.id)} size="icon" type="button" variant="ghost">
                 <Trash2 aria-hidden="true" />
               </Button>
             </div>
           ))}
         </div>
 
-        <div className="modal-actions">
+        <div className="col-span-full flex justify-end gap-2.5 border-t border-border pt-4">
           <Button onClick={onClose} type="button" variant="outline">Cancel</Button>
           <Button disabled={saving || meters.length === 0} type="submit">
             {saving ? <Loader2 className="spin" aria-hidden="true" /> : null}
@@ -385,9 +399,9 @@ function LimitChips({ limits }: { limits: PlanLimit[] }) {
     return <span className="muted">No limits</span>
   }
   return (
-    <span className="plan-limit-chips">
+    <span className="flex max-w-[520px] flex-wrap gap-1.5">
       {limits.map((limit) => (
-        <Badge key={limit.id} variant="muted">
+        <Badge className="inline-flex gap-1.5" key={limit.id} variant="muted">
           <strong>{limit.meter}</strong>
           <span>{formatNumber(limit.limit)} / {limit.period}</span>
         </Badge>
@@ -398,23 +412,23 @@ function LimitChips({ limits }: { limits: PlanLimit[] }) {
 
 function ProgressList({ progress }: { progress: SubjectPlanProgress }) {
   return (
-    <div className="plan-progress-list">
-      <div className="plan-progress-heading">
-        <div>
+    <div className="grid gap-3">
+      <div className="flex justify-between gap-3 text-xs text-muted">
+        <div className="flex min-w-0 items-center gap-2">
           <strong>{progress.subject}</strong>
           <small>{progress.plan.name}</small>
         </div>
       </div>
       {progress.items.map((item) => (
-        <div className="plan-progress-item" key={`${item.meter}-${item.period}`}>
-          <div>
+        <div className="grid gap-2 rounded-md border border-border bg-[#f8fafc] p-3" key={`${item.meter}-${item.period}`}>
+          <div className="flex items-center justify-between gap-2">
             <strong>{item.meter}</strong>
             <StateBadge state={item.state} />
           </div>
-          <div className="quota-bar" aria-label={`${item.meter} quota progress`}>
-            <span style={{ width: `${Math.min(item.percent, 100)}%` }} />
+          <div className="h-2 overflow-hidden rounded-full bg-[#e2e8f0]" aria-label={`${item.meter} quota progress`}>
+            <span className="block h-full rounded-[inherit] bg-primary" style={{ width: `${Math.min(item.percent, 100)}%` }} />
           </div>
-          <small>
+          <small className="text-xs text-muted">
             {formatNumber(item.current)} / {formatNumber(item.limit)} {item.unit} this {item.period}
             {item.remaining > 0 ? `, ${formatNumber(item.remaining)} remaining` : ''}
           </small>

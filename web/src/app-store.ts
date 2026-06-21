@@ -1745,6 +1745,8 @@ export const appStoreActions = {
   async saveCurrentUsageQuery() {
     const state = appStore.state.usage
     const selectedID = state.selectedSavedQueryID
+    const selectedQuery = state.savedQueries.find((item) => item.id === selectedID)
+    const position = selectedQuery?.pinned ? selectedQuery.position : nextPinnedPosition(state.savedQueries, selectedID)
     setUsageState({ savedQueryError: '', savedQuerySaving: true })
     try {
       const input = {
@@ -1752,8 +1754,8 @@ export const appStoreActions = {
         group_by: state.groupBy,
         limit: state.limit,
         name: state.savedQueryName,
-        pinned: state.savedQueries.find((item) => item.id === selectedID)?.pinned ?? false,
-        position: state.savedQueries.find((item) => item.id === selectedID)?.position ?? 0,
+        pinned: true,
+        position,
         query: state.filterQuery,
       }
       const saved = selectedID
@@ -1797,29 +1799,6 @@ export const appStoreActions = {
       }))
     } catch (err) {
       setUsageState({ savedQueryError: errorMessage(err, 'Unable to delete usage query') })
-      throw err
-    } finally {
-      setUsageState({ savedQuerySaving: false })
-    }
-  },
-  async toggleSavedUsageQueryPinned(query: SavedUsageQuery) {
-    const state = appStore.state.usage
-    const pinned = !query.pinned
-    const position = pinned
-      ? nextPinnedPosition(state.savedQueries, query.id)
-      : 0
-
-    setUsageState({ savedQueryError: '', savedQuerySaving: true })
-    try {
-      const updated = await updateSavedUsageQuery(query.id, savedUsageQueryRequest(query, { pinned, position }))
-      const list = await listSavedUsageQueries()
-      setUsageState({
-        savedQueries: list.items,
-        selectedSavedQueryID: state.selectedSavedQueryID === query.id ? updated.id : state.selectedSavedQueryID,
-      })
-      return updated
-    } catch (err) {
-      setUsageState({ savedQueryError: errorMessage(err, 'Unable to update pinned query') })
       throw err
     } finally {
       setUsageState({ savedQuerySaving: false })
@@ -2107,18 +2086,6 @@ function mergeSavedUsageQuery(items: SavedUsageQuery[], query: SavedUsageQuery) 
   const next = items.filter((item) => item.id !== query.id)
   next.push(query)
   return next.sort((left, right) => Number(right.pinned) - Number(left.pinned) || left.position - right.position || left.name.localeCompare(right.name))
-}
-
-function savedUsageQueryRequest(query: SavedUsageQuery, overrides: Partial<Pick<SavedUsageQuery, 'pinned' | 'position'>> = {}) {
-  return {
-    bucket_size: query.bucket_size,
-    group_by: query.group_by,
-    limit: query.limit,
-    name: query.name,
-    pinned: overrides.pinned ?? query.pinned,
-    position: overrides.position ?? query.position,
-    query: query.query,
-  }
 }
 
 function nextPinnedPosition(items: SavedUsageQuery[], excludeID: string) {

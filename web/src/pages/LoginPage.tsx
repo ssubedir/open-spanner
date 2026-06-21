@@ -5,6 +5,8 @@ import type { FormEvent } from 'react'
 
 import { appStore, appStoreActions } from '../app-store'
 import { Button } from '../components/ui/button'
+import { Input } from '../components/ui/input'
+import { Label } from '../components/ui/label'
 
 export function LoginPage() {
   const router = useRouter()
@@ -49,20 +51,34 @@ export function LoginPage() {
         ) : null}
 
         <form className="auth-form login-form" onSubmit={(event) => void submit(event)}>
-          <label className="auth-field">
+          <Label className="auth-field">
             <span>Email</span>
             <span className="auth-input-shell">
               <Mail aria-hidden="true" />
-              <input autoComplete="email" name="email" placeholder="admin@example.com" required type="email" />
+              <Input
+                autoComplete="email"
+                className="h-auto border-0 bg-transparent p-0 shadow-none focus-visible:border-transparent focus-visible:ring-0"
+                name="email"
+                placeholder="admin@example.com"
+                required
+                type="email"
+              />
             </span>
-          </label>
-          <label className="auth-field">
+          </Label>
+          <Label className="auth-field">
             <span>Password</span>
             <span className="auth-input-shell">
               <LockKeyhole aria-hidden="true" />
-              <input autoComplete="current-password" minLength={8} name="password" required type="password" />
+              <Input
+                autoComplete="current-password"
+                className="h-auto border-0 bg-transparent p-0 shadow-none focus-visible:border-transparent focus-visible:ring-0"
+                minLength={8}
+                name="password"
+                required
+                type="password"
+              />
             </span>
-          </label>
+          </Label>
           <Button disabled={loading} type="submit">
             {loading ? <Loader2 className="spin" aria-hidden="true" /> : <LogIn aria-hidden="true" />}
             Sign in

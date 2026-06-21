@@ -7,9 +7,16 @@ import { DataTable, Modal, PageHeader } from '../components/dashboard'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
+import { Checkbox } from '../components/ui/checkbox'
+import { Input } from '../components/ui/input'
+import { Label } from '../components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
+import { Textarea } from '../components/ui/textarea'
 import { formatDate, formatNumber } from '../lib/format'
 import { useInitialLoad } from '../lib/hooks'
 import type { AlertDestination, AlertDestinationRequest, AlertDestinationUpdateRequest, AlertEvent, AlertRule, AlertRuleRequest, AlertRuleUpdateRequest, Meter } from '../api'
+
+const noAlertGroupByValue = '__total__'
 
 const comparators = [
   ['gte', '>='],
@@ -146,13 +153,13 @@ export function AlertsPage() {
         </section>
       ) : null}
 
-      <Card className="api-key-table-card alert-destinations-card">
-        <CardHeader className="api-key-card-header">
+      <Card className="mb-3 min-w-0">
+        <CardHeader className="!px-4 !py-3">
           <div>
             <CardTitle>Destinations</CardTitle>
             <CardDescription>Reusable delivery targets for alert notifications.</CardDescription>
           </div>
-          <div className="card-header-actions">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <Button disabled={saving} onClick={() => appStoreActions.setAlertDestinationCreating(true)} type="button">
               <Plus aria-hidden="true" />
               New destination
@@ -184,13 +191,13 @@ export function AlertsPage() {
         </CardContent>
       </Card>
 
-      <Card className="api-key-table-card alert-rules-card">
-        <CardHeader className="api-key-card-header">
+      <Card className="mb-3 min-w-0">
+        <CardHeader className="!px-4 !py-3">
           <div>
             <CardTitle>Rules</CardTitle>
             <CardDescription>Active and inactive threshold definitions.</CardDescription>
           </div>
-          <div className="card-header-actions">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <Button disabled={saving} onClick={() => appStoreActions.setAlertCreating(true)} type="button">
               <Plus aria-hidden="true" />
               New rule
@@ -225,7 +232,7 @@ export function AlertsPage() {
       </Card>
 
       <Card>
-        <CardHeader className="api-key-card-header">
+        <CardHeader className="!px-4 !py-3">
           <div>
             <CardTitle>Recent Events</CardTitle>
             <CardDescription>Triggered, resolved, and failed evaluations.</CardDescription>
@@ -264,72 +271,102 @@ export function AlertsPage() {
       </Card>
 
       {creating ? (
-        <Modal className="alert-rule-modal" title="Create Alert Rule" onClose={() => appStoreActions.setAlertCreating(false)}>
+        <Modal className="!w-full !max-w-[760px]" title="Create Alert Rule" onClose={() => appStoreActions.setAlertCreating(false)}>
           <form className="form-grid alert-rule-modal-form" onSubmit={(event) => void submitCreate(event)}>
-            <label className="wide">
+            <Label className="wide grid gap-1.5">
               Name
-              <input name="name" placeholder="High API traffic" required />
-            </label>
-            <label>
+              <Input name="name" placeholder="High API traffic" required />
+            </Label>
+            <Label className="grid gap-1.5">
               Meter
-              <select name="meter" required>
-                <option value="">Select meter</option>
-                {meters.map((meter) => <option key={meter.id} value={meter.name}>{meter.name}</option>)}
-              </select>
-            </label>
-            <label>
+              <Select name="meter" required>
+                <SelectTrigger className="min-h-[38px] w-full">
+                  <SelectValue placeholder="Select meter" />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  {meters.map((meter) => <SelectItem key={meter.id} value={meter.name}>{meter.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </Label>
+            <Label className="grid gap-1.5">
               Threshold
-              <input name="threshold" placeholder="1000" required step="any" type="number" />
-            </label>
-            <label>
+              <Input name="threshold" placeholder="1000" required step="any" type="number" />
+            </Label>
+            <Label className="grid gap-1.5">
               Comparator
-              <select name="comparator" defaultValue="gte">
-                {comparators.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-              </select>
-            </label>
-            <label>
+              <Select defaultValue="gte" name="comparator">
+                <SelectTrigger className="min-h-[38px] w-full">
+                  <SelectValue placeholder="Select comparator" />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  {comparators.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </Label>
+            <Label className="grid gap-1.5">
               Window
-              <select name="window_seconds" defaultValue="3600">
-                <option value="300">5 minutes</option>
-                <option value="900">15 minutes</option>
-                <option value="3600">1 hour</option>
-                <option value="86400">1 day</option>
-              </select>
-            </label>
-            <label>
+              <Select defaultValue="3600" name="window_seconds">
+                <SelectTrigger className="min-h-[38px] w-full">
+                  <SelectValue placeholder="Select window" />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  <SelectItem value="300">5 minutes</SelectItem>
+                  <SelectItem value="900">15 minutes</SelectItem>
+                  <SelectItem value="3600">1 hour</SelectItem>
+                  <SelectItem value="86400">1 day</SelectItem>
+                </SelectContent>
+              </Select>
+            </Label>
+            <Label className="grid gap-1.5">
               Evaluate Every
-              <select name="evaluation_interval_seconds" defaultValue="60">
-                <option value="30">30 seconds</option>
-                <option value="60">1 minute</option>
-                <option value="300">5 minutes</option>
-                <option value="900">15 minutes</option>
-              </select>
-            </label>
-            <label>
+              <Select defaultValue="60" name="evaluation_interval_seconds">
+                <SelectTrigger className="min-h-[38px] w-full">
+                  <SelectValue placeholder="Select interval" />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  <SelectItem value="30">30 seconds</SelectItem>
+                  <SelectItem value="60">1 minute</SelectItem>
+                  <SelectItem value="300">5 minutes</SelectItem>
+                  <SelectItem value="900">15 minutes</SelectItem>
+                </SelectContent>
+              </Select>
+            </Label>
+            <Label className="grid gap-1.5">
               Evaluate Per
-              <select name="group_by" defaultValue="">
-                {groupByOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-            </label>
-            <label>
+              <Select defaultValue={noAlertGroupByValue} name="group_by">
+                <SelectTrigger className="min-h-[38px] w-full">
+                  <SelectValue placeholder="Select grouping" />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  {groupByOptions.map((option) => (
+                    <SelectItem key={option.value || noAlertGroupByValue} value={option.value || noAlertGroupByValue}>{option.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Label>
+            <Label className="grid gap-1.5">
               Destination
-              <select name="destination_id" required>
-                <option value="">Select destination</option>
-                {destinations.map((destination) => <option key={destination.id} value={destination.id}>{destination.name}</option>)}
-              </select>
-            </label>
-            <label>
+              <Select name="destination_id" required>
+                <SelectTrigger className="min-h-[38px] w-full">
+                  <SelectValue placeholder="Select destination" />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  {destinations.map((destination) => <SelectItem key={destination.id} value={destination.id}>{destination.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </Label>
+            <Label className="grid gap-1.5">
               Subject
-              <input name="subject" placeholder="Optional subject" />
-            </label>
-            <label>
+              <Input name="subject" placeholder="Optional subject" />
+            </Label>
+            <Label className="grid gap-1.5">
               Metadata Filters
-              <textarea name="metadata" placeholder={'region=us-east\nplan=enterprise'} rows={3} />
-            </label>
-            <label className="checkbox-row wide">
-              <input defaultChecked name="enabled" type="checkbox" />
+              <Textarea name="metadata" placeholder={'region=us-east\nplan=enterprise'} rows={3} />
+            </Label>
+            <Label className="checkbox-row wide">
+              <Checkbox defaultChecked name="enabled" />
               Enabled
-            </label>
+            </Label>
             <div className="modal-actions wide">
               <Button onClick={() => appStoreActions.setAlertCreating(false)} type="button" variant="outline">Cancel</Button>
               <Button disabled={saving} type="submit">
@@ -342,61 +379,82 @@ export function AlertsPage() {
       ) : null}
 
       {editing ? (
-        <Modal className="alert-rule-modal" title="Edit Alert Rule" onClose={() => appStoreActions.setAlertEditing(null)}>
+        <Modal className="!w-full !max-w-[760px]" title="Edit Alert Rule" onClose={() => appStoreActions.setAlertEditing(null)}>
           <form className="form-grid alert-rule-modal-form" onSubmit={(event) => void submitUpdate(event)}>
-            <label className="wide">
+            <Label className="wide grid gap-1.5">
               Name
-              <input defaultValue={editing.name} name="name" required />
-            </label>
-            <label>
+              <Input defaultValue={editing.name} name="name" required />
+            </Label>
+            <Label className="grid gap-1.5">
               Meter
-              <select defaultValue={editing.meter} name="meter" required>
-                {meters.map((meter) => <option key={meter.id} value={meter.name}>{meter.name}</option>)}
-              </select>
-            </label>
-            <label>
+              <Select defaultValue={editing.meter} name="meter" required>
+                <SelectTrigger className="min-h-[38px] w-full">
+                  <SelectValue placeholder="Select meter" />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  {meters.map((meter) => <SelectItem key={meter.id} value={meter.name}>{meter.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </Label>
+            <Label className="grid gap-1.5">
               Threshold
-              <input defaultValue={editing.threshold} name="threshold" required step="any" type="number" />
-            </label>
-            <label>
+              <Input defaultValue={editing.threshold} name="threshold" required step="any" type="number" />
+            </Label>
+            <Label className="grid gap-1.5">
               Comparator
-              <select defaultValue={editing.comparator} name="comparator">
-                {comparators.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-              </select>
-            </label>
-            <label>
+              <Select defaultValue={editing.comparator} name="comparator">
+                <SelectTrigger className="min-h-[38px] w-full">
+                  <SelectValue placeholder="Select comparator" />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  {comparators.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </Label>
+            <Label className="grid gap-1.5">
               Window
-              <input defaultValue={editing.window_seconds} min="60" name="window_seconds" required type="number" />
-            </label>
-            <label>
+              <Input defaultValue={editing.window_seconds} min="60" name="window_seconds" required type="number" />
+            </Label>
+            <Label className="grid gap-1.5">
               Evaluate Every
-              <input defaultValue={editing.evaluation_interval_seconds} min="1" name="evaluation_interval_seconds" required type="number" />
-            </label>
-            <label>
+              <Input defaultValue={editing.evaluation_interval_seconds} min="1" name="evaluation_interval_seconds" required type="number" />
+            </Label>
+            <Label className="grid gap-1.5">
               Evaluate Per
-              <select defaultValue={editing.group_by || ''} name="group_by">
-                {groupByOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-            </label>
-            <label className="wide">
+              <Select defaultValue={editing.group_by || noAlertGroupByValue} name="group_by">
+                <SelectTrigger className="min-h-[38px] w-full">
+                  <SelectValue placeholder="Select grouping" />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  {groupByOptions.map((option) => (
+                    <SelectItem key={option.value || noAlertGroupByValue} value={option.value || noAlertGroupByValue}>{option.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Label>
+            <Label className="wide grid gap-1.5">
               Destination
-              <select defaultValue={editing.destination_id || ''} name="destination_id" required>
-                <option value="">Select destination</option>
-                {destinations.map((destination) => <option key={destination.id} value={destination.id}>{destination.name}</option>)}
-              </select>
-            </label>
-            <label className="wide">
+              <Select defaultValue={editing.destination_id || undefined} name="destination_id" required>
+                <SelectTrigger className="min-h-[38px] w-full">
+                  <SelectValue placeholder="Select destination" />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  {destinations.map((destination) => <SelectItem key={destination.id} value={destination.id}>{destination.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </Label>
+            <Label className="wide grid gap-1.5">
               Subject
-              <input defaultValue={editing.subject || ''} name="subject" />
-            </label>
-            <label className="wide">
+              <Input defaultValue={editing.subject || ''} name="subject" />
+            </Label>
+            <Label className="wide grid gap-1.5">
               Metadata Filters
-              <textarea defaultValue={metadataText(editing.metadata)} name="metadata" rows={3} />
-            </label>
-            <label className="checkbox-row wide">
-              <input defaultChecked={editing.enabled} name="enabled" type="checkbox" />
+              <Textarea defaultValue={metadataText(editing.metadata)} name="metadata" rows={3} />
+            </Label>
+            <Label className="checkbox-row wide">
+              <Checkbox defaultChecked={editing.enabled} name="enabled" />
               Enabled
-            </label>
+            </Label>
             <div className="modal-actions wide">
               <Button onClick={() => appStoreActions.setAlertEditing(null)} type="button" variant="outline">Cancel</Button>
               <Button disabled={saving} type="submit">Save</Button>
@@ -406,26 +464,31 @@ export function AlertsPage() {
       ) : null}
 
       {destinationCreating ? (
-        <Modal className="alert-rule-modal" title="Create Alert Destination" onClose={() => appStoreActions.setAlertDestinationCreating(false)}>
+        <Modal className="!w-full !max-w-[760px]" title="Create Alert Destination" onClose={() => appStoreActions.setAlertDestinationCreating(false)}>
           <form className="form-grid alert-rule-modal-form" onSubmit={(event) => void submitDestinationCreate(event)}>
-            <label className="wide">
+            <Label className="wide grid gap-1.5">
               Name
-              <input name="name" placeholder="Primary webhook" required />
-            </label>
-            <label>
+              <Input name="name" placeholder="Primary webhook" required />
+            </Label>
+            <Label className="grid gap-1.5">
               Type
-              <select name="type" defaultValue="webhook">
-                <option value="webhook">Webhook</option>
-              </select>
-            </label>
-            <label className="wide">
+              <Select defaultValue="webhook" name="type">
+                <SelectTrigger className="min-h-[38px] w-full">
+                  <SelectValue placeholder="Select type" />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  <SelectItem value="webhook">Webhook</SelectItem>
+                </SelectContent>
+              </Select>
+            </Label>
+            <Label className="wide grid gap-1.5">
               Webhook URL
-              <input name="webhook_url" placeholder="https://example.com/open-spanner/alerts" required type="url" />
-            </label>
-            <label className="checkbox-row wide">
-              <input defaultChecked name="enabled" type="checkbox" />
+              <Input name="webhook_url" placeholder="https://example.com/open-spanner/alerts" required type="url" />
+            </Label>
+            <Label className="checkbox-row wide">
+              <Checkbox defaultChecked name="enabled" />
               Enabled
-            </label>
+            </Label>
             <div className="modal-actions wide">
               <Button onClick={() => appStoreActions.setAlertDestinationCreating(false)} type="button" variant="outline">Cancel</Button>
               <Button disabled={saving} type="submit">
@@ -438,26 +501,31 @@ export function AlertsPage() {
       ) : null}
 
       {destinationEditing ? (
-        <Modal className="alert-rule-modal" title="Edit Alert Destination" onClose={() => appStoreActions.setAlertDestinationEditing(null)}>
+        <Modal className="!w-full !max-w-[760px]" title="Edit Alert Destination" onClose={() => appStoreActions.setAlertDestinationEditing(null)}>
           <form className="form-grid alert-rule-modal-form" onSubmit={(event) => void submitDestinationUpdate(event)}>
-            <label className="wide">
+            <Label className="wide grid gap-1.5">
               Name
-              <input defaultValue={destinationEditing.name} name="name" required />
-            </label>
-            <label>
+              <Input defaultValue={destinationEditing.name} name="name" required />
+            </Label>
+            <Label className="grid gap-1.5">
               Type
-              <select defaultValue={destinationEditing.type || 'webhook'} name="type">
-                <option value="webhook">Webhook</option>
-              </select>
-            </label>
-            <label className="wide">
+              <Select defaultValue={destinationEditing.type || 'webhook'} name="type">
+                <SelectTrigger className="min-h-[38px] w-full">
+                  <SelectValue placeholder="Select type" />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  <SelectItem value="webhook">Webhook</SelectItem>
+                </SelectContent>
+              </Select>
+            </Label>
+            <Label className="wide grid gap-1.5">
               Webhook URL
-              <input defaultValue={destinationEditing.webhook_url} name="webhook_url" required type="url" />
-            </label>
-            <label className="checkbox-row wide">
-              <input defaultChecked={destinationEditing.enabled} name="enabled" type="checkbox" />
+              <Input defaultValue={destinationEditing.webhook_url} name="webhook_url" required type="url" />
+            </Label>
+            <Label className="checkbox-row wide">
+              <Checkbox defaultChecked={destinationEditing.enabled} name="enabled" />
               Enabled
-            </label>
+            </Label>
             <div className="modal-actions wide">
               <Button onClick={() => appStoreActions.setAlertDestinationEditing(null)} type="button" variant="outline">Cancel</Button>
               <Button disabled={saving} type="submit">Save</Button>
@@ -727,7 +795,7 @@ function alertRequestFromForm(form: FormData): AlertRuleRequest {
     comparator: String(form.get('comparator') || 'gte'),
     enabled: form.get('enabled') === 'on',
     evaluation_interval_seconds: numberField(form, 'evaluation_interval_seconds'),
-    group_by: String(form.get('group_by') || '').trim(),
+    group_by: optionalSelectField(form, 'group_by', noAlertGroupByValue),
     metadata: metadataFromText(String(form.get('metadata') || '')),
     meter: String(form.get('meter') || ''),
     name: String(form.get('name') || ''),
@@ -770,6 +838,11 @@ function numberField(form: FormData, name: string) {
 function optionalString(form: FormData, name: string) {
   const value = String(form.get(name) || '').trim()
   return value || undefined
+}
+
+function optionalSelectField(form: FormData, name: string, emptyValue: string) {
+  const value = String(form.get(name) || '').trim()
+  return value === emptyValue ? '' : value
 }
 
 function metadataFromText(value: string) {

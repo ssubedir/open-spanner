@@ -58,15 +58,16 @@ export function ExportsPage() {
         action={null}
       />
 
-      <section className="exports-grid">
+      <section className="mb-4 grid gap-4 md:grid-cols-3">
         <MetricCard icon={<Clock3 />} label="Active" loading={metricsLoading} value={stats.active} helper="Queued or running" />
         <MetricCard icon={<CheckCircle2 />} label="Completed" loading={metricsLoading} value={stats.completed} helper="Ready files" />
         <MetricCard icon={<AlertTriangle />} label="Needs Action" loading={metricsLoading} value={stats.needsAction} helper="Failed or canceled" />
       </section>
 
-      <div className="exports-filter-bar" aria-label="Export status filters">
+      <div className="mb-3 flex flex-wrap gap-2" aria-label="Export status filters">
         {statusFilters.map((status) => (
           <Button
+            className="gap-2"
             aria-pressed={statusFilter === status}
             key={status}
             onClick={() => setStatusFilter(status)}

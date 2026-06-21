@@ -8,6 +8,10 @@ import { EmptyRow, Modal, PageHeader } from '../components/dashboard'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
+import { Checkbox } from '../components/ui/checkbox'
+import { Input } from '../components/ui/input'
+import { Label } from '../components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
 import { formatDate, formatNumber } from '../lib/format'
 import { useInitialLoad } from '../lib/hooks'
@@ -105,13 +109,13 @@ export function MetersPage() {
 
       {error ? <div className="error-banner">{error}</div> : null}
 
-      <Card className="meter-table-card">
-        <CardHeader className="meter-card-header">
+      <Card className="min-w-0">
+        <CardHeader className="!px-4 !py-3">
           <div>
             <CardTitle>Meters</CardTitle>
             <CardDescription>Configured meter definitions and current activity.</CardDescription>
           </div>
-          <div className="card-header-actions">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <Button disabled={saving} onClick={() => appStoreActions.setMeterCreating(true)} type="button">
               <Plus aria-hidden="true" />
               New meter
@@ -141,9 +145,9 @@ export function MetersPage() {
                   return (
                     <TableRow key={meter.id}>
                       <TableCell>
-                        <div className="stack-cell">
+                        <div className="grid min-w-[180px] gap-1">
                           <strong>{meter.name}</strong>
-                          <small>{meter.description || 'No description'}</small>
+                          <small className="max-w-[360px] truncate text-xs text-muted">{meter.description || 'No description'}</small>
                         </div>
                       </TableCell>
                       <TableCell><Badge variant="muted">{meter.aggregation}</Badge></TableCell>
@@ -172,30 +176,35 @@ export function MetersPage() {
       </Card>
 
       {creating ? (
-        <Modal className="meter-modal" title="Create Meter" onClose={() => appStoreActions.setMeterCreating(false)}>
-          <form className="form-grid meter-create-form meter-modal-form" onSubmit={(event) => void submitCreate(event)}>
-            <label>
+        <Modal className="!w-full !max-w-[760px]" title="Create Meter" onClose={() => appStoreActions.setMeterCreating(false)}>
+          <form className="form-grid meter-schema-form max-h-[calc(100vh-140px)] overflow-auto !p-4" onSubmit={(event) => void submitCreate(event)}>
+            <Label className="grid gap-1.5">
               Name
-              <input id="meter-name" name="name" placeholder="api_calls" required />
-            </label>
-            <label>
+              <Input id="meter-name" name="name" placeholder="api_calls" required />
+            </Label>
+            <Label className="grid gap-1.5">
               Unit
-              <input id="meter-unit" name="unit" placeholder="request" required />
-            </label>
-            <label>
+              <Input id="meter-unit" name="unit" placeholder="request" required />
+            </Label>
+            <Label className="grid gap-1.5">
               Aggregation
-              <select name="aggregation" required>
-                {aggregations.map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-            </label>
-            <label>
+              <Select defaultValue="sum" name="aggregation" required>
+                <SelectTrigger className="min-h-[38px] w-full">
+                  <SelectValue placeholder="Select aggregation" />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  {aggregations.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </Label>
+            <Label className="grid gap-1.5">
               Retention Days
-              <input defaultValue="90" max="3650" min="1" name="event_retention_days" required type="number" />
-            </label>
-            <label className="wide">
+              <Input defaultValue="90" max="3650" min="1" name="event_retention_days" required type="number" />
+            </Label>
+            <Label className="wide grid gap-1.5">
               Description
-              <input id="meter-description" name="description" placeholder="API requests accepted by the platform" />
-            </label>
+              <Input id="meter-description" name="description" placeholder="API requests accepted by the platform" />
+            </Label>
             <DimensionSchemaEditor
               rows={createDimensions}
               onAdd={() => appStoreActions.addMeterCreateDimension()}
@@ -215,30 +224,35 @@ export function MetersPage() {
       ) : null}
 
       {editing ? (
-        <Modal title="Edit Meter" onClose={() => appStoreActions.setMeterEditing(null)}>
-          <form className="modal-form" onSubmit={(event) => void submitEdit(event)}>
-            <label>
+        <Modal className="!w-full !max-w-[760px]" title="Edit Meter" onClose={() => appStoreActions.setMeterEditing(null)}>
+          <form className="modal-form meter-schema-form max-h-[calc(100vh-140px)] overflow-auto !p-4" onSubmit={(event) => void submitEdit(event)}>
+            <Label className="grid gap-1.5">
               Name
-              <input disabled value={editing.name} />
-            </label>
-            <label>
+              <Input disabled value={editing.name} />
+            </Label>
+            <Label className="grid gap-1.5">
               Unit
-              <input defaultValue={editing.unit} name="unit" required />
-            </label>
-            <label>
+              <Input defaultValue={editing.unit} name="unit" required />
+            </Label>
+            <Label className="grid gap-1.5">
               Aggregation
-              <select defaultValue={editing.aggregation} name="aggregation" required>
-                {aggregations.map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-            </label>
-            <label>
+              <Select defaultValue={editing.aggregation} name="aggregation" required>
+                <SelectTrigger className="min-h-[38px] w-full">
+                  <SelectValue placeholder="Select aggregation" />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  {aggregations.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </Label>
+            <Label className="grid gap-1.5">
               Retention Days
-              <input defaultValue={editing.event_retention_days} max="3650" min="1" name="event_retention_days" required type="number" />
-            </label>
-            <label>
+              <Input defaultValue={editing.event_retention_days} max="3650" min="1" name="event_retention_days" required type="number" />
+            </Label>
+            <Label className="wide grid gap-1.5">
               Description
-              <input defaultValue={editing.description} name="description" />
-            </label>
+              <Input defaultValue={editing.description} name="description" />
+            </Label>
             <DimensionSchemaEditor
               lockedByUsage={editingDimensionsLocked}
               rows={editDimensions}
@@ -247,7 +261,7 @@ export function MetersPage() {
               onRemove={(id) => appStoreActions.removeMeterEditDimension(id)}
               onUpdate={(id, update) => appStoreActions.updateMeterEditDimension(id, update)}
             />
-            <div className="modal-actions">
+            <div className="modal-actions wide">
               <Button onClick={() => appStoreActions.setMeterEditing(null)} type="button" variant="outline">Cancel</Button>
               <Button disabled={saving} type="submit">Save</Button>
             </div>
@@ -383,9 +397,9 @@ function DimensionSchemaEditor({
           const nameErrorId = `${row.id}-dimension-name-error`
           return (
             <div className="schema-row" key={row.id}>
-              <label>
+              <Label className="grid gap-1.5">
                 Name
-                <input
+                <Input
                   aria-label="Dimension name"
                   aria-describedby={nameError ? nameErrorId : undefined}
                   aria-invalid={nameError ? 'true' : undefined}
@@ -396,47 +410,48 @@ function DimensionSchemaEditor({
                   value={row.name}
                 />
                 {nameError ? <small className="schema-row-error" id={nameErrorId}>{nameError}</small> : null}
-              </label>
-              <label>
+              </Label>
+              <Label className="grid gap-1.5">
                 Display
-                <input
+                <Input
                   aria-label="Dimension display name"
                   onChange={(event) => onUpdate(row.id, { displayName: event.currentTarget.value })}
                   placeholder="Region"
                   value={row.displayName}
                 />
-              </label>
-              <label>
+              </Label>
+              <Label className="grid gap-1.5">
                 Type
-                <select
-                  aria-label="Dimension type"
+                <Select
                   disabled={existingLocked}
-                  onChange={(event) => onUpdate(row.id, { type: event.currentTarget.value })}
-                  title={identityLockTitle}
+                  onValueChange={(value) => onUpdate(row.id, { type: value })}
                   value={row.type}
                 >
-                  {metadataTypes.map((type) => <option key={type} value={type}>{type}</option>)}
-                </select>
-              </label>
-              <label className="schema-required">
-                <input
+                  <SelectTrigger aria-label="Dimension type" className="min-h-[38px] w-full" title={identityLockTitle}>
+                    <SelectValue placeholder="Select type" />
+                  </SelectTrigger>
+                  <SelectContent position="popper">
+                    {metadataTypes.map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </Label>
+              <Label className="schema-required">
+                <Checkbox
                   checked={row.required}
                   disabled={requiredLocked}
-                  onChange={(event) => onUpdate(row.id, { required: event.currentTarget.checked })}
+                  onCheckedChange={(checked) => onUpdate(row.id, { required: checked === true })}
                   title={requiredLockTitle}
-                  type="checkbox"
                 />
                 Required
-              </label>
+              </Label>
               {showDeprecated ? (
-                <label className="schema-required schema-deprecated">
-                  <input
+                <Label className="schema-required schema-deprecated">
+                  <Checkbox
                     checked={row.deprecated}
-                    onChange={(event) => onUpdate(row.id, { deprecated: event.currentTarget.checked })}
-                    type="checkbox"
+                    onCheckedChange={(checked) => onUpdate(row.id, { deprecated: checked === true })}
                   />
                   Deprecated
-                </label>
+                </Label>
               ) : null}
               <Button
                 aria-label={`Remove ${row.name || 'dimension'}`}
@@ -449,15 +464,15 @@ function DimensionSchemaEditor({
               >
                 <Trash2 aria-hidden="true" />
               </Button>
-              <label className="schema-description">
+              <Label className="schema-description grid gap-1.5">
                 Description
-                <input
+                <Input
                   aria-label="Dimension description"
                   onChange={(event) => onUpdate(row.id, { description: event.currentTarget.value })}
                   placeholder="Deployment region"
                   value={row.description}
                 />
-              </label>
+              </Label>
             </div>
           )
         })}
