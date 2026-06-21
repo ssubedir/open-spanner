@@ -1,6 +1,7 @@
+import { useParams, useRouter } from '@tanstack/react-router'
 import { useSelector } from '@tanstack/react-store'
-import { Eye, GaugeCircle, Loader2, PackageCheck, Pencil, Plus, Trash2 } from 'lucide-react'
-import { type FormEvent, useCallback, useEffect, useState } from 'react'
+import { ArrowLeft, ArrowRight, Eye, GaugeCircle, Loader2, PackageCheck, Pencil, Plus, Trash2 } from 'lucide-react'
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 
 import { appStore, appStoreActions } from '../app-store'
 import { DataTable, Modal, PageHeader } from '../components/dashboard'
@@ -30,64 +31,29 @@ type LimitDraft = {
   warningPercent: string
 }
 
+export function PlanRoutePage() {
+  const { planId } = useParams({ from: '/_dashboard/plans_/$planId' })
+
+  return <PlanDetailPage planId={planId} />
+}
+
 export function PlansPage() {
+  const router = useRouter()
   const {
-    assigning,
     assignments,
-    assignmentHistory,
     creating,
     deleting,
     editing,
-    entitlementEventLoadingMore,
-    entitlementEventNextCursor,
-    entitlementEventStatus,
-    entitlementEvents,
-    entitlementPeriodSnapshots,
-    entitlementStates,
     error,
     items,
     meters,
-    progress,
-    progressStatus,
-    progressSubject,
     saving,
-    selectedEntitlementEvent,
+    status,
   } = useSelector(appStore, (state) => state.plans)
-  const [assignOpen, setAssignOpen] = useState(false)
-  const [progressOpen, setProgressOpen] = useState(false)
+  const assignmentCounts = useMemo(() => countAssignmentsByPlan(assignments), [assignments])
   const load = useCallback(() => appStoreActions.loadPlans(), [])
-  const pollEntitlementActivity = useCallback(() => appStoreActions.loadPlanEntitlementActivity({ quiet: true }), [])
 
   useInitialLoad(load)
-
-  useEffect(() => {
-    const poll = window.setInterval(() => {
-      void pollEntitlementActivity()
-    }, 5000)
-
-    return () => window.clearInterval(poll)
-  }, [pollEntitlementActivity])
-
-  async function submitAssignment(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const form = new FormData(event.currentTarget)
-    try {
-      await appStoreActions.assignSubjectPlan(
-        String(form.get('subject') || ''),
-        String(form.get('plan_id') || ''),
-      )
-      setAssignOpen(false)
-    } catch {
-      // Store owns the visible error state.
-    }
-  }
-
-  async function submitProgress(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const form = new FormData(event.currentTarget)
-    await appStoreActions.loadSubjectPlanProgress(String(form.get('subject') || ''))
-    setProgressOpen(false)
-  }
 
   async function submitCreate(input: PlanSaveRequest) {
     await appStoreActions.createPlan(input)
@@ -110,8 +76,8 @@ export function PlansPage() {
       <PageHeader
         eyebrow="Plans"
         icon={<PackageCheck />}
-        title="Plans and entitlements"
-        description="Define quota packages, assign subjects, and check current usage against limits."
+        title="Plans"
+        description="Keep quota packages small and open a plan when you need assignments or usage progress."
         action={(
           <Button disabled={saving || meters.length === 0} onClick={() => appStoreActions.setPlanCreating(true)} type="button">
             <Plus aria-hidden="true" />
@@ -122,72 +88,254 @@ export function PlansPage() {
 
       {error ? <div className="error-banner">{error}</div> : null}
 
+      <Card className="max-w-[1480px] min-w-0">
+        <CardHeader className="!px-4 !py-3">
+          <div>
+            <CardTitle>Plan catalog</CardTitle>
+            <CardDescription>Named quota packages with the limits that define each tier.</CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            emptyLabel={status === 'loading' ? 'Loading plans' : 'No plans yet'}
+            headers={['Plan', 'Limits', 'Subjects', 'Updated', 'Actions']}
+            rows={items.map((plan) => [
+              <span className="grid min-w-[220px] gap-1">
+                <span className="flex min-w-0 items-center gap-2">
+                  <strong>{plan.name}</strong>
+                  <Badge variant="muted">v{plan.version}</Badge>
+                </span>
+                {plan.description ? <small className="max-w-[420px] truncate text-xs text-muted">{plan.description}</small> : null}
+              </span>,
+              <LimitChips limits={plan.limits} />,
+              <Badge variant="muted">{formatNumber(assignmentCounts.get(plan.id) ?? 0)} subjects</Badge>,
+              formatDate(plan.updated_at),
+              <span className="table-actions">
+                <Button aria-label={`Open ${plan.name}`} onClick={() => void router.navigate({ to: '/plans/$planId', params: { planId: plan.id } })} size="sm" type="button" variant="outline">
+                  Open
+                  <ArrowRight aria-hidden="true" />
+                </Button>
+                <Button aria-label={`Edit ${plan.name}`} disabled={saving} onClick={() => appStoreActions.setPlanEditing(plan)} size="icon" type="button" variant="ghost">
+                  <Pencil aria-hidden="true" />
+                </Button>
+                <Button aria-label={`Delete ${plan.name}`} disabled={saving} onClick={() => appStoreActions.setPlanDeleting(plan)} size="icon" type="button" variant="ghost">
+                  <Trash2 aria-hidden="true" />
+                </Button>
+              </span>,
+            ])}
+          />
+        </CardContent>
+      </Card>
+
+      {creating ? (
+        <PlanModal
+          meters={meters}
+          onClose={() => appStoreActions.setPlanCreating(false)}
+          onSubmit={submitCreate}
+          saving={saving}
+          title="Create Plan"
+        />
+      ) : null}
+
+      {editing ? (
+        <PlanModal
+          meters={meters}
+          onClose={() => appStoreActions.setPlanEditing(null)}
+          onSubmit={submitUpdate}
+          plan={editing}
+          saving={saving}
+          title="Edit Plan"
+        />
+      ) : null}
+
+      {deleting ? (
+        <DeletePlanModal onConfirm={confirmDelete} plan={deleting} saving={saving} />
+      ) : null}
+    </>
+  )
+}
+
+function PlanDetailPage({ planId }: { planId: string }) {
+  const router = useRouter()
+  const {
+    assigning,
+    assignments,
+    assignmentHistory,
+    deleting,
+    editing,
+    entitlementEventLoadingMore,
+    entitlementEventNextCursor,
+    entitlementEventStatus,
+    entitlementEvents,
+    entitlementPeriodSnapshots,
+    entitlementStates,
+    error,
+    items,
+    meters,
+    progress,
+    progressStatus,
+    progressSubject,
+    saving,
+    selectedEntitlementEvent,
+    status,
+  } = useSelector(appStore, (state) => state.plans)
+  const [assignOpen, setAssignOpen] = useState(false)
+  const [progressOpen, setProgressOpen] = useState(false)
+  const load = useCallback(() => appStoreActions.loadPlans(), [])
+  const pollEntitlementActivity = useCallback(() => appStoreActions.loadPlanEntitlementActivity({ quiet: true }), [])
+  const plan = items.find((item) => item.id === planId) ?? null
+  const planAssignments = assignments.filter((assignment) => assignment.plan_id === planId)
+  const planAssignmentHistory = assignmentHistory.filter((assignment) => assignment.plan_id === planId)
+  const planStates = entitlementStates.filter((state) => state.plan_id === planId)
+  const planEvents = entitlementEvents.filter((event) => event.plan_id === planId)
+  const planSnapshots = entitlementPeriodSnapshots.filter((snapshot) => snapshot.plan_id === planId)
+  const visibleProgress = progress?.plan.id === planId ? progress : null
+
+  useInitialLoad(load)
+
+  useEffect(() => {
+    const poll = window.setInterval(() => {
+      void pollEntitlementActivity()
+    }, 5000)
+
+    return () => window.clearInterval(poll)
+  }, [pollEntitlementActivity])
+
+  async function submitAssignment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    try {
+      await appStoreActions.assignSubjectPlan(
+        String(form.get('subject') || ''),
+        planId,
+      )
+      setAssignOpen(false)
+    } catch {
+      // Store owns the visible error state.
+    }
+  }
+
+  async function submitProgress(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    await appStoreActions.loadSubjectPlanProgress(String(form.get('subject') || ''))
+    setProgressOpen(false)
+  }
+
+  async function submitUpdate(input: PlanSaveRequest) {
+    await appStoreActions.updateEditingPlan(input)
+  }
+
+  async function confirmDelete() {
+    try {
+      await appStoreActions.deleteSelectedPlan()
+      void router.navigate({ to: '/plans' })
+    } catch {
+      // Store owns the visible error state.
+    }
+  }
+
+  if (!plan && status === 'ready') {
+    return (
+      <>
+        <PageHeader
+          eyebrow="Plans"
+          icon={<PackageCheck />}
+          title="Plan not found"
+          description="This plan may have been deleted or belongs to another workspace."
+          action={(
+            <Button onClick={() => void router.navigate({ to: '/plans' })} type="button" variant="outline">
+              <ArrowLeft aria-hidden="true" />
+              Back to plans
+            </Button>
+          )}
+        />
+        {error ? <div className="error-banner">{error}</div> : null}
+      </>
+    )
+  }
+
+  return (
+    <>
+      <PageHeader
+        eyebrow="Plans"
+        icon={<PackageCheck />}
+        title={plan?.name ?? 'Plan details'}
+        description={plan?.description || 'Inspect assignments, period progress, and entitlement changes for this plan.'}
+        action={(
+          <Button onClick={() => void router.navigate({ to: '/plans' })} type="button" variant="outline">
+            <ArrowLeft aria-hidden="true" />
+            Back
+          </Button>
+        )}
+      />
+
+      {error ? <div className="error-banner">{error}</div> : null}
+
       <div className="grid max-w-[1480px] gap-4">
-        <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(340px,420px)]">
+        <section className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]">
+          <Card className="min-w-0">
+            <CardHeader className="!px-4 !py-3">
+              <div>
+                <CardTitle>Limits</CardTitle>
+                <CardDescription>Versioned quota limits attached to this plan.</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent className="grid gap-3 !p-4">
+              {plan ? <LimitChips limits={plan.limits} /> : <span className="muted">Loading limits</span>}
+            </CardContent>
+          </Card>
+
+          <Card className="min-w-0">
+            <CardHeader className="!grid !justify-start !gap-1 !px-4 !py-3">
+              <CardTitle>Subject tools</CardTitle>
+              <CardDescription>Attach subjects or inspect current quota progress.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-2 !p-3">
+              <Button disabled={assigning || !plan} onClick={() => setAssignOpen(true)} type="button">
+                <Plus aria-hidden="true" />
+                Assign subject
+              </Button>
+              <Button disabled={progressStatus === 'loading' || !plan} onClick={() => setProgressOpen(true)} type="button" variant="outline">
+                {progressStatus === 'loading' ? <Loader2 className="spin" aria-hidden="true" /> : <GaugeCircle aria-hidden="true" />}
+                Check progress
+              </Button>
+              {plan ? (
+                <div className="flex gap-2 pt-1">
+                  <Button className="flex-1" disabled={saving} onClick={() => appStoreActions.setPlanEditing(plan)} type="button" variant="outline">
+                    <Pencil aria-hidden="true" />
+                    Edit
+                  </Button>
+                  <Button className="flex-1" disabled={saving} onClick={() => appStoreActions.setPlanDeleting(plan)} type="button" variant="outline">
+                    <Trash2 aria-hidden="true" />
+                    Delete
+                  </Button>
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+        </section>
+
         <Card className="min-w-0">
           <CardHeader className="!px-4 !py-3">
             <div>
-              <CardTitle>Plans</CardTitle>
-              <CardDescription>Named packages with per-meter quota limits.</CardDescription>
+              <CardTitle>Assignments</CardTitle>
+              <CardDescription>Subjects currently tied to this plan.</CardDescription>
             </div>
           </CardHeader>
           <CardContent>
-            <DataTable
-              emptyLabel="No plans yet"
-              headers={['Plan', 'Limits', 'Updated', 'Actions']}
-              rows={items.map((plan) => [
-                <span className="grid min-w-[220px] gap-1">
-                  <span className="flex min-w-0 items-center gap-2">
-                    <strong>{plan.name}</strong>
-                    <Badge variant="muted">v{plan.version}</Badge>
-                  </span>
-                  {plan.description ? <small className="max-w-[360px] truncate text-xs text-muted">{plan.description}</small> : null}
-                </span>,
-                <LimitChips limits={plan.limits} />,
-                formatDate(plan.updated_at),
-                <span className="table-actions">
-                  <Button aria-label={`Edit ${plan.name}`} disabled={saving} onClick={() => appStoreActions.setPlanEditing(plan)} size="icon" type="button" variant="ghost">
-                    <Pencil aria-hidden="true" />
-                  </Button>
-                  <Button aria-label={`Delete ${plan.name}`} disabled={saving} onClick={() => appStoreActions.setPlanDeleting(plan)} size="icon" type="button" variant="ghost">
-                    <Trash2 aria-hidden="true" />
-                  </Button>
-                </span>,
-              ])}
-            />
+            <AssignmentTable assignments={planAssignments} assigning={assigning} progressStatus={progressStatus} />
           </CardContent>
         </Card>
 
-        <aside className="grid min-w-0">
-          <Card className="flex min-h-full min-w-0 flex-col">
-            <CardHeader className="!grid !justify-start !gap-1 !px-4 !py-3">
-              <CardTitle>Subject entitlements</CardTitle>
-              <CardDescription>Assign a subject to a plan, then inspect current quota progress.</CardDescription>
-            </CardHeader>
-            <CardContent className="!grid flex-1 content-end !p-3">
-              <div className="grid gap-2">
-                <Button className="w-full" disabled={assigning || items.length === 0} onClick={() => setAssignOpen(true)} type="button">
-                  <Plus aria-hidden="true" />
-                  Assign subject
-                </Button>
-                <Button className="w-full" disabled={progressStatus === 'loading'} onClick={() => setProgressOpen(true)} type="button" variant="outline">
-                  {progressStatus === 'loading' ? <Loader2 className="spin" aria-hidden="true" /> : <GaugeCircle aria-hidden="true" />}
-                  Check progress
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </aside>
-        </div>
-
-        {progress ? (
+        {visibleProgress ? (
           <Card className="max-w-[920px] min-w-0">
             <CardHeader className="!grid !justify-start !gap-1 !px-4 !py-3">
               <CardTitle>Usage Progress</CardTitle>
-              <CardDescription>Current window usage against assigned plan limits.</CardDescription>
+              <CardDescription>Current window usage against assigned limits.</CardDescription>
             </CardHeader>
             <CardContent className="!p-3">
-              <ProgressList progress={progress} />
+              <ProgressList progress={visibleProgress} />
             </CardContent>
           </Card>
         ) : null}
@@ -196,11 +344,11 @@ export function PlansPage() {
           <CardHeader className="!px-4 !py-3">
             <div>
               <CardTitle>Period Snapshots</CardTitle>
-              <CardDescription>Auditable usage totals for evaluated plan periods.</CardDescription>
+              <CardDescription>Auditable usage totals for evaluated periods.</CardDescription>
             </div>
           </CardHeader>
           <CardContent>
-            <PeriodSnapshotTable snapshots={entitlementPeriodSnapshots} />
+            <PeriodSnapshotTable snapshots={planSnapshots} />
           </CardContent>
         </Card>
 
@@ -213,7 +361,7 @@ export function PlansPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <EntitlementStateTable states={entitlementStates} />
+              <EntitlementStateTable states={planStates} />
             </CardContent>
           </Card>
 
@@ -226,7 +374,7 @@ export function PlansPage() {
             </CardHeader>
             <CardContent>
               <EntitlementEventTable
-                events={entitlementEvents}
+                events={planEvents}
                 loading={entitlementEventStatus === 'loading'}
                 onSelect={(event) => appStoreActions.setPlanSelectedEntitlementEvent(event)}
               />
@@ -245,70 +393,15 @@ export function PlansPage() {
         <Card className="min-w-0">
           <CardHeader className="!px-4 !py-3">
             <div>
-              <CardTitle>Assignments</CardTitle>
-              <CardDescription>Subjects currently tied to a plan.</CardDescription>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <DataTable
-              emptyLabel="No assignments yet"
-              headers={['Subject', 'Plan', 'Updated', 'Actions']}
-              rows={assignments.map((assignment) => [
-                <span className="mono">{assignment.subject}</span>,
-                <span className="flex items-center gap-2">
-                  {assignment.plan_name}
-                  <Badge variant="muted">v{assignment.plan_version}</Badge>
-                </span>,
-                formatDate(assignment.updated_at),
-                <span className="table-actions">
-                  <Button
-                    aria-label={`View ${assignment.subject} progress`}
-                    disabled={progressStatus === 'loading'}
-                    onClick={() => void appStoreActions.loadSubjectPlanProgress(assignment.subject)}
-                    size="sm"
-                    type="button"
-                    variant="outline"
-                  >
-                    Progress
-                  </Button>
-                  <Button
-                    aria-label={`Remove ${assignment.subject} assignment`}
-                    disabled={assigning}
-                    onClick={() => void appStoreActions.deleteSubjectPlanAssignment(assignment.subject)}
-                    size="icon"
-                    type="button"
-                    variant="ghost"
-                  >
-                    <Trash2 aria-hidden="true" />
-                  </Button>
-                </span>,
-              ])}
-            />
-          </CardContent>
-        </Card>
-
-        <Card className="min-w-0">
-          <CardHeader className="!px-4 !py-3">
-            <div>
               <CardTitle>Assignment History</CardTitle>
-              <CardDescription>Plan versions assigned to subjects over time.</CardDescription>
+              <CardDescription>Versions of this plan assigned to subjects over time.</CardDescription>
             </div>
           </CardHeader>
           <CardContent>
-            <AssignmentHistoryTable assignments={assignmentHistory} />
+            <AssignmentHistoryTable assignments={planAssignmentHistory} />
           </CardContent>
         </Card>
       </div>
-
-      {creating ? (
-        <PlanModal
-          meters={meters}
-          onClose={() => appStoreActions.setPlanCreating(false)}
-          onSubmit={submitCreate}
-          saving={saving}
-          title="Create Plan"
-        />
-      ) : null}
 
       {assignOpen ? (
         <Modal className="!w-full !max-w-[480px]" title="Assign Subject" onClose={() => setAssignOpen(false)}>
@@ -319,18 +412,11 @@ export function PlansPage() {
             </Label>
             <Label className="grid gap-1.5">
               Plan
-              <Select name="plan_id" required>
-                <SelectTrigger className="min-h-[38px] w-full">
-                  <SelectValue placeholder="Select plan" />
-                </SelectTrigger>
-                <SelectContent position="popper">
-                  {items.map((plan) => <SelectItem key={plan.id} value={plan.id}>{plan.name} v{plan.version}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <Input disabled value={plan?.name ?? ''} />
             </Label>
             <div className="modal-actions">
               <Button onClick={() => setAssignOpen(false)} type="button" variant="outline">Cancel</Button>
-              <Button disabled={assigning || items.length === 0} type="submit">
+              <Button disabled={assigning || !plan} type="submit">
                 {assigning ? <Loader2 className="spin" aria-hidden="true" /> : <Plus aria-hidden="true" />}
                 Assign
               </Button>
@@ -374,15 +460,7 @@ export function PlansPage() {
       ) : null}
 
       {deleting ? (
-        <Modal title="Delete Plan" onClose={() => appStoreActions.setPlanDeleting(null)}>
-          <div className="modal-body">
-            <p>Delete <strong>{deleting.name}</strong>? Assigned subjects must be removed before a plan can be deleted.</p>
-            <div className="modal-actions">
-              <Button onClick={() => appStoreActions.setPlanDeleting(null)} type="button" variant="outline">Cancel</Button>
-              <Button disabled={saving} onClick={() => void confirmDelete()} type="button">Delete</Button>
-            </div>
-          </div>
-        </Modal>
+        <DeletePlanModal onConfirm={confirmDelete} plan={deleting} saving={saving} />
       ) : null}
 
       {selectedEntitlementEvent ? (
@@ -502,6 +580,20 @@ function PlanModal({ meters, onClose, onSubmit, plan, saving, title }: { meters:
   )
 }
 
+function DeletePlanModal({ onConfirm, plan, saving }: { onConfirm: () => Promise<void>; plan: Plan; saving: boolean }) {
+  return (
+    <Modal title="Delete Plan" onClose={() => appStoreActions.setPlanDeleting(null)}>
+      <div className="modal-body">
+        <p>Delete <strong>{plan.name}</strong>? Assigned subjects must be removed before a plan can be deleted.</p>
+        <div className="modal-actions">
+          <Button onClick={() => appStoreActions.setPlanDeleting(null)} type="button" variant="outline">Cancel</Button>
+          <Button disabled={saving} onClick={() => void onConfirm()} type="button">Delete</Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 function LimitChips({ limits }: { limits: PlanLimit[] }) {
   if (limits.length === 0) {
     return <span className="muted">No limits</span>
@@ -515,6 +607,45 @@ function LimitChips({ limits }: { limits: PlanLimit[] }) {
         </Badge>
       ))}
     </span>
+  )
+}
+
+function AssignmentTable({ assigning, assignments, progressStatus }: { assigning: boolean; assignments: PlanAssignment[]; progressStatus: string }) {
+  return (
+    <DataTable
+      emptyLabel="No assignments yet"
+      headers={['Subject', 'Plan', 'Updated', 'Actions']}
+      rows={assignments.map((assignment) => [
+        <span className="mono">{assignment.subject}</span>,
+        <span className="flex items-center gap-2">
+          {assignment.plan_name}
+          <Badge variant="muted">v{assignment.plan_version}</Badge>
+        </span>,
+        formatDate(assignment.updated_at),
+        <span className="table-actions">
+          <Button
+            aria-label={`View ${assignment.subject} progress`}
+            disabled={progressStatus === 'loading'}
+            onClick={() => void appStoreActions.loadSubjectPlanProgress(assignment.subject)}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            Progress
+          </Button>
+          <Button
+            aria-label={`Remove ${assignment.subject} assignment`}
+            disabled={assigning}
+            onClick={() => void appStoreActions.deleteSubjectPlanAssignment(assignment.subject)}
+            size="icon"
+            type="button"
+            variant="ghost"
+          >
+            <Trash2 aria-hidden="true" />
+          </Button>
+        </span>,
+      ])}
+    />
   )
 }
 
@@ -665,6 +796,14 @@ function emptyLimitDraft(meters: Meter[]): LimitDraft {
     period: 'month',
     warningPercent: '80',
   }
+}
+
+function countAssignmentsByPlan(assignments: PlanAssignment[]) {
+  const counts = new Map<string, number>()
+  for (const assignment of assignments) {
+    counts.set(assignment.plan_id, (counts.get(assignment.plan_id) ?? 0) + 1)
+  }
+  return counts
 }
 
 function draftID() {

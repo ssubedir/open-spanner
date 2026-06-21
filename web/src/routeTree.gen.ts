@@ -22,6 +22,7 @@ import { Route as DashboardExportsRouteRouteImport } from './routes/_dashboard/e
 import { Route as DashboardApiKeysRouteRouteImport } from './routes/_dashboard/api-keys/route'
 import { Route as DashboardAlertsRouteRouteImport } from './routes/_dashboard/alerts/route'
 import { Route as DashboardSubjectsSubjectRouteImport } from './routes/_dashboard/subjects_.$subject'
+import { Route as DashboardPlansPlanIdRouteImport } from './routes/_dashboard/plans_.$planId'
 
 const RegisterRouteRoute = RegisterRouteRouteImport.update({
   id: '/register',
@@ -88,6 +89,11 @@ const DashboardSubjectsSubjectRoute =
     path: '/subjects/$subject',
     getParentRoute: () => DashboardRouteRoute,
   } as any)
+const DashboardPlansPlanIdRoute = DashboardPlansPlanIdRouteImport.update({
+  id: '/plans_/$planId',
+  path: '/plans/$planId',
+  getParentRoute: () => DashboardRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -101,6 +107,7 @@ export interface FileRoutesByFullPath {
   '/plans': typeof DashboardPlansRouteRoute
   '/subjects': typeof DashboardSubjectsRouteRoute
   '/usage': typeof DashboardUsageRouteRoute
+  '/plans/$planId': typeof DashboardPlansPlanIdRoute
   '/subjects/$subject': typeof DashboardSubjectsSubjectRoute
 }
 export interface FileRoutesByTo {
@@ -115,6 +122,7 @@ export interface FileRoutesByTo {
   '/plans': typeof DashboardPlansRouteRoute
   '/subjects': typeof DashboardSubjectsRouteRoute
   '/usage': typeof DashboardUsageRouteRoute
+  '/plans/$planId': typeof DashboardPlansPlanIdRoute
   '/subjects/$subject': typeof DashboardSubjectsSubjectRoute
 }
 export interface FileRoutesById {
@@ -131,6 +139,7 @@ export interface FileRoutesById {
   '/_dashboard/plans': typeof DashboardPlansRouteRoute
   '/_dashboard/subjects': typeof DashboardSubjectsRouteRoute
   '/_dashboard/usage': typeof DashboardUsageRouteRoute
+  '/_dashboard/plans_/$planId': typeof DashboardPlansPlanIdRoute
   '/_dashboard/subjects_/$subject': typeof DashboardSubjectsSubjectRoute
 }
 export interface FileRouteTypes {
@@ -147,6 +156,7 @@ export interface FileRouteTypes {
     | '/plans'
     | '/subjects'
     | '/usage'
+    | '/plans/$planId'
     | '/subjects/$subject'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -161,6 +171,7 @@ export interface FileRouteTypes {
     | '/plans'
     | '/subjects'
     | '/usage'
+    | '/plans/$planId'
     | '/subjects/$subject'
   id:
     | '__root__'
@@ -176,6 +187,7 @@ export interface FileRouteTypes {
     | '/_dashboard/plans'
     | '/_dashboard/subjects'
     | '/_dashboard/usage'
+    | '/_dashboard/plans_/$planId'
     | '/_dashboard/subjects_/$subject'
   fileRoutesById: FileRoutesById
 }
@@ -279,6 +291,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardSubjectsSubjectRouteImport
       parentRoute: typeof DashboardRouteRoute
     }
+    '/_dashboard/plans_/$planId': {
+      id: '/_dashboard/plans_/$planId'
+      path: '/plans/$planId'
+      fullPath: '/plans/$planId'
+      preLoaderRoute: typeof DashboardPlansPlanIdRouteImport
+      parentRoute: typeof DashboardRouteRoute
+    }
   }
 }
 
@@ -291,6 +310,7 @@ interface DashboardRouteRouteChildren {
   DashboardPlansRouteRoute: typeof DashboardPlansRouteRoute
   DashboardSubjectsRouteRoute: typeof DashboardSubjectsRouteRoute
   DashboardUsageRouteRoute: typeof DashboardUsageRouteRoute
+  DashboardPlansPlanIdRoute: typeof DashboardPlansPlanIdRoute
   DashboardSubjectsSubjectRoute: typeof DashboardSubjectsSubjectRoute
 }
 
@@ -303,6 +323,7 @@ const DashboardRouteRouteChildren: DashboardRouteRouteChildren = {
   DashboardPlansRouteRoute: DashboardPlansRouteRoute,
   DashboardSubjectsRouteRoute: DashboardSubjectsRouteRoute,
   DashboardUsageRouteRoute: DashboardUsageRouteRoute,
+  DashboardPlansPlanIdRoute: DashboardPlansPlanIdRoute,
   DashboardSubjectsSubjectRoute: DashboardSubjectsSubjectRoute,
 }
 
