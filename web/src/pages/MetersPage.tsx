@@ -112,7 +112,6 @@ export function MetersPage() {
             <CardDescription>Configured meter definitions and current activity.</CardDescription>
           </div>
           <div className="card-header-actions">
-            <Badge variant={meters.length > 0 ? 'success' : 'muted'}>{meters.length} rows</Badge>
             <Button disabled={saving} onClick={() => appStoreActions.setMeterCreating(true)} type="button">
               <Plus aria-hidden="true" />
               New meter

@@ -347,10 +347,12 @@ func TestServiceCreateInvalidEventRetentionDaysReturnsInvalidInput(t *testing.T)
 }
 
 func newTestService() Service {
-	store, err := sqlite.NewStore(testContext(), ":memory:", config.DBPoolConfig{MaxOpenConns: 1})
+	ctx := testContext()
+	store, err := sqlite.NewStore(ctx, ":memory:", config.DBPoolConfig{MaxOpenConns: 1})
 	if err != nil {
 		panic(err)
 	}
+	seedDefaultWorkspace(ctx, store)
 	return NewService(sqlite.NewMeterRepository(store))
 }
 
@@ -365,8 +367,20 @@ func newTestServiceWithUsage(t *testing.T, ctx context.Context) (Service, *sqlit
 	if err != nil {
 		t.Fatalf("new sqlite store: %v", err)
 	}
+	seedDefaultWorkspace(ctx, store)
 	usageRepo := sqlite.NewUsageRepository(store)
 	return NewService(sqlite.NewMeterRepository(store), usageRepo), usageRepo
+}
+
+func seedDefaultWorkspace(ctx context.Context, store *sqlite.Store) {
+	_, err := sqlite.NewAuthRepository(store).SaveWorkspace(ctx, appauth.Workspace{
+		ID:        appauth.DefaultWorkspaceID,
+		Name:      "Default",
+		CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		panic(err)
+	}
 }
 
 func recordUsage(t *testing.T, ctx context.Context, usageRepo *sqlite.UsageRepository, meterName string, metadata map[string]any) {

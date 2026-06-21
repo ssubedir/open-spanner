@@ -10,9 +10,10 @@ tasks:
     desc: Run Postgres API integration tests
     cmds:
       - task: postgres:up
+      - task: _test:postgres:reset
       - go test ./internal/metering/bootstrap -run TestIntegrationPostgres -count=1
     env:
-      OPEN_SPANNER_TEST_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/open_spanner?sslmode=disable
+      OPEN_SPANNER_TEST_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/open_spanner_test?sslmode=disable
 
   test:e2e:
     desc: Run browser E2E tests across supported storage backends
@@ -320,3 +321,10 @@ tasks:
       - docker compose exec -T postgres psql -U postgres -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'open_spanner_e2e';"
       - docker compose exec -T postgres psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS open_spanner_e2e;"
       - docker compose exec -T postgres psql -U postgres -d postgres -c "CREATE DATABASE open_spanner_e2e;"
+
+  _test:postgres:reset:
+    internal: true
+    cmds:
+      - docker compose exec -T postgres psql -U postgres -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'open_spanner_test';"
+      - docker compose exec -T postgres psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS open_spanner_test;"
+      - docker compose exec -T postgres psql -U postgres -d postgres -c "CREATE DATABASE open_spanner_test;"

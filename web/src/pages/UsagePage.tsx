@@ -436,7 +436,6 @@ export function UsagePage() {
               <CardTitle>Results</CardTitle>
               <CardDescription>Bucketed usage returned by the current query.</CardDescription>
             </div>
-            <Badge variant={buckets.length > 0 ? 'success' : 'muted'}>{buckets.length} rows</Badge>
           </CardHeader>
           <CardContent>
             <DataTable
@@ -501,9 +500,6 @@ function UsageEventsCard({
           <CardTitle>Events</CardTitle>
           <CardDescription>Raw usage events matching the current filter.</CardDescription>
         </div>
-        <Badge variant={status === 'loading' ? 'muted' : events.length > 0 ? 'success' : 'muted'}>
-          {status === 'loading' ? 'Loading' : `${events.length} rows`}
-        </Badge>
       </CardHeader>
       <CardContent>
         {error ? <div className="inline-error">{error}</div> : null}

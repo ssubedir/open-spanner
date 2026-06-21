@@ -22,6 +22,7 @@ func TestWorkerPrunesWithSQLiteRepositories(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new sqlite store: %v", err)
 	}
+	seedDefaultWorkspace(t, ctx, store)
 	t.Cleanup(func() {
 		if err := store.Close(); err != nil {
 			t.Fatalf("close sqlite store: %v", err)
@@ -103,6 +104,19 @@ func newUsageEvent(t *testing.T, id string, subject string, meter string, quanti
 
 func testContext() context.Context {
 	return appauth.WithWorkspaceID(context.Background(), appauth.DefaultWorkspaceID)
+}
+
+func seedDefaultWorkspace(t *testing.T, ctx context.Context, store *sqlite.Store) {
+	t.Helper()
+
+	_, err := sqlite.NewAuthRepository(store).SaveWorkspace(ctx, appauth.Workspace{
+		ID:        appauth.DefaultWorkspaceID,
+		Name:      "Default",
+		CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("seed default workspace: %v", err)
+	}
 }
 
 func waitFor(t *testing.T, timeout time.Duration, fn func() bool) bool {

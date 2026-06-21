@@ -57,24 +57,9 @@ FROM auth_api_keys
 WHERE token_hash = $1
 `
 
-type FindAPIKeyByTokenHashRow struct {
-	ID            string
-	UserID        string
-	WorkspaceID   string
-	Name          string
-	TokenHash     string
-	Prefix        string
-	Scopes        string
-	AllowedMeters string
-	ExpiresAt     sql.NullString
-	RevokedAt     sql.NullString
-	CreatedAt     string
-	LastUsedAt    sql.NullString
-}
-
-func (q *Queries) FindAPIKeyByTokenHash(ctx context.Context, tokenHash string) (FindAPIKeyByTokenHashRow, error) {
+func (q *Queries) FindAPIKeyByTokenHash(ctx context.Context, tokenHash string) (AuthApiKey, error) {
 	row := q.db.QueryRowContext(ctx, findAPIKeyByTokenHash, tokenHash)
-	var i FindAPIKeyByTokenHashRow
+	var i AuthApiKey
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
@@ -155,19 +140,9 @@ type FindSessionByTokenHashParams struct {
 	ExpiresAt string
 }
 
-type FindSessionByTokenHashRow struct {
-	ID          string
-	UserID      string
-	WorkspaceID string
-	TokenHash   string
-	Kind        string
-	ExpiresAt   string
-	CreatedAt   string
-}
-
-func (q *Queries) FindSessionByTokenHash(ctx context.Context, arg FindSessionByTokenHashParams) (FindSessionByTokenHashRow, error) {
+func (q *Queries) FindSessionByTokenHash(ctx context.Context, arg FindSessionByTokenHashParams) (AuthSession, error) {
 	row := q.db.QueryRowContext(ctx, findSessionByTokenHash, arg.TokenHash, arg.Kind, arg.ExpiresAt)
-	var i FindSessionByTokenHashRow
+	var i AuthSession
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
@@ -229,30 +204,15 @@ type ListAPIKeysParams struct {
 	WorkspaceID string
 }
 
-type ListAPIKeysRow struct {
-	ID            string
-	UserID        string
-	WorkspaceID   string
-	Name          string
-	TokenHash     string
-	Prefix        string
-	Scopes        string
-	AllowedMeters string
-	ExpiresAt     sql.NullString
-	RevokedAt     sql.NullString
-	CreatedAt     string
-	LastUsedAt    sql.NullString
-}
-
-func (q *Queries) ListAPIKeys(ctx context.Context, arg ListAPIKeysParams) ([]ListAPIKeysRow, error) {
+func (q *Queries) ListAPIKeys(ctx context.Context, arg ListAPIKeysParams) ([]AuthApiKey, error) {
 	rows, err := q.db.QueryContext(ctx, listAPIKeys, arg.UserID, arg.WorkspaceID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListAPIKeysRow{}
+	items := []AuthApiKey{}
 	for rows.Next() {
-		var i ListAPIKeysRow
+		var i AuthApiKey
 		if err := rows.Scan(
 			&i.ID,
 			&i.UserID,

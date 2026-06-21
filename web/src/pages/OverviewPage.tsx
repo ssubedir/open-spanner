@@ -132,7 +132,6 @@ function PinnedQueryCard({ onOpen, summary }: { onOpen: () => void; summary: Pin
         <span>{summary.unit || 'units'}</span>
       </div>
       <div className="pinned-query-footer">
-        <span>{summary.rows} rows</span>
         <span>{footer}</span>
       </div>
     </button>

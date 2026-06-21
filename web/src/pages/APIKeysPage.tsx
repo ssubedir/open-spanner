@@ -113,7 +113,6 @@ export function APIKeysPage() {
             <CardDescription>Active keys for SDK clients.</CardDescription>
           </div>
           <div className="card-header-actions">
-            <Badge variant={items.length > 0 ? 'success' : 'muted'}>{items.length} rows</Badge>
             <Button disabled={saving} onClick={() => appStoreActions.setAPIKeyCreating(true)} type="button">
               <Plus aria-hidden="true" />
               New key

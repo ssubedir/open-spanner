@@ -136,7 +136,6 @@ export function AlertsPage() {
             <CardDescription>Reusable delivery targets for alert notifications.</CardDescription>
           </div>
           <div className="card-header-actions">
-            <Badge variant={destinations.length > 0 ? 'success' : 'muted'}>{destinations.length} rows</Badge>
             <Button disabled={saving} onClick={() => appStoreActions.setAlertDestinationCreating(true)} type="button">
               <Plus aria-hidden="true" />
               New destination
@@ -175,7 +174,6 @@ export function AlertsPage() {
             <CardDescription>Active and inactive threshold definitions.</CardDescription>
           </div>
           <div className="card-header-actions">
-            <Badge variant={items.length > 0 ? 'success' : 'muted'}>{items.length} rows</Badge>
             <Button disabled={saving} onClick={() => appStoreActions.setAlertCreating(true)} type="button">
               <Plus aria-hidden="true" />
               New rule

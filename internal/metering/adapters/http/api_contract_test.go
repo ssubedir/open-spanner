@@ -2087,6 +2087,13 @@ func newTestRouter() http.Handler {
 	if err != nil {
 		panic(err)
 	}
+	if _, err := sqlite.NewAuthRepository(store).SaveWorkspace(context.Background(), appauth.Workspace{
+		ID:        appauth.DefaultWorkspaceID,
+		Name:      "Default",
+		CreatedAt: time.Now().UTC(),
+	}); err != nil {
+		panic(err)
+	}
 	meterRepo := sqlite.NewMeterRepository(store)
 	usageRepo := sqlite.NewUsageRepository(store)
 	authRepo := sqlite.NewAuthRepository(store)

@@ -29,26 +29,9 @@ type CancelUsageExportJobParams struct {
 	WorkspaceID string
 }
 
-type CancelUsageExportJobRow struct {
-	ID           string
-	WorkspaceID  string
-	Kind         string
-	Status       string
-	Format       string
-	QueryJson    string
-	Error        string
-	Attempts     int64
-	LockedUntil  sql.NullString
-	ArtifactPath string
-	ArtifactSize int64
-	CreatedAt    string
-	UpdatedAt    string
-	CompletedAt  sql.NullString
-}
-
-func (q *Queries) CancelUsageExportJob(ctx context.Context, arg CancelUsageExportJobParams) (CancelUsageExportJobRow, error) {
+func (q *Queries) CancelUsageExportJob(ctx context.Context, arg CancelUsageExportJobParams) (UsageExportJob, error) {
 	row := q.db.QueryRowContext(ctx, cancelUsageExportJob, arg.CanceledAt, arg.ID, arg.WorkspaceID)
-	var i CancelUsageExportJobRow
+	var i UsageExportJob
 	err := row.Scan(
 		&i.ID,
 		&i.WorkspaceID,
@@ -93,26 +76,9 @@ type ClaimUsageExportJobParams struct {
 	MaxAttempts int64
 }
 
-type ClaimUsageExportJobRow struct {
-	ID           string
-	WorkspaceID  string
-	Kind         string
-	Status       string
-	Format       string
-	QueryJson    string
-	Error        string
-	Attempts     int64
-	LockedUntil  sql.NullString
-	ArtifactPath string
-	ArtifactSize int64
-	CreatedAt    string
-	UpdatedAt    string
-	CompletedAt  sql.NullString
-}
-
-func (q *Queries) ClaimUsageExportJob(ctx context.Context, arg ClaimUsageExportJobParams) (ClaimUsageExportJobRow, error) {
+func (q *Queries) ClaimUsageExportJob(ctx context.Context, arg ClaimUsageExportJobParams) (UsageExportJob, error) {
 	row := q.db.QueryRowContext(ctx, claimUsageExportJob, arg.LockedUntil, arg.Now, arg.MaxAttempts)
-	var i ClaimUsageExportJobRow
+	var i UsageExportJob
 	err := row.Scan(
 		&i.ID,
 		&i.WorkspaceID,
@@ -155,24 +121,7 @@ type CompleteUsageExportJobParams struct {
 	WorkspaceID  string
 }
 
-type CompleteUsageExportJobRow struct {
-	ID           string
-	WorkspaceID  string
-	Kind         string
-	Status       string
-	Format       string
-	QueryJson    string
-	Error        string
-	Attempts     int64
-	LockedUntil  sql.NullString
-	ArtifactPath string
-	ArtifactSize int64
-	CreatedAt    string
-	UpdatedAt    string
-	CompletedAt  sql.NullString
-}
-
-func (q *Queries) CompleteUsageExportJob(ctx context.Context, arg CompleteUsageExportJobParams) (CompleteUsageExportJobRow, error) {
+func (q *Queries) CompleteUsageExportJob(ctx context.Context, arg CompleteUsageExportJobParams) (UsageExportJob, error) {
 	row := q.db.QueryRowContext(ctx, completeUsageExportJob,
 		arg.ArtifactPath,
 		arg.ArtifactSize,
@@ -180,7 +129,7 @@ func (q *Queries) CompleteUsageExportJob(ctx context.Context, arg CompleteUsageE
 		arg.ID,
 		arg.WorkspaceID,
 	)
-	var i CompleteUsageExportJobRow
+	var i UsageExportJob
 	err := row.Scan(
 		&i.ID,
 		&i.WorkspaceID,
@@ -254,31 +203,14 @@ type FailUsageExportJobParams struct {
 	WorkspaceID string
 }
 
-type FailUsageExportJobRow struct {
-	ID           string
-	WorkspaceID  string
-	Kind         string
-	Status       string
-	Format       string
-	QueryJson    string
-	Error        string
-	Attempts     int64
-	LockedUntil  sql.NullString
-	ArtifactPath string
-	ArtifactSize int64
-	CreatedAt    string
-	UpdatedAt    string
-	CompletedAt  sql.NullString
-}
-
-func (q *Queries) FailUsageExportJob(ctx context.Context, arg FailUsageExportJobParams) (FailUsageExportJobRow, error) {
+func (q *Queries) FailUsageExportJob(ctx context.Context, arg FailUsageExportJobParams) (UsageExportJob, error) {
 	row := q.db.QueryRowContext(ctx, failUsageExportJob,
 		arg.Error,
 		arg.FailedAt,
 		arg.ID,
 		arg.WorkspaceID,
 	)
-	var i FailUsageExportJobRow
+	var i UsageExportJob
 	err := row.Scan(
 		&i.ID,
 		&i.WorkspaceID,
@@ -310,26 +242,9 @@ type FindUsageExportJobParams struct {
 	ID          string
 }
 
-type FindUsageExportJobRow struct {
-	ID           string
-	WorkspaceID  string
-	Kind         string
-	Status       string
-	Format       string
-	QueryJson    string
-	Error        string
-	Attempts     int64
-	LockedUntil  sql.NullString
-	ArtifactPath string
-	ArtifactSize int64
-	CreatedAt    string
-	UpdatedAt    string
-	CompletedAt  sql.NullString
-}
-
-func (q *Queries) FindUsageExportJob(ctx context.Context, arg FindUsageExportJobParams) (FindUsageExportJobRow, error) {
+func (q *Queries) FindUsageExportJob(ctx context.Context, arg FindUsageExportJobParams) (UsageExportJob, error) {
 	row := q.db.QueryRowContext(ctx, findUsageExportJob, arg.WorkspaceID, arg.ID)
-	var i FindUsageExportJobRow
+	var i UsageExportJob
 	err := row.Scan(
 		&i.ID,
 		&i.WorkspaceID,
@@ -367,24 +282,7 @@ type ListUsageExportJobsParams struct {
 	Limit           int64
 }
 
-type ListUsageExportJobsRow struct {
-	ID           string
-	WorkspaceID  string
-	Kind         string
-	Status       string
-	Format       string
-	QueryJson    string
-	Error        string
-	Attempts     int64
-	LockedUntil  sql.NullString
-	ArtifactPath string
-	ArtifactSize int64
-	CreatedAt    string
-	UpdatedAt    string
-	CompletedAt  sql.NullString
-}
-
-func (q *Queries) ListUsageExportJobs(ctx context.Context, arg ListUsageExportJobsParams) ([]ListUsageExportJobsRow, error) {
+func (q *Queries) ListUsageExportJobs(ctx context.Context, arg ListUsageExportJobsParams) ([]UsageExportJob, error) {
 	rows, err := q.db.QueryContext(ctx, listUsageExportJobs,
 		arg.WorkspaceID,
 		arg.CursorCreatedAt,
@@ -395,9 +293,9 @@ func (q *Queries) ListUsageExportJobs(ctx context.Context, arg ListUsageExportJo
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListUsageExportJobsRow{}
+	items := []UsageExportJob{}
 	for rows.Next() {
-		var i ListUsageExportJobsRow
+		var i UsageExportJob
 		if err := rows.Scan(
 			&i.ID,
 			&i.WorkspaceID,
@@ -592,26 +490,9 @@ type RetryUsageExportJobParams struct {
 	WorkspaceID string
 }
 
-type RetryUsageExportJobRow struct {
-	ID           string
-	WorkspaceID  string
-	Kind         string
-	Status       string
-	Format       string
-	QueryJson    string
-	Error        string
-	Attempts     int64
-	LockedUntil  sql.NullString
-	ArtifactPath string
-	ArtifactSize int64
-	CreatedAt    string
-	UpdatedAt    string
-	CompletedAt  sql.NullString
-}
-
-func (q *Queries) RetryUsageExportJob(ctx context.Context, arg RetryUsageExportJobParams) (RetryUsageExportJobRow, error) {
+func (q *Queries) RetryUsageExportJob(ctx context.Context, arg RetryUsageExportJobParams) (UsageExportJob, error) {
 	row := q.db.QueryRowContext(ctx, retryUsageExportJob, arg.RetriedAt, arg.ID, arg.WorkspaceID)
-	var i RetryUsageExportJobRow
+	var i UsageExportJob
 	err := row.Scan(
 		&i.ID,
 		&i.WorkspaceID,

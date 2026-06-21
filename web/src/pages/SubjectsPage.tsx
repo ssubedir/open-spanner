@@ -91,9 +91,6 @@ export function SubjectsPage({ routeSubject = '' }: SubjectsPageProps) {
               <CardTitle>Subjects</CardTitle>
               <CardDescription>Recent activity ordered by last event.</CardDescription>
             </div>
-            <Badge variant={status === 'loading' ? 'muted' : visibleSubjects.length > 0 ? 'success' : 'muted'}>
-              {status === 'loading' ? 'Loading' : `${visibleSubjects.length} rows`}
-            </Badge>
           </CardHeader>
           <CardContent>
             <div className="subject-toolbar">
@@ -189,7 +186,6 @@ export function SubjectsPage({ routeSubject = '' }: SubjectsPageProps) {
               <CardTitle>Recent Events</CardTitle>
               <CardDescription>{selectedSubject ? `Latest usage for ${selectedSubject}` : 'Latest usage for the selected subject.'}</CardDescription>
             </div>
-            <Badge variant={events.length > 0 ? 'success' : 'muted'}>{events.length} rows</Badge>
           </CardHeader>
           <CardContent>
             <DataTable

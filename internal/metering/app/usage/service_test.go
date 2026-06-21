@@ -1085,6 +1085,20 @@ func newTestRepositories(t *testing.T, ctx context.Context) (*sqlite.Store, *sql
 	if err != nil {
 		t.Fatalf("new sqlite store: %v", err)
 	}
+	seedDefaultWorkspace(t, ctx, store)
 
 	return store, sqlite.NewMeterRepository(store), sqlite.NewUsageRepository(store)
+}
+
+func seedDefaultWorkspace(t *testing.T, ctx context.Context, store *sqlite.Store) {
+	t.Helper()
+
+	_, err := sqlite.NewAuthRepository(store).SaveWorkspace(ctx, appauth.Workspace{
+		ID:        appauth.DefaultWorkspaceID,
+		Name:      "Default",
+		CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("seed default workspace: %v", err)
+	}
 }

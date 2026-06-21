@@ -5,22 +5,6 @@ sql:
     engine: postgresql
     schema:
       - internal/metering/adapters/postgres/migrations/001_init.up.sql
-      - internal/metering/adapters/postgres/migrations/002_usage_event_indexes.up.sql
-      - internal/metering/adapters/postgres/migrations/003_usage_aggregation_indexes.up.sql
-      - internal/metering/adapters/postgres/migrations/004_usage_stats_indexes.up.sql
-      - internal/metering/adapters/postgres/migrations/005_auth.up.sql
-      - internal/metering/adapters/postgres/migrations/006_auth_session_kind.up.sql
-      - internal/metering/adapters/postgres/migrations/007_auth_api_keys.up.sql
-      - internal/metering/adapters/postgres/migrations/008_usage_metadata_jsonb.up.sql
-      - internal/metering/adapters/postgres/migrations/009_usage_saved_queries.up.sql
-      - internal/metering/adapters/postgres/migrations/010_usage_saved_query_pins.up.sql
-      - internal/metering/adapters/postgres/migrations/011_usage_export_jobs.up.sql
-      - internal/metering/adapters/postgres/migrations/012_usage_export_job_processing.up.sql
-      - internal/metering/adapters/postgres/migrations/013_alerts.up.sql
-      - internal/metering/adapters/postgres/migrations/014_auth_api_key_authorization.up.sql
-      - internal/metering/adapters/postgres/migrations/015_auth_identities.up.sql
-      - internal/metering/adapters/postgres/migrations/016_workspaces.up.sql
-      - internal/metering/adapters/postgres/migrations/017_workspace_stats.up.sql
     queries: internal/metering/adapters/postgres/queries
     gen:
       go:
@@ -34,19 +18,6 @@ sql:
     engine: sqlite
     schema:
       - internal/metering/adapters/sqlite/migrations/001_init.up.sql
-      - internal/metering/adapters/sqlite/migrations/002_usage_event_indexes.up.sql
-      - internal/metering/adapters/sqlite/migrations/003_auth.up.sql
-      - internal/metering/adapters/sqlite/migrations/004_auth_session_kind.up.sql
-      - internal/metering/adapters/sqlite/migrations/005_auth_api_keys.up.sql
-      - internal/metering/adapters/sqlite/migrations/006_usage_saved_queries.up.sql
-      - internal/metering/adapters/sqlite/migrations/007_usage_saved_query_pins.up.sql
-      - internal/metering/adapters/sqlite/migrations/008_usage_export_jobs.up.sql
-      - internal/metering/adapters/sqlite/migrations/009_usage_export_job_processing.up.sql
-      - internal/metering/adapters/sqlite/migrations/010_alerts.up.sql
-      - internal/metering/adapters/sqlite/migrations/011_auth_api_key_authorization.up.sql
-      - internal/metering/adapters/sqlite/migrations/012_auth_identities.up.sql
-      - internal/metering/adapters/sqlite/migrations/013_workspaces.up.sql
-      - internal/metering/adapters/sqlite/migrations/014_workspace_stats.up.sql
     queries: internal/metering/adapters/sqlite/queries
     gen:
       go:

@@ -6,6 +6,7 @@ package postgresdb
 
 import (
 	"database/sql"
+	"encoding/json"
 )
 
 type AlertEvaluationJob struct {
@@ -28,6 +29,21 @@ type AlertState struct {
 	UpdatedAt   string
 }
 
+type AuthApiKey struct {
+	ID            string
+	UserID        string
+	WorkspaceID   string
+	Name          string
+	TokenHash     string
+	Prefix        string
+	Scopes        string
+	AllowedMeters string
+	ExpiresAt     sql.NullString
+	RevokedAt     sql.NullString
+	CreatedAt     string
+	LastUsedAt    sql.NullString
+}
+
 type AuthIdentity struct {
 	ID            string
 	UserID        string
@@ -37,6 +53,16 @@ type AuthIdentity struct {
 	EmailVerified bool
 	CreatedAt     string
 	UpdatedAt     string
+}
+
+type AuthSession struct {
+	ID          string
+	UserID      string
+	WorkspaceID string
+	TokenHash   string
+	Kind        string
+	ExpiresAt   string
+	CreatedAt   string
 }
 
 type AuthUser struct {
@@ -50,4 +76,35 @@ type AuthWorkspace struct {
 	ID        string
 	Name      string
 	CreatedAt string
+}
+
+type UsageExportJob struct {
+	ID           string
+	WorkspaceID  string
+	Kind         string
+	Status       string
+	Format       string
+	QueryJson    string
+	Error        string
+	Attempts     int32
+	LockedUntil  sql.NullString
+	ArtifactPath string
+	ArtifactSize int64
+	CreatedAt    string
+	UpdatedAt    string
+	CompletedAt  sql.NullString
+}
+
+type UsageSavedQuery struct {
+	ID          string
+	UserID      string
+	Name        string
+	QueryJson   json.RawMessage
+	GroupBy     json.RawMessage
+	BucketSize  string
+	ResultLimit int32
+	Pinned      bool
+	Position    int32
+	CreatedAt   string
+	UpdatedAt   string
 }
