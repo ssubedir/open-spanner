@@ -131,6 +131,7 @@ func RegisterRoutes(ctx context.Context, router chi.Router, cfg config.Config) (
 			httpsubject.NewHandler(app.subjectService).RegisterRoutes(protected, app.Authorizer)
 			httpusage.NewHandler(app.UsageService, httpusage.HandlerOptions{
 				Alerts:            app.AlertService,
+				Entitlements:      app.EntitlementService,
 				ExportStoragePath: cfg.ExportStoragePath,
 			}).RegisterRoutes(protected, app.Authorizer)
 			httpsystem.NewHandler(app.systemService).RegisterRoutes(protected, app.Authorizer)

@@ -48,7 +48,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to listen for grpc: %v", err)
 	}
-	grpcServer := grpcadapter.NewServer(app.UsageService, app.AlertService, app.AuthService, app.Authorizer)
+	grpcServer := grpcadapter.NewServer(app.UsageService, app.AlertService, app.EntitlementService, app.AuthService, app.Authorizer)
 	go func() {
 		log.Printf("grpc listening on %s", cfg.GRPCAddr)
 		if err := grpcServer.Serve(grpcListener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {

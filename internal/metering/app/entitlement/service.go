@@ -18,10 +18,11 @@ import (
 )
 
 const (
-	MaxNameRunes          = 120
-	DefaultLimit          = 100
-	MaxLimit              = 1000
-	DefaultWarningPercent = 80
+	MaxNameRunes               = 120
+	DefaultLimit               = 100
+	MaxLimit                   = 1000
+	DefaultWarningPercent      = 80
+	DefaultCheckEvaluationWait = 0
 )
 
 type Period string
@@ -43,6 +44,14 @@ const (
 	StateNotInPlan OverageState = "not_in_plan"
 )
 
+type EventType string
+
+const (
+	EventWarning   EventType = "warning"
+	EventExceeded  EventType = "exceeded"
+	EventRecovered EventType = "recovered"
+)
+
 type Repository interface {
 	SavePlan(ctx context.Context, plan Plan) (Plan, error)
 	FindPlans(ctx context.Context, query PlanQuery) ([]Plan, error)
@@ -53,6 +62,13 @@ type Repository interface {
 	SaveSubjectAssignment(ctx context.Context, assignment SubjectAssignment) (SubjectAssignment, error)
 	FindSubjectAssignments(ctx context.Context, query AssignmentQuery) ([]SubjectAssignment, error)
 	DeleteSubjectAssignment(ctx context.Context, subject string) error
+	GetEntitlementState(ctx context.Context, query StateQuery) (EntitlementState, error)
+	SaveEntitlementState(ctx context.Context, state EntitlementState) error
+	SaveEntitlementEvent(ctx context.Context, event EntitlementEvent) error
+	EnqueueEntitlementCheckJob(ctx context.Context, job CheckJob) error
+	ClaimEntitlementCheckJob(ctx context.Context, cmd ClaimCommand) (CheckJob, bool, error)
+	RequeueEntitlementCheckJob(ctx context.Context, cmd FailCommand) error
+	DeleteEntitlementCheckJob(ctx context.Context, cmd CompleteCommand) error
 }
 
 type UsageRepository interface {
@@ -70,6 +86,11 @@ type Service interface {
 	ListSubjectAssignments(ctx context.Context, query AssignmentListQuery) (SubjectAssignmentListResult, error)
 	GetSubjectProgress(ctx context.Context, query SubjectProgressQuery) (SubjectProgressResult, error)
 	Check(ctx context.Context, cmd CheckCommand) (EntitlementCheckResult, error)
+	EnqueueForUsageEvents(ctx context.Context, events []UsageEvent) error
+	ClaimCheckJob(ctx context.Context, cmd ClaimCommand) (CheckJobResult, bool, error)
+	Evaluate(ctx context.Context, cmd EvaluateCommand) (EvaluationResult, error)
+	CompleteCheckJob(ctx context.Context, cmd CompleteCommand) error
+	FailCheckJob(ctx context.Context, cmd FailCommand) error
 }
 
 type service struct {
@@ -121,6 +142,53 @@ type SubjectAssignment struct {
 	UpdatedAt  time.Time
 }
 
+type EntitlementState struct {
+	WorkspaceID    string
+	Subject        string
+	MeterName      string
+	PlanID         string
+	PlanName       string
+	Period         Period
+	State          OverageState
+	Current        float64
+	Limit          float64
+	Remaining      float64
+	WarningPercent float64
+	Message        string
+	EvaluatedAt    time.Time
+	UpdatedAt      time.Time
+}
+
+type EntitlementEvent struct {
+	ID             string
+	WorkspaceID    string
+	Subject        string
+	MeterName      string
+	PlanID         string
+	PlanName       string
+	Period         Period
+	PreviousState  OverageState
+	State          OverageState
+	Type           EventType
+	Current        float64
+	Limit          float64
+	Remaining      float64
+	WarningPercent float64
+	Message        string
+	CreatedAt      time.Time
+}
+
+type CheckJob struct {
+	WorkspaceID string
+	Subject     string
+	MeterName   string
+	RunAfter    time.Time
+	LockedUntil time.Time
+	Attempts    int
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
 type PlanQuery struct {
 	ID    string
 	Name  string
@@ -131,6 +199,13 @@ type AssignmentQuery struct {
 	Subject string
 	PlanID  string
 	Limit   int
+}
+
+type StateQuery struct {
+	Subject   string
+	MeterName string
+	PlanID    string
+	Period    Period
 }
 
 type LimitCommand struct {
@@ -190,6 +265,34 @@ type CheckCommand struct {
 	Quantity float64
 }
 
+type UsageEvent struct {
+	Subject  string
+	Meter    string
+	Quantity float64
+}
+
+type ClaimCommand struct {
+	LockTTL     time.Duration
+	MaxAttempts int
+}
+
+type EvaluateCommand struct {
+	Subject string
+	Meter   string
+}
+
+type CompleteCommand struct {
+	Subject string
+	Meter   string
+}
+
+type FailCommand struct {
+	Subject    string
+	Meter      string
+	RetryAfter time.Duration
+	Error      string
+}
+
 type PlanResult struct {
 	Plan   Plan
 	Limits []PlanLimit
@@ -243,6 +346,19 @@ type EntitlementCheckResult struct {
 	From      time.Time
 	To        time.Time
 	Message   string
+}
+
+type CheckJobResult struct {
+	Job CheckJob
+}
+
+type EvaluationResult struct {
+	Subject string
+	Meter   string
+	State   *EntitlementState
+	Event   *EntitlementEvent
+	Skipped bool
+	Message string
 }
 
 func (s *service) CreatePlan(ctx context.Context, cmd SavePlanCommand) (PlanResult, error) {
@@ -497,6 +613,164 @@ func (s *service) Check(ctx context.Context, cmd CheckCommand) (EntitlementCheck
 	}, nil
 }
 
+func (s *service) EnqueueForUsageEvents(ctx context.Context, events []UsageEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+	now := s.now()
+	runAfter := now.Add(DefaultCheckEvaluationWait)
+	seen := map[string]struct{}{}
+	for _, event := range events {
+		subject := strings.TrimSpace(event.Subject)
+		meterName := strings.TrimSpace(event.Meter)
+		if subject == "" || meterName == "" {
+			continue
+		}
+		key := subject + "\x00" + meterName
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		if err := s.repo.EnqueueEntitlementCheckJob(ctx, CheckJob{
+			Subject:   subject,
+			MeterName: meterName,
+			RunAfter:  runAfter,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *service) ClaimCheckJob(ctx context.Context, cmd ClaimCommand) (CheckJobResult, bool, error) {
+	if cmd.LockTTL <= 0 {
+		return CheckJobResult{}, false, fmt.Errorf("%w: lock ttl must be greater than zero", domain.ErrInvalidInput)
+	}
+	if cmd.MaxAttempts <= 0 {
+		return CheckJobResult{}, false, fmt.Errorf("%w: max attempts must be greater than zero", domain.ErrInvalidInput)
+	}
+	job, ok, err := s.repo.ClaimEntitlementCheckJob(ctx, cmd)
+	if err != nil || !ok {
+		return CheckJobResult{}, ok, err
+	}
+	return CheckJobResult{Job: job}, true, nil
+}
+
+func (s *service) Evaluate(ctx context.Context, cmd EvaluateCommand) (EvaluationResult, error) {
+	subject := strings.TrimSpace(cmd.Subject)
+	meterName := strings.TrimSpace(cmd.Meter)
+	if subject == "" {
+		return EvaluationResult{}, fmt.Errorf("%w: subject is required", domain.ErrInvalidInput)
+	}
+	if meterName == "" {
+		return EvaluationResult{}, fmt.Errorf("%w: meter is required", domain.ErrInvalidInput)
+	}
+
+	assignment, err := s.findSubjectAssignment(ctx, subject)
+	if errors.Is(err, domain.ErrNotFound) {
+		return EvaluationResult{Subject: subject, Meter: meterName, Skipped: true, Message: "subject is not assigned to a plan"}, nil
+	}
+	if err != nil {
+		return EvaluationResult{}, err
+	}
+
+	plan, err := s.findPlan(ctx, assignment.PlanID)
+	if err != nil {
+		return EvaluationResult{}, err
+	}
+	limit, ok := plan.limitForMeter(meterName)
+	if !ok {
+		return EvaluationResult{Subject: subject, Meter: meterName, Skipped: true, Message: "meter is not included in the subject's plan"}, nil
+	}
+
+	item, err := s.progressItem(ctx, subject, limit)
+	if err != nil {
+		return EvaluationResult{}, err
+	}
+	now := s.now()
+	state := entitlementStateFromProgress(subject, plan.Plan, item, now)
+	previous, err := s.repo.GetEntitlementState(ctx, StateQuery{
+		Subject:   subject,
+		MeterName: item.MeterName,
+		PlanID:    plan.Plan.ID,
+		Period:    item.Period,
+	})
+	if err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return EvaluationResult{}, err
+	}
+
+	var event *EntitlementEvent
+	if eventType, ok := entitlementEventType(previous, state.State); ok {
+		eventValue := EntitlementEvent{
+			ID:             uuid.NewString(),
+			Subject:        subject,
+			MeterName:      item.MeterName,
+			PlanID:         plan.Plan.ID,
+			PlanName:       plan.Plan.Name,
+			Period:         item.Period,
+			PreviousState:  previous.State,
+			State:          state.State,
+			Type:           eventType,
+			Current:        state.Current,
+			Limit:          state.Limit,
+			Remaining:      state.Remaining,
+			WarningPercent: state.WarningPercent,
+			Message:        state.Message,
+			CreatedAt:      now,
+		}
+		event = &eventValue
+	}
+
+	err = s.transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
+		if err := s.repo.SaveEntitlementState(txCtx, state); err != nil {
+			return err
+		}
+		if event != nil {
+			return s.repo.SaveEntitlementEvent(txCtx, *event)
+		}
+		return nil
+	})
+	if err != nil {
+		return EvaluationResult{}, err
+	}
+
+	return EvaluationResult{
+		Subject: subject,
+		Meter:   meterName,
+		State:   &state,
+		Event:   event,
+	}, nil
+}
+
+func (s *service) CompleteCheckJob(ctx context.Context, cmd CompleteCommand) error {
+	cmd.Subject = strings.TrimSpace(cmd.Subject)
+	cmd.Meter = strings.TrimSpace(cmd.Meter)
+	if cmd.Subject == "" {
+		return fmt.Errorf("%w: subject is required", domain.ErrInvalidInput)
+	}
+	if cmd.Meter == "" {
+		return fmt.Errorf("%w: meter is required", domain.ErrInvalidInput)
+	}
+	return s.repo.DeleteEntitlementCheckJob(ctx, cmd)
+}
+
+func (s *service) FailCheckJob(ctx context.Context, cmd FailCommand) error {
+	cmd.Subject = strings.TrimSpace(cmd.Subject)
+	cmd.Meter = strings.TrimSpace(cmd.Meter)
+	if cmd.Subject == "" {
+		return fmt.Errorf("%w: subject is required", domain.ErrInvalidInput)
+	}
+	if cmd.Meter == "" {
+		return fmt.Errorf("%w: meter is required", domain.ErrInvalidInput)
+	}
+	if cmd.RetryAfter <= 0 {
+		return fmt.Errorf("%w: retry after must be greater than zero", domain.ErrInvalidInput)
+	}
+	return s.repo.RequeueEntitlementCheckJob(ctx, cmd)
+}
+
 func (s *service) normalizePlan(ctx context.Context, id, name, description string, input []LimitCommand, createdAt time.Time) (Plan, []PlanLimit, error) {
 	name = strings.TrimSpace(name)
 	description = strings.TrimSpace(description)
@@ -725,6 +999,54 @@ func overageState(percent float64, current float64, limit float64, warningPercen
 		return StateWarning
 	}
 	return StateOK
+}
+
+func entitlementStateFromProgress(subject string, plan Plan, item ProgressItem, now time.Time) EntitlementState {
+	return EntitlementState{
+		Subject:        subject,
+		MeterName:      item.MeterName,
+		PlanID:         plan.ID,
+		PlanName:       plan.Name,
+		Period:         item.Period,
+		State:          item.State,
+		Current:        item.Current,
+		Limit:          item.Limit,
+		Remaining:      item.Remaining,
+		WarningPercent: item.WarningPercent,
+		Message:        entitlementMessage(item.State),
+		EvaluatedAt:    now,
+		UpdatedAt:      now,
+	}
+}
+
+func entitlementEventType(previous EntitlementState, next OverageState) (EventType, bool) {
+	if previous.State == next {
+		return "", false
+	}
+	switch next {
+	case StateOK:
+		if previous.State == "" {
+			return "", false
+		}
+		return EventRecovered, true
+	case StateWarning:
+		return EventWarning, true
+	case StateExceeded:
+		return EventExceeded, true
+	default:
+		return "", false
+	}
+}
+
+func entitlementMessage(state OverageState) string {
+	switch state {
+	case StateExceeded:
+		return "quota exceeded"
+	case StateWarning:
+		return "quota warning threshold reached"
+	default:
+		return "quota is available"
+	}
 }
 
 func normalizeLimit(limit int) int {

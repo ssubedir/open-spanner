@@ -69,3 +69,85 @@ LIMIT sqlc.arg('limit');
 DELETE FROM plan_subject_assignments
 WHERE workspace_id = sqlc.arg('workspace_id')
 	AND subject = sqlc.arg('subject');
+
+-- name: GetEntitlementState :one
+SELECT workspace_id, subject, meter_name, plan_id, plan_name, period, state, current_value, limit_value, remaining_value, warning_percent, message, evaluated_at, updated_at
+FROM entitlement_states
+WHERE workspace_id = sqlc.arg('workspace_id')
+	AND subject = sqlc.arg('subject')
+	AND meter_name = sqlc.arg('meter_name')
+	AND plan_id = sqlc.arg('plan_id')
+	AND period = sqlc.arg('period');
+
+-- name: SaveEntitlementState :exec
+INSERT INTO entitlement_states (
+	workspace_id, subject, meter_name, plan_id, plan_name, period, state,
+	current_value, limit_value, remaining_value, warning_percent, message, evaluated_at, updated_at
+)
+VALUES (
+	sqlc.arg('workspace_id'), sqlc.arg('subject'), sqlc.arg('meter_name'), sqlc.arg('plan_id'), sqlc.arg('plan_name'), sqlc.arg('period'), sqlc.arg('state'),
+	sqlc.arg('current_value'), sqlc.arg('limit_value'), sqlc.arg('remaining_value'), sqlc.arg('warning_percent'), sqlc.arg('message'), sqlc.arg('evaluated_at'), sqlc.arg('updated_at')
+)
+ON CONFLICT(workspace_id, subject, meter_name, plan_id, period) DO UPDATE SET
+	plan_name = excluded.plan_name,
+	state = excluded.state,
+	current_value = excluded.current_value,
+	limit_value = excluded.limit_value,
+	remaining_value = excluded.remaining_value,
+	warning_percent = excluded.warning_percent,
+	message = excluded.message,
+	evaluated_at = excluded.evaluated_at,
+	updated_at = excluded.updated_at;
+
+-- name: SaveEntitlementEvent :exec
+INSERT INTO entitlement_events (
+	id, workspace_id, subject, meter_name, plan_id, plan_name, period, previous_state, state, type,
+	current_value, limit_value, remaining_value, warning_percent, message, created_at
+)
+VALUES (
+	sqlc.arg('id'), sqlc.arg('workspace_id'), sqlc.arg('subject'), sqlc.arg('meter_name'), sqlc.arg('plan_id'), sqlc.arg('plan_name'), sqlc.arg('period'), sqlc.narg('previous_state'), sqlc.arg('state'), sqlc.arg('type'),
+	sqlc.arg('current_value'), sqlc.arg('limit_value'), sqlc.arg('remaining_value'), sqlc.arg('warning_percent'), sqlc.arg('message'), sqlc.arg('created_at')
+);
+
+-- name: EnqueueEntitlementCheckJob :exec
+INSERT INTO entitlement_check_jobs (workspace_id, subject, meter_name, run_after, locked_until, attempts, created_at, updated_at)
+VALUES (sqlc.arg('workspace_id'), sqlc.arg('subject'), sqlc.arg('meter_name'), sqlc.arg('run_after'), NULL, 0, sqlc.arg('now'), sqlc.arg('now'))
+ON CONFLICT(workspace_id, subject, meter_name) DO UPDATE SET
+	run_after = CASE
+		WHEN entitlement_check_jobs.run_after > excluded.run_after THEN excluded.run_after
+		ELSE entitlement_check_jobs.run_after
+	END,
+	updated_at = excluded.updated_at
+WHERE entitlement_check_jobs.locked_until IS NULL
+	OR entitlement_check_jobs.locked_until < excluded.updated_at;
+
+-- name: ClaimEntitlementCheckJob :one
+UPDATE entitlement_check_jobs
+SET attempts = entitlement_check_jobs.attempts + 1,
+	locked_until = sqlc.arg('locked_until'),
+	updated_at = sqlc.arg('now')
+WHERE (workspace_id, subject, meter_name) = (
+	SELECT workspace_id, subject, meter_name
+	FROM entitlement_check_jobs
+	WHERE run_after <= sqlc.arg('now')
+		AND (locked_until IS NULL OR locked_until < sqlc.arg('now'))
+		AND entitlement_check_jobs.attempts < sqlc.arg('max_attempts')
+	ORDER BY run_after ASC, created_at ASC, workspace_id ASC, subject ASC, meter_name ASC
+	LIMIT 1
+)
+RETURNING workspace_id, subject, meter_name, run_after, locked_until, attempts, created_at, updated_at;
+
+-- name: RequeueEntitlementCheckJob :execrows
+UPDATE entitlement_check_jobs
+SET run_after = sqlc.arg('run_after'),
+	locked_until = NULL,
+	updated_at = sqlc.arg('now')
+WHERE workspace_id = sqlc.arg('workspace_id')
+	AND subject = sqlc.arg('subject')
+	AND meter_name = sqlc.arg('meter_name');
+
+-- name: DeleteEntitlementCheckJob :execrows
+DELETE FROM entitlement_check_jobs
+WHERE workspace_id = sqlc.arg('workspace_id')
+	AND subject = sqlc.arg('subject')
+	AND meter_name = sqlc.arg('meter_name');

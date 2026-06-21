@@ -135,6 +135,70 @@ CREATE TABLE plan_subject_assignments (
 CREATE INDEX idx_plan_subject_assignments_workspace_plan
 	ON plan_subject_assignments (workspace_id, plan_id, subject);
 
+CREATE TABLE entitlement_states (
+	workspace_id TEXT NOT NULL REFERENCES auth_workspaces(id) ON DELETE CASCADE,
+	subject TEXT NOT NULL,
+	meter_name TEXT NOT NULL,
+	plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+	plan_name TEXT NOT NULL,
+	period TEXT NOT NULL,
+	state TEXT NOT NULL CHECK (state IN ('ok', 'warning', 'exceeded')),
+	current_value DOUBLE PRECISION NOT NULL,
+	limit_value DOUBLE PRECISION NOT NULL,
+	remaining_value DOUBLE PRECISION NOT NULL,
+	warning_percent DOUBLE PRECISION NOT NULL,
+	message TEXT NOT NULL,
+	evaluated_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	PRIMARY KEY (workspace_id, subject, meter_name, plan_id, period),
+	FOREIGN KEY (workspace_id, meter_name) REFERENCES meters(workspace_id, name)
+);
+
+CREATE INDEX idx_entitlement_states_workspace_state
+	ON entitlement_states (workspace_id, state, updated_at DESC);
+
+CREATE TABLE entitlement_events (
+	id TEXT PRIMARY KEY,
+	workspace_id TEXT NOT NULL REFERENCES auth_workspaces(id) ON DELETE CASCADE,
+	subject TEXT NOT NULL,
+	meter_name TEXT NOT NULL,
+	plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+	plan_name TEXT NOT NULL,
+	period TEXT NOT NULL,
+	previous_state TEXT,
+	state TEXT NOT NULL CHECK (state IN ('ok', 'warning', 'exceeded')),
+	type TEXT NOT NULL CHECK (type IN ('warning', 'exceeded', 'recovered')),
+	current_value DOUBLE PRECISION NOT NULL,
+	limit_value DOUBLE PRECISION NOT NULL,
+	remaining_value DOUBLE PRECISION NOT NULL,
+	warning_percent DOUBLE PRECISION NOT NULL,
+	message TEXT NOT NULL,
+	created_at TEXT NOT NULL,
+	FOREIGN KEY (workspace_id, meter_name) REFERENCES meters(workspace_id, name)
+);
+
+CREATE INDEX idx_entitlement_events_workspace_created
+	ON entitlement_events (workspace_id, created_at DESC, id DESC);
+
+CREATE INDEX idx_entitlement_events_workspace_subject_meter_created
+	ON entitlement_events (workspace_id, subject, meter_name, created_at DESC, id DESC);
+
+CREATE TABLE entitlement_check_jobs (
+	workspace_id TEXT NOT NULL REFERENCES auth_workspaces(id) ON DELETE CASCADE,
+	subject TEXT NOT NULL,
+	meter_name TEXT NOT NULL,
+	run_after TEXT NOT NULL,
+	locked_until TEXT,
+	attempts INTEGER NOT NULL DEFAULT 0,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	PRIMARY KEY (workspace_id, subject, meter_name),
+	FOREIGN KEY (workspace_id, meter_name) REFERENCES meters(workspace_id, name)
+);
+
+CREATE INDEX idx_entitlement_check_jobs_claim
+	ON entitlement_check_jobs (run_after, locked_until, created_at);
+
 CREATE TABLE usage_events (
 	id TEXT PRIMARY KEY,
 	workspace_id TEXT NOT NULL REFERENCES auth_workspaces(id) ON DELETE CASCADE,

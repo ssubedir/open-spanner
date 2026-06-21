@@ -226,6 +226,158 @@ func (r *EntitlementRepository) DeleteSubjectAssignment(ctx context.Context, sub
 	return nil
 }
 
+func (r *EntitlementRepository) GetEntitlementState(ctx context.Context, query appentitlement.StateQuery) (appentitlement.EntitlementState, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return appentitlement.EntitlementState{}, err
+	}
+	row, err := queriesFor(ctx, r.queries).GetEntitlementState(ctx, sqlitedb.GetEntitlementStateParams{
+		WorkspaceID: workspaceID,
+		Subject:     query.Subject,
+		MeterName:   query.MeterName,
+		PlanID:      query.PlanID,
+		Period:      string(query.Period),
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return appentitlement.EntitlementState{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return appentitlement.EntitlementState{}, err
+	}
+	return sqliteEntitlementState(row)
+}
+
+func (r *EntitlementRepository) SaveEntitlementState(ctx context.Context, state appentitlement.EntitlementState) error {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return err
+	}
+	return queriesFor(ctx, r.queries).SaveEntitlementState(ctx, sqlitedb.SaveEntitlementStateParams{
+		WorkspaceID:    workspaceID,
+		Subject:        state.Subject,
+		MeterName:      state.MeterName,
+		PlanID:         state.PlanID,
+		PlanName:       state.PlanName,
+		Period:         string(state.Period),
+		State:          string(state.State),
+		CurrentValue:   state.Current,
+		LimitValue:     state.Limit,
+		RemainingValue: state.Remaining,
+		WarningPercent: state.WarningPercent,
+		Message:        state.Message,
+		EvaluatedAt:    formatTime(state.EvaluatedAt),
+		UpdatedAt:      formatTime(state.UpdatedAt),
+	})
+}
+
+func (r *EntitlementRepository) SaveEntitlementEvent(ctx context.Context, event appentitlement.EntitlementEvent) error {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return err
+	}
+	return queriesFor(ctx, r.queries).SaveEntitlementEvent(ctx, sqlitedb.SaveEntitlementEventParams{
+		ID:             event.ID,
+		WorkspaceID:    workspaceID,
+		Subject:        event.Subject,
+		MeterName:      event.MeterName,
+		PlanID:         event.PlanID,
+		PlanName:       event.PlanName,
+		Period:         string(event.Period),
+		PreviousState:  planStringValue(string(event.PreviousState)),
+		State:          string(event.State),
+		Type:           string(event.Type),
+		CurrentValue:   event.Current,
+		LimitValue:     event.Limit,
+		RemainingValue: event.Remaining,
+		WarningPercent: event.WarningPercent,
+		Message:        event.Message,
+		CreatedAt:      formatTime(event.CreatedAt),
+	})
+}
+
+func (r *EntitlementRepository) EnqueueEntitlementCheckJob(ctx context.Context, job appentitlement.CheckJob) error {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return err
+	}
+	now := job.UpdatedAt
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	runAfter := job.RunAfter
+	if runAfter.IsZero() {
+		runAfter = now
+	}
+	return queriesFor(ctx, r.queries).EnqueueEntitlementCheckJob(ctx, sqlitedb.EnqueueEntitlementCheckJobParams{
+		WorkspaceID: workspaceID,
+		Subject:     job.Subject,
+		MeterName:   job.MeterName,
+		RunAfter:    formatTime(runAfter),
+		Now:         formatTime(now),
+	})
+}
+
+func (r *EntitlementRepository) ClaimEntitlementCheckJob(ctx context.Context, cmd appentitlement.ClaimCommand) (appentitlement.CheckJob, bool, error) {
+	now := time.Now().UTC()
+	row, err := queriesFor(ctx, r.queries).ClaimEntitlementCheckJob(ctx, sqlitedb.ClaimEntitlementCheckJobParams{
+		LockedUntil: sql.NullString{String: formatTime(now.Add(cmd.LockTTL)), Valid: true},
+		Now:         formatTime(now),
+		MaxAttempts: int64(cmd.MaxAttempts),
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return appentitlement.CheckJob{}, false, nil
+	}
+	if err != nil {
+		return appentitlement.CheckJob{}, false, err
+	}
+	job, err := sqliteEntitlementCheckJob(row)
+	if err != nil {
+		return appentitlement.CheckJob{}, false, err
+	}
+	return job, true, nil
+}
+
+func (r *EntitlementRepository) RequeueEntitlementCheckJob(ctx context.Context, cmd appentitlement.FailCommand) error {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	rows, err := queriesFor(ctx, r.queries).RequeueEntitlementCheckJob(ctx, sqlitedb.RequeueEntitlementCheckJobParams{
+		RunAfter:    formatTime(now.Add(cmd.RetryAfter)),
+		Now:         formatTime(now),
+		WorkspaceID: workspaceID,
+		Subject:     cmd.Subject,
+		MeterName:   cmd.Meter,
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (r *EntitlementRepository) DeleteEntitlementCheckJob(ctx context.Context, cmd appentitlement.CompleteCommand) error {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return err
+	}
+	rows, err := queriesFor(ctx, r.queries).DeleteEntitlementCheckJob(ctx, sqlitedb.DeleteEntitlementCheckJobParams{
+		WorkspaceID: workspaceID,
+		Subject:     cmd.Subject,
+		MeterName:   cmd.Meter,
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
 func sqlitePlan(row sqlitedb.ListPlansRow) (appentitlement.Plan, error) {
 	createdAt, err := parseEntitlementTime(row.CreatedAt)
 	if err != nil {
@@ -283,6 +435,62 @@ func sqlitePlanSubjectAssignment(row sqlitedb.ListPlanSubjectAssignmentsRow) (ap
 	}, nil
 }
 
+func sqliteEntitlementState(row sqlitedb.EntitlementState) (appentitlement.EntitlementState, error) {
+	evaluatedAt, err := parseEntitlementTime(row.EvaluatedAt)
+	if err != nil {
+		return appentitlement.EntitlementState{}, err
+	}
+	updatedAt, err := parseEntitlementTime(row.UpdatedAt)
+	if err != nil {
+		return appentitlement.EntitlementState{}, err
+	}
+	return appentitlement.EntitlementState{
+		WorkspaceID:    row.WorkspaceID,
+		Subject:        row.Subject,
+		MeterName:      row.MeterName,
+		PlanID:         row.PlanID,
+		PlanName:       row.PlanName,
+		Period:         appentitlement.Period(row.Period),
+		State:          appentitlement.OverageState(row.State),
+		Current:        row.CurrentValue,
+		Limit:          row.LimitValue,
+		Remaining:      row.RemainingValue,
+		WarningPercent: row.WarningPercent,
+		Message:        row.Message,
+		EvaluatedAt:    evaluatedAt,
+		UpdatedAt:      updatedAt,
+	}, nil
+}
+
+func sqliteEntitlementCheckJob(row sqlitedb.EntitlementCheckJob) (appentitlement.CheckJob, error) {
+	runAfter, err := parseEntitlementTime(row.RunAfter)
+	if err != nil {
+		return appentitlement.CheckJob{}, err
+	}
+	lockedUntil, err := parseNullableEntitlementTime(row.LockedUntil)
+	if err != nil {
+		return appentitlement.CheckJob{}, err
+	}
+	createdAt, err := parseEntitlementTime(row.CreatedAt)
+	if err != nil {
+		return appentitlement.CheckJob{}, err
+	}
+	updatedAt, err := parseEntitlementTime(row.UpdatedAt)
+	if err != nil {
+		return appentitlement.CheckJob{}, err
+	}
+	return appentitlement.CheckJob{
+		WorkspaceID: row.WorkspaceID,
+		Subject:     row.Subject,
+		MeterName:   row.MeterName,
+		RunAfter:    runAfter,
+		LockedUntil: lockedUntil,
+		Attempts:    int(row.Attempts),
+		CreatedAt:   createdAt,
+		UpdatedAt:   updatedAt,
+	}, nil
+}
+
 func planStringValue(value string) sql.NullString {
 	if value == "" {
 		return sql.NullString{}
@@ -292,4 +500,11 @@ func planStringValue(value string) sql.NullString {
 
 func parseEntitlementTime(value string) (time.Time, error) {
 	return time.Parse(time.RFC3339Nano, value)
+}
+
+func parseNullableEntitlementTime(value sql.NullString) (time.Time, error) {
+	if !value.Valid || value.String == "" {
+		return time.Time{}, nil
+	}
+	return parseEntitlementTime(value.String)
 }

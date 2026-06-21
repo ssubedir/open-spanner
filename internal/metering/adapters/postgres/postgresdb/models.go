@@ -78,6 +78,34 @@ type AuthWorkspace struct {
 	CreatedAt string
 }
 
+type EntitlementCheckJob struct {
+	WorkspaceID string
+	Subject     string
+	MeterName   string
+	RunAfter    string
+	LockedUntil sql.NullString
+	Attempts    int32
+	CreatedAt   string
+	UpdatedAt   string
+}
+
+type EntitlementState struct {
+	WorkspaceID    string
+	Subject        string
+	MeterName      string
+	PlanID         string
+	PlanName       string
+	Period         string
+	State          string
+	CurrentValue   float64
+	LimitValue     float64
+	RemainingValue float64
+	WarningPercent float64
+	Message        string
+	EvaluatedAt    string
+	UpdatedAt      string
+}
+
 type UsageExportJob struct {
 	ID           string
 	WorkspaceID  string

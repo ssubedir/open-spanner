@@ -65,7 +65,7 @@ func runIntegrationGRPCUsageFlow(t *testing.T, cfg config.Config, namespace stri
 	})
 
 	listener := bufconn.Listen(1024 * 1024)
-	grpcServer := grpcadapter.NewServer(app.UsageService, app.AlertService, app.AuthService, app.Authorizer)
+	grpcServer := grpcadapter.NewServer(app.UsageService, app.AlertService, app.EntitlementService, app.AuthService, app.Authorizer)
 	go func() {
 		_ = grpcServer.Serve(listener)
 	}()

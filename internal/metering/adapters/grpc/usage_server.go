@@ -10,6 +10,7 @@ import (
 	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/grpc/pb"
 	appalert "github.com/ssubedir/open-spanner/internal/metering/app/alert"
+	appentitlement "github.com/ssubedir/open-spanner/internal/metering/app/entitlement"
 	appusage "github.com/ssubedir/open-spanner/internal/metering/app/usage"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
 	"google.golang.org/grpc"
@@ -21,16 +22,21 @@ type alertEnqueuer interface {
 	EnqueueForUsageEvents(ctx context.Context, events []appalert.UsageEvent) error
 }
 
+type entitlementEnqueuer interface {
+	EnqueueForUsageEvents(ctx context.Context, events []appentitlement.UsageEvent) error
+}
+
 type UsageServer struct {
 	pb.UnimplementedUsageServiceServer
 
-	service    appusage.Service
-	alerts     alertEnqueuer
-	authorizer appauth.Authorizer
+	service      appusage.Service
+	alerts       alertEnqueuer
+	entitlements entitlementEnqueuer
+	authorizer   appauth.Authorizer
 }
 
-func NewUsageServer(service appusage.Service, alerts alertEnqueuer, authorizer appauth.Authorizer) *UsageServer {
-	return &UsageServer{service: service, alerts: alerts, authorizer: authorizer}
+func NewUsageServer(service appusage.Service, alerts alertEnqueuer, entitlements entitlementEnqueuer, authorizer appauth.Authorizer) *UsageServer {
+	return &UsageServer{service: service, alerts: alerts, entitlements: entitlements, authorizer: authorizer}
 }
 
 func (s *UsageServer) CreateUsage(ctx context.Context, req *pb.CreateUsageRequest) (*pb.CreateUsageResponse, error) {
@@ -50,6 +56,7 @@ func (s *UsageServer) CreateUsage(ctx context.Context, req *pb.CreateUsageReques
 		return nil, serviceError(err)
 	}
 	s.enqueueAlerts(ctx, []appusage.Result{event})
+	s.enqueueEntitlements(ctx, []appusage.Result{event})
 
 	res, err := resultToProto(event)
 	if err != nil {
@@ -75,6 +82,7 @@ func (s *UsageServer) CreateUsageBulk(ctx context.Context, req *pb.CreateUsageBu
 		return nil, serviceError(err)
 	}
 	s.enqueueAlerts(ctx, result.Accepted)
+	s.enqueueEntitlements(ctx, result.Accepted)
 
 	res, err := bulkResponseFromResult(result)
 	if err != nil {
@@ -117,6 +125,7 @@ func (s *UsageServer) closeUsageStream(stream grpc.ClientStreamingServer[pb.Stre
 		return serviceError(err)
 	}
 	s.enqueueAlerts(stream.Context(), result.Accepted)
+	s.enqueueEntitlements(stream.Context(), result.Accepted)
 
 	res, err := streamResponseFromResult(result)
 	if err != nil {
@@ -153,6 +162,23 @@ func (s *UsageServer) enqueueAlerts(ctx context.Context, events []appusage.Resul
 	}
 	if err := s.alerts.EnqueueForUsageEvents(ctx, alertEvents); err != nil {
 		log.Printf("alert enqueue failed: %v", err)
+	}
+}
+
+func (s *UsageServer) enqueueEntitlements(ctx context.Context, events []appusage.Result) {
+	if s.entitlements == nil || len(events) == 0 {
+		return
+	}
+	entitlementEvents := make([]appentitlement.UsageEvent, 0, len(events))
+	for _, event := range events {
+		entitlementEvents = append(entitlementEvents, appentitlement.UsageEvent{
+			Subject:  event.Subject,
+			Meter:    event.MeterName,
+			Quantity: event.Quantity,
+		})
+	}
+	if err := s.entitlements.EnqueueForUsageEvents(ctx, entitlementEvents); err != nil {
+		log.Printf("entitlement enqueue failed: %v", err)
 	}
 }
 

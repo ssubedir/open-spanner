@@ -7,7 +7,47 @@ package sqlitedb
 
 import (
 	"context"
+	"database/sql"
 )
+
+const claimEntitlementCheckJob = `-- name: ClaimEntitlementCheckJob :one
+UPDATE entitlement_check_jobs
+SET attempts = entitlement_check_jobs.attempts + 1,
+	locked_until = ?1,
+	updated_at = ?2
+WHERE (workspace_id, subject, meter_name) = (
+	SELECT workspace_id, subject, meter_name
+	FROM entitlement_check_jobs
+	WHERE run_after <= ?2
+		AND (locked_until IS NULL OR locked_until < ?2)
+		AND entitlement_check_jobs.attempts < ?3
+	ORDER BY run_after ASC, created_at ASC, workspace_id ASC, subject ASC, meter_name ASC
+	LIMIT 1
+)
+RETURNING workspace_id, subject, meter_name, run_after, locked_until, attempts, created_at, updated_at
+`
+
+type ClaimEntitlementCheckJobParams struct {
+	LockedUntil sql.NullString
+	Now         string
+	MaxAttempts int64
+}
+
+func (q *Queries) ClaimEntitlementCheckJob(ctx context.Context, arg ClaimEntitlementCheckJobParams) (EntitlementCheckJob, error) {
+	row := q.db.QueryRowContext(ctx, claimEntitlementCheckJob, arg.LockedUntil, arg.Now, arg.MaxAttempts)
+	var i EntitlementCheckJob
+	err := row.Scan(
+		&i.WorkspaceID,
+		&i.Subject,
+		&i.MeterName,
+		&i.RunAfter,
+		&i.LockedUntil,
+		&i.Attempts,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
 
 const countPlanAssignments = `-- name: CountPlanAssignments :one
 SELECT COUNT(*)
@@ -26,6 +66,27 @@ func (q *Queries) CountPlanAssignments(ctx context.Context, arg CountPlanAssignm
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const deleteEntitlementCheckJob = `-- name: DeleteEntitlementCheckJob :execrows
+DELETE FROM entitlement_check_jobs
+WHERE workspace_id = ?1
+	AND subject = ?2
+	AND meter_name = ?3
+`
+
+type DeleteEntitlementCheckJobParams struct {
+	WorkspaceID string
+	Subject     string
+	MeterName   string
+}
+
+func (q *Queries) DeleteEntitlementCheckJob(ctx context.Context, arg DeleteEntitlementCheckJobParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteEntitlementCheckJob, arg.WorkspaceID, arg.Subject, arg.MeterName)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const deletePlan = `-- name: DeletePlan :execrows
@@ -80,6 +141,84 @@ func (q *Queries) DeletePlanSubjectAssignment(ctx context.Context, arg DeletePla
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const enqueueEntitlementCheckJob = `-- name: EnqueueEntitlementCheckJob :exec
+INSERT INTO entitlement_check_jobs (workspace_id, subject, meter_name, run_after, locked_until, attempts, created_at, updated_at)
+VALUES (?1, ?2, ?3, ?4, NULL, 0, ?5, ?5)
+ON CONFLICT(workspace_id, subject, meter_name) DO UPDATE SET
+	run_after = CASE
+		WHEN entitlement_check_jobs.run_after > excluded.run_after THEN excluded.run_after
+		ELSE entitlement_check_jobs.run_after
+	END,
+	updated_at = excluded.updated_at
+WHERE entitlement_check_jobs.locked_until IS NULL
+	OR entitlement_check_jobs.locked_until < excluded.updated_at
+`
+
+type EnqueueEntitlementCheckJobParams struct {
+	WorkspaceID string
+	Subject     string
+	MeterName   string
+	RunAfter    string
+	Now         string
+}
+
+func (q *Queries) EnqueueEntitlementCheckJob(ctx context.Context, arg EnqueueEntitlementCheckJobParams) error {
+	_, err := q.db.ExecContext(ctx, enqueueEntitlementCheckJob,
+		arg.WorkspaceID,
+		arg.Subject,
+		arg.MeterName,
+		arg.RunAfter,
+		arg.Now,
+	)
+	return err
+}
+
+const getEntitlementState = `-- name: GetEntitlementState :one
+SELECT workspace_id, subject, meter_name, plan_id, plan_name, period, state, current_value, limit_value, remaining_value, warning_percent, message, evaluated_at, updated_at
+FROM entitlement_states
+WHERE workspace_id = ?1
+	AND subject = ?2
+	AND meter_name = ?3
+	AND plan_id = ?4
+	AND period = ?5
+`
+
+type GetEntitlementStateParams struct {
+	WorkspaceID string
+	Subject     string
+	MeterName   string
+	PlanID      string
+	Period      string
+}
+
+func (q *Queries) GetEntitlementState(ctx context.Context, arg GetEntitlementStateParams) (EntitlementState, error) {
+	row := q.db.QueryRowContext(ctx, getEntitlementState,
+		arg.WorkspaceID,
+		arg.Subject,
+		arg.MeterName,
+		arg.PlanID,
+		arg.Period,
+	)
+	var i EntitlementState
+	err := row.Scan(
+		&i.WorkspaceID,
+		&i.Subject,
+		&i.MeterName,
+		&i.PlanID,
+		&i.PlanName,
+		&i.Period,
+		&i.State,
+		&i.CurrentValue,
+		&i.LimitValue,
+		&i.RemainingValue,
+		&i.WarningPercent,
+		&i.Message,
+		&i.EvaluatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const listPlanLimits = `-- name: ListPlanLimits :many
@@ -255,6 +394,148 @@ func (q *Queries) ListPlans(ctx context.Context, arg ListPlansParams) ([]ListPla
 		return nil, err
 	}
 	return items, nil
+}
+
+const requeueEntitlementCheckJob = `-- name: RequeueEntitlementCheckJob :execrows
+UPDATE entitlement_check_jobs
+SET run_after = ?1,
+	locked_until = NULL,
+	updated_at = ?2
+WHERE workspace_id = ?3
+	AND subject = ?4
+	AND meter_name = ?5
+`
+
+type RequeueEntitlementCheckJobParams struct {
+	RunAfter    string
+	Now         string
+	WorkspaceID string
+	Subject     string
+	MeterName   string
+}
+
+func (q *Queries) RequeueEntitlementCheckJob(ctx context.Context, arg RequeueEntitlementCheckJobParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, requeueEntitlementCheckJob,
+		arg.RunAfter,
+		arg.Now,
+		arg.WorkspaceID,
+		arg.Subject,
+		arg.MeterName,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const saveEntitlementEvent = `-- name: SaveEntitlementEvent :exec
+INSERT INTO entitlement_events (
+	id, workspace_id, subject, meter_name, plan_id, plan_name, period, previous_state, state, type,
+	current_value, limit_value, remaining_value, warning_percent, message, created_at
+)
+VALUES (
+	?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+	?11, ?12, ?13, ?14, ?15, ?16
+)
+`
+
+type SaveEntitlementEventParams struct {
+	ID             string
+	WorkspaceID    string
+	Subject        string
+	MeterName      string
+	PlanID         string
+	PlanName       string
+	Period         string
+	PreviousState  sql.NullString
+	State          string
+	Type           string
+	CurrentValue   float64
+	LimitValue     float64
+	RemainingValue float64
+	WarningPercent float64
+	Message        string
+	CreatedAt      string
+}
+
+func (q *Queries) SaveEntitlementEvent(ctx context.Context, arg SaveEntitlementEventParams) error {
+	_, err := q.db.ExecContext(ctx, saveEntitlementEvent,
+		arg.ID,
+		arg.WorkspaceID,
+		arg.Subject,
+		arg.MeterName,
+		arg.PlanID,
+		arg.PlanName,
+		arg.Period,
+		arg.PreviousState,
+		arg.State,
+		arg.Type,
+		arg.CurrentValue,
+		arg.LimitValue,
+		arg.RemainingValue,
+		arg.WarningPercent,
+		arg.Message,
+		arg.CreatedAt,
+	)
+	return err
+}
+
+const saveEntitlementState = `-- name: SaveEntitlementState :exec
+INSERT INTO entitlement_states (
+	workspace_id, subject, meter_name, plan_id, plan_name, period, state,
+	current_value, limit_value, remaining_value, warning_percent, message, evaluated_at, updated_at
+)
+VALUES (
+	?1, ?2, ?3, ?4, ?5, ?6, ?7,
+	?8, ?9, ?10, ?11, ?12, ?13, ?14
+)
+ON CONFLICT(workspace_id, subject, meter_name, plan_id, period) DO UPDATE SET
+	plan_name = excluded.plan_name,
+	state = excluded.state,
+	current_value = excluded.current_value,
+	limit_value = excluded.limit_value,
+	remaining_value = excluded.remaining_value,
+	warning_percent = excluded.warning_percent,
+	message = excluded.message,
+	evaluated_at = excluded.evaluated_at,
+	updated_at = excluded.updated_at
+`
+
+type SaveEntitlementStateParams struct {
+	WorkspaceID    string
+	Subject        string
+	MeterName      string
+	PlanID         string
+	PlanName       string
+	Period         string
+	State          string
+	CurrentValue   float64
+	LimitValue     float64
+	RemainingValue float64
+	WarningPercent float64
+	Message        string
+	EvaluatedAt    string
+	UpdatedAt      string
+}
+
+func (q *Queries) SaveEntitlementState(ctx context.Context, arg SaveEntitlementStateParams) error {
+	_, err := q.db.ExecContext(ctx, saveEntitlementState,
+		arg.WorkspaceID,
+		arg.Subject,
+		arg.MeterName,
+		arg.PlanID,
+		arg.PlanName,
+		arg.Period,
+		arg.State,
+		arg.CurrentValue,
+		arg.LimitValue,
+		arg.RemainingValue,
+		arg.WarningPercent,
+		arg.Message,
+		arg.EvaluatedAt,
+		arg.UpdatedAt,
+	)
+	return err
 }
 
 const savePlan = `-- name: SavePlan :exec

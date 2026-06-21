@@ -25,6 +25,7 @@ import (
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/fileexport"
 	appalert "github.com/ssubedir/open-spanner/internal/metering/app/alert"
 	alertworker "github.com/ssubedir/open-spanner/internal/metering/workers/alert"
+	entitlementworker "github.com/ssubedir/open-spanner/internal/metering/workers/entitlement"
 	exportworker "github.com/ssubedir/open-spanner/internal/metering/workers/export"
 )
 
@@ -795,6 +796,15 @@ func runIntegrationPlanEntitlementFlow(t *testing.T, cfg config.Config, namespac
 	}, sdkHeaders, nil)
 	if createUsage.Code != http.StatusCreated {
 		t.Fatalf("create entitlement usage status = %d, want %d: %s", createUsage.Code, http.StatusCreated, createUsage.Body.String())
+	}
+
+	entitlementWorker := entitlementworker.NewWorker(app.EntitlementService, time.Millisecond, time.Minute, time.Minute, time.Second, 3, 10, t.Logf)
+	processed, err := entitlementWorker.ProcessOnce(context.Background())
+	if err != nil {
+		t.Fatalf("process entitlement check: %v", err)
+	}
+	if !processed {
+		t.Fatal("process entitlement check = false, want queued entitlement job")
 	}
 
 	progressRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/plans/subjects/"+url.PathEscape(subject)+"/progress", nil, sdkHeaders, nil)
