@@ -21,7 +21,24 @@ const comparators = [
 ] as const
 
 export function AlertsPage() {
-  const { creating, deleting, destinationCreating, destinationDeleting, destinationEditing, destinations, editing, error, events, items, meters, saving, selectedEvent, signingSecret } = useSelector(appStore, (state) => state.alerts)
+  const {
+    creating,
+    deleting,
+    destinationCreating,
+    destinationDeleting,
+    destinationEditing,
+    destinations,
+    editing,
+    error,
+    eventLoadingMore,
+    eventNextCursor,
+    events,
+    items,
+    meters,
+    saving,
+    selectedEvent,
+    signingSecret,
+  } = useSelector(appStore, (state) => state.alerts)
   const load = useCallback(() => appStoreActions.loadAlerts(), [])
   const pollEvents = useCallback(() => appStoreActions.loadAlertEvents({ quiet: true }), [])
   const selectedEventRule = selectedEvent ? ruleForEvent(items, selectedEvent) : null
@@ -235,6 +252,14 @@ export function AlertsPage() {
               ]
             })}
           />
+          {eventNextCursor ? (
+            <div className="pagination-actions">
+              <Button disabled={eventLoadingMore} onClick={() => void appStoreActions.loadMoreAlertEvents()} type="button" variant="outline">
+                {eventLoadingMore ? <Loader2 className="spin" aria-hidden="true" /> : null}
+                Load more events
+              </Button>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 

@@ -32,6 +32,8 @@ export function SubjectsPage({ routeSubject = '' }: SubjectsPageProps) {
     exportError,
     exporting,
     items,
+    loadingMore,
+    nextCursor,
     searchQuery,
     selectedSubject,
     status,
@@ -121,6 +123,14 @@ export function SubjectsPage({ routeSubject = '' }: SubjectsPageProps) {
                 formatDate(subject.last_event_at),
               ])}
             />
+            {nextCursor ? (
+              <div className="pagination-actions">
+                <Button disabled={loadingMore} onClick={() => void appStoreActions.loadMoreSubjects()} type="button" variant="outline">
+                  {loadingMore ? <Loader2 className="spin" aria-hidden="true" /> : null}
+                  Load more subjects
+                </Button>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
 

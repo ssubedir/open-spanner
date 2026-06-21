@@ -154,6 +154,8 @@ type AppState = {
     editing: AlertRule | null
     error: string
     events: AlertEvent[]
+    eventLoadingMore: boolean
+    eventNextCursor: string
     eventStatus: LoadState
     items: AlertRule[]
     meters: Meter[]
@@ -189,6 +191,8 @@ type AppState = {
     exportError: string
     exporting: boolean
     items: SubjectStats[]
+    loadingMore: boolean
+    nextCursor: string
     searchQuery: string
     selectedSubject: string
     status: LoadState
@@ -207,8 +211,10 @@ type AppState = {
     exportError: string
     exportJobDownloading: string
     exportJobError: string
+    exportJobLoadingMore: boolean
     exportJobLimit: number
     exportJobMutating: string
+    exportJobNextCursor: string
     exportJobStatus: LoadState
     exportJobs: UsageExportJob[]
     exporting: UsageExportKind
@@ -232,6 +238,9 @@ type UserDataState = Pick<AppState, 'apiKeys' | 'alerts' | 'meters' | 'overview'
 
 let meterDimensionID = 0
 const domainSubjectField = 'subject'
+const alertEventPageSize = 25
+const subjectPageSize = 50
+const exportJobPageSize = 50
 let userDataGeneration = 0
 
 export const appStore = createStore<AppState>({
@@ -262,6 +271,8 @@ export const appStore = createStore<AppState>({
     editing: null,
     error: '',
     events: [],
+    eventLoadingMore: false,
+    eventNextCursor: '',
     eventStatus: 'idle',
     items: [],
     meters: [],
@@ -297,6 +308,8 @@ export const appStore = createStore<AppState>({
     exportError: '',
     exporting: false,
     items: [],
+    loadingMore: false,
+    nextCursor: '',
     searchQuery: '',
     selectedSubject: '',
     status: 'idle',
@@ -315,8 +328,10 @@ export const appStore = createStore<AppState>({
     exportError: '',
     exportJobDownloading: '',
     exportJobError: '',
+    exportJobLoadingMore: false,
     exportJobLimit: 8,
     exportJobMutating: '',
+    exportJobNextCursor: '',
     exportJobStatus: 'idle',
     exportJobs: [],
     exporting: '',
@@ -382,6 +397,8 @@ function initialUserDataState(): UserDataState {
       editing: null,
       error: '',
       events: [],
+      eventLoadingMore: false,
+      eventNextCursor: '',
       eventStatus: 'idle',
       items: [],
       meters: [],
@@ -417,6 +434,8 @@ function initialUserDataState(): UserDataState {
       exportError: '',
       exporting: false,
       items: [],
+      loadingMore: false,
+      nextCursor: '',
       searchQuery: '',
       selectedSubject: '',
       status: 'idle',
@@ -435,8 +454,10 @@ function initialUserDataState(): UserDataState {
       exportError: '',
       exportJobDownloading: '',
       exportJobError: '',
+      exportJobLoadingMore: false,
       exportJobLimit: 8,
       exportJobMutating: '',
+      exportJobNextCursor: '',
       exportJobStatus: 'idle',
       exportJobs: [],
       exporting: '',
@@ -533,12 +554,12 @@ export const appStoreActions = {
   },
   async loadAlerts() {
     const generation = currentUserDataGeneration()
-    setAlertsState({ error: '', eventStatus: 'loading', status: 'loading' })
+    setAlertsState({ error: '', eventLoadingMore: false, eventStatus: 'loading', status: 'loading' })
     try {
       const [meters, rules, events, destinations] = await Promise.all([
         listMeters(),
         listAlertRules(),
-        listAlertEvents(),
+        listAlertEvents(alertEventPageSize),
         listAlertDestinations(),
       ])
       if (!isCurrentUserDataGeneration(generation)) {
@@ -547,6 +568,7 @@ export const appStoreActions = {
       setAlertsState((state) => ({
         destinations: destinations.items,
         events: events.items,
+        eventNextCursor: events.next_cursor || '',
         eventStatus: 'ready',
         items: rules.items,
         meters: meters.items,
@@ -571,12 +593,13 @@ export const appStoreActions = {
     }
 
     try {
-      const events = await listAlertEvents()
+      const events = await listAlertEvents(alertEventPageSize)
       if (!isCurrentUserDataGeneration(generation)) {
         return
       }
       setAlertsState((state) => ({
-        events: events.items,
+        events: options.quiet && state.events.length > events.items.length ? mergeAlertEvents(events.items, state.events) : events.items,
+        eventNextCursor: options.quiet && state.events.length > events.items.length ? state.eventNextCursor : events.next_cursor || '',
         eventStatus: 'ready',
         selectedEvent: state.selectedEvent ? events.items.find((event) => event.id === state.selectedEvent?.id) ?? state.selectedEvent : null,
       }))
@@ -588,6 +611,34 @@ export const appStoreActions = {
         error: errorMessage(err, 'Unable to load alert events'),
         eventStatus: 'error',
       })
+    }
+  },
+  async loadMoreAlertEvents() {
+    const cursor = appStore.state.alerts.eventNextCursor
+    if (!cursor || appStore.state.alerts.eventLoadingMore) {
+      return
+    }
+
+    const generation = currentUserDataGeneration()
+    setAlertsState({ error: '', eventLoadingMore: true })
+    try {
+      const events = await listAlertEvents(alertEventPageSize, cursor)
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setAlertsState((state) => ({
+        events: appendUniqueByKey(state.events, events.items, (event) => event.id),
+        eventNextCursor: events.next_cursor || '',
+      }))
+    } catch (err) {
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setAlertsState({ error: errorMessage(err, 'Unable to load more alert events') })
+    } finally {
+      if (isCurrentUserDataGeneration(generation)) {
+        setAlertsState({ eventLoadingMore: false })
+      }
     }
   },
   async createAlert(input: AlertRuleRequest) {
@@ -835,15 +886,16 @@ export const appStoreActions = {
   },
   async loadSubjects(preferredSubject = '') {
     const generation = currentUserDataGeneration()
-    setSubjectsState({ error: '', status: 'loading' })
+    setSubjectsState({ error: '', loadingMore: false, status: 'loading' })
     try {
-      const subjects = await listSubjects(50)
+      const subjects = await listSubjects(subjectPageSize)
       if (!isCurrentUserDataGeneration(generation)) {
         return
       }
       const selectedSubject = preferredSubject.trim() || selectedSubjectForList(appStore.state.subjects.selectedSubject, subjects.items)
       setSubjectsState({
         items: subjects.items,
+        nextCursor: subjects.next_cursor || '',
         selectedSubject,
         status: 'ready',
       })
@@ -857,6 +909,34 @@ export const appStoreActions = {
         return
       }
       setSubjectsState({ error: errorMessage(err, 'Unable to load subjects'), status: 'error' })
+    }
+  },
+  async loadMoreSubjects() {
+    const cursor = appStore.state.subjects.nextCursor
+    if (!cursor || appStore.state.subjects.loadingMore) {
+      return
+    }
+
+    const generation = currentUserDataGeneration()
+    setSubjectsState({ error: '', loadingMore: true })
+    try {
+      const subjects = await listSubjects(subjectPageSize, cursor)
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setSubjectsState((state) => ({
+        items: appendUniqueByKey(state.items, subjects.items, (subject) => subject.subject),
+        nextCursor: subjects.next_cursor || '',
+      }))
+    } catch (err) {
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setSubjectsState({ error: errorMessage(err, 'Unable to load more subjects') })
+    } finally {
+      if (isCurrentUserDataGeneration(generation)) {
+        setSubjectsState({ loadingMore: false })
+      }
     }
   },
   async loadSubjectEvents(subject: string) {
@@ -911,13 +991,15 @@ export const appStoreActions = {
       const [nextMeters, savedQueries, exportJobs] = await Promise.all([
         listMeters(),
         listSavedUsageQueries(),
-        listUsageExportJobs(),
+        listUsageExportJobs(exportJobPageSize),
       ])
       if (!isCurrentUserDataGeneration(generation)) {
         return
       }
       setUsageState((state) => ({
-        exportJobLimit: 8,
+        exportJobLimit: exportJobPageSize,
+        exportJobLoadingMore: false,
+        exportJobNextCursor: exportJobs.next_cursor || '',
         exportJobs: exportJobs.items,
         exportJobStatus: 'ready',
         meters: nextMeters.items,
@@ -940,15 +1022,22 @@ export const appStoreActions = {
       })
     }
   },
-  async loadUsageExportJobs(limit = appStore.state.usage.exportJobLimit || 8) {
+  async loadUsageExportJobs(limit = appStore.state.usage.exportJobLimit || exportJobPageSize, options: { preserveLoaded?: boolean; quiet?: boolean } = {}) {
     const generation = currentUserDataGeneration()
-    setUsageState({ exportJobError: '', exportJobStatus: 'loading' })
+    if (!options.quiet) {
+      setUsageState({ exportJobError: '', exportJobStatus: 'loading' })
+    }
     try {
       const exportJobs = await listUsageExportJobs(limit)
       if (!isCurrentUserDataGeneration(generation)) {
         return
       }
-      setUsageState({ exportJobLimit: limit, exportJobs: exportJobs.items, exportJobStatus: 'ready' })
+      setUsageState((state) => ({
+        exportJobLimit: limit,
+        exportJobNextCursor: options.preserveLoaded && state.exportJobs.length > exportJobs.items.length ? state.exportJobNextCursor : exportJobs.next_cursor || '',
+        exportJobs: options.preserveLoaded && state.exportJobs.length > exportJobs.items.length ? mergeByID(exportJobs.items, state.exportJobs) : exportJobs.items,
+        exportJobStatus: 'ready',
+      }))
     } catch (err) {
       if (!isCurrentUserDataGeneration(generation)) {
         return
@@ -957,6 +1046,34 @@ export const appStoreActions = {
         exportJobError: errorMessage(err, 'Unable to load export jobs'),
         exportJobStatus: 'error',
       })
+    }
+  },
+  async loadMoreUsageExportJobs(limit = appStore.state.usage.exportJobLimit || exportJobPageSize) {
+    const cursor = appStore.state.usage.exportJobNextCursor
+    if (!cursor || appStore.state.usage.exportJobLoadingMore) {
+      return
+    }
+
+    const generation = currentUserDataGeneration()
+    setUsageState({ exportJobError: '', exportJobLoadingMore: true })
+    try {
+      const exportJobs = await listUsageExportJobs(limit, cursor)
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setUsageState((state) => ({
+        exportJobs: appendUniqueByKey(state.exportJobs, exportJobs.items, (job) => job.id),
+        exportJobNextCursor: exportJobs.next_cursor || '',
+      }))
+    } catch (err) {
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setUsageState({ exportJobError: errorMessage(err, 'Unable to load more export jobs') })
+    } finally {
+      if (isCurrentUserDataGeneration(generation)) {
+        setUsageState({ exportJobLoadingMore: false })
+      }
     }
   },
   async loadUsageDimensionValues() {
@@ -1368,9 +1485,9 @@ export const appStoreActions = {
       }
       setUsageState((state) => ({
         exportJobStatus: 'ready',
-        exportJobs: [job, ...state.exportJobs.filter((item) => item.id !== job.id)].slice(0, 8),
+        exportJobs: mergeByID([job], state.exportJobs),
       }))
-      await appStoreActions.loadUsageExportJobs()
+      await appStoreActions.loadUsageExportJobs(appStore.state.usage.exportJobLimit, { preserveLoaded: true, quiet: true })
     } catch (err) {
       if (!isCurrentUserDataGeneration(generation)) {
         return
@@ -1421,7 +1538,7 @@ export const appStoreActions = {
     try {
       const updated = await retryUsageExportJob(job.id)
       setUsageState((state) => ({ exportJobs: upsertUsageExportJob(state.exportJobs, updated) }))
-      await appStoreActions.loadUsageExportJobs(appStore.state.usage.exportJobLimit)
+      await appStoreActions.loadUsageExportJobs(appStore.state.usage.exportJobLimit, { preserveLoaded: true, quiet: true })
     } catch (err) {
       setUsageState({ exportJobError: errorMessage(err, 'Unable to retry export job') })
     } finally {
@@ -1609,11 +1726,19 @@ function setAlertsState(update: Partial<AppState['alerts']> | ((state: AppState[
 }
 
 function mergeAlertEvents(next: AlertEvent[], current: AlertEvent[]) {
+  return mergeByID(next, current)
+}
+
+function mergeByID<T extends { id: string }>(next: T[], current: T[]) {
+  return appendUniqueByKey(next, current, (item) => item.id)
+}
+
+function appendUniqueByKey<T>(current: T[], next: T[], keyFor: (item: T) => string) {
   if (next.length === 0) {
     return current
   }
-  const nextIDs = new Set(next.map((event) => event.id))
-  return [...next, ...current.filter((event) => !nextIDs.has(event.id))].slice(0, 25)
+  const currentKeys = new Set(current.map(keyFor))
+  return [...current, ...next.filter((item) => !currentKeys.has(keyFor(item)))]
 }
 
 function alertWebhookSecretFromDestination(destination: AlertDestination): AlertWebhookSecret | null {
@@ -1651,12 +1776,12 @@ function setOverviewState(update: Partial<AppState['overview']>) {
   }))
 }
 
-function setSubjectsState(update: Partial<AppState['subjects']>) {
+function setSubjectsState(update: Partial<AppState['subjects']> | ((state: AppState['subjects']) => Partial<AppState['subjects']>)) {
   appStore.setState((state) => ({
     ...state,
     subjects: {
       ...state.subjects,
-      ...update,
+      ...(typeof update === 'function' ? update(state.subjects) : update),
     },
   }))
 }

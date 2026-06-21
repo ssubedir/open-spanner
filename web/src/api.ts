@@ -652,16 +652,24 @@ export async function evaluateAlertRule(id: string) {
   })
 }
 
-export async function listAlertEvents(limit = 25) {
-  return request<AlertEventList>(`/v1/alerts/events?limit=${limit}`)
+export async function listAlertEvents(limit = 25, cursor = '') {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (cursor) {
+    params.set('cursor', cursor)
+  }
+  return request<AlertEventList>(`/v1/alerts/events?${params.toString()}`)
 }
 
 export async function getSystemStats() {
   return request<SystemStats>('/v1/system/stats')
 }
 
-export async function listSubjects(limit = 8) {
-  return request<SubjectList>(`/v1/subjects?limit=${limit}`)
+export async function listSubjects(limit = 8, cursor = '') {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (cursor) {
+    params.set('cursor', cursor)
+  }
+  return request<SubjectList>(`/v1/subjects?${params.toString()}`)
 }
 
 export async function listSubjectEvents(subject: string, limit = 25) {
@@ -787,8 +795,12 @@ export async function retryUsageExportJob(id: string) {
   })
 }
 
-export async function listUsageExportJobs(limit = 8) {
-  return request<UsageExportJobList>(`/v1/exports?limit=${limit}`)
+export async function listUsageExportJobs(limit = 8, cursor = '') {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (cursor) {
+    params.set('cursor', cursor)
+  }
+  return request<UsageExportJobList>(`/v1/exports?${params.toString()}`)
 }
 
 export async function downloadUsageExportJob(job: Pick<UsageExportJob, 'download_url' | 'id'>) {

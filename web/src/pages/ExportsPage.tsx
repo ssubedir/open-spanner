@@ -19,7 +19,9 @@ export function ExportsPage() {
   const {
     exportJobDownloading,
     exportJobError,
+    exportJobLoadingMore,
     exportJobMutating,
+    exportJobNextCursor,
     exportJobStatus,
     exportJobs,
   } = useSelector(appStore, (state) => state.usage)
@@ -41,7 +43,7 @@ export function ExportsPage() {
     }
 
     const poll = window.setInterval(() => {
-      void appStoreActions.loadUsageExportJobs(exportJobPageSize)
+      void appStoreActions.loadUsageExportJobs(exportJobPageSize, { preserveLoaded: true, quiet: true })
     }, 5000)
     return () => window.clearInterval(poll)
   }, [hasActiveExportJobs])
@@ -82,8 +84,11 @@ export function ExportsPage() {
         downloadingID={exportJobDownloading}
         emptyLabel={exportJobStatus === 'loading' ? 'Loading export jobs' : 'No export jobs match this filter.'}
         error={exportJobError}
+        hasMore={Boolean(exportJobNextCursor)}
         jobs={filteredJobs}
+        loadingMore={exportJobLoadingMore}
         mutatingID={exportJobMutating}
+        onLoadMore={() => void appStoreActions.loadMoreUsageExportJobs(exportJobPageSize)}
         status={exportJobStatus}
         title="Jobs"
       />

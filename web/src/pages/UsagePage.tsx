@@ -45,7 +45,9 @@ export function UsagePage() {
     exportError,
     exportJobDownloading,
     exportJobError,
+    exportJobLoadingMore,
     exportJobMutating,
+    exportJobNextCursor,
     exportJobStatus,
     exportJobs,
     exporting,
@@ -148,7 +150,7 @@ export function UsagePage() {
     }
 
     const poll = window.setInterval(() => {
-      void appStoreActions.loadUsageExportJobs()
+      void appStoreActions.loadUsageExportJobs(undefined, { preserveLoaded: true, quiet: true })
     }, 5000)
     return () => window.clearInterval(poll)
   }, [hasActiveExportJobs])
@@ -325,8 +327,11 @@ export function UsagePage() {
         <ExportJobsCard
           downloadingID={exportJobDownloading}
           error={exportJobError}
+          hasMore={Boolean(exportJobNextCursor)}
           jobs={exportJobs}
+          loadingMore={exportJobLoadingMore}
           mutatingID={exportJobMutating}
+          onLoadMore={() => void appStoreActions.loadMoreUsageExportJobs()}
           status={exportJobStatus}
         />
 
