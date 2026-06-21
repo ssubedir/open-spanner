@@ -29,6 +29,7 @@ not seed any other use case, so you can run only the pattern you want to inspect
 | `storage-usage` | Capacity usage by tier, region, and resource type |
 | `background-jobs` | Asynchronous work by queue, status, and worker region |
 | `feature-usage` | Product feature and entitlement usage by plan and source |
+| `entitlement-check` | Backend quota check before accepting more usage |
 | `historical-backfill` | Importing older usage with stable idempotency keys |
 
 Inside each scenario folder, run the SDK you want:
@@ -61,6 +62,7 @@ Advanced stream examples live under `examples/stream/advance`:
 | `device-telemetry` | High-frequency readings from devices or edge gateways |
 | `websocket-sessions` | Connected seconds from realtime WebSocket or gRPC gateways |
 | `queue-consumer` | Message consumption from long-running queue consumers |
+| `entitlement-gate` | Quota check over REST before gRPC stream ingestion |
 
 To verify that every local example still compiles and builds against the SDKs in
 this checkout, run:

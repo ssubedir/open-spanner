@@ -3,6 +3,7 @@
 using Microsoft.Kiota.Abstractions.Extensions;
 using Microsoft.Kiota.Abstractions;
 using OpenSpanner.V1.Entitlements.Check;
+using OpenSpanner.V1.Entitlements.States;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
@@ -19,6 +20,11 @@ namespace OpenSpanner.V1.Entitlements
         public global::OpenSpanner.V1.Entitlements.Check.CheckRequestBuilder Check
         {
             get => new global::OpenSpanner.V1.Entitlements.Check.CheckRequestBuilder(PathParameters, RequestAdapter);
+        }
+        /// <summary>The states property</summary>
+        public global::OpenSpanner.V1.Entitlements.States.StatesRequestBuilder States
+        {
+            get => new global::OpenSpanner.V1.Entitlements.States.StatesRequestBuilder(PathParameters, RequestAdapter);
         }
         /// <summary>
         /// Instantiates a new <see cref="global::OpenSpanner.V1.Entitlements.EntitlementsRequestBuilder"/> and sets the default values.

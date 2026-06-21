@@ -19,7 +19,7 @@ Open Spanner is not a payment processor, invoice generator, tax engine, or custo
 | --- | --- |
 | Dashboard | Sign in, define meters, inspect usage, manage plans, create API keys, manage exports, and view alert activity. |
 | REST API | Meter management, usage writes, usage queries, entitlement checks, exports, and operational endpoints. |
-| Official SDKs | Typed backend clients for meters, usage, direct exports, and entitlement checks in Go, TypeScript, Python, and C#. |
+| Official SDKs | Typed backend clients for meters, usage, direct exports, entitlement checks, and entitlement progress reads in Go, TypeScript, Python, and C#. |
 | gRPC streaming | High-throughput usage ingestion from trusted backend services. |
 | Workers | Queued CSV export processing and alert threshold evaluation. |
 | Storage | SQLite for local/single-node use, Postgres for production deployments. |
@@ -238,6 +238,7 @@ Stream examples:
 | Device telemetry | [`examples/stream/advance/device-telemetry`](examples/stream/advance/device-telemetry) |
 | WebSocket sessions | [`examples/stream/advance/websocket-sessions`](examples/stream/advance/websocket-sessions) |
 | Queue consumers | [`examples/stream/advance/queue-consumer`](examples/stream/advance/queue-consumer) |
+| Entitlement-gated ingestion | [`examples/stream/advance/entitlement-gate`](examples/stream/advance/entitlement-gate) |
 
 ## Use Cases
 
@@ -249,9 +250,10 @@ Stream examples:
 | [Active users](docs/content/docs/use-cases/active-users.mdx) | Seats, workspaces, roles, plans, and active accounts. |
 | [Background jobs](docs/content/docs/use-cases/background-jobs.mdx) | Queue throughput, job outcomes, and worker regions. |
 | [Feature usage](docs/content/docs/use-cases/feature-usage.mdx) | Product adoption, entitlement usage, and plan-level behavior. |
+| Entitlement checks | Backend quota gates before accepting usage for a subject. |
 | [Historical backfill](docs/content/docs/use-cases/historical-backfill.mdx) | Older usage imported with stable idempotency keys. |
 
-Each REST use case has runnable Go, TypeScript, Python, and C# examples under [`examples/rest/advance`](examples/rest/advance). Stream-native examples live under [`examples/stream`](examples/stream).
+Each REST use case has runnable Go, TypeScript, Python, and C# examples under [`examples/rest/advance`](examples/rest/advance), including the [`entitlement-check`](examples/rest/advance/entitlement-check) backend quota gate. Stream-native examples live under [`examples/stream`](examples/stream).
 
 ## SDKs
 

@@ -17,3 +17,4 @@ Each advanced stream folder is a standalone Go project:
 | Device telemetry | `cd examples/stream/advance/device-telemetry && OPEN_SPANNER_API_KEY=osp_... go run .` |
 | WebSocket sessions | `cd examples/stream/advance/websocket-sessions && OPEN_SPANNER_API_KEY=osp_... go run .` |
 | Queue consumer | `cd examples/stream/advance/queue-consumer && OPEN_SPANNER_API_KEY=osp_... go run .` |
+| Entitlement gate | `cd examples/stream/advance/entitlement-gate && OPEN_SPANNER_API_KEY=osp_... go run .` |

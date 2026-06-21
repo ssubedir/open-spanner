@@ -4,6 +4,7 @@ using Microsoft.Kiota.Abstractions.Extensions;
 using Microsoft.Kiota.Abstractions;
 using OpenSpanner.V1.Entitlements;
 using OpenSpanner.V1.Meters;
+using OpenSpanner.V1.Plans;
 using OpenSpanner.V1.Usages;
 using System.Collections.Generic;
 using System.IO;
@@ -26,6 +27,11 @@ namespace OpenSpanner.V1
         public global::OpenSpanner.V1.Meters.MetersRequestBuilder Meters
         {
             get => new global::OpenSpanner.V1.Meters.MetersRequestBuilder(PathParameters, RequestAdapter);
+        }
+        /// <summary>The plans property</summary>
+        public global::OpenSpanner.V1.Plans.PlansRequestBuilder Plans
+        {
+            get => new global::OpenSpanner.V1.Plans.PlansRequestBuilder(PathParameters, RequestAdapter);
         }
         /// <summary>The usages property</summary>
         public global::OpenSpanner.V1.Usages.UsagesRequestBuilder Usages

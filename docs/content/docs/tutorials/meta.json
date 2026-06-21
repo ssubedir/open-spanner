@@ -2,6 +2,7 @@
   "title": "Tutorials",
   "pages": [
     "meter-an-api-endpoint",
+    "check-entitlements",
     "retrying-usage-writes",
     "export-usage"
   ]

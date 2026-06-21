@@ -8,11 +8,13 @@ SDKs expose the application-facing subset of the REST API:
 - `GET /health`
 - `GET /ready`
 - `POST /v1/entitlements/check`
+- `GET /v1/entitlements/states`
 - `GET /v1/meters`
 - `POST /v1/meters`
 - `GET /v1/meters/{id}`
 - `PUT /v1/meters/{id}`
 - `DELETE /v1/meters/{id}`
+- `GET /v1/plans/subjects/{subject}/progress`
 - `POST /v1/usages`
 - `POST /v1/usages/bulk`
 - `GET /v1/usages/export`
@@ -21,9 +23,15 @@ SDKs expose the application-facing subset of the REST API:
 - `POST /v1/usages/export`
 - `POST /v1/usages/search`
 
-The SDK entitlement method uses `POST /v1/entitlements/check` so backend services can ask whether a subject has remaining quota before allowing more usage.
+The SDK entitlement methods expose runtime quota reads:
 
-The SDK export methods use the direct CSV export endpoints. Queued export jobs and plan management are REST-only so backend SDKs stay focused on meter definitions, ingestion, usage queries, direct exports, and entitlement checks.
+- `POST /v1/entitlements/check` lets backend services ask whether a subject has remaining quota before allowing more usage.
+- `GET /v1/plans/subjects/{subject}/progress` returns current quota progress for a subject's assigned plan.
+- `GET /v1/entitlements/states` returns the latest entitlement states, optionally filtered by subject, meter, or state.
+
+The common backend flow is: check entitlement, allow or deny product work, then record usage with `POST /v1/usages` when the work is accepted. Progress and state reads are useful for customer portals, worker decisions, and service-side diagnostics.
+
+The SDK export methods use the direct CSV export endpoints. Queued export jobs and plan management are REST-only so backend SDKs stay focused on meter definitions, ingestion, usage queries, direct exports, and runtime entitlement reads.
 
 These endpoints are intentionally excluded from SDKs:
 

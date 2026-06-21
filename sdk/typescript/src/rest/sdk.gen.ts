@@ -2,7 +2,7 @@
 
 import { client } from './client.gen.js';
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client/index.js';
-import type { CheckEntitlementData, CheckEntitlementErrors, CheckEntitlementResponses, CreateMeterData, CreateMeterErrors, CreateMeterResponses, CreateUsageBulkData, CreateUsageBulkErrors, CreateUsageBulkResponses, CreateUsageData, CreateUsageErrors, CreateUsageResponses, DeleteMeterData, DeleteMeterErrors, DeleteMeterResponses, ExportFilteredUsageBucketsData, ExportFilteredUsageBucketsErrors, ExportFilteredUsageBucketsResponses, ExportUsageBucketsData, ExportUsageBucketsErrors, ExportUsageBucketsResponses, GetMeterData, GetMeterErrors, GetMeterResponses, HealthCheckData, HealthCheckResponses, ListMetersData, ListMetersErrors, ListMetersResponses, ListUsageDimensionValuesData, ListUsageDimensionValuesErrors, ListUsageDimensionValuesResponses, ReadinessCheckData, ReadinessCheckErrors, ReadinessCheckResponses, SearchUsageBreakdownData, SearchUsageBreakdownErrors, SearchUsageBreakdownResponses, SearchUsageBucketsData, SearchUsageBucketsErrors, SearchUsageBucketsResponses, UpdateMeterData, UpdateMeterErrors, UpdateMeterResponses } from './types.gen.js';
+import type { CheckEntitlementData, CheckEntitlementErrors, CheckEntitlementResponses, CreateMeterData, CreateMeterErrors, CreateMeterResponses, CreateUsageBulkData, CreateUsageBulkErrors, CreateUsageBulkResponses, CreateUsageData, CreateUsageErrors, CreateUsageResponses, DeleteMeterData, DeleteMeterErrors, DeleteMeterResponses, ExportFilteredUsageBucketsData, ExportFilteredUsageBucketsErrors, ExportFilteredUsageBucketsResponses, ExportUsageBucketsData, ExportUsageBucketsErrors, ExportUsageBucketsResponses, GetMeterData, GetMeterErrors, GetMeterResponses, GetSubjectPlanProgressData, GetSubjectPlanProgressErrors, GetSubjectPlanProgressResponses, HealthCheckData, HealthCheckResponses, ListEntitlementStatesData, ListEntitlementStatesErrors, ListEntitlementStatesResponses, ListMetersData, ListMetersErrors, ListMetersResponses, ListUsageDimensionValuesData, ListUsageDimensionValuesErrors, ListUsageDimensionValuesResponses, ReadinessCheckData, ReadinessCheckErrors, ReadinessCheckResponses, SearchUsageBreakdownData, SearchUsageBreakdownErrors, SearchUsageBreakdownResponses, SearchUsageBucketsData, SearchUsageBucketsErrors, SearchUsageBucketsResponses, UpdateMeterData, UpdateMeterErrors, UpdateMeterResponses } from './types.gen.js';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -39,6 +39,11 @@ export const checkEntitlement = <ThrowOnError extends boolean = false>(options: 
         ...options.headers
     }
 });
+
+/**
+ * List entitlement states
+ */
+export const listEntitlementStates = <ThrowOnError extends boolean = false>(options?: Options<ListEntitlementStatesData, ThrowOnError>): RequestResult<ListEntitlementStatesResponses, ListEntitlementStatesErrors, ThrowOnError> => (options?.client ?? client).get<ListEntitlementStatesResponses, ListEntitlementStatesErrors, ThrowOnError>({ url: '/v1/entitlements/states', ...options });
 
 /**
  * List meters
@@ -78,6 +83,11 @@ export const updateMeter = <ThrowOnError extends boolean = false>(options: Optio
         ...options.headers
     }
 });
+
+/**
+ * Get subject plan progress
+ */
+export const getSubjectPlanProgress = <ThrowOnError extends boolean = false>(options: Options<GetSubjectPlanProgressData, ThrowOnError>): RequestResult<GetSubjectPlanProgressResponses, GetSubjectPlanProgressErrors, ThrowOnError> => (options.client ?? client).get<GetSubjectPlanProgressResponses, GetSubjectPlanProgressErrors, ThrowOnError>({ url: '/v1/plans/subjects/{subject}/progress', ...options });
 
 /**
  * Create usage

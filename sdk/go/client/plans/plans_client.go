@@ -64,6 +64,12 @@ type ClientService interface {
 	// CheckEntitlementContext check entitlement quota.
 	CheckEntitlementContext(ctx context.Context, params *CheckEntitlementParams, opts ...ClientOption) (*CheckEntitlementOK, error)
 
+	// GetSubjectPlanProgress get subject plan progress.
+	GetSubjectPlanProgress(params *GetSubjectPlanProgressParams, opts ...ClientOption) (*GetSubjectPlanProgressOK, error)
+
+	// GetSubjectPlanProgressContext get subject plan progress.
+	GetSubjectPlanProgressContext(ctx context.Context, params *GetSubjectPlanProgressParams, opts ...ClientOption) (*GetSubjectPlanProgressOK, error)
+
 	SetTransport(transport runtime.ContextualTransport)
 }
 
@@ -130,6 +136,72 @@ func (a *Client) CheckEntitlementContext(ctx context.Context, params *CheckEntit
 	//
 	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for checkEntitlement: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+GetSubjectPlanProgressgets subject plan progress.
+
+This method does not support injected context.
+However, timeout and opentracing contexts are honored whenever enabled.
+
+If you need to pass a specific context, use [Client.GetSubjectPlanProgressContext] instead.
+*/
+func (a *Client) GetSubjectPlanProgress(params *GetSubjectPlanProgressParams, opts ...ClientOption) (*GetSubjectPlanProgressOK, error) {
+	var ctx context.Context
+	if params.inner.ctx != nil {
+		ctx = params.inner.ctx
+	} else {
+		ctx = context.Background()
+	}
+
+	return a.GetSubjectPlanProgressContext(ctx, params, opts...)
+}
+
+/*
+GetSubjectPlanProgressContextgets subject plan progress.
+
+Do not use the deprecated [GetSubjectPlanProgressParams.Context] with this method: it would be ignored.
+*/
+func (a *Client) GetSubjectPlanProgressContext(ctx context.Context, params *GetSubjectPlanProgressParams, opts ...ClientOption) (*GetSubjectPlanProgressOK, error) {
+	// NOTE: parameters are not validated before sending
+	if params == nil {
+		params = NewGetSubjectPlanProgressParams()
+	}
+
+	op := &runtime.ClientOperation{
+		ID:                 "getSubjectPlanProgress",
+		Method:             "GET",
+		PathPattern:        "/v1/plans/subjects/{subject}/progress",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http"},
+		Params:             params,
+		Reader:             &GetSubjectPlanProgressReader{formats: a.formats},
+		Client:             params.HTTPClient,
+	}
+
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.SubmitContext(ctx, op)
+	if err != nil {
+		return nil, err
+	}
+
+	// only one success response has to be checked
+	success, ok := result.(*GetSubjectPlanProgressOK)
+	if ok {
+		return success, nil
+	}
+
+	// unexpected success response.
+
+	// no default response is defined.
+	//
+	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for getSubjectPlanProgress: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

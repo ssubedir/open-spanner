@@ -90,7 +90,34 @@ Example response:
 }
 ```
 
-For service clients, include `plans:read` on API keys that need entitlement checks. Reserve `plans:write` for administrative automation.
+For service clients, include `plans:read` on API keys that need entitlement checks. Add `usage:write` when the same service should record usage after an allowed decision.
+
+See [Check Entitlements](/docs/tutorials/check-entitlements) for SDK examples in Go, TypeScript, Python, and C#.
+
+## Progress And Status
+
+Entitlement checks answer one decision: can this subject consume this quantity right now?
+
+Progress and status reads answer what is already true for the subject:
+
+- Progress shows each limit on the assigned plan, current usage, remaining quota, and state.
+- Status shows the latest stored entitlement states, optionally filtered by subject, meter, or state.
+
+Use progress for customer-facing quota pages, account admin screens, and backend diagnostics:
+
+```sh
+curl "$BASE_URL/v1/plans/subjects/org_123/progress" \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+Use state reads when a service needs to inspect current entitlement status without recalculating every plan limit:
+
+```sh
+curl "$BASE_URL/v1/entitlements/states?subject=org_123&meter=api_calls" \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+Both endpoints are part of the SDK surface. Creating plans and assigning subjects remains a dashboard/admin workflow.
 
 ## Usage And Billing
 

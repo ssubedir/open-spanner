@@ -1,0 +1,16 @@
+{
+  "name": "open-spanner-example-entitlement-check",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx typescript.ts"
+  },
+  "dependencies": {
+    "@ssubedir/open-spanner": "file:../../../../sdk/typescript"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0"
+  }
+}
+

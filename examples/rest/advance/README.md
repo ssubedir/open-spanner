@@ -11,6 +11,7 @@ and run that SDK's example without seeding unrelated meters.
 | `storage-usage` | Capacity usage by tier, region, and resource type |
 | `background-jobs` | Asynchronous work by queue, status, and worker region |
 | `feature-usage` | Product feature and entitlement usage by plan and source |
+| `entitlement-check` | Backend quota check before accepting more usage |
 | `historical-backfill` | Importing older usage with stable idempotency keys |
 
 Inside each scenario:

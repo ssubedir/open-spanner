@@ -53,6 +53,84 @@ export type EntitlementCheckResponse = {
 };
 
 /**
+ * PlanLimit
+ */
+export type PlanLimit = {
+    created_at?: string;
+    id?: string;
+    limit?: number;
+    meter?: string;
+    period?: string;
+    updated_at?: string;
+    warning_percent?: number;
+};
+
+/**
+ * Plan
+ */
+export type Plan = {
+    created_at?: string;
+    description?: string;
+    id?: string;
+    limits?: Array<PlanLimit>;
+    name?: string;
+    updated_at?: string;
+};
+
+/**
+ * EntitlementProgressItem
+ */
+export type EntitlementProgressItem = {
+    aggregation?: string;
+    current?: number;
+    from?: string;
+    limit?: number;
+    meter?: string;
+    percent?: number;
+    period?: string;
+    remaining?: number;
+    state?: string;
+    to?: string;
+    unit?: string;
+    warning_percent?: number;
+};
+
+/**
+ * EntitlementProgress
+ */
+export type EntitlementProgress = {
+    items?: Array<EntitlementProgressItem>;
+    plan?: Plan;
+    subject?: string;
+};
+
+/**
+ * EntitlementStateListResponse
+ */
+export type EntitlementStateListResponse = {
+    items?: Array<EntitlementState>;
+};
+
+/**
+ * EntitlementState
+ */
+export type EntitlementState = {
+    current?: number;
+    evaluated_at?: string;
+    limit?: number;
+    message?: string;
+    meter?: string;
+    period?: string;
+    plan_id?: string;
+    plan_name?: string;
+    remaining?: number;
+    state?: string;
+    subject?: string;
+    updated_at?: string;
+    warning_percent?: number;
+};
+
+/**
  * MeterCreateRequest
  */
 export type MeterCreateRequest = {
@@ -329,6 +407,56 @@ export type CheckEntitlementResponses = {
 
 export type CheckEntitlementResponse = CheckEntitlementResponses[keyof CheckEntitlementResponses];
 
+export type ListEntitlementStatesData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Subject
+         */
+        subject?: string;
+        /**
+         * Meter
+         */
+        meter?: string;
+        /**
+         * State
+         */
+        state?: string;
+        /**
+         * Page size
+         */
+        limit?: number;
+    };
+    url: '/v1/entitlements/states';
+};
+
+export type ListEntitlementStatesErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorResponse;
+};
+
+export type ListEntitlementStatesError = ListEntitlementStatesErrors[keyof ListEntitlementStatesErrors];
+
+export type ListEntitlementStatesResponses = {
+    /**
+     * OK
+     */
+    200: EntitlementStateListResponse;
+};
+
+export type ListEntitlementStatesResponse = ListEntitlementStatesResponses[keyof ListEntitlementStatesResponses];
+
 export type ListMetersData = {
     body?: never;
     path?: never;
@@ -519,6 +647,44 @@ export type UpdateMeterResponses = {
 };
 
 export type UpdateMeterResponse = UpdateMeterResponses[keyof UpdateMeterResponses];
+
+export type GetSubjectPlanProgressData = {
+    body?: never;
+    path: {
+        /**
+         * Subject
+         */
+        subject: string;
+    };
+    query?: never;
+    url: '/v1/plans/subjects/{subject}/progress';
+};
+
+export type GetSubjectPlanProgressErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorResponse;
+};
+
+export type GetSubjectPlanProgressError = GetSubjectPlanProgressErrors[keyof GetSubjectPlanProgressErrors];
+
+export type GetSubjectPlanProgressResponses = {
+    /**
+     * OK
+     */
+    200: EntitlementProgress;
+};
+
+export type GetSubjectPlanProgressResponse = GetSubjectPlanProgressResponses[keyof GetSubjectPlanProgressResponses];
 
 export type CreateUsageData = {
     /**
