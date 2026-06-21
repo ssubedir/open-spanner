@@ -217,6 +217,30 @@ CREATE TABLE entitlement_check_jobs (
 CREATE INDEX idx_entitlement_check_jobs_claim
 	ON entitlement_check_jobs (run_after, locked_until, created_at);
 
+CREATE TABLE entitlement_usage_counters (
+	workspace_id TEXT NOT NULL,
+	subject TEXT NOT NULL,
+	meter_name TEXT NOT NULL,
+	period TEXT NOT NULL,
+	period_start TEXT NOT NULL,
+	period_end TEXT NOT NULL,
+	event_count INTEGER NOT NULL,
+	quantity_sum REAL NOT NULL,
+	quantity_min REAL NOT NULL,
+	quantity_max REAL NOT NULL,
+	first_quantity REAL NOT NULL,
+	first_event_time TEXT NOT NULL,
+	last_quantity REAL NOT NULL,
+	last_event_time TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	PRIMARY KEY (workspace_id, subject, meter_name, period, period_start),
+	FOREIGN KEY (workspace_id) REFERENCES auth_workspaces(id) ON DELETE CASCADE,
+	FOREIGN KEY (workspace_id, meter_name) REFERENCES meters(workspace_id, name)
+);
+
+CREATE INDEX idx_entitlement_usage_counters_workspace_meter_period
+	ON entitlement_usage_counters (workspace_id, meter_name, period, period_start);
+
 CREATE TABLE usage_events (
 	id TEXT PRIMARY KEY,
 	workspace_id TEXT NOT NULL,

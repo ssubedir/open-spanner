@@ -797,6 +797,17 @@ func runIntegrationPlanEntitlementFlow(t *testing.T, cfg config.Config, namespac
 	if createUsage.Code != http.StatusCreated {
 		t.Fatalf("create entitlement usage status = %d, want %d: %s", createUsage.Code, http.StatusCreated, createUsage.Body.String())
 	}
+	replayUsage := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages", map[string]any{
+		"idempotency_key": "plan-entitlement-" + suffix,
+		"subject":         subject,
+		"meter":           meterName,
+		"quantity":        9,
+		"timestamp":       time.Now().UTC().Add(time.Minute).Format(time.RFC3339),
+		"metadata":        map[string]any{},
+	}, sdkHeaders, nil)
+	if replayUsage.Code != http.StatusCreated {
+		t.Fatalf("replay entitlement usage status = %d, want %d: %s", replayUsage.Code, http.StatusCreated, replayUsage.Body.String())
+	}
 
 	entitlementWorker := entitlementworker.NewWorker(app.EntitlementService, time.Millisecond, time.Minute, time.Minute, time.Second, 3, 10, t.Logf)
 	var states entitlementStateListTestResponse

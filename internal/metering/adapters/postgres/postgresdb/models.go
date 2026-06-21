@@ -125,6 +125,24 @@ type EntitlementState struct {
 	UpdatedAt      string
 }
 
+type EntitlementUsageCounter struct {
+	WorkspaceID    string
+	Subject        string
+	MeterName      string
+	Period         string
+	PeriodStart    string
+	PeriodEnd      string
+	EventCount     int64
+	QuantitySum    float64
+	QuantityMin    float64
+	QuantityMax    float64
+	FirstQuantity  float64
+	FirstEventTime string
+	LastQuantity   float64
+	LastEventTime  string
+	UpdatedAt      string
+}
+
 type UsageExportJob struct {
 	ID           string
 	WorkspaceID  string

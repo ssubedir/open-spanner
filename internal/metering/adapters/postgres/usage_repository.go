@@ -195,8 +195,56 @@ func (r *UsageRepository) saveWithDuplicate(ctx context.Context, event domainusa
 	}); err != nil {
 		return domainusage.Event{}, false, err
 	}
+	if err := r.incrementEntitlementUsageCounters(ctx, workspaceID, event); err != nil {
+		return domainusage.Event{}, false, err
+	}
 
 	return event, false, nil
+}
+
+func (r *UsageRepository) incrementEntitlementUsageCounters(ctx context.Context, workspaceID string, event domainusage.Event) error {
+	updatedAt := formatTime(time.Now().UTC())
+	for _, window := range entitlementCounterWindows(event.EventTime()) {
+		if err := queriesFor(ctx, r.queries).IncrementEntitlementUsageCounter(ctx, postgresdb.IncrementEntitlementUsageCounterParams{
+			WorkspaceID: workspaceID,
+			Subject:     event.Subject(),
+			MeterName:   event.MeterName(),
+			Period:      window.period,
+			PeriodStart: formatTime(window.from),
+			PeriodEnd:   formatTime(window.to),
+			Quantity:    event.Quantity(),
+			EventTime:   formatTime(event.EventTime()),
+			UpdatedAt:   updatedAt,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type entitlementCounterWindow struct {
+	period string
+	from   time.Time
+	to     time.Time
+}
+
+func entitlementCounterWindows(at time.Time) []entitlementCounterWindow {
+	at = at.UTC()
+	day := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, time.UTC)
+	weekday := int(day.Weekday())
+	if weekday == 0 {
+		weekday = 7
+	}
+	week := day.AddDate(0, 0, -(weekday - 1))
+	month := time.Date(at.Year(), at.Month(), 1, 0, 0, 0, 0, time.UTC)
+	year := time.Date(at.Year(), time.January, 1, 0, 0, 0, 0, time.UTC)
+
+	return []entitlementCounterWindow{
+		{period: "day", from: day, to: day.AddDate(0, 0, 1)},
+		{period: "week", from: week, to: week.AddDate(0, 0, 7)},
+		{period: "month", from: month, to: month.AddDate(0, 1, 0)},
+		{period: "year", from: year, to: year.AddDate(1, 0, 0)},
+	}
 }
 
 func (r *UsageRepository) Query(ctx context.Context, query domainusage.Query) ([]domainusage.Bucket, error) {

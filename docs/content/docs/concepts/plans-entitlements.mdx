@@ -33,6 +33,8 @@ Plan periods are calendar windows in UTC:
 
 The warning state is controlled per limit with `warning_percent`. For example, a `100000` monthly API-call limit with `warning_percent=80` enters `warning` at `80000`.
 
+Open Spanner keeps per-period entitlement counters as usage is accepted. Raw usage events remain the audit trail and query source; counters give entitlement checks and progress reads a fast path for current quota state.
+
 ## Overage States
 
 | State | Meaning |

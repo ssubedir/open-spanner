@@ -116,7 +116,7 @@ Only put API keys in trusted backend services, workers, or server-side jobs. Do 
 
 ## Data Protection
 
-Back up Postgres. It is the system of record for meters, plans, subject assignments, usage events, API keys, sessions, alert rules, alert state, and export job records.
+Back up Postgres. It is the system of record for meters, plans, subject assignments, usage events, entitlement counters, API keys, sessions, alert rules, alert state, and export job records.
 
 Export CSV files are generated artifacts. If your finance or audit workflow treats generated files as evidence, back up the export storage path too. Otherwise, export files can be regenerated while the source usage events are still retained.
 

@@ -221,6 +221,112 @@ func (q *Queries) GetEntitlementState(ctx context.Context, arg GetEntitlementSta
 	return i, err
 }
 
+const getEntitlementUsageCounter = `-- name: GetEntitlementUsageCounter :one
+SELECT workspace_id, subject, meter_name, period, period_start, period_end,
+	event_count, quantity_sum, quantity_min, quantity_max,
+	first_quantity, first_event_time, last_quantity, last_event_time, updated_at
+FROM entitlement_usage_counters
+WHERE workspace_id = ?1
+	AND subject = ?2
+	AND meter_name = ?3
+	AND period = ?4
+	AND period_start = ?5
+`
+
+type GetEntitlementUsageCounterParams struct {
+	WorkspaceID string
+	Subject     string
+	MeterName   string
+	Period      string
+	PeriodStart string
+}
+
+func (q *Queries) GetEntitlementUsageCounter(ctx context.Context, arg GetEntitlementUsageCounterParams) (EntitlementUsageCounter, error) {
+	row := q.db.QueryRowContext(ctx, getEntitlementUsageCounter,
+		arg.WorkspaceID,
+		arg.Subject,
+		arg.MeterName,
+		arg.Period,
+		arg.PeriodStart,
+	)
+	var i EntitlementUsageCounter
+	err := row.Scan(
+		&i.WorkspaceID,
+		&i.Subject,
+		&i.MeterName,
+		&i.Period,
+		&i.PeriodStart,
+		&i.PeriodEnd,
+		&i.EventCount,
+		&i.QuantitySum,
+		&i.QuantityMin,
+		&i.QuantityMax,
+		&i.FirstQuantity,
+		&i.FirstEventTime,
+		&i.LastQuantity,
+		&i.LastEventTime,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const incrementEntitlementUsageCounter = `-- name: IncrementEntitlementUsageCounter :exec
+INSERT INTO entitlement_usage_counters (
+	workspace_id, subject, meter_name, period, period_start, period_end,
+	event_count, quantity_sum, quantity_min, quantity_max,
+	first_quantity, first_event_time, last_quantity, last_event_time, updated_at
+)
+VALUES (
+	?1, ?2, ?3, ?4, ?5, ?6,
+	1, ?7, ?7, ?7,
+	?7, ?8, ?7, ?8, ?9
+)
+ON CONFLICT(workspace_id, subject, meter_name, period, period_start) DO UPDATE SET
+	period_end = excluded.period_end,
+	event_count = entitlement_usage_counters.event_count + excluded.event_count,
+	quantity_sum = entitlement_usage_counters.quantity_sum + excluded.quantity_sum,
+	quantity_min = MIN(entitlement_usage_counters.quantity_min, excluded.quantity_min),
+	quantity_max = MAX(entitlement_usage_counters.quantity_max, excluded.quantity_max),
+	first_quantity = CASE
+		WHEN excluded.first_event_time < entitlement_usage_counters.first_event_time THEN excluded.first_quantity
+		ELSE entitlement_usage_counters.first_quantity
+	END,
+	first_event_time = MIN(entitlement_usage_counters.first_event_time, excluded.first_event_time),
+	last_quantity = CASE
+		WHEN excluded.last_event_time >= entitlement_usage_counters.last_event_time THEN excluded.last_quantity
+		ELSE entitlement_usage_counters.last_quantity
+	END,
+	last_event_time = MAX(entitlement_usage_counters.last_event_time, excluded.last_event_time),
+	updated_at = excluded.updated_at
+`
+
+type IncrementEntitlementUsageCounterParams struct {
+	WorkspaceID string
+	Subject     string
+	MeterName   string
+	Period      string
+	PeriodStart string
+	PeriodEnd   string
+	Quantity    float64
+	EventTime   string
+	UpdatedAt   string
+}
+
+func (q *Queries) IncrementEntitlementUsageCounter(ctx context.Context, arg IncrementEntitlementUsageCounterParams) error {
+	_, err := q.db.ExecContext(ctx, incrementEntitlementUsageCounter,
+		arg.WorkspaceID,
+		arg.Subject,
+		arg.MeterName,
+		arg.Period,
+		arg.PeriodStart,
+		arg.PeriodEnd,
+		arg.Quantity,
+		arg.EventTime,
+		arg.UpdatedAt,
+	)
+	return err
+}
+
 const listEntitlementEvents = `-- name: ListEntitlementEvents :many
 SELECT id, workspace_id, subject, meter_name, plan_id, plan_name, period, previous_state, state, type,
 	current_value, limit_value, remaining_value, warning_percent, message, created_at

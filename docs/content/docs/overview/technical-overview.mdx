@@ -21,7 +21,7 @@ Queued work is handled by separate worker binaries:
 
 ## Storage Model
 
-Meters and plans are configuration records. Usage events are immutable facts with idempotency keys. Usage queries and entitlement checks aggregate retained events at request time using SQL.
+Meters and plans are configuration records. Usage events are immutable facts with idempotency keys. Usage queries aggregate retained events at request time using SQL. Entitlement progress uses per-period counters that are updated as accepted usage is recorded, so quota checks do not need to scan raw events on every request.
 
 Postgres and SQLite share the same domain behavior but use database-specific SQL where it matters for performance.
 

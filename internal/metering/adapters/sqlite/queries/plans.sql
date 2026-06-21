@@ -177,3 +177,43 @@ WHERE workspace_id = sqlc.arg('workspace_id')
 			OR (created_at = CAST(sqlc.narg('cursor_created_at') AS TEXT) AND id < CAST(sqlc.narg('cursor_id') AS TEXT))))
 ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg('limit');
+
+-- name: IncrementEntitlementUsageCounter :exec
+INSERT INTO entitlement_usage_counters (
+	workspace_id, subject, meter_name, period, period_start, period_end,
+	event_count, quantity_sum, quantity_min, quantity_max,
+	first_quantity, first_event_time, last_quantity, last_event_time, updated_at
+)
+VALUES (
+	sqlc.arg('workspace_id'), sqlc.arg('subject'), sqlc.arg('meter_name'), sqlc.arg('period'), sqlc.arg('period_start'), sqlc.arg('period_end'),
+	1, sqlc.arg('quantity'), sqlc.arg('quantity'), sqlc.arg('quantity'),
+	sqlc.arg('quantity'), sqlc.arg('event_time'), sqlc.arg('quantity'), sqlc.arg('event_time'), sqlc.arg('updated_at')
+)
+ON CONFLICT(workspace_id, subject, meter_name, period, period_start) DO UPDATE SET
+	period_end = excluded.period_end,
+	event_count = entitlement_usage_counters.event_count + excluded.event_count,
+	quantity_sum = entitlement_usage_counters.quantity_sum + excluded.quantity_sum,
+	quantity_min = MIN(entitlement_usage_counters.quantity_min, excluded.quantity_min),
+	quantity_max = MAX(entitlement_usage_counters.quantity_max, excluded.quantity_max),
+	first_quantity = CASE
+		WHEN excluded.first_event_time < entitlement_usage_counters.first_event_time THEN excluded.first_quantity
+		ELSE entitlement_usage_counters.first_quantity
+	END,
+	first_event_time = MIN(entitlement_usage_counters.first_event_time, excluded.first_event_time),
+	last_quantity = CASE
+		WHEN excluded.last_event_time >= entitlement_usage_counters.last_event_time THEN excluded.last_quantity
+		ELSE entitlement_usage_counters.last_quantity
+	END,
+	last_event_time = MAX(entitlement_usage_counters.last_event_time, excluded.last_event_time),
+	updated_at = excluded.updated_at;
+
+-- name: GetEntitlementUsageCounter :one
+SELECT workspace_id, subject, meter_name, period, period_start, period_end,
+	event_count, quantity_sum, quantity_min, quantity_max,
+	first_quantity, first_event_time, last_quantity, last_event_time, updated_at
+FROM entitlement_usage_counters
+WHERE workspace_id = sqlc.arg('workspace_id')
+	AND subject = sqlc.arg('subject')
+	AND meter_name = sqlc.arg('meter_name')
+	AND period = sqlc.arg('period')
+	AND period_start = sqlc.arg('period_start');

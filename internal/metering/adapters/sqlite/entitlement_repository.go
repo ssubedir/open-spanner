@@ -303,6 +303,27 @@ func (r *EntitlementRepository) FindEntitlementEvents(ctx context.Context, query
 	return events, nil
 }
 
+func (r *EntitlementRepository) GetEntitlementUsageCounter(ctx context.Context, query appentitlement.CounterQuery) (appentitlement.EntitlementUsageCounter, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return appentitlement.EntitlementUsageCounter{}, err
+	}
+	row, err := queriesFor(ctx, r.queries).GetEntitlementUsageCounter(ctx, sqlitedb.GetEntitlementUsageCounterParams{
+		WorkspaceID: workspaceID,
+		Subject:     query.Subject,
+		MeterName:   query.MeterName,
+		Period:      string(query.Period),
+		PeriodStart: formatTime(query.From),
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return appentitlement.EntitlementUsageCounter{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return appentitlement.EntitlementUsageCounter{}, err
+	}
+	return sqliteEntitlementUsageCounter(row)
+}
+
 func (r *EntitlementRepository) SaveEntitlementState(ctx context.Context, state appentitlement.EntitlementState) error {
 	workspaceID, err := appauth.RequireWorkspaceID(ctx)
 	if err != nil {
@@ -540,6 +561,46 @@ func sqliteEntitlementEvent(row sqlitedb.EntitlementEvent) (appentitlement.Entit
 		WarningPercent: row.WarningPercent,
 		Message:        row.Message,
 		CreatedAt:      createdAt,
+	}, nil
+}
+
+func sqliteEntitlementUsageCounter(row sqlitedb.EntitlementUsageCounter) (appentitlement.EntitlementUsageCounter, error) {
+	from, err := parseEntitlementTime(row.PeriodStart)
+	if err != nil {
+		return appentitlement.EntitlementUsageCounter{}, err
+	}
+	to, err := parseEntitlementTime(row.PeriodEnd)
+	if err != nil {
+		return appentitlement.EntitlementUsageCounter{}, err
+	}
+	firstEventTime, err := parseEntitlementTime(row.FirstEventTime)
+	if err != nil {
+		return appentitlement.EntitlementUsageCounter{}, err
+	}
+	lastEventTime, err := parseEntitlementTime(row.LastEventTime)
+	if err != nil {
+		return appentitlement.EntitlementUsageCounter{}, err
+	}
+	updatedAt, err := parseEntitlementTime(row.UpdatedAt)
+	if err != nil {
+		return appentitlement.EntitlementUsageCounter{}, err
+	}
+	return appentitlement.EntitlementUsageCounter{
+		WorkspaceID:    row.WorkspaceID,
+		Subject:        row.Subject,
+		MeterName:      row.MeterName,
+		Period:         appentitlement.Period(row.Period),
+		From:           from,
+		To:             to,
+		EventCount:     row.EventCount,
+		QuantitySum:    row.QuantitySum,
+		QuantityMin:    row.QuantityMin,
+		QuantityMax:    row.QuantityMax,
+		FirstQuantity:  row.FirstQuantity,
+		FirstEventTime: firstEventTime,
+		LastQuantity:   row.LastQuantity,
+		LastEventTime:  lastEventTime,
+		UpdatedAt:      updatedAt,
 	}, nil
 }
 

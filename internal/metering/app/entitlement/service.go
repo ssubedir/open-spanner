@@ -66,6 +66,7 @@ type Repository interface {
 	GetEntitlementState(ctx context.Context, query StateQuery) (EntitlementState, error)
 	FindEntitlementStates(ctx context.Context, query StateListQuery) ([]EntitlementState, error)
 	FindEntitlementEvents(ctx context.Context, query EventQuery) ([]EntitlementEvent, error)
+	GetEntitlementUsageCounter(ctx context.Context, query CounterQuery) (EntitlementUsageCounter, error)
 	SaveEntitlementState(ctx context.Context, state EntitlementState) error
 	SaveEntitlementEvent(ctx context.Context, event EntitlementEvent) error
 	EnqueueEntitlementCheckJob(ctx context.Context, job CheckJob) error
@@ -183,6 +184,24 @@ type EntitlementEvent struct {
 	CreatedAt      time.Time
 }
 
+type EntitlementUsageCounter struct {
+	WorkspaceID    string
+	Subject        string
+	MeterName      string
+	Period         Period
+	From           time.Time
+	To             time.Time
+	EventCount     int64
+	QuantitySum    float64
+	QuantityMin    float64
+	QuantityMax    float64
+	FirstQuantity  float64
+	FirstEventTime time.Time
+	LastQuantity   float64
+	LastEventTime  time.Time
+	UpdatedAt      time.Time
+}
+
 type CheckJob struct {
 	WorkspaceID string
 	Subject     string
@@ -229,6 +248,13 @@ type EventQuery struct {
 	CreatedAt time.Time
 	ID        string
 	Limit     int
+}
+
+type CounterQuery struct {
+	Subject   string
+	MeterName string
+	Period    Period
+	From      time.Time
 }
 
 type EventListQuery struct {
@@ -1000,16 +1026,17 @@ func (s *service) progressItem(ctx context.Context, subject string, limit PlanLi
 	}
 	meter := meters[0]
 	from, to := periodWindow(s.now(), limit.Period)
-	query, err := domainusage.NewAggregateQuery(subject, meter.Name(), from, to, meter.Aggregation(), nil, domainusage.EmptyFilter())
-	if err != nil {
-		return ProgressItem{}, err
-	}
-	aggregate, err := s.usageRepo.Aggregate(ctx, query)
-	if err != nil {
+	counter, err := s.repo.GetEntitlementUsageCounter(ctx, CounterQuery{
+		Subject:   subject,
+		MeterName: meter.Name(),
+		Period:    limit.Period,
+		From:      from,
+	})
+	if err != nil && !errors.Is(err, domain.ErrNotFound) {
 		return ProgressItem{}, err
 	}
 
-	current := aggregate.Quantity()
+	current := counterValue(counter, meter.Aggregation(), to.Sub(from).Seconds())
 	remaining := limit.Limit - current
 	if remaining < 0 {
 		remaining = 0
@@ -1042,6 +1069,33 @@ func (p PlanResult) limitForMeter(meterName string) (PlanLimit, bool) {
 		}
 	}
 	return PlanLimit{}, false
+}
+
+func counterValue(counter EntitlementUsageCounter, aggregation domainmeter.Aggregation, durationSeconds float64) float64 {
+	if counter.EventCount <= 0 {
+		return 0
+	}
+	switch aggregation {
+	case domainmeter.AggregationCount:
+		return float64(counter.EventCount)
+	case domainmeter.AggregationAverage:
+		return counter.QuantitySum / float64(counter.EventCount)
+	case domainmeter.AggregationMinimum:
+		return counter.QuantityMin
+	case domainmeter.AggregationMaximum:
+		return counter.QuantityMax
+	case domainmeter.AggregationFirst:
+		return counter.FirstQuantity
+	case domainmeter.AggregationLast:
+		return counter.LastQuantity
+	case domainmeter.AggregationRate:
+		if durationSeconds <= 0 {
+			return 0
+		}
+		return float64(counter.EventCount) / durationSeconds
+	default:
+		return counter.QuantitySum
+	}
 }
 
 func normalizePeriod(value string) (Period, error) {
