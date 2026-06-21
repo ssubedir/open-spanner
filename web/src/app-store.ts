@@ -28,6 +28,8 @@ import {
   getSystemStats,
   getSubjectPlanProgress,
   assignSubjectPlan as assignSubjectPlanRequest,
+  listEntitlementEvents,
+  listEntitlementStates,
   listAlertEvents,
   listAlertDestinations,
   listAlertRules,
@@ -65,6 +67,8 @@ import {
   type APIKeyCreateRequest,
   type APIKeyCreateResponse,
   type AuthSession,
+  type EntitlementEvent,
+  type EntitlementState,
   type Meter,
   type MeterCreateRequest,
   type MeterStats,
@@ -195,6 +199,10 @@ type AppState = {
     deleting: Plan | null
     editing: Plan | null
     error: string
+    entitlementEventNextCursor: string
+    entitlementEventStatus: LoadState
+    entitlementEvents: EntitlementEvent[]
+    entitlementStates: EntitlementState[]
     items: Plan[]
     meters: Meter[]
     progress: SubjectPlanProgress | null
@@ -213,6 +221,8 @@ type AppState = {
   }
   subjects: {
     detailStatus: LoadState
+    entitlementEvents: EntitlementEvent[]
+    entitlementStates: EntitlementState[]
     error: string
     events: UsageEvent[]
     exportError: string
@@ -327,6 +337,10 @@ export const appStore = createStore<AppState>({
     deleting: null,
     editing: null,
     error: '',
+    entitlementEventNextCursor: '',
+    entitlementEventStatus: 'idle',
+    entitlementEvents: [],
+    entitlementStates: [],
     items: [],
     meters: [],
     progress: null,
@@ -345,6 +359,8 @@ export const appStore = createStore<AppState>({
   },
   subjects: {
     detailStatus: 'idle',
+    entitlementEvents: [],
+    entitlementStates: [],
     error: '',
     events: [],
     exportError: '',
@@ -468,6 +484,10 @@ function initialUserDataState(): UserDataState {
       deleting: null,
       editing: null,
       error: '',
+      entitlementEventNextCursor: '',
+      entitlementEventStatus: 'idle',
+      entitlementEvents: [],
+      entitlementStates: [],
       items: [],
       meters: [],
       progress: null,
@@ -486,6 +506,8 @@ function initialUserDataState(): UserDataState {
     },
     subjects: {
       detailStatus: 'idle',
+      entitlementEvents: [],
+      entitlementStates: [],
       error: '',
       events: [],
       exportError: '',
@@ -897,18 +919,29 @@ export const appStoreActions = {
   },
   async loadPlans() {
     const generation = currentUserDataGeneration()
-    setPlansState({ error: '', progressStatus: appStore.state.plans.progressStatus === 'idle' ? 'idle' : appStore.state.plans.progressStatus, status: 'loading' })
+    setPlansState({
+      entitlementEventStatus: 'loading',
+      error: '',
+      progressStatus: appStore.state.plans.progressStatus === 'idle' ? 'idle' : appStore.state.plans.progressStatus,
+      status: 'loading',
+    })
     try {
-      const [plans, assignments, meters] = await Promise.all([
+      const [plans, assignments, meters, entitlementStates, entitlementEvents] = await Promise.all([
         listPlans(),
         listPlanAssignments(),
         listMeters(),
+        listEntitlementStates({ limit: 100 }),
+        listEntitlementEvents({ limit: 25 }),
       ])
       if (!isCurrentUserDataGeneration(generation)) {
         return
       }
       setPlansState({
         assignments: assignments.items,
+        entitlementEventNextCursor: entitlementEvents.next_cursor || '',
+        entitlementEventStatus: 'ready',
+        entitlementEvents: entitlementEvents.items,
+        entitlementStates: entitlementStates.items,
         items: plans.items,
         meters: meters.items,
         status: 'ready',
@@ -917,7 +950,7 @@ export const appStoreActions = {
       if (!isCurrentUserDataGeneration(generation)) {
         return
       }
-      setPlansState({ error: errorMessage(err, 'Unable to load plans'), status: 'error' })
+      setPlansState({ entitlementEventStatus: 'error', error: errorMessage(err, 'Unable to load plans'), status: 'error' })
     }
   },
   async createPlan(input: PlanSaveRequest) {
@@ -979,6 +1012,7 @@ export const appStoreActions = {
       if (appStore.state.plans.progressSubject === assignment.subject) {
         await appStoreActions.loadSubjectPlanProgress(assignment.subject)
       }
+      await appStoreActions.loadPlans()
     } catch (err) {
       setPlansState({ error: errorMessage(err, 'Unable to assign plan') })
       throw err
@@ -992,6 +1026,8 @@ export const appStoreActions = {
       await deleteSubjectPlanAssignmentRequest(subject)
       setPlansState((state) => ({
         assignments: state.assignments.filter((item) => item.subject !== subject),
+        entitlementEvents: state.entitlementEvents.filter((item) => item.subject !== subject),
+        entitlementStates: state.entitlementStates.filter((item) => item.subject !== subject),
         progress: state.progress?.subject === subject ? null : state.progress,
         progressStatus: state.progress?.subject === subject ? 'idle' : state.progressStatus,
       }))
@@ -1087,7 +1123,7 @@ export const appStoreActions = {
       if (selectedSubject) {
         await appStoreActions.loadSubjectEvents(selectedSubject)
       } else {
-        setSubjectsState({ detailStatus: 'idle', events: [] })
+        setSubjectsState({ detailStatus: 'idle', entitlementEvents: [], entitlementStates: [], events: [] })
       }
     } catch (err) {
       if (!isCurrentUserDataGeneration(generation)) {
@@ -1126,23 +1162,38 @@ export const appStoreActions = {
   },
   async loadSubjectEvents(subject: string) {
     if (!subject) {
-      setSubjectsState({ detailStatus: 'idle', events: [], selectedSubject: '' })
+      setSubjectsState({ detailStatus: 'idle', entitlementEvents: [], entitlementStates: [], events: [], selectedSubject: '' })
       return
     }
 
     const generation = currentUserDataGeneration()
     setSubjectsState({ detailStatus: 'loading', error: '', exportError: '', selectedSubject: subject })
     try {
-      const events = await listSubjectEvents(subject, 25)
+      const [events, entitlementStates, entitlementEvents] = await Promise.all([
+        listSubjectEvents(subject, 25),
+        listEntitlementStates({ limit: 100, subject }),
+        listEntitlementEvents({ limit: 10, subject }),
+      ])
       if (!isCurrentUserDataGeneration(generation)) {
         return
       }
-      setSubjectsState({ detailStatus: 'ready', events })
+      setSubjectsState({
+        detailStatus: 'ready',
+        entitlementEvents: entitlementEvents.items,
+        entitlementStates: entitlementStates.items,
+        events,
+      })
     } catch (err) {
       if (!isCurrentUserDataGeneration(generation)) {
         return
       }
-      setSubjectsState({ detailStatus: 'error', error: errorMessage(err, 'Unable to load subject activity'), events: [] })
+      setSubjectsState({
+        detailStatus: 'error',
+        entitlementEvents: [],
+        entitlementStates: [],
+        error: errorMessage(err, 'Unable to load subject activity'),
+        events: [],
+      })
     }
   },
   async exportSelectedSubjectEvents() {

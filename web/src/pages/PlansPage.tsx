@@ -10,7 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
-import type { Meter, Plan, PlanLimit, PlanSaveRequest, SubjectPlanProgress } from '../api'
+import type { EntitlementEvent, EntitlementState, Meter, Plan, PlanLimit, PlanSaveRequest, SubjectPlanProgress } from '../api'
 import { formatDate, formatNumber } from '../lib/format'
 import { useInitialLoad } from '../lib/hooks'
 
@@ -30,7 +30,23 @@ type LimitDraft = {
 }
 
 export function PlansPage() {
-  const { assigning, assignments, creating, deleting, editing, error, items, meters, progress, progressStatus, progressSubject, saving } = useSelector(appStore, (state) => state.plans)
+  const {
+    assigning,
+    assignments,
+    creating,
+    deleting,
+    editing,
+    entitlementEventStatus,
+    entitlementEvents,
+    entitlementStates,
+    error,
+    items,
+    meters,
+    progress,
+    progressStatus,
+    progressSubject,
+    saving,
+  } = useSelector(appStore, (state) => state.plans)
   const [assignOpen, setAssignOpen] = useState(false)
   const [progressOpen, setProgressOpen] = useState(false)
   const load = useCallback(() => appStoreActions.loadPlans(), [])
@@ -157,6 +173,32 @@ export function PlansPage() {
             </CardContent>
           </Card>
         ) : null}
+
+        <div className="grid gap-4 xl:grid-cols-2">
+          <Card className="min-w-0">
+            <CardHeader className="!px-4 !py-3">
+              <div>
+                <CardTitle>Current Entitlements</CardTitle>
+                <CardDescription>Latest quota state by subject and meter.</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <EntitlementStateTable states={entitlementStates} />
+            </CardContent>
+          </Card>
+
+          <Card className="min-w-0">
+            <CardHeader className="!px-4 !py-3">
+              <div>
+                <CardTitle>Recent Entitlement Changes</CardTitle>
+                <CardDescription>Warning, exceeded, and recovered transitions.</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <EntitlementEventTable events={entitlementEvents} loading={entitlementEventStatus === 'loading'} />
+            </CardContent>
+          </Card>
+        </div>
 
         <Card className="min-w-0">
           <CardHeader className="!px-4 !py-3">
@@ -435,6 +477,39 @@ function ProgressList({ progress }: { progress: SubjectPlanProgress }) {
         </div>
       ))}
     </div>
+  )
+}
+
+function EntitlementStateTable({ states }: { states: EntitlementState[] }) {
+  return (
+    <DataTable
+      emptyLabel="No entitlement states yet"
+      headers={['Subject', 'Meter', 'Plan', 'Usage', 'State', 'Updated']}
+      rows={states.map((state) => [
+        <span className="mono">{state.subject}</span>,
+        <Badge variant="muted">{state.meter}</Badge>,
+        state.plan_name,
+        <span>{formatNumber(state.current)} / {formatNumber(state.limit)}</span>,
+        <StateBadge state={state.state} />,
+        formatDate(state.updated_at),
+      ])}
+    />
+  )
+}
+
+function EntitlementEventTable({ events, loading }: { events: EntitlementEvent[]; loading: boolean }) {
+  return (
+    <DataTable
+      emptyLabel={loading ? 'Loading entitlement changes' : 'No entitlement changes yet'}
+      headers={['Type', 'Subject', 'Meter', 'Message', 'Created']}
+      rows={events.map((event) => [
+        <StateBadge state={event.state} />,
+        <span className="mono">{event.subject}</span>,
+        <Badge variant="muted">{event.meter}</Badge>,
+        <span className="max-w-[320px] truncate">{event.message}</span>,
+        formatDate(event.created_at),
+      ])}
+    />
   )
 }
 

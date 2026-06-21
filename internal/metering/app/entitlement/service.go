@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/ssubedir/open-spanner/internal/metering/app/page"
 	apptransaction "github.com/ssubedir/open-spanner/internal/metering/app/transaction"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
 	domainmeter "github.com/ssubedir/open-spanner/internal/metering/domain/meter"
@@ -63,6 +64,8 @@ type Repository interface {
 	FindSubjectAssignments(ctx context.Context, query AssignmentQuery) ([]SubjectAssignment, error)
 	DeleteSubjectAssignment(ctx context.Context, subject string) error
 	GetEntitlementState(ctx context.Context, query StateQuery) (EntitlementState, error)
+	FindEntitlementStates(ctx context.Context, query StateListQuery) ([]EntitlementState, error)
+	FindEntitlementEvents(ctx context.Context, query EventQuery) ([]EntitlementEvent, error)
 	SaveEntitlementState(ctx context.Context, state EntitlementState) error
 	SaveEntitlementEvent(ctx context.Context, event EntitlementEvent) error
 	EnqueueEntitlementCheckJob(ctx context.Context, job CheckJob) error
@@ -86,6 +89,8 @@ type Service interface {
 	ListSubjectAssignments(ctx context.Context, query AssignmentListQuery) (SubjectAssignmentListResult, error)
 	GetSubjectProgress(ctx context.Context, query SubjectProgressQuery) (SubjectProgressResult, error)
 	Check(ctx context.Context, cmd CheckCommand) (EntitlementCheckResult, error)
+	ListEntitlementStates(ctx context.Context, query StateListQuery) (StateListResult, error)
+	ListEntitlementEvents(ctx context.Context, query EventListQuery) (EventListResult, error)
 	EnqueueForUsageEvents(ctx context.Context, events []UsageEvent) error
 	ClaimCheckJob(ctx context.Context, cmd ClaimCommand) (CheckJobResult, bool, error)
 	Evaluate(ctx context.Context, cmd EvaluateCommand) (EvaluationResult, error)
@@ -208,6 +213,34 @@ type StateQuery struct {
 	Period    Period
 }
 
+type StateListQuery struct {
+	Subject   string
+	MeterName string
+	State     OverageState
+	Limit     int
+}
+
+type EventQuery struct {
+	Subject   string
+	MeterName string
+	PlanID    string
+	State     OverageState
+	Type      EventType
+	CreatedAt time.Time
+	ID        string
+	Limit     int
+}
+
+type EventListQuery struct {
+	Subject   string
+	MeterName string
+	PlanID    string
+	State     OverageState
+	Type      EventType
+	Cursor    string
+	Limit     int
+}
+
 type LimitCommand struct {
 	MeterName      string
 	Period         string
@@ -308,6 +341,15 @@ type SubjectAssignmentResult struct {
 
 type SubjectAssignmentListResult struct {
 	Items []SubjectAssignment
+}
+
+type StateListResult struct {
+	Items []EntitlementState
+}
+
+type EventListResult struct {
+	Items      []EntitlementEvent
+	NextCursor string
 }
 
 type ProgressItem struct {
@@ -501,6 +543,56 @@ func (s *service) ListSubjectAssignments(ctx context.Context, query AssignmentLi
 		return SubjectAssignmentListResult{}, err
 	}
 	return SubjectAssignmentListResult{Items: assignments}, nil
+}
+
+func (s *service) ListEntitlementStates(ctx context.Context, query StateListQuery) (StateListResult, error) {
+	states, err := s.repo.FindEntitlementStates(ctx, StateListQuery{
+		Subject:   strings.TrimSpace(query.Subject),
+		MeterName: strings.TrimSpace(query.MeterName),
+		State:     OverageState(strings.TrimSpace(string(query.State))),
+		Limit:     normalizeLimit(query.Limit),
+	})
+	if err != nil {
+		return StateListResult{}, err
+	}
+	return StateListResult{Items: states}, nil
+}
+
+func (s *service) ListEntitlementEvents(ctx context.Context, query EventListQuery) (EventListResult, error) {
+	limit := normalizeLimit(query.Limit)
+	cursor, err := page.Decode(query.Cursor)
+	if err != nil {
+		return EventListResult{}, err
+	}
+	if query.Cursor != "" && (cursor.Time.IsZero() || cursor.ID == "") {
+		return EventListResult{}, domain.ErrInvalidInput
+	}
+
+	events, err := s.repo.FindEntitlementEvents(ctx, EventQuery{
+		Subject:   strings.TrimSpace(query.Subject),
+		MeterName: strings.TrimSpace(query.MeterName),
+		PlanID:    strings.TrimSpace(query.PlanID),
+		State:     OverageState(strings.TrimSpace(string(query.State))),
+		Type:      EventType(strings.TrimSpace(string(query.Type))),
+		CreatedAt: cursor.Time,
+		ID:        cursor.ID,
+		Limit:     limit + 1,
+	})
+	if err != nil {
+		return EventListResult{}, err
+	}
+
+	nextCursor := ""
+	if len(events) > limit {
+		events = events[:limit]
+		last := events[len(events)-1]
+		nextCursor, err = page.Encode(page.Cursor{Time: last.CreatedAt, ID: last.ID})
+		if err != nil {
+			return EventListResult{}, err
+		}
+	}
+
+	return EventListResult{Items: events, NextCursor: nextCursor}, nil
 }
 
 func (s *service) GetSubjectProgress(ctx context.Context, query SubjectProgressQuery) (SubjectProgressResult, error) {

@@ -191,6 +191,49 @@ export type EntitlementCheckResult = {
   message: string
 }
 
+export type EntitlementState = {
+  subject: string
+  meter: string
+  plan_id: string
+  plan_name: string
+  period: string
+  state: string
+  current: number
+  limit: number
+  remaining: number
+  warning_percent: number
+  message: string
+  evaluated_at: string
+  updated_at: string
+}
+
+export type EntitlementStateList = {
+  items: EntitlementState[]
+}
+
+export type EntitlementEvent = {
+  id: string
+  subject: string
+  meter: string
+  plan_id: string
+  plan_name: string
+  period: string
+  previous_state?: string
+  state: string
+  type: string
+  current: number
+  limit: number
+  remaining: number
+  warning_percent: number
+  message: string
+  created_at: string
+}
+
+export type EntitlementEventList = {
+  items: EntitlementEvent[]
+  next_cursor?: string
+}
+
 export type UsageEvent = {
   id: string
   idempotency_key?: string
@@ -850,6 +893,43 @@ export async function checkEntitlement(input: EntitlementCheckRequest) {
     body: JSON.stringify(input),
     method: 'POST',
   })
+}
+
+export async function listEntitlementStates(query: { limit?: number; meter?: string; state?: string; subject?: string } = {}) {
+  const params = new URLSearchParams({ limit: String(query.limit ?? 100) })
+  if (query.meter) {
+    params.set('meter', query.meter)
+  }
+  if (query.state) {
+    params.set('state', query.state)
+  }
+  if (query.subject) {
+    params.set('subject', query.subject)
+  }
+  return request<EntitlementStateList>(`/v1/entitlements/states?${params.toString()}`)
+}
+
+export async function listEntitlementEvents(query: { cursor?: string; limit?: number; meter?: string; plan_id?: string; state?: string; subject?: string; type?: string } = {}) {
+  const params = new URLSearchParams({ limit: String(query.limit ?? 25) })
+  if (query.cursor) {
+    params.set('cursor', query.cursor)
+  }
+  if (query.meter) {
+    params.set('meter', query.meter)
+  }
+  if (query.plan_id) {
+    params.set('plan_id', query.plan_id)
+  }
+  if (query.state) {
+    params.set('state', query.state)
+  }
+  if (query.subject) {
+    params.set('subject', query.subject)
+  }
+  if (query.type) {
+    params.set('type', query.type)
+  }
+  return request<EntitlementEventList>(`/v1/entitlements/events?${params.toString()}`)
 }
 
 export async function createUsage(input: UsageCreateRequest) {

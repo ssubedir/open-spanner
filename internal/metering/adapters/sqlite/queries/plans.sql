@@ -151,3 +151,29 @@ DELETE FROM entitlement_check_jobs
 WHERE workspace_id = sqlc.arg('workspace_id')
 	AND subject = sqlc.arg('subject')
 	AND meter_name = sqlc.arg('meter_name');
+
+-- name: ListEntitlementStates :many
+SELECT workspace_id, subject, meter_name, plan_id, plan_name, period, state, current_value, limit_value, remaining_value, warning_percent, message, evaluated_at, updated_at
+FROM entitlement_states
+WHERE workspace_id = sqlc.arg('workspace_id')
+	AND (CAST(sqlc.narg('subject') AS TEXT) IS NULL OR subject = CAST(sqlc.narg('subject') AS TEXT))
+	AND (CAST(sqlc.narg('meter_name') AS TEXT) IS NULL OR meter_name = CAST(sqlc.narg('meter_name') AS TEXT))
+	AND (CAST(sqlc.narg('state') AS TEXT) IS NULL OR state = CAST(sqlc.narg('state') AS TEXT))
+ORDER BY updated_at DESC, subject ASC, meter_name ASC, plan_id ASC, period ASC
+LIMIT sqlc.arg('limit');
+
+-- name: ListEntitlementEvents :many
+SELECT id, workspace_id, subject, meter_name, plan_id, plan_name, period, previous_state, state, type,
+	current_value, limit_value, remaining_value, warning_percent, message, created_at
+FROM entitlement_events
+WHERE workspace_id = sqlc.arg('workspace_id')
+	AND (CAST(sqlc.narg('subject') AS TEXT) IS NULL OR subject = CAST(sqlc.narg('subject') AS TEXT))
+	AND (CAST(sqlc.narg('meter_name') AS TEXT) IS NULL OR meter_name = CAST(sqlc.narg('meter_name') AS TEXT))
+	AND (CAST(sqlc.narg('plan_id') AS TEXT) IS NULL OR plan_id = CAST(sqlc.narg('plan_id') AS TEXT))
+	AND (CAST(sqlc.narg('state') AS TEXT) IS NULL OR state = CAST(sqlc.narg('state') AS TEXT))
+	AND (CAST(sqlc.narg('type') AS TEXT) IS NULL OR type = CAST(sqlc.narg('type') AS TEXT))
+	AND (CAST(sqlc.narg('cursor_created_at') AS TEXT) IS NULL
+		OR (created_at < CAST(sqlc.narg('cursor_created_at') AS TEXT)
+			OR (created_at = CAST(sqlc.narg('cursor_created_at') AS TEXT) AND id < CAST(sqlc.narg('cursor_id') AS TEXT))))
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg('limit');

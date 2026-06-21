@@ -221,6 +221,148 @@ func (q *Queries) GetEntitlementState(ctx context.Context, arg GetEntitlementSta
 	return i, err
 }
 
+const listEntitlementEvents = `-- name: ListEntitlementEvents :many
+SELECT id, workspace_id, subject, meter_name, plan_id, plan_name, period, previous_state, state, type,
+	current_value, limit_value, remaining_value, warning_percent, message, created_at
+FROM entitlement_events
+WHERE workspace_id = ?1
+	AND (CAST(?2 AS TEXT) IS NULL OR subject = CAST(?2 AS TEXT))
+	AND (CAST(?3 AS TEXT) IS NULL OR meter_name = CAST(?3 AS TEXT))
+	AND (CAST(?4 AS TEXT) IS NULL OR plan_id = CAST(?4 AS TEXT))
+	AND (CAST(?5 AS TEXT) IS NULL OR state = CAST(?5 AS TEXT))
+	AND (CAST(?6 AS TEXT) IS NULL OR type = CAST(?6 AS TEXT))
+	AND (CAST(?7 AS TEXT) IS NULL
+		OR (created_at < CAST(?7 AS TEXT)
+			OR (created_at = CAST(?7 AS TEXT) AND id < CAST(?8 AS TEXT))))
+ORDER BY created_at DESC, id DESC
+LIMIT ?9
+`
+
+type ListEntitlementEventsParams struct {
+	WorkspaceID     string
+	Subject         sql.NullString
+	MeterName       sql.NullString
+	PlanID          sql.NullString
+	State           sql.NullString
+	Type            sql.NullString
+	CursorCreatedAt sql.NullString
+	CursorID        sql.NullString
+	Limit           int64
+}
+
+func (q *Queries) ListEntitlementEvents(ctx context.Context, arg ListEntitlementEventsParams) ([]EntitlementEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listEntitlementEvents,
+		arg.WorkspaceID,
+		arg.Subject,
+		arg.MeterName,
+		arg.PlanID,
+		arg.State,
+		arg.Type,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []EntitlementEvent{}
+	for rows.Next() {
+		var i EntitlementEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.Subject,
+			&i.MeterName,
+			&i.PlanID,
+			&i.PlanName,
+			&i.Period,
+			&i.PreviousState,
+			&i.State,
+			&i.Type,
+			&i.CurrentValue,
+			&i.LimitValue,
+			&i.RemainingValue,
+			&i.WarningPercent,
+			&i.Message,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEntitlementStates = `-- name: ListEntitlementStates :many
+SELECT workspace_id, subject, meter_name, plan_id, plan_name, period, state, current_value, limit_value, remaining_value, warning_percent, message, evaluated_at, updated_at
+FROM entitlement_states
+WHERE workspace_id = ?1
+	AND (CAST(?2 AS TEXT) IS NULL OR subject = CAST(?2 AS TEXT))
+	AND (CAST(?3 AS TEXT) IS NULL OR meter_name = CAST(?3 AS TEXT))
+	AND (CAST(?4 AS TEXT) IS NULL OR state = CAST(?4 AS TEXT))
+ORDER BY updated_at DESC, subject ASC, meter_name ASC, plan_id ASC, period ASC
+LIMIT ?5
+`
+
+type ListEntitlementStatesParams struct {
+	WorkspaceID string
+	Subject     sql.NullString
+	MeterName   sql.NullString
+	State       sql.NullString
+	Limit       int64
+}
+
+func (q *Queries) ListEntitlementStates(ctx context.Context, arg ListEntitlementStatesParams) ([]EntitlementState, error) {
+	rows, err := q.db.QueryContext(ctx, listEntitlementStates,
+		arg.WorkspaceID,
+		arg.Subject,
+		arg.MeterName,
+		arg.State,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []EntitlementState{}
+	for rows.Next() {
+		var i EntitlementState
+		if err := rows.Scan(
+			&i.WorkspaceID,
+			&i.Subject,
+			&i.MeterName,
+			&i.PlanID,
+			&i.PlanName,
+			&i.Period,
+			&i.State,
+			&i.CurrentValue,
+			&i.LimitValue,
+			&i.RemainingValue,
+			&i.WarningPercent,
+			&i.Message,
+			&i.EvaluatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPlanLimits = `-- name: ListPlanLimits :many
 SELECT id, plan_id, meter_name, period, limit_value, warning_percent, created_at, updated_at
 FROM plan_limits

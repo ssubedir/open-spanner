@@ -88,6 +88,25 @@ type EntitlementCheckJob struct {
 	UpdatedAt   string
 }
 
+type EntitlementEvent struct {
+	ID             string
+	WorkspaceID    string
+	Subject        string
+	MeterName      string
+	PlanID         string
+	PlanName       string
+	Period         string
+	PreviousState  sql.NullString
+	State          string
+	Type           string
+	CurrentValue   float64
+	LimitValue     float64
+	RemainingValue float64
+	WarningPercent float64
+	Message        string
+	CreatedAt      string
+}
+
 type EntitlementState struct {
 	WorkspaceID    string
 	Subject        string

@@ -107,3 +107,50 @@ type CheckResponse struct {
 	To        string  `json:"to,omitempty"`
 	Message   string  `json:"message"`
 }
+
+// StateResponse is the latest entitlement state for a subject and meter.
+type StateResponse struct {
+	Subject        string  `json:"subject"`
+	Meter          string  `json:"meter"`
+	PlanID         string  `json:"plan_id"`
+	PlanName       string  `json:"plan_name"`
+	Period         string  `json:"period"`
+	State          string  `json:"state"`
+	Current        float64 `json:"current"`
+	Limit          float64 `json:"limit"`
+	Remaining      float64 `json:"remaining"`
+	WarningPercent float64 `json:"warning_percent"`
+	Message        string  `json:"message"`
+	EvaluatedAt    string  `json:"evaluated_at"`
+	UpdatedAt      string  `json:"updated_at"`
+}
+
+// StateListResponse is a list of latest entitlement states.
+type StateListResponse struct {
+	Items []StateResponse `json:"items"`
+}
+
+// EventResponse is an entitlement state transition.
+type EventResponse struct {
+	ID             string  `json:"id"`
+	Subject        string  `json:"subject"`
+	Meter          string  `json:"meter"`
+	PlanID         string  `json:"plan_id"`
+	PlanName       string  `json:"plan_name"`
+	Period         string  `json:"period"`
+	PreviousState  string  `json:"previous_state,omitempty"`
+	State          string  `json:"state"`
+	Type           string  `json:"type"`
+	Current        float64 `json:"current"`
+	Limit          float64 `json:"limit"`
+	Remaining      float64 `json:"remaining"`
+	WarningPercent float64 `json:"warning_percent"`
+	Message        string  `json:"message"`
+	CreatedAt      string  `json:"created_at"`
+}
+
+// EventListResponse is a paginated list of entitlement events.
+type EventListResponse struct {
+	Items      []EventResponse `json:"items"`
+	NextCursor string          `json:"next_cursor,omitempty"`
+}

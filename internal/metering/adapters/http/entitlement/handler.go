@@ -291,6 +291,88 @@ func (h *Handler) CheckEntitlement(w http.ResponseWriter, r *http.Request) {
 	respond.JSON(w, http.StatusOK, checkResponse(result))
 }
 
+// ListEntitlementStates lists current entitlement states.
+//
+// @Summary List entitlement states
+// @ID listEntitlementStates
+// @Tags entitlements
+// @Produce json
+// @Param subject query string false "Subject"
+// @Param meter query string false "Meter"
+// @Param state query string false "State"
+// @Param limit query int false "Page size"
+// @Success 200 {object} StateListResponse
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 403 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/entitlements/states [get]
+func (h *Handler) ListEntitlementStates(w http.ResponseWriter, r *http.Request) {
+	limit, err := request.ParseLimit(r.URL.Query().Get("limit"))
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+	states, err := h.service.ListEntitlementStates(r.Context(), appentitlement.StateListQuery{
+		Subject:   r.URL.Query().Get("subject"),
+		MeterName: r.URL.Query().Get("meter"),
+		State:     appentitlement.OverageState(r.URL.Query().Get("state")),
+		Limit:     limit,
+	})
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	items := make([]StateResponse, 0, len(states.Items))
+	for _, state := range states.Items {
+		items = append(items, stateResponse(state))
+	}
+	respond.JSON(w, http.StatusOK, StateListResponse{Items: items})
+}
+
+// ListEntitlementEvents lists entitlement state transitions.
+//
+// @Summary List entitlement events
+// @ID listEntitlementEvents
+// @Tags entitlements
+// @Produce json
+// @Param subject query string false "Subject"
+// @Param meter query string false "Meter"
+// @Param plan_id query string false "Plan ID"
+// @Param state query string false "State"
+// @Param type query string false "Event type"
+// @Param cursor query string false "Cursor"
+// @Param limit query int false "Page size"
+// @Success 200 {object} EventListResponse
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 403 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/entitlements/events [get]
+func (h *Handler) ListEntitlementEvents(w http.ResponseWriter, r *http.Request) {
+	limit, err := request.ParseLimit(r.URL.Query().Get("limit"))
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+	events, err := h.service.ListEntitlementEvents(r.Context(), appentitlement.EventListQuery{
+		Subject:   r.URL.Query().Get("subject"),
+		MeterName: r.URL.Query().Get("meter"),
+		PlanID:    r.URL.Query().Get("plan_id"),
+		State:     appentitlement.OverageState(r.URL.Query().Get("state")),
+		Type:      appentitlement.EventType(r.URL.Query().Get("type")),
+		Cursor:    r.URL.Query().Get("cursor"),
+		Limit:     limit,
+	})
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	items := make([]EventResponse, 0, len(events.Items))
+	for _, event := range events.Items {
+		items = append(items, eventResponse(event))
+	}
+	respond.JSON(w, http.StatusOK, EventListResponse{Items: items, NextCursor: events.NextCursor})
+}
+
 func limitCommands(input []LimitRequest) []appentitlement.LimitCommand {
 	limits := make([]appentitlement.LimitCommand, 0, len(input))
 	for _, limit := range input {
@@ -382,6 +464,44 @@ func checkResponse(result appentitlement.EntitlementCheckResult) CheckResponse {
 		From:      optionalTime(result.From),
 		To:        optionalTime(result.To),
 		Message:   result.Message,
+	}
+}
+
+func stateResponse(state appentitlement.EntitlementState) StateResponse {
+	return StateResponse{
+		Subject:        state.Subject,
+		Meter:          state.MeterName,
+		PlanID:         state.PlanID,
+		PlanName:       state.PlanName,
+		Period:         string(state.Period),
+		State:          string(state.State),
+		Current:        state.Current,
+		Limit:          state.Limit,
+		Remaining:      state.Remaining,
+		WarningPercent: state.WarningPercent,
+		Message:        state.Message,
+		EvaluatedAt:    formatTime(state.EvaluatedAt),
+		UpdatedAt:      formatTime(state.UpdatedAt),
+	}
+}
+
+func eventResponse(event appentitlement.EntitlementEvent) EventResponse {
+	return EventResponse{
+		ID:             event.ID,
+		Subject:        event.Subject,
+		Meter:          event.MeterName,
+		PlanID:         event.PlanID,
+		PlanName:       event.PlanName,
+		Period:         string(event.Period),
+		PreviousState:  string(event.PreviousState),
+		State:          string(event.State),
+		Type:           string(event.Type),
+		Current:        event.Current,
+		Limit:          event.Limit,
+		Remaining:      event.Remaining,
+		WarningPercent: event.WarningPercent,
+		Message:        event.Message,
+		CreatedAt:      formatTime(event.CreatedAt),
 	}
 }
 

@@ -25,6 +25,8 @@ func (h *Handler) RegisterRoutes(router chi.Router, authorizer access.Authorizer
 	})
 
 	routes.Post("/entitlements/check", h.CheckEntitlement, access.PlansRead(entitlementCheckResource))
+	routes.Get("/entitlements/states", h.ListEntitlementStates, access.PlansRead(entitlementQueryResource))
+	routes.Get("/entitlements/events", h.ListEntitlementEvents, access.PlansRead(entitlementQueryResource))
 }
 
 var (
@@ -40,6 +42,10 @@ var (
 		return access.Plan(req.Meter), nil
 	})
 )
+
+func entitlementQueryResource(r *http.Request) ([]access.Resource, error) {
+	return []access.Resource{access.Plan(r.URL.Query().Get("meter"))}, nil
+}
 
 func (h *Handler) planByIDResource(r *http.Request) ([]access.Resource, error) {
 	plan, err := h.service.GetPlan(r.Context(), appentitlement.GetPlanQuery{ID: chi.URLParam(r, "id")})

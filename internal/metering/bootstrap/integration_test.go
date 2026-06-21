@@ -799,11 +799,28 @@ func runIntegrationPlanEntitlementFlow(t *testing.T, cfg config.Config, namespac
 	}
 
 	entitlementWorker := entitlementworker.NewWorker(app.EntitlementService, time.Millisecond, time.Minute, time.Minute, time.Second, 3, 10, t.Logf)
-	processed, err := entitlementWorker.ProcessOnce(context.Background())
-	if err != nil {
-		t.Fatalf("process entitlement check: %v", err)
+	var states entitlementStateListTestResponse
+	processedAny := false
+	for attempt := 0; attempt < 200; attempt++ {
+		processed, err := entitlementWorker.ProcessOnce(context.Background())
+		if err != nil {
+			t.Fatalf("process entitlement check: %v", err)
+		}
+		processedAny = processedAny || processed
+
+		statesRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/entitlements/states?subject="+url.QueryEscape(subject)+"&meter="+url.QueryEscape(meterName), nil, sdkHeaders, nil)
+		if statesRes.Code != http.StatusOK {
+			t.Fatalf("entitlement states status = %d, want %d: %s", statesRes.Code, http.StatusOK, statesRes.Body.String())
+		}
+		decodeJSON(t, statesRes, &states)
+		if len(states.Items) > 0 {
+			break
+		}
+		if !processed {
+			time.Sleep(10 * time.Millisecond)
+		}
 	}
-	if !processed {
+	if !processedAny {
 		t.Fatal("process entitlement check = false, want queued entitlement job")
 	}
 
@@ -821,6 +838,28 @@ func runIntegrationPlanEntitlementFlow(t *testing.T, cfg config.Config, namespac
 	assertFloatNear(t, progress.Items[0].Remaining, 3, "progress remaining")
 	if progress.Items[0].State != "warning" {
 		t.Fatalf("progress state = %q, want warning", progress.Items[0].State)
+	}
+
+	if len(states.Items) != 1 {
+		t.Fatalf("entitlement states = %#v, want one state", states)
+	}
+	if states.Items[0].Subject != subject || states.Items[0].Meter != meterName || states.Items[0].State != "warning" {
+		t.Fatalf("entitlement state = %#v, want warning state for %q/%q", states.Items[0], subject, meterName)
+	}
+	assertFloatNear(t, states.Items[0].Current, 7, "state current")
+	assertFloatNear(t, states.Items[0].Limit, 10, "state limit")
+
+	eventsRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/entitlements/events?subject="+url.QueryEscape(subject)+"&meter="+url.QueryEscape(meterName), nil, sdkHeaders, nil)
+	if eventsRes.Code != http.StatusOK {
+		t.Fatalf("entitlement events status = %d, want %d: %s", eventsRes.Code, http.StatusOK, eventsRes.Body.String())
+	}
+	var entitlementEvents entitlementEventListTestResponse
+	decodeJSON(t, eventsRes, &entitlementEvents)
+	if len(entitlementEvents.Items) != 1 {
+		t.Fatalf("entitlement events = %#v, want one event", entitlementEvents)
+	}
+	if entitlementEvents.Items[0].Subject != subject || entitlementEvents.Items[0].Meter != meterName || entitlementEvents.Items[0].Type != "warning" {
+		t.Fatalf("entitlement event = %#v, want warning event for %q/%q", entitlementEvents.Items[0], subject, meterName)
 	}
 
 	allowed := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/entitlements/check", map[string]any{
@@ -2669,6 +2708,42 @@ type entitlementCheckTestResponse struct {
 	PlanName  string  `json:"plan_name"`
 	Period    string  `json:"period"`
 	Message   string  `json:"message"`
+}
+
+type entitlementStateTestResponse struct {
+	Subject        string  `json:"subject"`
+	Meter          string  `json:"meter"`
+	PlanID         string  `json:"plan_id"`
+	PlanName       string  `json:"plan_name"`
+	Period         string  `json:"period"`
+	State          string  `json:"state"`
+	Current        float64 `json:"current"`
+	Limit          float64 `json:"limit"`
+	Remaining      float64 `json:"remaining"`
+	WarningPercent float64 `json:"warning_percent"`
+	Message        string  `json:"message"`
+	UpdatedAt      string  `json:"updated_at"`
+}
+
+type entitlementStateListTestResponse struct {
+	Items []entitlementStateTestResponse `json:"items"`
+}
+
+type entitlementEventTestResponse struct {
+	ID            string `json:"id"`
+	Subject       string `json:"subject"`
+	Meter         string `json:"meter"`
+	PlanID        string `json:"plan_id"`
+	PlanName      string `json:"plan_name"`
+	PreviousState string `json:"previous_state"`
+	State         string `json:"state"`
+	Type          string `json:"type"`
+	Message       string `json:"message"`
+}
+
+type entitlementEventListTestResponse struct {
+	Items      []entitlementEventTestResponse `json:"items"`
+	NextCursor string                         `json:"next_cursor"`
 }
 
 type alertRuleResponse struct {

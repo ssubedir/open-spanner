@@ -5,7 +5,7 @@ import type React from 'react'
 import { useCallback, useMemo } from 'react'
 
 import { appStore, appStoreActions } from '../app-store'
-import type { SubjectStats, UsageEvent } from '../api'
+import type { EntitlementEvent, EntitlementState, SubjectStats, UsageEvent } from '../api'
 import { DataTable, MetricCard, PageHeader } from '../components/dashboard'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
@@ -29,6 +29,8 @@ export function SubjectsPage({ routeSubject = '' }: SubjectsPageProps) {
   const router = useRouter()
   const {
     detailStatus,
+    entitlementEvents,
+    entitlementStates,
     error,
     events,
     exportError,
@@ -167,6 +169,30 @@ export function SubjectsPage({ routeSubject = '' }: SubjectsPageProps) {
               <p className="subject-empty">Select a subject to inspect recent activity.</p>
             )}
 
+            {selectedSubject ? (
+              <section className="subject-meter-section" aria-label="Subject entitlement state">
+                <div className="subject-section-heading">
+                  <h2>Entitlements</h2>
+                  <span>{entitlementStates.length} states</span>
+                </div>
+                {entitlementStates.length > 0 ? (
+                  <div className="subject-meter-list">
+                    {entitlementStates.map((state) => (
+                      <div className="subject-meter-row" key={`${state.plan_id}-${state.meter}-${state.period}`}>
+                        <div>
+                          <strong>{state.meter}</strong>
+                          <span>{state.plan_name} - {formatNumber(state.current)} / {formatNumber(state.limit)} {state.period}</span>
+                        </div>
+                        <EntitlementStateBadge state={state.state} />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="subject-empty">No entitlement checks recorded for this subject yet.</p>
+                )}
+              </section>
+            ) : null}
+
             <section className="subject-meter-section" aria-label="Subject meter activity">
               <div className="subject-section-heading">
                 <h2>Meter Activity</h2>
@@ -210,6 +236,18 @@ export function SubjectsPage({ routeSubject = '' }: SubjectsPageProps) {
                 <span className="mono truncate">{event.id}</span>,
               ])}
             />
+          </CardContent>
+        </Card>
+
+        <Card className="min-w-0 xl:col-span-2">
+          <CardHeader className="!px-4 !py-3">
+            <div>
+              <CardTitle>Entitlement Changes</CardTitle>
+              <CardDescription>{selectedSubject ? `Recent quota transitions for ${selectedSubject}` : 'Recent quota transitions for the selected subject.'}</CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <EntitlementEventTable events={entitlementEvents} selectedSubject={selectedSubject} />
           </CardContent>
         </Card>
       </section>
@@ -260,6 +298,32 @@ function MetadataValues({ metadata }: { metadata: Record<string, unknown> }) {
       {entries.length > 4 ? <span className="muted">+{entries.length - 4}</span> : null}
     </div>
   )
+}
+
+function EntitlementEventTable({ events, selectedSubject }: { events: EntitlementEvent[]; selectedSubject: string }) {
+  return (
+    <DataTable
+      emptyLabel={selectedSubject ? 'No entitlement changes for this subject' : 'Select a subject to view entitlement changes'}
+      headers={['Type', 'Meter', 'Plan', 'Message', 'Created']}
+      rows={events.map((event) => [
+        <EntitlementStateBadge state={event.state} />,
+        <Badge variant="muted">{event.meter}</Badge>,
+        event.plan_name,
+        <span className="max-w-[460px] truncate">{event.message}</span>,
+        formatDate(event.created_at),
+      ])}
+    />
+  )
+}
+
+function EntitlementStateBadge({ state }: { state: EntitlementState['state'] }) {
+  if (state === 'exceeded') {
+    return <Badge variant="warning">Exceeded</Badge>
+  }
+  if (state === 'warning') {
+    return <Badge variant="warning">Warning</Badge>
+  }
+  return <Badge variant="success">OK</Badge>
 }
 
 function filterSubjects(subjects: SubjectStats[], searchQuery: string) {

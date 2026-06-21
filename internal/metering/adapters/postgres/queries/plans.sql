@@ -153,3 +153,29 @@ DELETE FROM entitlement_check_jobs
 WHERE workspace_id = sqlc.arg('workspace_id')::text
 	AND subject = sqlc.arg('subject')::text
 	AND meter_name = sqlc.arg('meter_name')::text;
+
+-- name: ListEntitlementStates :many
+SELECT workspace_id, subject, meter_name, plan_id, plan_name, period, state, current_value, limit_value, remaining_value, warning_percent, message, evaluated_at, updated_at
+FROM entitlement_states
+WHERE workspace_id = sqlc.arg('workspace_id')::text
+	AND (sqlc.narg('subject')::text IS NULL OR subject = sqlc.narg('subject')::text)
+	AND (sqlc.narg('meter_name')::text IS NULL OR meter_name = sqlc.narg('meter_name')::text)
+	AND (sqlc.narg('state')::text IS NULL OR state = sqlc.narg('state')::text)
+ORDER BY updated_at DESC, subject ASC, meter_name ASC, plan_id ASC, period ASC
+LIMIT sqlc.arg('limit')::int;
+
+-- name: ListEntitlementEvents :many
+SELECT id, workspace_id, subject, meter_name, plan_id, plan_name, period, previous_state, state, type,
+	current_value, limit_value, remaining_value, warning_percent, message, created_at
+FROM entitlement_events
+WHERE workspace_id = sqlc.arg('workspace_id')::text
+	AND (sqlc.narg('subject')::text IS NULL OR subject = sqlc.narg('subject')::text)
+	AND (sqlc.narg('meter_name')::text IS NULL OR meter_name = sqlc.narg('meter_name')::text)
+	AND (sqlc.narg('plan_id')::text IS NULL OR plan_id = sqlc.narg('plan_id')::text)
+	AND (sqlc.narg('state')::text IS NULL OR state = sqlc.narg('state')::text)
+	AND (sqlc.narg('type')::text IS NULL OR type = sqlc.narg('type')::text)
+	AND (sqlc.narg('cursor_created_at')::text IS NULL
+		OR (created_at < sqlc.narg('cursor_created_at')::text
+			OR (created_at = sqlc.narg('cursor_created_at')::text AND id < sqlc.narg('cursor_id')::text)))
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg('limit')::int;

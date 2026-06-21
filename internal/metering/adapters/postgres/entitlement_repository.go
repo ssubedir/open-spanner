@@ -247,6 +247,62 @@ func (r *EntitlementRepository) GetEntitlementState(ctx context.Context, query a
 	return postgresEntitlementState(row)
 }
 
+func (r *EntitlementRepository) FindEntitlementStates(ctx context.Context, query appentitlement.StateListQuery) ([]appentitlement.EntitlementState, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := queriesFor(ctx, r.queries).ListEntitlementStates(ctx, postgresdb.ListEntitlementStatesParams{
+		WorkspaceID: workspaceID,
+		Subject:     planStringValue(query.Subject),
+		MeterName:   planStringValue(query.MeterName),
+		State:       planStringValue(string(query.State)),
+		Limit:       int32(query.Limit),
+	})
+	if err != nil {
+		return nil, err
+	}
+	states := make([]appentitlement.EntitlementState, 0, len(rows))
+	for _, row := range rows {
+		state, err := postgresEntitlementState(row)
+		if err != nil {
+			return nil, err
+		}
+		states = append(states, state)
+	}
+	return states, nil
+}
+
+func (r *EntitlementRepository) FindEntitlementEvents(ctx context.Context, query appentitlement.EventQuery) ([]appentitlement.EntitlementEvent, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := queriesFor(ctx, r.queries).ListEntitlementEvents(ctx, postgresdb.ListEntitlementEventsParams{
+		WorkspaceID:     workspaceID,
+		Subject:         planStringValue(query.Subject),
+		MeterName:       planStringValue(query.MeterName),
+		PlanID:          planStringValue(query.PlanID),
+		State:           planStringValue(string(query.State)),
+		Type:            planStringValue(string(query.Type)),
+		CursorCreatedAt: entitlementTimeValue(query.CreatedAt),
+		CursorID:        planStringValue(query.ID),
+		Limit:           int32(query.Limit),
+	})
+	if err != nil {
+		return nil, err
+	}
+	events := make([]appentitlement.EntitlementEvent, 0, len(rows))
+	for _, row := range rows {
+		event, err := postgresEntitlementEvent(row)
+		if err != nil {
+			return nil, err
+		}
+		events = append(events, event)
+	}
+	return events, nil
+}
+
 func (r *EntitlementRepository) SaveEntitlementState(ctx context.Context, state appentitlement.EntitlementState) error {
 	workspaceID, err := appauth.RequireWorkspaceID(ctx)
 	if err != nil {
@@ -462,6 +518,31 @@ func postgresEntitlementState(row postgresdb.EntitlementState) (appentitlement.E
 	}, nil
 }
 
+func postgresEntitlementEvent(row postgresdb.EntitlementEvent) (appentitlement.EntitlementEvent, error) {
+	createdAt, err := parseEntitlementTime(row.CreatedAt)
+	if err != nil {
+		return appentitlement.EntitlementEvent{}, err
+	}
+	return appentitlement.EntitlementEvent{
+		ID:             row.ID,
+		WorkspaceID:    row.WorkspaceID,
+		Subject:        row.Subject,
+		MeterName:      row.MeterName,
+		PlanID:         row.PlanID,
+		PlanName:       row.PlanName,
+		Period:         appentitlement.Period(row.Period),
+		PreviousState:  appentitlement.OverageState(row.PreviousState.String),
+		State:          appentitlement.OverageState(row.State),
+		Type:           appentitlement.EventType(row.Type),
+		Current:        row.CurrentValue,
+		Limit:          row.LimitValue,
+		Remaining:      row.RemainingValue,
+		WarningPercent: row.WarningPercent,
+		Message:        row.Message,
+		CreatedAt:      createdAt,
+	}, nil
+}
+
 func postgresEntitlementCheckJob(row postgresdb.EntitlementCheckJob) (appentitlement.CheckJob, error) {
 	runAfter, err := parseEntitlementTime(row.RunAfter)
 	if err != nil {
@@ -496,6 +577,13 @@ func planStringValue(value string) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: value, Valid: true}
+}
+
+func entitlementTimeValue(value time.Time) sql.NullString {
+	if value.IsZero() {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: formatTime(value), Valid: true}
 }
 
 func parseEntitlementTime(value string) (time.Time, error) {

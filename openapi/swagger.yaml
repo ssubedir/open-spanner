@@ -455,6 +455,48 @@ definitions:
       to:
         type: string
     type: object
+  internal_metering_adapters_http_entitlement.EventListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_entitlement.EventResponse'
+        type: array
+      next_cursor:
+        type: string
+    type: object
+  internal_metering_adapters_http_entitlement.EventResponse:
+    properties:
+      created_at:
+        type: string
+      current:
+        type: number
+      id:
+        type: string
+      limit:
+        type: number
+      message:
+        type: string
+      meter:
+        type: string
+      period:
+        type: string
+      plan_id:
+        type: string
+      plan_name:
+        type: string
+      previous_state:
+        type: string
+      remaining:
+        type: number
+      state:
+        type: string
+      subject:
+        type: string
+      type:
+        type: string
+      warning_percent:
+        type: number
+    type: object
   internal_metering_adapters_http_entitlement.LimitRequest:
     properties:
       limit:
@@ -555,6 +597,42 @@ definitions:
         $ref: '#/definitions/internal_metering_adapters_http_entitlement.PlanResponse'
       subject:
         type: string
+    type: object
+  internal_metering_adapters_http_entitlement.StateListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_entitlement.StateResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_entitlement.StateResponse:
+    properties:
+      current:
+        type: number
+      evaluated_at:
+        type: string
+      limit:
+        type: number
+      message:
+        type: string
+      meter:
+        type: string
+      period:
+        type: string
+      plan_id:
+        type: string
+      plan_name:
+        type: string
+      remaining:
+        type: number
+      state:
+        type: string
+      subject:
+        type: string
+      updated_at:
+        type: string
+      warning_percent:
+        type: number
     type: object
   internal_metering_adapters_http_meter.CreateRequest:
     properties:
@@ -1731,6 +1809,102 @@ paths:
       summary: Check entitlement quota
       tags:
       - plans
+  /v1/entitlements/events:
+    get:
+      operationId: listEntitlementEvents
+      parameters:
+      - description: Subject
+        in: query
+        name: subject
+        type: string
+      - description: Meter
+        in: query
+        name: meter
+        type: string
+      - description: Plan ID
+        in: query
+        name: plan_id
+        type: string
+      - description: State
+        in: query
+        name: state
+        type: string
+      - description: Event type
+        in: query
+        name: type
+        type: string
+      - description: Cursor
+        in: query
+        name: cursor
+        type: string
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_entitlement.EventListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List entitlement events
+      tags:
+      - entitlements
+  /v1/entitlements/states:
+    get:
+      operationId: listEntitlementStates
+      parameters:
+      - description: Subject
+        in: query
+        name: subject
+        type: string
+      - description: Meter
+        in: query
+        name: meter
+        type: string
+      - description: State
+        in: query
+        name: state
+        type: string
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_entitlement.StateListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List entitlement states
+      tags:
+      - entitlements
   /v1/exports:
     get:
       operationId: listUsageExportJobs
