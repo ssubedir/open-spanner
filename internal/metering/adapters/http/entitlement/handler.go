@@ -425,15 +425,16 @@ func limitResponse(limit appentitlement.PlanLimit) LimitResponse {
 
 func assignmentResponse(assignment appentitlement.SubjectAssignment) AssignmentResponse {
 	return AssignmentResponse{
-		ID:           assignment.ID,
-		Subject:      assignment.Subject,
-		PlanID:       assignment.PlanID,
-		PlanName:     assignment.PlanName,
-		PlanVersion:  assignment.PlanVersion,
-		Active:       assignment.UnassignedAt.IsZero(),
-		AssignedAt:   formatTime(assignment.AssignedAt),
-		UnassignedAt: optionalTime(assignment.UnassignedAt),
-		UpdatedAt:    formatTime(assignment.UpdatedAt),
+		ID:             assignment.ID,
+		Subject:        assignment.Subject,
+		PlanID:         assignment.PlanID,
+		PlanName:       assignment.PlanName,
+		PlanVersion:    assignment.PlanVersion,
+		Active:         assignment.UnassignedAt.IsZero(),
+		AssignedAt:     formatTime(assignment.AssignedAt),
+		PeriodAnchorAt: formatTime(assignment.PeriodAnchorAt),
+		UnassignedAt:   optionalTime(assignment.UnassignedAt),
+		UpdatedAt:      formatTime(assignment.UpdatedAt),
 	}
 }
 

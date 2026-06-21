@@ -146,6 +146,7 @@ export type PlanAssignment = {
   plan_version: number
   active: boolean
   assigned_at: string
+  period_anchor_at: string
   unassigned_at?: string
   updated_at: string
 }

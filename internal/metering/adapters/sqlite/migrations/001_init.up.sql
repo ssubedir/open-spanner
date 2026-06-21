@@ -148,6 +148,7 @@ CREATE TABLE plan_subject_assignments (
 	subject TEXT NOT NULL,
 	plan_id TEXT NOT NULL,
 	assigned_at TEXT NOT NULL,
+	period_anchor_at TEXT NOT NULL,
 	unassigned_at TEXT,
 	updated_at TEXT NOT NULL,
 	UNIQUE (workspace_id, subject, assigned_at),

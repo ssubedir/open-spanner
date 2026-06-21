@@ -3858,6 +3858,9 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
+                "period_anchor_at": {
+                    "type": "string"
+                },
                 "plan_id": {
                     "type": "string"
                 },

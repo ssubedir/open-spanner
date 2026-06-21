@@ -51,15 +51,16 @@ type AssignmentRequest struct {
 
 // AssignmentResponse is a subject plan assignment.
 type AssignmentResponse struct {
-	ID           string `json:"id"`
-	Subject      string `json:"subject"`
-	PlanID       string `json:"plan_id"`
-	PlanName     string `json:"plan_name"`
-	PlanVersion  int    `json:"plan_version"`
-	Active       bool   `json:"active"`
-	AssignedAt   string `json:"assigned_at"`
-	UnassignedAt string `json:"unassigned_at,omitempty"`
-	UpdatedAt    string `json:"updated_at"`
+	ID             string `json:"id"`
+	Subject        string `json:"subject"`
+	PlanID         string `json:"plan_id"`
+	PlanName       string `json:"plan_name"`
+	PlanVersion    int    `json:"plan_version"`
+	Active         bool   `json:"active"`
+	AssignedAt     string `json:"assigned_at"`
+	PeriodAnchorAt string `json:"period_anchor_at"`
+	UnassignedAt   string `json:"unassigned_at,omitempty"`
+	UpdatedAt      string `json:"updated_at"`
 }
 
 // AssignmentListResponse is a list of subject assignments.

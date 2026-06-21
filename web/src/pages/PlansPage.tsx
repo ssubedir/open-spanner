@@ -527,6 +527,9 @@ function ProgressList({ progress }: { progress: SubjectPlanProgress }) {
             {formatNumber(item.current)} / {formatNumber(item.limit)} {item.unit} this {item.period}
             {item.remaining > 0 ? `, ${formatNumber(item.remaining)} remaining` : ''}
           </small>
+          <small className="text-xs text-muted">
+            Current period: {formatPeriodRange(item.from, item.to)}
+          </small>
         </div>
       ))}
     </div>
@@ -554,7 +557,7 @@ function AssignmentHistoryTable({ assignments }: { assignments: PlanAssignment[]
   return (
     <DataTable
       emptyLabel="No assignment history yet"
-      headers={['Subject', 'Plan', 'Status', 'Assigned', 'Ended']}
+      headers={['Subject', 'Plan', 'Status', 'Anchor', 'Assigned', 'Ended']}
       rows={assignments.map((assignment) => [
         <span className="mono">{assignment.subject}</span>,
         <span className="flex items-center gap-2">
@@ -562,6 +565,7 @@ function AssignmentHistoryTable({ assignments }: { assignments: PlanAssignment[]
           <Badge variant="muted">v{assignment.plan_version}</Badge>
         </span>,
         assignment.active ? <Badge variant="success">Active</Badge> : <Badge variant="muted">Ended</Badge>,
+        formatDate(assignment.period_anchor_at),
         formatDate(assignment.assigned_at),
         assignment.unassigned_at ? formatDate(assignment.unassigned_at) : <span className="muted">-</span>,
       ])}
@@ -626,4 +630,8 @@ function emptyLimitDraft(meters: Meter[]): LimitDraft {
 
 function draftID() {
   return `limit_${Date.now()}_${Math.random().toString(16).slice(2)}`
+}
+
+function formatPeriodRange(from: string, to: string) {
+  return `${formatDate(from)} - ${formatDate(to)}`
 }

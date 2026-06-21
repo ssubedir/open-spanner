@@ -197,12 +197,13 @@ func (r *EntitlementRepository) SaveSubjectAssignment(ctx context.Context, assig
 		return appentitlement.SubjectAssignment{}, err
 	}
 	err = queriesFor(ctx, r.queries).SavePlanSubjectAssignment(ctx, sqlitedb.SavePlanSubjectAssignmentParams{
-		ID:          assignment.ID,
-		WorkspaceID: workspaceID,
-		Subject:     assignment.Subject,
-		PlanID:      assignment.PlanID,
-		AssignedAt:  formatTime(assignment.AssignedAt),
-		UpdatedAt:   formatTime(assignment.UpdatedAt),
+		ID:             assignment.ID,
+		WorkspaceID:    workspaceID,
+		Subject:        assignment.Subject,
+		PlanID:         assignment.PlanID,
+		AssignedAt:     formatTime(assignment.AssignedAt),
+		PeriodAnchorAt: formatTime(assignment.PeriodAnchorAt),
+		UpdatedAt:      formatTime(assignment.UpdatedAt),
 	})
 	if err != nil {
 		if isUniqueConstraint(err) {
@@ -543,6 +544,10 @@ func sqlitePlanSubjectAssignment(row sqlitedb.ListPlanSubjectAssignmentsRow) (ap
 	if err != nil {
 		return appentitlement.SubjectAssignment{}, err
 	}
+	periodAnchorAt, err := parseEntitlementTime(row.PeriodAnchorAt)
+	if err != nil {
+		return appentitlement.SubjectAssignment{}, err
+	}
 	updatedAt, err := parseEntitlementTime(row.UpdatedAt)
 	if err != nil {
 		return appentitlement.SubjectAssignment{}, err
@@ -552,14 +557,15 @@ func sqlitePlanSubjectAssignment(row sqlitedb.ListPlanSubjectAssignmentsRow) (ap
 		return appentitlement.SubjectAssignment{}, err
 	}
 	return appentitlement.SubjectAssignment{
-		ID:           row.ID,
-		Subject:      row.Subject,
-		PlanID:       row.PlanID,
-		PlanName:     row.PlanName,
-		PlanVersion:  int(row.PlanVersion),
-		AssignedAt:   assignedAt,
-		UnassignedAt: unassignedAt,
-		UpdatedAt:    updatedAt,
+		ID:             row.ID,
+		Subject:        row.Subject,
+		PlanID:         row.PlanID,
+		PlanName:       row.PlanName,
+		PlanVersion:    int(row.PlanVersion),
+		AssignedAt:     assignedAt,
+		PeriodAnchorAt: periodAnchorAt,
+		UnassignedAt:   unassignedAt,
+		UpdatedAt:      updatedAt,
 	}, nil
 }
 

@@ -203,8 +203,22 @@ func (r *UsageRepository) saveWithDuplicate(ctx context.Context, event domainusa
 }
 
 func (r *UsageRepository) incrementEntitlementUsageCounters(ctx context.Context, workspaceID string, event domainusage.Event) error {
+	anchorText, err := queriesFor(ctx, r.queries).FindActivePlanAssignmentAnchor(ctx, postgresdb.FindActivePlanAssignmentAnchorParams{
+		WorkspaceID: workspaceID,
+		Subject:     event.Subject(),
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	anchor, err := time.Parse(time.RFC3339Nano, anchorText)
+	if err != nil {
+		return err
+	}
 	updatedAt := formatTime(time.Now().UTC())
-	for _, window := range entitlementCounterWindows(event.EventTime()) {
+	for _, window := range entitlementCounterWindows(event.EventTime(), anchor) {
 		if err := queriesFor(ctx, r.queries).IncrementEntitlementUsageCounter(ctx, postgresdb.IncrementEntitlementUsageCounterParams{
 			WorkspaceID: workspaceID,
 			Subject:     event.Subject(),
@@ -228,22 +242,40 @@ type entitlementCounterWindow struct {
 	to     time.Time
 }
 
-func entitlementCounterWindows(at time.Time) []entitlementCounterWindow {
+func entitlementCounterWindows(at time.Time, anchor time.Time) []entitlementCounterWindow {
 	at = at.UTC()
-	day := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, time.UTC)
-	weekday := int(day.Weekday())
-	if weekday == 0 {
-		weekday = 7
+	anchor = anchor.UTC()
+	if anchor.IsZero() || at.Before(anchor) {
+		return nil
 	}
-	week := day.AddDate(0, 0, -(weekday - 1))
-	month := time.Date(at.Year(), at.Month(), 1, 0, 0, 0, 0, time.UTC)
-	year := time.Date(at.Year(), time.January, 1, 0, 0, 0, 0, time.UTC)
-
 	return []entitlementCounterWindow{
-		{period: "day", from: day, to: day.AddDate(0, 0, 1)},
-		{period: "week", from: week, to: week.AddDate(0, 0, 7)},
-		{period: "month", from: month, to: month.AddDate(0, 1, 0)},
-		{period: "year", from: year, to: year.AddDate(1, 0, 0)},
+		entitlementCounterWindowForPeriod(at, anchor, "day"),
+		entitlementCounterWindowForPeriod(at, anchor, "week"),
+		entitlementCounterWindowForPeriod(at, anchor, "month"),
+		entitlementCounterWindowForPeriod(at, anchor, "year"),
+	}
+}
+
+func entitlementCounterWindowForPeriod(at time.Time, anchor time.Time, period string) entitlementCounterWindow {
+	from := anchor
+	to := addEntitlementCounterPeriod(from, period)
+	for !at.Before(to) {
+		from = to
+		to = addEntitlementCounterPeriod(from, period)
+	}
+	return entitlementCounterWindow{period: period, from: from, to: to}
+}
+
+func addEntitlementCounterPeriod(from time.Time, period string) time.Time {
+	switch period {
+	case "day":
+		return from.AddDate(0, 0, 1)
+	case "week":
+		return from.AddDate(0, 0, 7)
+	case "year":
+		return from.AddDate(1, 0, 0)
+	default:
+		return from.AddDate(0, 1, 0)
 	}
 }
 

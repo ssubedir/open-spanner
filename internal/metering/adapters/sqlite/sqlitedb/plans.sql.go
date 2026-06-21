@@ -214,6 +214,28 @@ func (q *Queries) EnqueueEntitlementCheckJob(ctx context.Context, arg EnqueueEnt
 	return err
 }
 
+const findActivePlanAssignmentAnchor = `-- name: FindActivePlanAssignmentAnchor :one
+SELECT period_anchor_at
+FROM plan_subject_assignments
+WHERE workspace_id = ?1
+  AND subject = ?2
+  AND unassigned_at IS NULL
+ORDER BY assigned_at DESC
+LIMIT 1
+`
+
+type FindActivePlanAssignmentAnchorParams struct {
+	WorkspaceID string
+	Subject     string
+}
+
+func (q *Queries) FindActivePlanAssignmentAnchor(ctx context.Context, arg FindActivePlanAssignmentAnchorParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, findActivePlanAssignmentAnchor, arg.WorkspaceID, arg.Subject)
+	var period_anchor_at string
+	err := row.Scan(&period_anchor_at)
+	return period_anchor_at, err
+}
+
 const getEntitlementState = `-- name: GetEntitlementState :one
 SELECT workspace_id, subject, meter_name, plan_id, plan_name, period, state, current_value, limit_value, remaining_value, warning_percent, message, evaluated_at, updated_at
 FROM entitlement_states
@@ -565,7 +587,7 @@ func (q *Queries) ListPlanLimits(ctx context.Context, arg ListPlanLimitsParams) 
 }
 
 const listPlanSubjectAssignments = `-- name: ListPlanSubjectAssignments :many
-SELECT a.id, a.subject, a.plan_id, p.name AS plan_name, p.version AS plan_version, a.assigned_at, a.unassigned_at, a.updated_at
+SELECT a.id, a.subject, a.plan_id, p.name AS plan_name, p.version AS plan_version, a.assigned_at, a.period_anchor_at, a.unassigned_at, a.updated_at
 FROM plan_subject_assignments a
 JOIN plans p ON p.workspace_id = a.workspace_id AND p.id = a.plan_id
 WHERE a.workspace_id = ?1
@@ -585,14 +607,15 @@ type ListPlanSubjectAssignmentsParams struct {
 }
 
 type ListPlanSubjectAssignmentsRow struct {
-	ID           string
-	Subject      string
-	PlanID       string
-	PlanName     string
-	PlanVersion  int64
-	AssignedAt   string
-	UnassignedAt sql.NullString
-	UpdatedAt    string
+	ID             string
+	Subject        string
+	PlanID         string
+	PlanName       string
+	PlanVersion    int64
+	AssignedAt     string
+	PeriodAnchorAt string
+	UnassignedAt   sql.NullString
+	UpdatedAt      string
 }
 
 func (q *Queries) ListPlanSubjectAssignments(ctx context.Context, arg ListPlanSubjectAssignmentsParams) ([]ListPlanSubjectAssignmentsRow, error) {
@@ -617,6 +640,7 @@ func (q *Queries) ListPlanSubjectAssignments(ctx context.Context, arg ListPlanSu
 			&i.PlanName,
 			&i.PlanVersion,
 			&i.AssignedAt,
+			&i.PeriodAnchorAt,
 			&i.UnassignedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -944,17 +968,18 @@ func (q *Queries) SavePlanLimit(ctx context.Context, arg SavePlanLimitParams) er
 }
 
 const savePlanSubjectAssignment = `-- name: SavePlanSubjectAssignment :exec
-INSERT INTO plan_subject_assignments (id, workspace_id, subject, plan_id, assigned_at, unassigned_at, updated_at)
-VALUES (?, ?, ?, ?, ?, NULL, ?)
+INSERT INTO plan_subject_assignments (id, workspace_id, subject, plan_id, assigned_at, period_anchor_at, unassigned_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, NULL, ?)
 `
 
 type SavePlanSubjectAssignmentParams struct {
-	ID          string
-	WorkspaceID string
-	Subject     string
-	PlanID      string
-	AssignedAt  string
-	UpdatedAt   string
+	ID             string
+	WorkspaceID    string
+	Subject        string
+	PlanID         string
+	AssignedAt     string
+	PeriodAnchorAt string
+	UpdatedAt      string
 }
 
 func (q *Queries) SavePlanSubjectAssignment(ctx context.Context, arg SavePlanSubjectAssignmentParams) error {
@@ -964,6 +989,7 @@ func (q *Queries) SavePlanSubjectAssignment(ctx context.Context, arg SavePlanSub
 		arg.Subject,
 		arg.PlanID,
 		arg.AssignedAt,
+		arg.PeriodAnchorAt,
 		arg.UpdatedAt,
 	)
 	return err

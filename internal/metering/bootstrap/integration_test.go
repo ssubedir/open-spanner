@@ -773,6 +773,10 @@ func runIntegrationPlanEntitlementFlow(t *testing.T, cfg config.Config, namespac
 	if assignment.ID == "" || assignment.PlanVersion != 1 || !assignment.Active {
 		t.Fatalf("assignment version = %#v, want active v1 assignment", assignment)
 	}
+	assignmentAnchor, err := time.Parse(time.RFC3339Nano, assignment.PeriodAnchorAt)
+	if err != nil || assignmentAnchor.IsZero() {
+		t.Fatalf("assignment period anchor = %q, want RFC3339 timestamp: %v", assignment.PeriodAnchorAt, err)
+	}
 
 	updatedPlanPayload := map[string]any{
 		"name":        plan.Name,
@@ -902,6 +906,13 @@ func runIntegrationPlanEntitlementFlow(t *testing.T, cfg config.Config, namespac
 	if progress.Items[0].State != "warning" {
 		t.Fatalf("progress state = %q, want warning", progress.Items[0].State)
 	}
+	if progress.Items[0].From != assignment.PeriodAnchorAt {
+		t.Fatalf("progress period from = %q, want assignment anchor %q", progress.Items[0].From, assignment.PeriodAnchorAt)
+	}
+	progressTo, err := time.Parse(time.RFC3339Nano, progress.Items[0].To)
+	if err != nil || !progressTo.After(assignmentAnchor) {
+		t.Fatalf("progress period to = %q, want after assignment anchor %q: %v", progress.Items[0].To, assignment.PeriodAnchorAt, err)
+	}
 
 	if len(states.Items) != 1 {
 		t.Fatalf("entitlement states = %#v, want one state", states)
@@ -967,6 +978,9 @@ func runIntegrationPlanEntitlementFlow(t *testing.T, cfg config.Config, namespac
 	if updatedAssignment.Subject != subject || updatedAssignment.PlanID != updatedPlan.ID || updatedAssignment.PlanVersion != 2 || !updatedAssignment.Active {
 		t.Fatalf("updated assignment = %#v, want active v2 assignment", updatedAssignment)
 	}
+	if updatedAssignment.PeriodAnchorAt != assignment.PeriodAnchorAt {
+		t.Fatalf("updated assignment anchor = %q, want preserved anchor %q", updatedAssignment.PeriodAnchorAt, assignment.PeriodAnchorAt)
+	}
 
 	historyAfterReassign := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/plans/assignments?include_history=true&subject="+url.QueryEscape(subject), nil, identity.Headers, nil)
 	if historyAfterReassign.Code != http.StatusOK {
@@ -999,6 +1013,9 @@ func runIntegrationPlanEntitlementFlow(t *testing.T, cfg config.Config, namespac
 	decodeJSON(t, updatedProgressRes, &updatedProgress)
 	if updatedProgress.Plan.ID != updatedPlan.ID || updatedProgress.Plan.Version != 2 || len(updatedProgress.Items) != 1 {
 		t.Fatalf("updated progress = %#v, want v2 plan progress", updatedProgress)
+	}
+	if updatedProgress.Items[0].From != assignment.PeriodAnchorAt {
+		t.Fatalf("updated progress period from = %q, want preserved assignment anchor %q", updatedProgress.Items[0].From, assignment.PeriodAnchorAt)
 	}
 	assertFloatNear(t, updatedProgress.Items[0].Current, 7, "updated progress current")
 	assertFloatNear(t, updatedProgress.Items[0].Limit, 20, "updated progress limit")
@@ -2793,13 +2810,14 @@ type planListTestResponse struct {
 }
 
 type planAssignmentTestResponse struct {
-	ID           string `json:"id"`
-	Subject      string `json:"subject"`
-	PlanID       string `json:"plan_id"`
-	PlanName     string `json:"plan_name"`
-	PlanVersion  int    `json:"plan_version"`
-	Active       bool   `json:"active"`
-	UnassignedAt string `json:"unassigned_at"`
+	ID             string `json:"id"`
+	Subject        string `json:"subject"`
+	PlanID         string `json:"plan_id"`
+	PlanName       string `json:"plan_name"`
+	PlanVersion    int    `json:"plan_version"`
+	Active         bool   `json:"active"`
+	PeriodAnchorAt string `json:"period_anchor_at"`
+	UnassignedAt   string `json:"unassigned_at"`
 }
 
 type planAssignmentListTestResponse struct {
@@ -2815,6 +2833,8 @@ type planProgressItemTestResponse struct {
 	Remaining      float64 `json:"remaining"`
 	Percent        float64 `json:"percent"`
 	WarningPercent float64 `json:"warning_percent"`
+	From           string  `json:"from"`
+	To             string  `json:"to"`
 }
 
 type planProgressTestResponse struct {

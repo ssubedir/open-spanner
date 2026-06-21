@@ -145,14 +145,15 @@ type PlanLimit struct {
 }
 
 type SubjectAssignment struct {
-	ID           string
-	Subject      string
-	PlanID       string
-	PlanName     string
-	PlanVersion  int
-	AssignedAt   time.Time
-	UnassignedAt time.Time
-	UpdatedAt    time.Time
+	ID             string
+	Subject        string
+	PlanID         string
+	PlanName       string
+	PlanVersion    int
+	AssignedAt     time.Time
+	PeriodAnchorAt time.Time
+	UnassignedAt   time.Time
+	UpdatedAt      time.Time
 }
 
 type EntitlementState struct {
@@ -554,19 +555,28 @@ func (s *service) AssignSubject(ctx context.Context, cmd AssignSubjectCommand) (
 
 	now := s.now()
 	assignment := SubjectAssignment{
-		ID:          uuid.NewString(),
-		Subject:     subject,
-		PlanID:      plan.Plan.ID,
-		PlanName:    plan.Plan.Name,
-		PlanVersion: plan.Plan.Version,
-		AssignedAt:  now,
-		UpdatedAt:   now,
+		ID:             uuid.NewString(),
+		Subject:        subject,
+		PlanID:         plan.Plan.ID,
+		PlanName:       plan.Plan.Name,
+		PlanVersion:    plan.Plan.Version,
+		AssignedAt:     now,
+		PeriodAnchorAt: now.Truncate(time.Second),
+		UpdatedAt:      now,
 	}
 	var saved SubjectAssignment
 	err = s.transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
-		var err error
-		saved, err = s.repo.SaveSubjectAssignment(txCtx, assignment)
-		return err
+		current, err := s.repo.FindSubjectAssignments(txCtx, AssignmentQuery{Subject: subject, ActiveOnly: true, Limit: 1})
+		if err != nil {
+			return err
+		}
+		if len(current) > 0 && !current[0].PeriodAnchorAt.IsZero() {
+			assignment.PeriodAnchorAt = current[0].PeriodAnchorAt
+		}
+
+		var saveErr error
+		saved, saveErr = s.repo.SaveSubjectAssignment(txCtx, assignment)
+		return saveErr
 	})
 	if err != nil {
 		return SubjectAssignmentResult{}, err
@@ -662,7 +672,7 @@ func (s *service) GetSubjectProgress(ctx context.Context, query SubjectProgressQ
 
 	items := make([]ProgressItem, 0, len(plan.Limits))
 	for _, limit := range plan.Limits {
-		item, err := s.progressItem(ctx, subject, limit)
+		item, err := s.progressItem(ctx, subject, assignment, limit)
 		if err != nil {
 			return SubjectProgressResult{}, err
 		}
@@ -720,7 +730,7 @@ func (s *service) Check(ctx context.Context, cmd CheckCommand) (EntitlementCheck
 		}, nil
 	}
 
-	item, err := s.progressItem(ctx, subject, limit)
+	item, err := s.progressItem(ctx, subject, assignment, limit)
 	if err != nil {
 		return EntitlementCheckResult{}, err
 	}
@@ -827,7 +837,7 @@ func (s *service) Evaluate(ctx context.Context, cmd EvaluateCommand) (Evaluation
 		return EvaluationResult{Subject: subject, Meter: meterName, Skipped: true, Message: "meter is not included in the subject's plan"}, nil
 	}
 
-	item, err := s.progressItem(ctx, subject, limit)
+	item, err := s.progressItem(ctx, subject, assignment, limit)
 	if err != nil {
 		return EvaluationResult{}, err
 	}
@@ -1042,7 +1052,7 @@ func (s *service) limitsByPlan(ctx context.Context, plans []Plan) (map[string][]
 	return result, nil
 }
 
-func (s *service) progressItem(ctx context.Context, subject string, limit PlanLimit) (ProgressItem, error) {
+func (s *service) progressItem(ctx context.Context, subject string, assignment SubjectAssignment, limit PlanLimit) (ProgressItem, error) {
 	meters, err := s.meterRepo.Find(ctx, domainmeter.Query{Name: limit.MeterName, Limit: 1})
 	if err != nil {
 		return ProgressItem{}, err
@@ -1051,7 +1061,7 @@ func (s *service) progressItem(ctx context.Context, subject string, limit PlanLi
 		return ProgressItem{}, domain.ErrNotFound
 	}
 	meter := meters[0]
-	from, to := periodWindow(s.now(), limit.Period)
+	from, to := periodWindow(s.now(), assignment.PeriodAnchorAt, limit.Period)
 	counter, err := s.repo.GetEntitlementUsageCounter(ctx, CounterQuery{
 		Subject:   subject,
 		MeterName: meter.Name(),
@@ -1141,25 +1151,35 @@ func normalizePeriod(value string) (Period, error) {
 	}
 }
 
-func periodWindow(now time.Time, period Period) (time.Time, time.Time) {
+func periodWindow(now time.Time, anchor time.Time, period Period) (time.Time, time.Time) {
 	now = now.UTC()
+	anchor = anchor.UTC()
+	if anchor.IsZero() {
+		anchor = now
+	}
+	if now.Before(anchor) {
+		return anchor, addPeriod(anchor, period)
+	}
+
+	from := anchor
+	to := addPeriod(from, period)
+	for !now.Before(to) {
+		from = to
+		to = addPeriod(from, period)
+	}
+	return from, to
+}
+
+func addPeriod(from time.Time, period Period) time.Time {
 	switch period {
 	case PeriodDay:
-		from := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-		return from, from.AddDate(0, 0, 1)
+		return from.AddDate(0, 0, 1)
 	case PeriodWeek:
-		weekday := int(now.Weekday())
-		if weekday == 0 {
-			weekday = 7
-		}
-		from := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, 0, -(weekday - 1))
-		return from, from.AddDate(0, 0, 7)
+		return from.AddDate(0, 0, 7)
 	case PeriodYear:
-		from := time.Date(now.Year(), time.January, 1, 0, 0, 0, 0, time.UTC)
-		return from, from.AddDate(1, 0, 0)
+		return from.AddDate(1, 0, 0)
 	default:
-		from := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
-		return from, from.AddDate(0, 1, 0)
+		return from.AddDate(0, 1, 0)
 	}
 }
 
