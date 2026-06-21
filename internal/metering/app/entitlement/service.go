@@ -68,6 +68,8 @@ type Repository interface {
 	FindEntitlementStates(ctx context.Context, query StateListQuery) ([]EntitlementState, error)
 	FindEntitlementEvents(ctx context.Context, query EventQuery) ([]EntitlementEvent, error)
 	GetEntitlementUsageCounter(ctx context.Context, query CounterQuery) (EntitlementUsageCounter, error)
+	SaveEntitlementPeriodSnapshot(ctx context.Context, snapshot EntitlementPeriodSnapshot) error
+	FindEntitlementPeriodSnapshots(ctx context.Context, query SnapshotQuery) ([]EntitlementPeriodSnapshot, error)
 	SaveEntitlementState(ctx context.Context, state EntitlementState) error
 	SaveEntitlementEvent(ctx context.Context, event EntitlementEvent) error
 	EnqueueEntitlementCheckJob(ctx context.Context, job CheckJob) error
@@ -93,6 +95,7 @@ type Service interface {
 	Check(ctx context.Context, cmd CheckCommand) (EntitlementCheckResult, error)
 	ListEntitlementStates(ctx context.Context, query StateListQuery) (StateListResult, error)
 	ListEntitlementEvents(ctx context.Context, query EventListQuery) (EventListResult, error)
+	ListEntitlementPeriodSnapshots(ctx context.Context, query SnapshotListQuery) (SnapshotListResult, error)
 	EnqueueForUsageEvents(ctx context.Context, events []UsageEvent) error
 	ClaimCheckJob(ctx context.Context, cmd ClaimCommand) (CheckJobResult, bool, error)
 	Evaluate(ctx context.Context, cmd EvaluateCommand) (EvaluationResult, error)
@@ -192,6 +195,27 @@ type EntitlementEvent struct {
 	CreatedAt      time.Time
 }
 
+type EntitlementPeriodSnapshot struct {
+	WorkspaceID    string
+	Subject        string
+	MeterName      string
+	PlanID         string
+	PlanName       string
+	PlanVersion    int
+	Period         Period
+	From           time.Time
+	To             time.Time
+	State          OverageState
+	Current        float64
+	Limit          float64
+	Included       float64
+	Overage        float64
+	Remaining      float64
+	WarningPercent float64
+	EventCount     int64
+	UpdatedAt      time.Time
+}
+
 type EntitlementUsageCounter struct {
 	WorkspaceID    string
 	Subject        string
@@ -260,6 +284,14 @@ type EventQuery struct {
 	Limit     int
 }
 
+type SnapshotQuery struct {
+	Subject   string
+	MeterName string
+	PlanID    string
+	State     OverageState
+	Limit     int
+}
+
 type CounterQuery struct {
 	Subject   string
 	MeterName string
@@ -274,6 +306,14 @@ type EventListQuery struct {
 	State     OverageState
 	Type      EventType
 	Cursor    string
+	Limit     int
+}
+
+type SnapshotListQuery struct {
+	Subject   string
+	MeterName string
+	PlanID    string
+	State     OverageState
 	Limit     int
 }
 
@@ -389,6 +429,10 @@ type EventListResult struct {
 	NextCursor string
 }
 
+type SnapshotListResult struct {
+	Items []EntitlementPeriodSnapshot
+}
+
 type ProgressItem struct {
 	MeterName      string
 	Period         Period
@@ -402,6 +446,7 @@ type ProgressItem struct {
 	To             time.Time
 	Unit           string
 	Aggregation    domainmeter.Aggregation
+	EventCount     int64
 }
 
 type SubjectProgressResult struct {
@@ -655,6 +700,20 @@ func (s *service) ListEntitlementEvents(ctx context.Context, query EventListQuer
 	return EventListResult{Items: events, NextCursor: nextCursor}, nil
 }
 
+func (s *service) ListEntitlementPeriodSnapshots(ctx context.Context, query SnapshotListQuery) (SnapshotListResult, error) {
+	snapshots, err := s.repo.FindEntitlementPeriodSnapshots(ctx, SnapshotQuery{
+		Subject:   strings.TrimSpace(query.Subject),
+		MeterName: strings.TrimSpace(query.MeterName),
+		PlanID:    strings.TrimSpace(query.PlanID),
+		State:     OverageState(strings.TrimSpace(string(query.State))),
+		Limit:     normalizeLimit(query.Limit),
+	})
+	if err != nil {
+		return SnapshotListResult{}, err
+	}
+	return SnapshotListResult{Items: snapshots}, nil
+}
+
 func (s *service) GetSubjectProgress(ctx context.Context, query SubjectProgressQuery) (SubjectProgressResult, error) {
 	subject := strings.TrimSpace(query.Subject)
 	if subject == "" {
@@ -843,6 +902,7 @@ func (s *service) Evaluate(ctx context.Context, cmd EvaluateCommand) (Evaluation
 	}
 	now := s.now()
 	state := entitlementStateFromProgress(subject, plan.Plan, item, now)
+	snapshot := entitlementSnapshotFromProgress(subject, plan.Plan, item, now)
 	previous, err := s.repo.GetEntitlementState(ctx, StateQuery{
 		Subject:   subject,
 		MeterName: item.MeterName,
@@ -877,6 +937,9 @@ func (s *service) Evaluate(ctx context.Context, cmd EvaluateCommand) (Evaluation
 
 	err = s.transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
 		if err := s.repo.SaveEntitlementState(txCtx, state); err != nil {
+			return err
+		}
+		if err := s.repo.SaveEntitlementPeriodSnapshot(txCtx, snapshot); err != nil {
 			return err
 		}
 		if event != nil {
@@ -1095,6 +1158,7 @@ func (s *service) progressItem(ctx context.Context, subject string, assignment S
 		To:             to,
 		Unit:           meter.Unit(),
 		Aggregation:    meter.Aggregation(),
+		EventCount:     counter.EventCount,
 	}, nil
 }
 
@@ -1207,6 +1271,36 @@ func entitlementStateFromProgress(subject string, plan Plan, item ProgressItem, 
 		WarningPercent: item.WarningPercent,
 		Message:        entitlementMessage(item.State),
 		EvaluatedAt:    now,
+		UpdatedAt:      now,
+	}
+}
+
+func entitlementSnapshotFromProgress(subject string, plan Plan, item ProgressItem, now time.Time) EntitlementPeriodSnapshot {
+	included := math.Min(item.Current, item.Limit)
+	if included < 0 {
+		included = 0
+	}
+	overage := item.Current - item.Limit
+	if overage < 0 {
+		overage = 0
+	}
+	return EntitlementPeriodSnapshot{
+		Subject:        subject,
+		MeterName:      item.MeterName,
+		PlanID:         plan.ID,
+		PlanName:       plan.Name,
+		PlanVersion:    plan.Version,
+		Period:         item.Period,
+		From:           item.From,
+		To:             item.To,
+		State:          item.State,
+		Current:        item.Current,
+		Limit:          item.Limit,
+		Included:       included,
+		Overage:        overage,
+		Remaining:      item.Remaining,
+		WarningPercent: item.WarningPercent,
+		EventCount:     item.EventCount,
 		UpdatedAt:      now,
 	}
 }

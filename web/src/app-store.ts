@@ -29,6 +29,7 @@ import {
   getSubjectPlanProgress,
   assignSubjectPlan as assignSubjectPlanRequest,
   listEntitlementEvents,
+  listEntitlementPeriodSnapshots,
   listEntitlementStates,
   listAlertEvents,
   listAlertDestinations,
@@ -68,6 +69,7 @@ import {
   type APIKeyCreateResponse,
   type AuthSession,
   type EntitlementEvent,
+  type EntitlementPeriodSnapshot,
   type EntitlementState,
   type Meter,
   type MeterCreateRequest,
@@ -204,6 +206,7 @@ type AppState = {
     entitlementEventNextCursor: string
     entitlementEventStatus: LoadState
     entitlementEvents: EntitlementEvent[]
+    entitlementPeriodSnapshots: EntitlementPeriodSnapshot[]
     entitlementStates: EntitlementState[]
     items: Plan[]
     meters: Meter[]
@@ -350,6 +353,7 @@ export const appStore = createStore<AppState>({
     entitlementEventNextCursor: '',
     entitlementEventStatus: 'idle',
     entitlementEvents: [],
+    entitlementPeriodSnapshots: [],
     entitlementStates: [],
     items: [],
     meters: [],
@@ -503,6 +507,7 @@ function initialUserDataState(): UserDataState {
       entitlementEventNextCursor: '',
       entitlementEventStatus: 'idle',
       entitlementEvents: [],
+      entitlementPeriodSnapshots: [],
       entitlementStates: [],
       items: [],
       meters: [],
@@ -972,9 +977,10 @@ export const appStoreActions = {
     }
 
     try {
-      const [entitlementStates, entitlementEvents] = await Promise.all([
+      const [entitlementStates, entitlementEvents, entitlementPeriodSnapshots] = await Promise.all([
         listEntitlementStates({ limit: 100 }),
         listEntitlementEvents({ limit: entitlementEventPageSize }),
+        listEntitlementPeriodSnapshots({ limit: 100 }),
       ])
       if (!isCurrentUserDataGeneration(generation)) {
         return
@@ -983,6 +989,7 @@ export const appStoreActions = {
         entitlementEventNextCursor: entitlementEvents.next_cursor || '',
         entitlementEventStatus: 'ready',
         entitlementEvents: entitlementEvents.items,
+        entitlementPeriodSnapshots: entitlementPeriodSnapshots.items,
         entitlementStates: entitlementStates.items,
         selectedEntitlementEvent: state.selectedEntitlementEvent ? entitlementEvents.items.find((event) => event.id === state.selectedEntitlementEvent?.id) ?? state.selectedEntitlementEvent : null,
       }))
@@ -994,6 +1001,7 @@ export const appStoreActions = {
         entitlementEventNextCursor: '',
         entitlementEventStatus: 'error',
         entitlementEvents: [],
+        entitlementPeriodSnapshots: [],
         entitlementStates: [],
         selectedEntitlementEvent: null,
       })
@@ -1006,9 +1014,10 @@ export const appStoreActions = {
     }
 
     try {
-      const [states, events] = await Promise.all([
+      const [states, events, snapshots] = await Promise.all([
         listEntitlementStates({ limit: 100 }),
         listEntitlementEvents({ limit: entitlementEventPageSize }),
+        listEntitlementPeriodSnapshots({ limit: 100 }),
       ])
       if (!isCurrentUserDataGeneration(generation)) {
         return
@@ -1017,6 +1026,7 @@ export const appStoreActions = {
         entitlementEventNextCursor: options.quiet && state.entitlementEvents.length > events.items.length ? state.entitlementEventNextCursor : events.next_cursor || '',
         entitlementEventStatus: 'ready',
         entitlementEvents: options.quiet && state.entitlementEvents.length > events.items.length ? mergeByID(events.items, state.entitlementEvents) : events.items,
+        entitlementPeriodSnapshots: snapshots.items,
         entitlementStates: states.items,
         selectedEntitlementEvent: state.selectedEntitlementEvent ? events.items.find((event) => event.id === state.selectedEntitlementEvent?.id) ?? state.selectedEntitlementEvent : null,
       }))
@@ -1136,6 +1146,7 @@ export const appStoreActions = {
         assignmentHistory: state.assignmentHistory.map((item) => item.subject === subject && item.active ? { ...item, active: false, unassigned_at: new Date().toISOString() } : item),
         assignments: state.assignments.filter((item) => item.subject !== subject),
         entitlementEvents: state.entitlementEvents.filter((item) => item.subject !== subject),
+        entitlementPeriodSnapshots: state.entitlementPeriodSnapshots.filter((item) => item.subject !== subject),
         entitlementStates: state.entitlementStates.filter((item) => item.subject !== subject),
         progress: state.progress?.subject === subject ? null : state.progress,
         progressStatus: state.progress?.subject === subject ? 'idle' : state.progressStatus,

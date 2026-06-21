@@ -1401,6 +1401,99 @@
                 }
             }
         },
+        "/v1/entitlements/periods": {
+            "get": {
+                "tags": [
+                    "entitlements"
+                ],
+                "summary": "List entitlement period snapshots",
+                "operationId": "listEntitlementPeriodSnapshots",
+                "parameters": [
+                    {
+                        "description": "Subject",
+                        "name": "subject",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Meter",
+                        "name": "meter",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Plan ID",
+                        "name": "plan_id",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "State",
+                        "name": "state",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Page size",
+                        "name": "limit",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/internal_metering_adapters_http_entitlement.PeriodSnapshotListResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/entitlements/states": {
             "get": {
                 "tags": [
@@ -4842,6 +4935,73 @@
                         "type": "string"
                     },
                     "period": {
+                        "type": "string"
+                    },
+                    "updated_at": {
+                        "type": "string"
+                    },
+                    "warning_percent": {
+                        "type": "number"
+                    }
+                }
+            },
+            "internal_metering_adapters_http_entitlement.PeriodSnapshotListResponse": {
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/internal_metering_adapters_http_entitlement.PeriodSnapshotResponse"
+                        }
+                    }
+                }
+            },
+            "internal_metering_adapters_http_entitlement.PeriodSnapshotResponse": {
+                "type": "object",
+                "properties": {
+                    "current": {
+                        "type": "number"
+                    },
+                    "event_count": {
+                        "type": "integer"
+                    },
+                    "from": {
+                        "type": "string"
+                    },
+                    "included": {
+                        "type": "number"
+                    },
+                    "limit": {
+                        "type": "number"
+                    },
+                    "meter": {
+                        "type": "string"
+                    },
+                    "overage": {
+                        "type": "number"
+                    },
+                    "period": {
+                        "type": "string"
+                    },
+                    "plan_id": {
+                        "type": "string"
+                    },
+                    "plan_name": {
+                        "type": "string"
+                    },
+                    "plan_version": {
+                        "type": "integer"
+                    },
+                    "remaining": {
+                        "type": "number"
+                    },
+                    "state": {
+                        "type": "string"
+                    },
+                    "subject": {
+                        "type": "string"
+                    },
+                    "to": {
                         "type": "string"
                     },
                     "updated_at": {

@@ -535,6 +535,50 @@ definitions:
       warning_percent:
         type: number
     type: object
+  internal_metering_adapters_http_entitlement.PeriodSnapshotListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_entitlement.PeriodSnapshotResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_entitlement.PeriodSnapshotResponse:
+    properties:
+      current:
+        type: number
+      event_count:
+        type: integer
+      from:
+        type: string
+      included:
+        type: number
+      limit:
+        type: number
+      meter:
+        type: string
+      overage:
+        type: number
+      period:
+        type: string
+      plan_id:
+        type: string
+      plan_name:
+        type: string
+      plan_version:
+        type: integer
+      remaining:
+        type: number
+      state:
+        type: string
+      subject:
+        type: string
+      to:
+        type: string
+      updated_at:
+        type: string
+      warning_percent:
+        type: number
+    type: object
   internal_metering_adapters_http_entitlement.PlanListResponse:
     properties:
       items:
@@ -1877,6 +1921,52 @@ paths:
           schema:
             $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
       summary: List entitlement events
+      tags:
+      - entitlements
+  /v1/entitlements/periods:
+    get:
+      operationId: listEntitlementPeriodSnapshots
+      parameters:
+      - description: Subject
+        in: query
+        name: subject
+        type: string
+      - description: Meter
+        in: query
+        name: meter
+        type: string
+      - description: Plan ID
+        in: query
+        name: plan_id
+        type: string
+      - description: State
+        in: query
+        name: state
+        type: string
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_entitlement.PeriodSnapshotListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List entitlement period snapshots
       tags:
       - entitlements
   /v1/entitlements/states:

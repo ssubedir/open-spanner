@@ -469,6 +469,77 @@ func (q *Queries) ListEntitlementEvents(ctx context.Context, arg ListEntitlement
 	return items, nil
 }
 
+const listEntitlementPeriodSnapshots = `-- name: ListEntitlementPeriodSnapshots :many
+SELECT workspace_id, subject, meter_name, plan_id, plan_name, plan_version, period, period_start, period_end, state,
+	current_value, limit_value, included_value, overage_value, remaining_value, warning_percent, event_count, updated_at
+FROM entitlement_period_snapshots
+WHERE workspace_id = $1::text
+	AND ($2::text IS NULL OR subject = $2::text)
+	AND ($3::text IS NULL OR meter_name = $3::text)
+	AND ($4::text IS NULL OR plan_id = $4::text)
+	AND ($5::text IS NULL OR state = $5::text)
+ORDER BY period_start DESC, updated_at DESC, subject ASC, meter_name ASC, plan_id ASC
+LIMIT $6::int
+`
+
+type ListEntitlementPeriodSnapshotsParams struct {
+	WorkspaceID string
+	Subject     sql.NullString
+	MeterName   sql.NullString
+	PlanID      sql.NullString
+	State       sql.NullString
+	Limit       int32
+}
+
+func (q *Queries) ListEntitlementPeriodSnapshots(ctx context.Context, arg ListEntitlementPeriodSnapshotsParams) ([]EntitlementPeriodSnapshot, error) {
+	rows, err := q.db.QueryContext(ctx, listEntitlementPeriodSnapshots,
+		arg.WorkspaceID,
+		arg.Subject,
+		arg.MeterName,
+		arg.PlanID,
+		arg.State,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []EntitlementPeriodSnapshot{}
+	for rows.Next() {
+		var i EntitlementPeriodSnapshot
+		if err := rows.Scan(
+			&i.WorkspaceID,
+			&i.Subject,
+			&i.MeterName,
+			&i.PlanID,
+			&i.PlanName,
+			&i.PlanVersion,
+			&i.Period,
+			&i.PeriodStart,
+			&i.PeriodEnd,
+			&i.State,
+			&i.CurrentValue,
+			&i.LimitValue,
+			&i.IncludedValue,
+			&i.OverageValue,
+			&i.RemainingValue,
+			&i.WarningPercent,
+			&i.EventCount,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEntitlementStates = `-- name: ListEntitlementStates :many
 SELECT workspace_id, subject, meter_name, plan_id, plan_name, period, state, current_value, limit_value, remaining_value, warning_percent, message, evaluated_at, updated_at
 FROM entitlement_states
@@ -830,6 +901,75 @@ func (q *Queries) SaveEntitlementEvent(ctx context.Context, arg SaveEntitlementE
 		arg.WarningPercent,
 		arg.Message,
 		arg.CreatedAt,
+	)
+	return err
+}
+
+const saveEntitlementPeriodSnapshot = `-- name: SaveEntitlementPeriodSnapshot :exec
+INSERT INTO entitlement_period_snapshots (
+	workspace_id, subject, meter_name, plan_id, plan_name, plan_version, period, period_start, period_end, state,
+	current_value, limit_value, included_value, overage_value, remaining_value, warning_percent, event_count, updated_at
+)
+VALUES (
+	$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+	$11, $12, $13, $14, $15, $16, $17, $18
+)
+ON CONFLICT(workspace_id, subject, meter_name, plan_id, period, period_start) DO UPDATE SET
+	plan_name = excluded.plan_name,
+	plan_version = excluded.plan_version,
+	period_end = excluded.period_end,
+	state = excluded.state,
+	current_value = excluded.current_value,
+	limit_value = excluded.limit_value,
+	included_value = excluded.included_value,
+	overage_value = excluded.overage_value,
+	remaining_value = excluded.remaining_value,
+	warning_percent = excluded.warning_percent,
+	event_count = excluded.event_count,
+	updated_at = excluded.updated_at
+`
+
+type SaveEntitlementPeriodSnapshotParams struct {
+	WorkspaceID    string
+	Subject        string
+	MeterName      string
+	PlanID         string
+	PlanName       string
+	PlanVersion    int32
+	Period         string
+	PeriodStart    string
+	PeriodEnd      string
+	State          string
+	CurrentValue   float64
+	LimitValue     float64
+	IncludedValue  float64
+	OverageValue   float64
+	RemainingValue float64
+	WarningPercent float64
+	EventCount     int64
+	UpdatedAt      string
+}
+
+func (q *Queries) SaveEntitlementPeriodSnapshot(ctx context.Context, arg SaveEntitlementPeriodSnapshotParams) error {
+	_, err := q.db.ExecContext(ctx, saveEntitlementPeriodSnapshot,
+		arg.WorkspaceID,
+		arg.Subject,
+		arg.MeterName,
+		arg.PlanID,
+		arg.PlanName,
+		arg.PlanVersion,
+		arg.Period,
+		arg.PeriodStart,
+		arg.PeriodEnd,
+		arg.State,
+		arg.CurrentValue,
+		arg.LimitValue,
+		arg.IncludedValue,
+		arg.OverageValue,
+		arg.RemainingValue,
+		arg.WarningPercent,
+		arg.EventCount,
+		arg.UpdatedAt,
 	)
 	return err
 }

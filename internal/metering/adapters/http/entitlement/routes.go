@@ -25,6 +25,7 @@ func (h *Handler) RegisterRoutes(router chi.Router, authorizer access.Authorizer
 	})
 
 	routes.Post("/entitlements/check", h.CheckEntitlement, access.PlansRead(entitlementCheckResource))
+	routes.Get("/entitlements/periods", h.ListEntitlementPeriodSnapshots, access.PlansRead(entitlementQueryResource))
 	routes.Get("/entitlements/states", h.ListEntitlementStates, access.PlansRead(entitlementQueryResource))
 	routes.Get("/entitlements/events", h.ListEntitlementEvents, access.PlansRead(entitlementQueryResource))
 }

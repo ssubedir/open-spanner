@@ -242,6 +242,30 @@ export type EntitlementEventList = {
   next_cursor?: string
 }
 
+export type EntitlementPeriodSnapshot = {
+  subject: string
+  meter: string
+  plan_id: string
+  plan_name: string
+  plan_version: number
+  period: string
+  from: string
+  to: string
+  state: string
+  current: number
+  limit: number
+  included: number
+  overage: number
+  remaining: number
+  warning_percent: number
+  event_count: number
+  updated_at: string
+}
+
+export type EntitlementPeriodSnapshotList = {
+  items: EntitlementPeriodSnapshot[]
+}
+
 export type UsageEvent = {
   id: string
   idempotency_key?: string
@@ -942,6 +966,23 @@ export async function listEntitlementEvents(query: { cursor?: string; limit?: nu
     params.set('type', query.type)
   }
   return request<EntitlementEventList>(`/v1/entitlements/events?${params.toString()}`)
+}
+
+export async function listEntitlementPeriodSnapshots(query: { limit?: number; meter?: string; plan_id?: string; state?: string; subject?: string } = {}) {
+  const params = new URLSearchParams({ limit: String(query.limit ?? 100) })
+  if (query.meter) {
+    params.set('meter', query.meter)
+  }
+  if (query.plan_id) {
+    params.set('plan_id', query.plan_id)
+  }
+  if (query.state) {
+    params.set('state', query.state)
+  }
+  if (query.subject) {
+    params.set('subject', query.subject)
+  }
+  return request<EntitlementPeriodSnapshotList>(`/v1/entitlements/periods?${params.toString()}`)
 }
 
 export async function createUsage(input: UsageCreateRequest) {

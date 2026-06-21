@@ -215,6 +215,34 @@ CREATE INDEX idx_entitlement_events_workspace_created
 CREATE INDEX idx_entitlement_events_workspace_subject_meter_created
 	ON entitlement_events (workspace_id, subject, meter_name, created_at DESC, id DESC);
 
+CREATE TABLE entitlement_period_snapshots (
+	workspace_id TEXT NOT NULL,
+	subject TEXT NOT NULL,
+	meter_name TEXT NOT NULL,
+	plan_id TEXT NOT NULL,
+	plan_name TEXT NOT NULL,
+	plan_version INTEGER NOT NULL,
+	period TEXT NOT NULL,
+	period_start TEXT NOT NULL,
+	period_end TEXT NOT NULL,
+	state TEXT NOT NULL CHECK (state IN ('ok', 'warning', 'exceeded')),
+	current_value REAL NOT NULL,
+	limit_value REAL NOT NULL,
+	included_value REAL NOT NULL,
+	overage_value REAL NOT NULL,
+	remaining_value REAL NOT NULL,
+	warning_percent REAL NOT NULL,
+	event_count INTEGER NOT NULL,
+	updated_at TEXT NOT NULL,
+	PRIMARY KEY (workspace_id, subject, meter_name, plan_id, period, period_start),
+	FOREIGN KEY (workspace_id) REFERENCES auth_workspaces(id) ON DELETE CASCADE,
+	FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE,
+	FOREIGN KEY (workspace_id, meter_name) REFERENCES meters(workspace_id, name)
+);
+
+CREATE INDEX idx_entitlement_period_snapshots_workspace_period
+	ON entitlement_period_snapshots (workspace_id, period_start DESC, subject, meter_name);
+
 CREATE TABLE entitlement_check_jobs (
 	workspace_id TEXT NOT NULL,
 	subject TEXT NOT NULL,

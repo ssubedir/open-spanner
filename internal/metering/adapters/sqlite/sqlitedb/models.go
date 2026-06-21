@@ -107,6 +107,27 @@ type EntitlementEvent struct {
 	CreatedAt      string
 }
 
+type EntitlementPeriodSnapshot struct {
+	WorkspaceID    string
+	Subject        string
+	MeterName      string
+	PlanID         string
+	PlanName       string
+	PlanVersion    int64
+	Period         string
+	PeriodStart    string
+	PeriodEnd      string
+	State          string
+	CurrentValue   float64
+	LimitValue     float64
+	IncludedValue  float64
+	OverageValue   float64
+	RemainingValue float64
+	WarningPercent float64
+	EventCount     int64
+	UpdatedAt      string
+}
+
 type EntitlementState struct {
 	WorkspaceID    string
 	Subject        string

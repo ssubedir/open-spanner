@@ -11,7 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
-import type { EntitlementEvent, EntitlementState, Meter, Plan, PlanAssignment, PlanLimit, PlanSaveRequest, SubjectPlanProgress } from '../api'
+import type { EntitlementEvent, EntitlementPeriodSnapshot, EntitlementState, Meter, Plan, PlanAssignment, PlanLimit, PlanSaveRequest, SubjectPlanProgress } from '../api'
 import { formatDate, formatNumber } from '../lib/format'
 import { useInitialLoad } from '../lib/hooks'
 
@@ -42,6 +42,7 @@ export function PlansPage() {
     entitlementEventNextCursor,
     entitlementEventStatus,
     entitlementEvents,
+    entitlementPeriodSnapshots,
     entitlementStates,
     error,
     items,
@@ -190,6 +191,18 @@ export function PlansPage() {
             </CardContent>
           </Card>
         ) : null}
+
+        <Card className="min-w-0">
+          <CardHeader className="!px-4 !py-3">
+            <div>
+              <CardTitle>Period Snapshots</CardTitle>
+              <CardDescription>Auditable usage totals for evaluated plan periods.</CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <PeriodSnapshotTable snapshots={entitlementPeriodSnapshots} />
+          </CardContent>
+        </Card>
 
         <div className="grid gap-4 xl:grid-cols-2">
           <Card className="min-w-0">
@@ -553,6 +566,32 @@ function EntitlementStateTable({ states }: { states: EntitlementState[] }) {
   )
 }
 
+function PeriodSnapshotTable({ snapshots }: { snapshots: EntitlementPeriodSnapshot[] }) {
+  return (
+    <DataTable
+      emptyLabel="No period snapshots yet"
+      headers={['Subject', 'Plan', 'Meter', 'Period', 'Usage', 'Included', 'Overage', 'State', 'Updated']}
+      rows={snapshots.map((snapshot) => [
+        <span className="mono">{snapshot.subject}</span>,
+        <span className="flex items-center gap-2">
+          {snapshot.plan_name}
+          <Badge variant="muted">v{snapshot.plan_version}</Badge>
+        </span>,
+        <Badge variant="muted">{snapshot.meter}</Badge>,
+        <span className="grid gap-0.5">
+          <strong>{titleCase(snapshot.period)}</strong>
+          <small className="text-xs text-muted">{formatPeriodRange(snapshot.from, snapshot.to)}</small>
+        </span>,
+        <span>{formatNumber(snapshot.current)} / {formatNumber(snapshot.limit)}</span>,
+        formatNumber(snapshot.included),
+        snapshot.overage > 0 ? <strong>{formatNumber(snapshot.overage)}</strong> : <span className="muted">0</span>,
+        <StateBadge state={snapshot.state} />,
+        formatDate(snapshot.updated_at),
+      ])}
+    />
+  )
+}
+
 function AssignmentHistoryTable({ assignments }: { assignments: PlanAssignment[] }) {
   return (
     <DataTable
@@ -634,4 +673,8 @@ function draftID() {
 
 function formatPeriodRange(from: string, to: string) {
   return `${formatDate(from)} - ${formatDate(to)}`
+}
+
+function titleCase(value: string) {
+  return value ? value.slice(0, 1).toUpperCase() + value.slice(1) : value
 }

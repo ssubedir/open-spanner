@@ -139,6 +139,41 @@ VALUES (
 	sqlc.arg('current_value'), sqlc.arg('limit_value'), sqlc.arg('remaining_value'), sqlc.arg('warning_percent'), sqlc.arg('message'), sqlc.arg('created_at')
 );
 
+-- name: SaveEntitlementPeriodSnapshot :exec
+INSERT INTO entitlement_period_snapshots (
+	workspace_id, subject, meter_name, plan_id, plan_name, plan_version, period, period_start, period_end, state,
+	current_value, limit_value, included_value, overage_value, remaining_value, warning_percent, event_count, updated_at
+)
+VALUES (
+	sqlc.arg('workspace_id'), sqlc.arg('subject'), sqlc.arg('meter_name'), sqlc.arg('plan_id'), sqlc.arg('plan_name'), sqlc.arg('plan_version'), sqlc.arg('period'), sqlc.arg('period_start'), sqlc.arg('period_end'), sqlc.arg('state'),
+	sqlc.arg('current_value'), sqlc.arg('limit_value'), sqlc.arg('included_value'), sqlc.arg('overage_value'), sqlc.arg('remaining_value'), sqlc.arg('warning_percent'), sqlc.arg('event_count'), sqlc.arg('updated_at')
+)
+ON CONFLICT(workspace_id, subject, meter_name, plan_id, period, period_start) DO UPDATE SET
+	plan_name = excluded.plan_name,
+	plan_version = excluded.plan_version,
+	period_end = excluded.period_end,
+	state = excluded.state,
+	current_value = excluded.current_value,
+	limit_value = excluded.limit_value,
+	included_value = excluded.included_value,
+	overage_value = excluded.overage_value,
+	remaining_value = excluded.remaining_value,
+	warning_percent = excluded.warning_percent,
+	event_count = excluded.event_count,
+	updated_at = excluded.updated_at;
+
+-- name: ListEntitlementPeriodSnapshots :many
+SELECT workspace_id, subject, meter_name, plan_id, plan_name, plan_version, period, period_start, period_end, state,
+	current_value, limit_value, included_value, overage_value, remaining_value, warning_percent, event_count, updated_at
+FROM entitlement_period_snapshots
+WHERE workspace_id = sqlc.arg('workspace_id')
+	AND (CAST(sqlc.narg('subject') AS TEXT) IS NULL OR subject = CAST(sqlc.narg('subject') AS TEXT))
+	AND (CAST(sqlc.narg('meter_name') AS TEXT) IS NULL OR meter_name = CAST(sqlc.narg('meter_name') AS TEXT))
+	AND (CAST(sqlc.narg('plan_id') AS TEXT) IS NULL OR plan_id = CAST(sqlc.narg('plan_id') AS TEXT))
+	AND (CAST(sqlc.narg('state') AS TEXT) IS NULL OR state = CAST(sqlc.narg('state') AS TEXT))
+ORDER BY period_start DESC, updated_at DESC, subject ASC, meter_name ASC, plan_id ASC
+LIMIT sqlc.arg('limit');
+
 -- name: EnqueueEntitlementCheckJob :exec
 INSERT INTO entitlement_check_jobs (workspace_id, subject, meter_name, run_after, locked_until, attempts, created_at, updated_at)
 VALUES (sqlc.arg('workspace_id'), sqlc.arg('subject'), sqlc.arg('meter_name'), sqlc.arg('run_after'), NULL, 0, sqlc.arg('now'), sqlc.arg('now'))

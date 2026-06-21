@@ -380,6 +380,46 @@ func (h *Handler) ListEntitlementEvents(w http.ResponseWriter, r *http.Request) 
 	respond.JSON(w, http.StatusOK, EventListResponse{Items: items, NextCursor: events.NextCursor})
 }
 
+// ListEntitlementPeriodSnapshots lists quota period snapshots.
+//
+// @Summary List entitlement period snapshots
+// @ID listEntitlementPeriodSnapshots
+// @Tags entitlements
+// @Produce json
+// @Param subject query string false "Subject"
+// @Param meter query string false "Meter"
+// @Param plan_id query string false "Plan ID"
+// @Param state query string false "State"
+// @Param limit query int false "Page size"
+// @Success 200 {object} PeriodSnapshotListResponse
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 403 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/entitlements/periods [get]
+func (h *Handler) ListEntitlementPeriodSnapshots(w http.ResponseWriter, r *http.Request) {
+	limit, err := request.ParseLimit(r.URL.Query().Get("limit"))
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+	snapshots, err := h.service.ListEntitlementPeriodSnapshots(r.Context(), appentitlement.SnapshotListQuery{
+		Subject:   r.URL.Query().Get("subject"),
+		MeterName: r.URL.Query().Get("meter"),
+		PlanID:    r.URL.Query().Get("plan_id"),
+		State:     appentitlement.OverageState(r.URL.Query().Get("state")),
+		Limit:     limit,
+	})
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	items := make([]PeriodSnapshotResponse, 0, len(snapshots.Items))
+	for _, snapshot := range snapshots.Items {
+		items = append(items, periodSnapshotResponse(snapshot))
+	}
+	respond.JSON(w, http.StatusOK, PeriodSnapshotListResponse{Items: items})
+}
+
 func limitCommands(input []LimitRequest) []appentitlement.LimitCommand {
 	limits := make([]appentitlement.LimitCommand, 0, len(input))
 	for _, limit := range input {
@@ -517,6 +557,28 @@ func eventResponse(event appentitlement.EntitlementEvent) EventResponse {
 		WarningPercent: event.WarningPercent,
 		Message:        event.Message,
 		CreatedAt:      formatTime(event.CreatedAt),
+	}
+}
+
+func periodSnapshotResponse(snapshot appentitlement.EntitlementPeriodSnapshot) PeriodSnapshotResponse {
+	return PeriodSnapshotResponse{
+		Subject:        snapshot.Subject,
+		Meter:          snapshot.MeterName,
+		PlanID:         snapshot.PlanID,
+		PlanName:       snapshot.PlanName,
+		PlanVersion:    snapshot.PlanVersion,
+		Period:         string(snapshot.Period),
+		From:           formatTime(snapshot.From),
+		To:             formatTime(snapshot.To),
+		State:          string(snapshot.State),
+		Current:        snapshot.Current,
+		Limit:          snapshot.Limit,
+		Included:       snapshot.Included,
+		Overage:        snapshot.Overage,
+		Remaining:      snapshot.Remaining,
+		WarningPercent: snapshot.WarningPercent,
+		EventCount:     snapshot.EventCount,
+		UpdatedAt:      formatTime(snapshot.UpdatedAt),
 	}
 }
 

@@ -414,6 +414,60 @@ func (r *EntitlementRepository) SaveEntitlementEvent(ctx context.Context, event 
 	})
 }
 
+func (r *EntitlementRepository) SaveEntitlementPeriodSnapshot(ctx context.Context, snapshot appentitlement.EntitlementPeriodSnapshot) error {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return err
+	}
+	return queriesFor(ctx, r.queries).SaveEntitlementPeriodSnapshot(ctx, postgresdb.SaveEntitlementPeriodSnapshotParams{
+		WorkspaceID:    workspaceID,
+		Subject:        snapshot.Subject,
+		MeterName:      snapshot.MeterName,
+		PlanID:         snapshot.PlanID,
+		PlanName:       snapshot.PlanName,
+		PlanVersion:    int32(snapshot.PlanVersion),
+		Period:         string(snapshot.Period),
+		PeriodStart:    formatTime(snapshot.From),
+		PeriodEnd:      formatTime(snapshot.To),
+		State:          string(snapshot.State),
+		CurrentValue:   snapshot.Current,
+		LimitValue:     snapshot.Limit,
+		IncludedValue:  snapshot.Included,
+		OverageValue:   snapshot.Overage,
+		RemainingValue: snapshot.Remaining,
+		WarningPercent: snapshot.WarningPercent,
+		EventCount:     snapshot.EventCount,
+		UpdatedAt:      formatTime(snapshot.UpdatedAt),
+	})
+}
+
+func (r *EntitlementRepository) FindEntitlementPeriodSnapshots(ctx context.Context, query appentitlement.SnapshotQuery) ([]appentitlement.EntitlementPeriodSnapshot, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := queriesFor(ctx, r.queries).ListEntitlementPeriodSnapshots(ctx, postgresdb.ListEntitlementPeriodSnapshotsParams{
+		WorkspaceID: workspaceID,
+		Subject:     planStringValue(query.Subject),
+		MeterName:   planStringValue(query.MeterName),
+		PlanID:      planStringValue(query.PlanID),
+		State:       planStringValue(string(query.State)),
+		Limit:       int32(query.Limit),
+	})
+	if err != nil {
+		return nil, err
+	}
+	snapshots := make([]appentitlement.EntitlementPeriodSnapshot, 0, len(rows))
+	for _, row := range rows {
+		snapshot, err := postgresEntitlementPeriodSnapshot(row)
+		if err != nil {
+			return nil, err
+		}
+		snapshots = append(snapshots, snapshot)
+	}
+	return snapshots, nil
+}
+
 func (r *EntitlementRepository) EnqueueEntitlementCheckJob(ctx context.Context, job appentitlement.CheckJob) error {
 	workspaceID, err := appauth.RequireWorkspaceID(ctx)
 	if err != nil {
@@ -657,6 +711,41 @@ func postgresEntitlementUsageCounter(row postgresdb.EntitlementUsageCounter) (ap
 		FirstEventTime: firstEventTime,
 		LastQuantity:   row.LastQuantity,
 		LastEventTime:  lastEventTime,
+		UpdatedAt:      updatedAt,
+	}, nil
+}
+
+func postgresEntitlementPeriodSnapshot(row postgresdb.EntitlementPeriodSnapshot) (appentitlement.EntitlementPeriodSnapshot, error) {
+	from, err := parseEntitlementTime(row.PeriodStart)
+	if err != nil {
+		return appentitlement.EntitlementPeriodSnapshot{}, err
+	}
+	to, err := parseEntitlementTime(row.PeriodEnd)
+	if err != nil {
+		return appentitlement.EntitlementPeriodSnapshot{}, err
+	}
+	updatedAt, err := parseEntitlementTime(row.UpdatedAt)
+	if err != nil {
+		return appentitlement.EntitlementPeriodSnapshot{}, err
+	}
+	return appentitlement.EntitlementPeriodSnapshot{
+		WorkspaceID:    row.WorkspaceID,
+		Subject:        row.Subject,
+		MeterName:      row.MeterName,
+		PlanID:         row.PlanID,
+		PlanName:       row.PlanName,
+		PlanVersion:    int(row.PlanVersion),
+		Period:         appentitlement.Period(row.Period),
+		From:           from,
+		To:             to,
+		State:          appentitlement.OverageState(row.State),
+		Current:        row.CurrentValue,
+		Limit:          row.LimitValue,
+		Included:       row.IncludedValue,
+		Overage:        row.OverageValue,
+		Remaining:      row.RemainingValue,
+		WarningPercent: row.WarningPercent,
+		EventCount:     row.EventCount,
 		UpdatedAt:      updatedAt,
 	}, nil
 }

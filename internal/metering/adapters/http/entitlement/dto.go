@@ -162,3 +162,29 @@ type EventListResponse struct {
 	Items      []EventResponse `json:"items"`
 	NextCursor string          `json:"next_cursor,omitempty"`
 }
+
+// PeriodSnapshotResponse is an auditable quota snapshot for a subject period.
+type PeriodSnapshotResponse struct {
+	Subject        string  `json:"subject"`
+	Meter          string  `json:"meter"`
+	PlanID         string  `json:"plan_id"`
+	PlanName       string  `json:"plan_name"`
+	PlanVersion    int     `json:"plan_version"`
+	Period         string  `json:"period"`
+	From           string  `json:"from"`
+	To             string  `json:"to"`
+	State          string  `json:"state"`
+	Current        float64 `json:"current"`
+	Limit          float64 `json:"limit"`
+	Included       float64 `json:"included"`
+	Overage        float64 `json:"overage"`
+	Remaining      float64 `json:"remaining"`
+	WarningPercent float64 `json:"warning_percent"`
+	EventCount     int64   `json:"event_count"`
+	UpdatedAt      string  `json:"updated_at"`
+}
+
+// PeriodSnapshotListResponse is a list of quota period snapshots.
+type PeriodSnapshotListResponse struct {
+	Items []PeriodSnapshotResponse `json:"items"`
+}

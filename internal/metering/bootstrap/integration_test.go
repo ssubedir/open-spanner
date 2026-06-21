@@ -923,6 +923,31 @@ func runIntegrationPlanEntitlementFlow(t *testing.T, cfg config.Config, namespac
 	assertFloatNear(t, states.Items[0].Current, 7, "state current")
 	assertFloatNear(t, states.Items[0].Limit, 10, "state limit")
 
+	snapshotsRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/entitlements/periods?subject="+url.QueryEscape(subject)+"&meter="+url.QueryEscape(meterName), nil, sdkHeaders, nil)
+	if snapshotsRes.Code != http.StatusOK {
+		t.Fatalf("entitlement period snapshots status = %d, want %d: %s", snapshotsRes.Code, http.StatusOK, snapshotsRes.Body.String())
+	}
+	var snapshots entitlementPeriodSnapshotListTestResponse
+	decodeJSON(t, snapshotsRes, &snapshots)
+	if len(snapshots.Items) != 1 {
+		t.Fatalf("entitlement period snapshots = %#v, want one snapshot", snapshots)
+	}
+	snapshot := snapshots.Items[0]
+	if snapshot.Subject != subject || snapshot.Meter != meterName || snapshot.PlanID != plan.ID || snapshot.PlanVersion != 1 || snapshot.State != "warning" {
+		t.Fatalf("entitlement period snapshot = %#v, want warning snapshot for %q/%q on v1 plan", snapshot, subject, meterName)
+	}
+	if snapshot.From != assignment.PeriodAnchorAt {
+		t.Fatalf("snapshot period from = %q, want assignment anchor %q", snapshot.From, assignment.PeriodAnchorAt)
+	}
+	assertFloatNear(t, snapshot.Current, 7, "snapshot current")
+	assertFloatNear(t, snapshot.Limit, 10, "snapshot limit")
+	assertFloatNear(t, snapshot.Included, 7, "snapshot included")
+	assertFloatNear(t, snapshot.Overage, 0, "snapshot overage")
+	assertFloatNear(t, snapshot.Remaining, 3, "snapshot remaining")
+	if snapshot.EventCount != 1 {
+		t.Fatalf("snapshot event count = %d, want 1", snapshot.EventCount)
+	}
+
 	eventsRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/entitlements/events?subject="+url.QueryEscape(subject)+"&meter="+url.QueryEscape(meterName), nil, sdkHeaders, nil)
 	if eventsRes.Code != http.StatusOK {
 		t.Fatalf("entitlement events status = %d, want %d: %s", eventsRes.Code, http.StatusOK, eventsRes.Body.String())
@@ -2892,6 +2917,26 @@ type entitlementEventTestResponse struct {
 type entitlementEventListTestResponse struct {
 	Items      []entitlementEventTestResponse `json:"items"`
 	NextCursor string                         `json:"next_cursor"`
+}
+
+type entitlementPeriodSnapshotTestResponse struct {
+	Subject     string  `json:"subject"`
+	Meter       string  `json:"meter"`
+	PlanID      string  `json:"plan_id"`
+	PlanVersion int     `json:"plan_version"`
+	State       string  `json:"state"`
+	Current     float64 `json:"current"`
+	Limit       float64 `json:"limit"`
+	Included    float64 `json:"included"`
+	Overage     float64 `json:"overage"`
+	Remaining   float64 `json:"remaining"`
+	EventCount  int64   `json:"event_count"`
+	From        string  `json:"from"`
+	To          string  `json:"to"`
+}
+
+type entitlementPeriodSnapshotListTestResponse struct {
+	Items []entitlementPeriodSnapshotTestResponse `json:"items"`
 }
 
 type alertRuleResponse struct {
