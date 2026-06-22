@@ -187,10 +187,24 @@ func (r *EntitlementRepository) SaveSubjectAssignment(ctx context.Context, assig
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	endAt := formatTime(now)
-	if _, err := queriesFor(ctx, r.queries).EndCurrentPlanSubjectAssignment(ctx, sqlitedb.EndCurrentPlanSubjectAssignmentParams{
-		UnassignedAt: sql.NullString{String: endAt, Valid: true},
-		UpdatedAt:    endAt,
+	effectiveAt := assignment.AssignedAt
+	if effectiveAt.IsZero() {
+		effectiveAt = now
+	}
+	nowText := formatTime(now)
+	effectiveText := formatTime(effectiveAt)
+	if _, err := queriesFor(ctx, r.queries).CancelPendingPlanSubjectAssignments(ctx, sqlitedb.CancelPendingPlanSubjectAssignmentsParams{
+		UnassignedAt: sql.NullString{String: nowText, Valid: true},
+		UpdatedAt:    nowText,
+		WorkspaceID:  workspaceID,
+		Subject:      assignment.Subject,
+		Now:          nowText,
+	}); err != nil {
+		return appentitlement.SubjectAssignment{}, err
+	}
+	if _, err := queriesFor(ctx, r.queries).EndEffectivePlanSubjectAssignments(ctx, sqlitedb.EndEffectivePlanSubjectAssignmentsParams{
+		UnassignedAt: sql.NullString{String: effectiveText, Valid: true},
+		UpdatedAt:    nowText,
 		WorkspaceID:  workspaceID,
 		Subject:      assignment.Subject,
 	}); err != nil {
@@ -201,9 +215,9 @@ func (r *EntitlementRepository) SaveSubjectAssignment(ctx context.Context, assig
 		WorkspaceID:    workspaceID,
 		Subject:        assignment.Subject,
 		PlanID:         assignment.PlanID,
-		AssignedAt:     formatTime(assignment.AssignedAt),
+		AssignedAt:     effectiveText,
 		PeriodAnchorAt: formatTime(assignment.PeriodAnchorAt),
-		UpdatedAt:      formatTime(assignment.UpdatedAt),
+		UpdatedAt:      nowText,
 	})
 	if err != nil {
 		if isUniqueConstraint(err) {
@@ -211,14 +225,32 @@ func (r *EntitlementRepository) SaveSubjectAssignment(ctx context.Context, assig
 		}
 		return appentitlement.SubjectAssignment{}, err
 	}
-	assignments, err := r.FindSubjectAssignments(ctx, appentitlement.AssignmentQuery{Subject: assignment.Subject, PlanID: assignment.PlanID, ActiveOnly: true, Limit: 1})
+	saved := assignment
+	saved.AssignedAt = effectiveAt
+	saved.UpdatedAt = now
+	return saved, nil
+}
+
+func (r *EntitlementRepository) FindEffectiveSubjectAssignment(ctx context.Context, subject string, at time.Time) (appentitlement.SubjectAssignment, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
 	if err != nil {
 		return appentitlement.SubjectAssignment{}, err
 	}
-	if len(assignments) == 0 {
+	if at.IsZero() {
+		at = time.Now().UTC()
+	}
+	row, err := queriesFor(ctx, r.queries).FindEffectivePlanSubjectAssignment(ctx, sqlitedb.FindEffectivePlanSubjectAssignmentParams{
+		WorkspaceID: workspaceID,
+		Subject:     subject,
+		Now:         formatTime(at),
+	})
+	if errors.Is(err, sql.ErrNoRows) {
 		return appentitlement.SubjectAssignment{}, domain.ErrNotFound
 	}
-	return assignments[0], nil
+	if err != nil {
+		return appentitlement.SubjectAssignment{}, err
+	}
+	return sqliteEffectivePlanSubjectAssignment(row)
 }
 
 func (r *EntitlementRepository) FindSubjectAssignments(ctx context.Context, query appentitlement.AssignmentQuery) ([]appentitlement.SubjectAssignment, error) {
@@ -231,6 +263,7 @@ func (r *EntitlementRepository) FindSubjectAssignments(ctx context.Context, quer
 		Subject:     planStringValue(query.Subject),
 		PlanID:      planStringValue(query.PlanID),
 		ActiveOnly:  sqliteBool(query.ActiveOnly),
+		Now:         sql.NullString{String: formatTime(time.Now().UTC()), Valid: true},
 		Limit:       int64(query.Limit),
 	})
 	if err != nil {
@@ -594,6 +627,36 @@ func sqlitePlanLimit(row sqlitedb.ListPlanLimitsRow) (appentitlement.PlanLimit, 
 }
 
 func sqlitePlanSubjectAssignment(row sqlitedb.ListPlanSubjectAssignmentsRow) (appentitlement.SubjectAssignment, error) {
+	assignedAt, err := parseEntitlementTime(row.AssignedAt)
+	if err != nil {
+		return appentitlement.SubjectAssignment{}, err
+	}
+	periodAnchorAt, err := parseEntitlementTime(row.PeriodAnchorAt)
+	if err != nil {
+		return appentitlement.SubjectAssignment{}, err
+	}
+	updatedAt, err := parseEntitlementTime(row.UpdatedAt)
+	if err != nil {
+		return appentitlement.SubjectAssignment{}, err
+	}
+	unassignedAt, err := parseNullableEntitlementTime(row.UnassignedAt)
+	if err != nil {
+		return appentitlement.SubjectAssignment{}, err
+	}
+	return appentitlement.SubjectAssignment{
+		ID:             row.ID,
+		Subject:        row.Subject,
+		PlanID:         row.PlanID,
+		PlanName:       row.PlanName,
+		PlanVersion:    int(row.PlanVersion),
+		AssignedAt:     assignedAt,
+		PeriodAnchorAt: periodAnchorAt,
+		UnassignedAt:   unassignedAt,
+		UpdatedAt:      updatedAt,
+	}, nil
+}
+
+func sqliteEffectivePlanSubjectAssignment(row sqlitedb.FindEffectivePlanSubjectAssignmentRow) (appentitlement.SubjectAssignment, error) {
 	assignedAt, err := parseEntitlementTime(row.AssignedAt)
 	if err != nil {
 		return appentitlement.SubjectAssignment{}, err

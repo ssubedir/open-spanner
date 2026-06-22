@@ -64,13 +64,23 @@ WHERE workspace_id = sqlc.arg('workspace_id')::text
 INSERT INTO plan_subject_assignments (id, workspace_id, subject, plan_id, assigned_at, period_anchor_at, unassigned_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, $6, NULL, $7);
 
--- name: EndCurrentPlanSubjectAssignment :execrows
+-- name: CancelPendingPlanSubjectAssignments :execrows
 UPDATE plan_subject_assignments
 SET unassigned_at = sqlc.arg('unassigned_at'),
 	updated_at = sqlc.arg('updated_at')
 WHERE workspace_id = sqlc.arg('workspace_id')::text
 	AND subject = sqlc.arg('subject')::text
-	AND unassigned_at IS NULL;
+	AND assigned_at > sqlc.arg('now')::text
+	AND (unassigned_at IS NULL OR unassigned_at > sqlc.arg('now')::text);
+
+-- name: EndEffectivePlanSubjectAssignments :execrows
+UPDATE plan_subject_assignments
+SET unassigned_at = sqlc.arg('unassigned_at'),
+	updated_at = sqlc.arg('updated_at')
+WHERE workspace_id = sqlc.arg('workspace_id')::text
+	AND subject = sqlc.arg('subject')::text
+	AND assigned_at < sqlc.arg('unassigned_at')::text
+	AND (unassigned_at IS NULL OR unassigned_at > sqlc.arg('unassigned_at')::text);
 
 -- name: ListPlanSubjectAssignments :many
 SELECT a.id, a.subject, a.plan_id, p.name AS plan_name, p.version AS plan_version, a.assigned_at, a.period_anchor_at, a.unassigned_at, a.updated_at
@@ -79,16 +89,28 @@ JOIN plans p ON p.workspace_id = a.workspace_id AND p.id = a.plan_id
 WHERE a.workspace_id = sqlc.arg('workspace_id')::text
 	AND (sqlc.narg('subject')::text IS NULL OR a.subject = sqlc.narg('subject')::text)
 	AND (sqlc.narg('plan_id')::text IS NULL OR a.plan_id = sqlc.narg('plan_id')::text)
-	AND (NOT sqlc.arg('active_only')::boolean OR a.unassigned_at IS NULL)
+	AND (NOT sqlc.arg('active_only')::boolean OR a.unassigned_at IS NULL OR a.unassigned_at > sqlc.arg('now')::text)
 ORDER BY a.updated_at DESC, a.assigned_at DESC, a.subject ASC
 LIMIT sqlc.arg('limit')::int;
+
+-- name: FindEffectivePlanSubjectAssignment :one
+SELECT a.id, a.subject, a.plan_id, p.name AS plan_name, p.version AS plan_version, a.assigned_at, a.period_anchor_at, a.unassigned_at, a.updated_at
+FROM plan_subject_assignments a
+JOIN plans p ON p.workspace_id = a.workspace_id AND p.id = a.plan_id
+WHERE a.workspace_id = sqlc.arg('workspace_id')::text
+	AND a.subject = sqlc.arg('subject')::text
+	AND a.assigned_at <= sqlc.arg('now')::text
+	AND (a.unassigned_at IS NULL OR a.unassigned_at > sqlc.arg('now')::text)
+ORDER BY a.assigned_at DESC, a.updated_at DESC
+LIMIT 1;
 
 -- name: FindActivePlanAssignmentAnchor :one
 SELECT period_anchor_at
 FROM plan_subject_assignments
 WHERE workspace_id = sqlc.arg('workspace_id')::text
   AND subject = sqlc.arg('subject')::text
-  AND unassigned_at IS NULL
+  AND assigned_at <= sqlc.arg('now')::text
+  AND (unassigned_at IS NULL OR unassigned_at > sqlc.arg('now')::text)
 ORDER BY assigned_at DESC
 LIMIT 1;
 
@@ -98,7 +120,7 @@ SET unassigned_at = sqlc.arg('unassigned_at'),
 	updated_at = sqlc.arg('updated_at')
 WHERE workspace_id = sqlc.arg('workspace_id')::text
 	AND subject = sqlc.arg('subject')::text
-	AND unassigned_at IS NULL;
+	AND (unassigned_at IS NULL OR unassigned_at > sqlc.arg('unassigned_at')::text);
 
 -- name: GetEntitlementState :one
 SELECT workspace_id, subject, meter_name, plan_id, plan_name, period, state, current_value, limit_value, remaining_value, warning_percent, message, evaluated_at, updated_at

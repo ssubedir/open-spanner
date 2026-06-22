@@ -399,6 +399,8 @@ definitions:
     type: object
   internal_metering_adapters_http_entitlement.AssignmentRequest:
     properties:
+      effective_at:
+        type: string
       plan_id:
         type: string
     type: object
@@ -418,6 +420,8 @@ definitions:
         type: string
       plan_version:
         type: integer
+      status:
+        type: string
       subject:
         type: string
       unassigned_at:

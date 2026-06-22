@@ -10,6 +10,38 @@ import (
 	"database/sql"
 )
 
+const cancelPendingPlanSubjectAssignments = `-- name: CancelPendingPlanSubjectAssignments :execrows
+UPDATE plan_subject_assignments
+SET unassigned_at = $1,
+	updated_at = $2
+WHERE workspace_id = $3::text
+	AND subject = $4::text
+	AND assigned_at > $5::text
+	AND (unassigned_at IS NULL OR unassigned_at > $5::text)
+`
+
+type CancelPendingPlanSubjectAssignmentsParams struct {
+	UnassignedAt sql.NullString
+	UpdatedAt    string
+	WorkspaceID  string
+	Subject      string
+	Now          string
+}
+
+func (q *Queries) CancelPendingPlanSubjectAssignments(ctx context.Context, arg CancelPendingPlanSubjectAssignmentsParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, cancelPendingPlanSubjectAssignments,
+		arg.UnassignedAt,
+		arg.UpdatedAt,
+		arg.WorkspaceID,
+		arg.Subject,
+		arg.Now,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const claimEntitlementCheckJob = `-- name: ClaimEntitlementCheckJob :one
 WITH next_job AS (
 	SELECT workspace_id, subject, meter_name
@@ -132,7 +164,7 @@ SET unassigned_at = $1,
 	updated_at = $2
 WHERE workspace_id = $3::text
 	AND subject = $4::text
-	AND unassigned_at IS NULL
+	AND (unassigned_at IS NULL OR unassigned_at > $1::text)
 `
 
 type DeletePlanSubjectAssignmentParams struct {
@@ -155,24 +187,25 @@ func (q *Queries) DeletePlanSubjectAssignment(ctx context.Context, arg DeletePla
 	return result.RowsAffected()
 }
 
-const endCurrentPlanSubjectAssignment = `-- name: EndCurrentPlanSubjectAssignment :execrows
+const endEffectivePlanSubjectAssignments = `-- name: EndEffectivePlanSubjectAssignments :execrows
 UPDATE plan_subject_assignments
 SET unassigned_at = $1,
 	updated_at = $2
 WHERE workspace_id = $3::text
 	AND subject = $4::text
-	AND unassigned_at IS NULL
+	AND assigned_at < $1::text
+	AND (unassigned_at IS NULL OR unassigned_at > $1::text)
 `
 
-type EndCurrentPlanSubjectAssignmentParams struct {
+type EndEffectivePlanSubjectAssignmentsParams struct {
 	UnassignedAt sql.NullString
 	UpdatedAt    string
 	WorkspaceID  string
 	Subject      string
 }
 
-func (q *Queries) EndCurrentPlanSubjectAssignment(ctx context.Context, arg EndCurrentPlanSubjectAssignmentParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, endCurrentPlanSubjectAssignment,
+func (q *Queries) EndEffectivePlanSubjectAssignments(ctx context.Context, arg EndEffectivePlanSubjectAssignmentsParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, endEffectivePlanSubjectAssignments,
 		arg.UnassignedAt,
 		arg.UpdatedAt,
 		arg.WorkspaceID,
@@ -221,7 +254,8 @@ SELECT period_anchor_at
 FROM plan_subject_assignments
 WHERE workspace_id = $1::text
   AND subject = $2::text
-  AND unassigned_at IS NULL
+  AND assigned_at <= $3::text
+  AND (unassigned_at IS NULL OR unassigned_at > $3::text)
 ORDER BY assigned_at DESC
 LIMIT 1
 `
@@ -229,13 +263,61 @@ LIMIT 1
 type FindActivePlanAssignmentAnchorParams struct {
 	WorkspaceID string
 	Subject     string
+	Now         string
 }
 
 func (q *Queries) FindActivePlanAssignmentAnchor(ctx context.Context, arg FindActivePlanAssignmentAnchorParams) (string, error) {
-	row := q.db.QueryRowContext(ctx, findActivePlanAssignmentAnchor, arg.WorkspaceID, arg.Subject)
+	row := q.db.QueryRowContext(ctx, findActivePlanAssignmentAnchor, arg.WorkspaceID, arg.Subject, arg.Now)
 	var period_anchor_at string
 	err := row.Scan(&period_anchor_at)
 	return period_anchor_at, err
+}
+
+const findEffectivePlanSubjectAssignment = `-- name: FindEffectivePlanSubjectAssignment :one
+SELECT a.id, a.subject, a.plan_id, p.name AS plan_name, p.version AS plan_version, a.assigned_at, a.period_anchor_at, a.unassigned_at, a.updated_at
+FROM plan_subject_assignments a
+JOIN plans p ON p.workspace_id = a.workspace_id AND p.id = a.plan_id
+WHERE a.workspace_id = $1::text
+	AND a.subject = $2::text
+	AND a.assigned_at <= $3::text
+	AND (a.unassigned_at IS NULL OR a.unassigned_at > $3::text)
+ORDER BY a.assigned_at DESC, a.updated_at DESC
+LIMIT 1
+`
+
+type FindEffectivePlanSubjectAssignmentParams struct {
+	WorkspaceID string
+	Subject     string
+	Now         string
+}
+
+type FindEffectivePlanSubjectAssignmentRow struct {
+	ID             string
+	Subject        string
+	PlanID         string
+	PlanName       string
+	PlanVersion    int32
+	AssignedAt     string
+	PeriodAnchorAt string
+	UnassignedAt   sql.NullString
+	UpdatedAt      string
+}
+
+func (q *Queries) FindEffectivePlanSubjectAssignment(ctx context.Context, arg FindEffectivePlanSubjectAssignmentParams) (FindEffectivePlanSubjectAssignmentRow, error) {
+	row := q.db.QueryRowContext(ctx, findEffectivePlanSubjectAssignment, arg.WorkspaceID, arg.Subject, arg.Now)
+	var i FindEffectivePlanSubjectAssignmentRow
+	err := row.Scan(
+		&i.ID,
+		&i.Subject,
+		&i.PlanID,
+		&i.PlanName,
+		&i.PlanVersion,
+		&i.AssignedAt,
+		&i.PeriodAnchorAt,
+		&i.UnassignedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const getEntitlementState = `-- name: GetEntitlementState :one
@@ -666,9 +748,9 @@ JOIN plans p ON p.workspace_id = a.workspace_id AND p.id = a.plan_id
 WHERE a.workspace_id = $1::text
 	AND ($2::text IS NULL OR a.subject = $2::text)
 	AND ($3::text IS NULL OR a.plan_id = $3::text)
-	AND (NOT $4::boolean OR a.unassigned_at IS NULL)
+	AND (NOT $4::boolean OR a.unassigned_at IS NULL OR a.unassigned_at > $5::text)
 ORDER BY a.updated_at DESC, a.assigned_at DESC, a.subject ASC
-LIMIT $5::int
+LIMIT $6::int
 `
 
 type ListPlanSubjectAssignmentsParams struct {
@@ -676,6 +758,7 @@ type ListPlanSubjectAssignmentsParams struct {
 	Subject     sql.NullString
 	PlanID      sql.NullString
 	ActiveOnly  bool
+	Now         string
 	Limit       int32
 }
 
@@ -697,6 +780,7 @@ func (q *Queries) ListPlanSubjectAssignments(ctx context.Context, arg ListPlanSu
 		arg.Subject,
 		arg.PlanID,
 		arg.ActiveOnly,
+		arg.Now,
 		arg.Limit,
 	)
 	if err != nil {

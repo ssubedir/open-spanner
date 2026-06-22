@@ -156,12 +156,11 @@ CREATE TABLE plan_subject_assignments (
 	FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
 );
 
-CREATE UNIQUE INDEX idx_plan_subject_assignments_active_subject
-	ON plan_subject_assignments (workspace_id, subject)
-	WHERE unassigned_at IS NULL;
-
 CREATE INDEX idx_plan_subject_assignments_workspace_plan
 	ON plan_subject_assignments (workspace_id, plan_id, subject, unassigned_at);
+
+CREATE INDEX idx_plan_subject_assignments_subject_window
+	ON plan_subject_assignments (workspace_id, subject, assigned_at, unassigned_at);
 
 CREATE TABLE entitlement_states (
 	workspace_id TEXT NOT NULL,

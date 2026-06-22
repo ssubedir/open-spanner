@@ -3911,6 +3911,9 @@ const docTemplate = `{
         "internal_metering_adapters_http_entitlement.AssignmentRequest": {
             "type": "object",
             "properties": {
+                "effective_at": {
+                    "type": "string"
+                },
                 "plan_id": {
                     "type": "string"
                 }
@@ -3939,6 +3942,9 @@ const docTemplate = `{
                 },
                 "plan_version": {
                     "type": "integer"
+                },
+                "status": {
+                    "type": "string"
                 },
                 "subject": {
                     "type": "string"

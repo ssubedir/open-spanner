@@ -200,6 +200,7 @@ func (r *UsageRepository) incrementEntitlementUsageCounters(ctx context.Context,
 	anchorText, err := queriesFor(ctx, r.queries).FindActivePlanAssignmentAnchor(ctx, sqlitedb.FindActivePlanAssignmentAnchorParams{
 		WorkspaceID: workspaceID,
 		Subject:     event.Subject(),
+		Now:         formatTime(event.EventTime()),
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil

@@ -166,14 +166,15 @@ export function AssignmentTable({ assigning, assignments, progressStatus }: { as
   return (
     <DataTable
       emptyLabel="No assignments yet"
-      headers={['Subject', 'Plan', 'Updated', 'Actions']}
+      headers={['Subject', 'Plan', 'Status', 'Effective', 'Actions']}
       rows={assignments.map((assignment) => [
         <span className="mono">{assignment.subject}</span>,
         <span className="flex items-center gap-2">
           {assignment.plan_name}
           <Badge variant="muted">v{assignment.plan_version}</Badge>
         </span>,
-        formatDate(assignment.updated_at),
+        <AssignmentStatusBadge assignment={assignment} />,
+        formatDate(assignment.assigned_at),
         <span className="table-actions">
           <Button
             aria-label={`View ${assignment.subject} progress`}
@@ -282,16 +283,16 @@ export function AssignmentHistoryTable({ assignments }: { assignments: PlanAssig
   return (
     <DataTable
       emptyLabel="No assignment history yet"
-      headers={['Subject', 'Plan', 'Status', 'Anchor', 'Assigned', 'Ended']}
+      headers={['Subject', 'Plan', 'Status', 'Effective', 'Anchor', 'Ended']}
       rows={assignments.map((assignment) => [
         <span className="mono">{assignment.subject}</span>,
         <span className="flex items-center gap-2">
           {assignment.plan_name}
           <Badge variant="muted">v{assignment.plan_version}</Badge>
         </span>,
-        assignment.active ? <Badge variant="success">Active</Badge> : <Badge variant="muted">Ended</Badge>,
-        formatDate(assignment.period_anchor_at),
+        <AssignmentStatusBadge assignment={assignment} />,
         formatDate(assignment.assigned_at),
+        formatDate(assignment.period_anchor_at),
         assignment.unassigned_at ? formatDate(assignment.unassigned_at) : <span className="muted">-</span>,
       ])}
     />
@@ -336,6 +337,16 @@ function StateBadge({ state }: { state: string }) {
     return <Badge variant="warning">Warning</Badge>
   }
   return <Badge variant="success">OK</Badge>
+}
+
+function AssignmentStatusBadge({ assignment }: { assignment: PlanAssignment }) {
+  if (assignment.status === 'scheduled') {
+    return <Badge variant="warning">Scheduled</Badge>
+  }
+  if (assignment.status === 'active' || assignment.active) {
+    return <Badge variant="success">Active</Badge>
+  }
+  return <Badge variant="muted">Ended</Badge>
 }
 
 function draftLimits(limits: PlanLimit[] | undefined, meters: Meter[]): LimitDraft[] {

@@ -626,6 +626,116 @@ func TestEntitlementCheckAPIProvidesQuotaMetadata(t *testing.T) {
 	}
 }
 
+func TestPlanAssignmentAPISchedulesFutureChanges(t *testing.T) {
+	router := newTestRouter()
+
+	for _, meter := range []string{"scheduled_api_calls", "scheduled_storage"} {
+		createMeter := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
+			"name":        meter,
+			"description": "Scheduled assignment meter",
+			"unit":        "unit",
+			"aggregation": "sum",
+		})
+		if createMeter.Code != http.StatusCreated {
+			t.Fatalf("create meter %s status = %d, want %d: %s", meter, createMeter.Code, http.StatusCreated, createMeter.Body.String())
+		}
+	}
+
+	currentPlanResponse := requestJSON(t, router, http.MethodPost, "/v1/plans", map[string]any{
+		"name":        "Current",
+		"description": "Current plan",
+		"limits": []map[string]any{
+			{"meter": "scheduled_api_calls", "period": "month", "limit": 10},
+		},
+	})
+	if currentPlanResponse.Code != http.StatusCreated {
+		t.Fatalf("create current plan status = %d, want %d: %s", currentPlanResponse.Code, http.StatusCreated, currentPlanResponse.Body.String())
+	}
+	var currentPlan entitlementPlanResponse
+	decodeJSON(t, currentPlanResponse, &currentPlan)
+
+	futurePlanResponse := requestJSON(t, router, http.MethodPost, "/v1/plans", map[string]any{
+		"name":        "Future",
+		"description": "Future plan",
+		"limits": []map[string]any{
+			{"meter": "scheduled_storage", "period": "month", "limit": 20},
+		},
+	})
+	if futurePlanResponse.Code != http.StatusCreated {
+		t.Fatalf("create future plan status = %d, want %d: %s", futurePlanResponse.Code, http.StatusCreated, futurePlanResponse.Body.String())
+	}
+	var futurePlan entitlementPlanResponse
+	decodeJSON(t, futurePlanResponse, &futurePlan)
+
+	assignCurrent := requestJSON(t, router, http.MethodPut, "/v1/plans/subjects/org_schedule", map[string]any{
+		"plan_id": currentPlan.ID,
+	})
+	if assignCurrent.Code != http.StatusOK {
+		t.Fatalf("assign current status = %d, want %d: %s", assignCurrent.Code, http.StatusOK, assignCurrent.Body.String())
+	}
+	var currentAssignment entitlementAssignmentResponse
+	decodeJSON(t, assignCurrent, &currentAssignment)
+	if currentAssignment.Status != "active" || !currentAssignment.Active || currentAssignment.UnassignedAt != "" {
+		t.Fatalf("current assignment = %#v", currentAssignment)
+	}
+
+	effectiveAt := time.Now().UTC().Add(24 * time.Hour).Format(time.RFC3339Nano)
+	assignFuture := requestJSON(t, router, http.MethodPut, "/v1/plans/subjects/org_schedule", map[string]any{
+		"plan_id":      futurePlan.ID,
+		"effective_at": effectiveAt,
+	})
+	if assignFuture.Code != http.StatusOK {
+		t.Fatalf("assign future status = %d, want %d: %s", assignFuture.Code, http.StatusOK, assignFuture.Body.String())
+	}
+	var futureAssignment entitlementAssignmentResponse
+	decodeJSON(t, assignFuture, &futureAssignment)
+	if futureAssignment.Status != "scheduled" || futureAssignment.Active || futureAssignment.AssignedAt == "" {
+		t.Fatalf("future assignment = %#v", futureAssignment)
+	}
+
+	currentCheck := requestJSON(t, router, http.MethodPost, "/v1/entitlements/check", map[string]any{
+		"subject":  "org_schedule",
+		"meter":    "scheduled_api_calls",
+		"quantity": 1,
+	})
+	if currentCheck.Code != http.StatusOK {
+		t.Fatalf("current check status = %d, want %d: %s", currentCheck.Code, http.StatusOK, currentCheck.Body.String())
+	}
+	var currentDecision entitlementCheckResponse
+	decodeJSON(t, currentCheck, &currentDecision)
+	if !currentDecision.Allowed || currentDecision.State != "ok" || currentDecision.Limit != 10 {
+		t.Fatalf("current decision = %#v", currentDecision)
+	}
+
+	futureCheck := requestJSON(t, router, http.MethodPost, "/v1/entitlements/check", map[string]any{
+		"subject":  "org_schedule",
+		"meter":    "scheduled_storage",
+		"quantity": 1,
+	})
+	if futureCheck.Code != http.StatusOK {
+		t.Fatalf("future check status = %d, want %d: %s", futureCheck.Code, http.StatusOK, futureCheck.Body.String())
+	}
+	var futureDecision entitlementCheckResponse
+	decodeJSON(t, futureCheck, &futureDecision)
+	if futureDecision.Allowed || futureDecision.State != "not_in_plan" {
+		t.Fatalf("future decision before effective date = %#v", futureDecision)
+	}
+
+	assignmentsResponse := requestJSON(t, router, http.MethodGet, "/v1/plans/assignments?include_history=true&subject=org_schedule", nil)
+	if assignmentsResponse.Code != http.StatusOK {
+		t.Fatalf("list assignments status = %d, want %d: %s", assignmentsResponse.Code, http.StatusOK, assignmentsResponse.Body.String())
+	}
+	var assignments entitlementAssignmentListResponse
+	decodeJSON(t, assignmentsResponse, &assignments)
+	statuses := map[string]bool{}
+	for _, assignment := range assignments.Items {
+		statuses[assignment.Status] = true
+	}
+	if !statuses["active"] || !statuses["scheduled"] {
+		t.Fatalf("assignment statuses = %#v, want active and scheduled", assignments.Items)
+	}
+}
+
 func TestUsageAPIContract(t *testing.T) {
 	router := newTestRouter()
 
@@ -2403,6 +2513,22 @@ type entitlementLimitResponse struct {
 	Period         string  `json:"period"`
 	Limit          float64 `json:"limit"`
 	WarningPercent float64 `json:"warning_percent"`
+}
+
+type entitlementAssignmentResponse struct {
+	ID             string `json:"id"`
+	Subject        string `json:"subject"`
+	PlanID         string `json:"plan_id"`
+	PlanName       string `json:"plan_name"`
+	Status         string `json:"status"`
+	Active         bool   `json:"active"`
+	AssignedAt     string `json:"assigned_at"`
+	PeriodAnchorAt string `json:"period_anchor_at"`
+	UnassignedAt   string `json:"unassigned_at"`
+}
+
+type entitlementAssignmentListResponse struct {
+	Items []entitlementAssignmentResponse `json:"items"`
 }
 
 type entitlementCheckResponse struct {

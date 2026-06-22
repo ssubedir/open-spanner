@@ -144,6 +144,7 @@ export type PlanAssignment = {
   plan_id: string
   plan_name: string
   plan_version: number
+  status: 'scheduled' | 'active' | 'ended'
   active: boolean
   assigned_at: string
   period_anchor_at: string
@@ -912,9 +913,10 @@ export async function listPlanAssignments(limit = 100, includeHistory = false) {
   return request<PlanAssignmentList>(`/v1/plans/assignments?${params.toString()}`)
 }
 
-export async function assignSubjectPlan(subject: string, planID: string) {
+export async function assignSubjectPlan(subject: string, planID: string, effectiveAt?: string) {
+  const body = effectiveAt ? { effective_at: effectiveAt, plan_id: planID } : { plan_id: planID }
   return request<PlanAssignment>(`/v1/plans/subjects/${encodeURIComponent(subject)}`, {
-    body: JSON.stringify({ plan_id: planID }),
+    body: JSON.stringify(body),
     method: 'PUT',
   })
 }

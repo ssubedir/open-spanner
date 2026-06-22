@@ -1119,14 +1119,10 @@ export const appStoreActions = {
       setPlansState({ saving: false })
     }
   },
-  async assignSubjectPlan(subject: string, planID: string) {
+  async assignSubjectPlan(subject: string, planID: string, effectiveAt?: string) {
     setPlansState({ assigning: true, error: '' })
     try {
-      const assignment = await assignSubjectPlanRequest(subject, planID)
-      setPlansState((state) => ({
-        assignmentHistory: [assignment, ...state.assignmentHistory.filter((item) => item.id !== assignment.id)],
-        assignments: [assignment, ...state.assignments.filter((item) => item.subject !== assignment.subject)],
-      }))
+      const assignment = await assignSubjectPlanRequest(subject, planID, effectiveAt)
       if (appStore.state.plans.progressSubject === assignment.subject) {
         await appStoreActions.loadSubjectPlanProgress(assignment.subject)
       }

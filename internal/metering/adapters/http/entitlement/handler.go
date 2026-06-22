@@ -174,9 +174,15 @@ func (h *Handler) AssignSubject(w http.ResponseWriter, r *http.Request) {
 		respond.ValidationError(w, err)
 		return
 	}
+	effectiveAt, err := request.OptionalTime("effective_at", req.EffectiveAt)
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
 	assignment, err := h.service.AssignSubject(r.Context(), appentitlement.AssignSubjectCommand{
-		Subject: chi.URLParam(r, "subject"),
-		PlanID:  req.PlanID,
+		Subject:     chi.URLParam(r, "subject"),
+		PlanID:      req.PlanID,
+		EffectiveAt: effectiveAt,
 	})
 	if err != nil {
 		respond.ServiceError(w, err)
@@ -464,13 +470,15 @@ func limitResponse(limit appentitlement.PlanLimit) LimitResponse {
 }
 
 func assignmentResponse(assignment appentitlement.SubjectAssignment) AssignmentResponse {
+	status := assignment.StatusAt(time.Now().UTC())
 	return AssignmentResponse{
 		ID:             assignment.ID,
 		Subject:        assignment.Subject,
 		PlanID:         assignment.PlanID,
 		PlanName:       assignment.PlanName,
 		PlanVersion:    assignment.PlanVersion,
-		Active:         assignment.UnassignedAt.IsZero(),
+		Status:         string(status),
+		Active:         status == appentitlement.AssignmentStatusActive,
 		AssignedAt:     formatTime(assignment.AssignedAt),
 		PeriodAnchorAt: formatTime(assignment.PeriodAnchorAt),
 		UnassignedAt:   optionalTime(assignment.UnassignedAt),

@@ -10,6 +10,7 @@ import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
 import type { PlanSaveRequest } from '../api'
 import { useInitialLoad } from '../lib/hooks'
 import {
@@ -49,6 +50,7 @@ export function PlanDetailPage({ planId }: { planId: string }) {
     status,
   } = useSelector(appStore, (state) => state.plans)
   const [assignOpen, setAssignOpen] = useState(false)
+  const [assignmentTiming, setAssignmentTiming] = useState<'now' | 'scheduled'>('now')
   const [progressOpen, setProgressOpen] = useState(false)
   const load = useCallback(() => appStoreActions.loadPlans(), [])
   const pollEntitlementActivity = useCallback(() => appStoreActions.loadPlanEntitlementActivity({ quiet: true }), [])
@@ -73,12 +75,16 @@ export function PlanDetailPage({ planId }: { planId: string }) {
   async function submitAssignment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
+    const scheduledValue = String(form.get('effective_at') || '')
+    const effectiveAt = assignmentTiming === 'scheduled' && scheduledValue ? new Date(scheduledValue).toISOString() : undefined
     try {
       await appStoreActions.assignSubjectPlan(
         String(form.get('subject') || ''),
         planId,
+        effectiveAt,
       )
       setAssignOpen(false)
+      setAssignmentTiming('now')
     } catch {
       // Store owns the visible error state.
     }
@@ -287,7 +293,10 @@ export function PlanDetailPage({ planId }: { planId: string }) {
       </div>
 
       {assignOpen ? (
-        <Modal className="!w-full !max-w-[480px]" title="Assign Subject" onClose={() => setAssignOpen(false)}>
+        <Modal className="!w-full !max-w-[520px]" title="Assign Subject" onClose={() => {
+          setAssignOpen(false)
+          setAssignmentTiming('now')
+        }}>
           <form className="modal-form !grid-cols-1" onSubmit={(event) => void submitAssignment(event)}>
             <Label className="grid gap-1.5">
               Subject
@@ -297,8 +306,29 @@ export function PlanDetailPage({ planId }: { planId: string }) {
               Plan
               <Input disabled value={plan?.name ?? ''} />
             </Label>
+            <Label className="grid gap-1.5">
+              Effective
+              <Select onValueChange={(value) => setAssignmentTiming(value as 'now' | 'scheduled')} value={assignmentTiming}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Choose timing" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="now">Now</SelectItem>
+                  <SelectItem value="scheduled">Schedule change</SelectItem>
+                </SelectContent>
+              </Select>
+            </Label>
+            {assignmentTiming === 'scheduled' ? (
+              <Label className="grid gap-1.5">
+                Effective at
+                <Input name="effective_at" required type="datetime-local" />
+              </Label>
+            ) : null}
             <div className="modal-actions">
-              <Button onClick={() => setAssignOpen(false)} type="button" variant="outline">Cancel</Button>
+              <Button onClick={() => {
+                setAssignOpen(false)
+                setAssignmentTiming('now')
+              }} type="button" variant="outline">Cancel</Button>
               <Button disabled={assigning || !plan} type="submit">
                 {assigning ? <Loader2 className="spin" aria-hidden="true" /> : <Plus aria-hidden="true" />}
                 Assign

@@ -46,7 +46,8 @@ type PlanListResponse struct {
 
 // AssignmentRequest assigns a subject to a plan.
 type AssignmentRequest struct {
-	PlanID string `json:"plan_id"`
+	PlanID      string `json:"plan_id"`
+	EffectiveAt string `json:"effective_at,omitempty"`
 }
 
 // AssignmentResponse is a subject plan assignment.
@@ -56,6 +57,7 @@ type AssignmentResponse struct {
 	PlanID         string `json:"plan_id"`
 	PlanName       string `json:"plan_name"`
 	PlanVersion    int    `json:"plan_version"`
+	Status         string `json:"status"`
 	Active         bool   `json:"active"`
 	AssignedAt     string `json:"assigned_at"`
 	PeriodAnchorAt string `json:"period_anchor_at"`

@@ -53,6 +53,14 @@ const (
 	EventRecovered EventType = "recovered"
 )
 
+type AssignmentStatus string
+
+const (
+	AssignmentStatusScheduled AssignmentStatus = "scheduled"
+	AssignmentStatusActive    AssignmentStatus = "active"
+	AssignmentStatusEnded     AssignmentStatus = "ended"
+)
+
 type Repository interface {
 	SavePlan(ctx context.Context, plan Plan) (Plan, error)
 	RetirePlan(ctx context.Context, id string, updatedAt time.Time) error
@@ -63,6 +71,7 @@ type Repository interface {
 	CountAssignmentsForPlan(ctx context.Context, planID string) (int, error)
 	SaveSubjectAssignment(ctx context.Context, assignment SubjectAssignment) (SubjectAssignment, error)
 	FindSubjectAssignments(ctx context.Context, query AssignmentQuery) ([]SubjectAssignment, error)
+	FindEffectiveSubjectAssignment(ctx context.Context, subject string, at time.Time) (SubjectAssignment, error)
 	DeleteSubjectAssignment(ctx context.Context, subject string) error
 	GetEntitlementState(ctx context.Context, query StateQuery) (EntitlementState, error)
 	FindEntitlementStates(ctx context.Context, query StateListQuery) ([]EntitlementState, error)
@@ -157,6 +166,20 @@ type SubjectAssignment struct {
 	PeriodAnchorAt time.Time
 	UnassignedAt   time.Time
 	UpdatedAt      time.Time
+}
+
+func (a SubjectAssignment) StatusAt(now time.Time) AssignmentStatus {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	now = now.UTC()
+	if a.AssignedAt.After(now) {
+		return AssignmentStatusScheduled
+	}
+	if a.UnassignedAt.IsZero() || a.UnassignedAt.After(now) {
+		return AssignmentStatusActive
+	}
+	return AssignmentStatusEnded
 }
 
 type EntitlementState struct {
@@ -350,8 +373,9 @@ type ListPlansQuery struct {
 }
 
 type AssignSubjectCommand struct {
-	Subject string
-	PlanID  string
+	Subject     string
+	PlanID      string
+	EffectiveAt time.Time
 }
 
 type DeleteSubjectAssignmentCommand struct {
@@ -604,24 +628,28 @@ func (s *service) AssignSubject(ctx context.Context, cmd AssignSubjectCommand) (
 	}
 
 	now := s.now()
+	effectiveAt := cmd.EffectiveAt.UTC()
+	if effectiveAt.IsZero() || effectiveAt.Before(now) {
+		effectiveAt = now
+	}
 	assignment := SubjectAssignment{
 		ID:             uuid.NewString(),
 		Subject:        subject,
 		PlanID:         plan.Plan.ID,
 		PlanName:       plan.Plan.Name,
 		PlanVersion:    plan.Plan.Version,
-		AssignedAt:     now,
-		PeriodAnchorAt: now.Truncate(time.Second),
+		AssignedAt:     effectiveAt,
+		PeriodAnchorAt: effectiveAt.Truncate(time.Second),
 		UpdatedAt:      now,
 	}
 	var saved SubjectAssignment
 	err = s.transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
-		current, err := s.repo.FindSubjectAssignments(txCtx, AssignmentQuery{Subject: subject, ActiveOnly: true, Limit: 1})
-		if err != nil {
+		current, err := s.repo.FindEffectiveSubjectAssignment(txCtx, subject, now)
+		if err != nil && !errors.Is(err, domain.ErrNotFound) {
 			return err
 		}
-		if len(current) > 0 && !current[0].PeriodAnchorAt.IsZero() {
-			assignment.PeriodAnchorAt = current[0].PeriodAnchorAt
+		if err == nil && !current.PeriodAnchorAt.IsZero() {
+			assignment.PeriodAnchorAt = current.PeriodAnchorAt
 		}
 
 		var saveErr error
@@ -1136,14 +1164,7 @@ func (s *service) findPlan(ctx context.Context, id string) (PlanResult, error) {
 }
 
 func (s *service) findSubjectAssignment(ctx context.Context, subject string) (SubjectAssignment, error) {
-	assignments, err := s.repo.FindSubjectAssignments(ctx, AssignmentQuery{Subject: subject, ActiveOnly: true, Limit: 1})
-	if err != nil {
-		return SubjectAssignment{}, err
-	}
-	if len(assignments) == 0 {
-		return SubjectAssignment{}, domain.ErrNotFound
-	}
-	return assignments[0], nil
+	return s.repo.FindEffectiveSubjectAssignment(ctx, subject, s.now())
 }
 
 func (s *service) limitsByPlan(ctx context.Context, plans []Plan) (map[string][]PlanLimit, error) {
