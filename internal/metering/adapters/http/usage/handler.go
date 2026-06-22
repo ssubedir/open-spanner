@@ -17,23 +17,30 @@ import (
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/http/internal/request"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/http/internal/respond"
 	appalert "github.com/ssubedir/open-spanner/internal/metering/app/alert"
+	appentitlement "github.com/ssubedir/open-spanner/internal/metering/app/entitlement"
 	appusage "github.com/ssubedir/open-spanner/internal/metering/app/usage"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
 	domainusage "github.com/ssubedir/open-spanner/internal/metering/domain/usage"
 )
 
 type Handler struct {
-	service     appusage.Service
-	alerts      AlertEnqueuer
-	exportStore fileexport.Store
+	service      appusage.Service
+	alerts       AlertEnqueuer
+	entitlements EntitlementEnqueuer
+	exportStore  fileexport.Store
 }
 
 type AlertEnqueuer interface {
 	EnqueueForUsageEvents(ctx context.Context, events []appalert.UsageEvent) error
 }
 
+type EntitlementEnqueuer interface {
+	EnqueueForUsageEvents(ctx context.Context, events []appentitlement.UsageEvent) error
+}
+
 type HandlerOptions struct {
 	Alerts            AlertEnqueuer
+	Entitlements      EntitlementEnqueuer
 	ExportStoragePath string
 }
 
@@ -43,9 +50,10 @@ func NewHandler(service appusage.Service, options HandlerOptions) *Handler {
 		exportStoragePath = options.ExportStoragePath
 	}
 	return &Handler{
-		service:     service,
-		alerts:      options.Alerts,
-		exportStore: fileexport.NewStore(exportStoragePath),
+		service:      service,
+		alerts:       options.Alerts,
+		entitlements: options.Entitlements,
+		exportStore:  fileexport.NewStore(exportStoragePath),
 	}
 }
 
@@ -97,6 +105,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.enqueueAlerts(r.Context(), []appusage.Result{event})
+	h.enqueueEntitlements(r.Context(), []appusage.Result{event})
 
 	respond.JSON(w, http.StatusCreated, responseFromResult(event))
 }
@@ -174,6 +183,7 @@ func (h *Handler) CreateBulk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.enqueueAlerts(r.Context(), result.Accepted)
+	h.enqueueEntitlements(r.Context(), result.Accepted)
 
 	respond.JSON(w, status, bulkResponseFromResult(result))
 }
@@ -915,6 +925,23 @@ func (h *Handler) enqueueAlerts(ctx context.Context, events []appusage.Result) {
 	}
 	if err := h.alerts.EnqueueForUsageEvents(ctx, alertEvents); err != nil {
 		log.Printf("alert enqueue failed: %v", err)
+	}
+}
+
+func (h *Handler) enqueueEntitlements(ctx context.Context, events []appusage.Result) {
+	if h.entitlements == nil || len(events) == 0 {
+		return
+	}
+	entitlementEvents := make([]appentitlement.UsageEvent, 0, len(events))
+	for _, event := range events {
+		entitlementEvents = append(entitlementEvents, appentitlement.UsageEvent{
+			Subject:  event.Subject,
+			Meter:    event.MeterName,
+			Quantity: event.Quantity,
+		})
+	}
+	if err := h.entitlements.EnqueueForUsageEvents(ctx, entitlementEvents); err != nil {
+		log.Printf("entitlement enqueue failed: %v", err)
 	}
 }
 

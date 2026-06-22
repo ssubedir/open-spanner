@@ -7,8 +7,15 @@ import { DataTable, Modal, PageHeader } from '../components/dashboard'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
+import { Checkbox } from '../components/ui/checkbox'
+import { Input } from '../components/ui/input'
+import { Label } from '../components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
+import { Textarea } from '../components/ui/textarea'
 import { formatDate } from '../lib/format'
 import { useInitialLoad } from '../lib/hooks'
+
+const neverExpiresSelectValue = '__never_expires__'
 
 const apiKeyScopes = [
   { value: 'usage:write', label: 'Write usage', group: 'Usage', description: 'Record usage events from a backend service.' },
@@ -19,10 +26,12 @@ const apiKeyScopes = [
   { value: 'alerts:write', label: 'Write alerts', group: 'Alerts', description: 'Manage alert rules and destinations.' },
   { value: 'exports:read', label: 'Read exports', group: 'Exports', description: 'List and download usage exports.' },
   { value: 'exports:write', label: 'Write exports', group: 'Exports', description: 'Queue, cancel, and retry export jobs.' },
+  { value: 'plans:read', label: 'Read plans', group: 'Plans', description: 'Check plan limits and remaining quota for backend decisions.' },
+  { value: 'plans:write', label: 'Write plans', group: 'Plans', description: 'Manage plans and subject assignments.' },
   { value: 'system:read', label: 'Read system', group: 'System', description: 'Read operational stats for the workspace.' },
 ]
 
-const defaultAPIKeyScopes = new Set(['usage:write', 'usage:read', 'meters:read', 'meters:write'])
+const defaultAPIKeyScopes = new Set(['usage:write', 'usage:read', 'meters:read', 'meters:write', 'plans:read'])
 const apiKeyScopeGroups = Array.from(new Set(apiKeyScopes.map((scope) => scope.group)))
 
 const apiKeyExpirationPresets = [
@@ -50,7 +59,7 @@ export function APIKeysPage() {
       const expiresAfter = String(form.get('expires_after') || '').trim()
       await appStoreActions.createAPIKey({
         allowed_meters: splitList(String(form.get('allowed_meters') || '')),
-        expires_at: expirationPresetToISO(expiresAfter),
+        expires_at: expirationPresetToISO(expiresAfter === neverExpiresSelectValue ? '' : expiresAfter),
         name: String(form.get('name') || ''),
         scopes: form.getAll('scopes').map(String),
       })
@@ -106,13 +115,13 @@ export function APIKeysPage() {
         </section>
       ) : null}
 
-      <Card className="api-key-table-card">
-        <CardHeader className="api-key-card-header">
+      <Card className="min-w-0">
+        <CardHeader className="!px-4 !py-3">
           <div>
             <CardTitle>Keys</CardTitle>
             <CardDescription>Active keys for SDK clients.</CardDescription>
           </div>
-          <div className="card-header-actions">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <Button disabled={saving} onClick={() => appStoreActions.setAPIKeyCreating(true)} type="button">
               <Plus aria-hidden="true" />
               New key
@@ -145,12 +154,12 @@ export function APIKeysPage() {
       </Card>
 
       {creating ? (
-        <Modal className="api-key-modal" title="Create API Key" onClose={() => appStoreActions.setAPIKeyCreating(false)}>
-          <form className="modal-form api-key-modal-form" onSubmit={(event) => void submitCreate(event)}>
-            <label>
+        <Modal className="!w-full !max-w-[700px]" title="Create API Key" onClose={() => appStoreActions.setAPIKeyCreating(false)}>
+          <form className="modal-form max-h-[calc(100vh-128px)] overflow-auto" onSubmit={(event) => void submitCreate(event)}>
+            <Label className="grid gap-1.5">
               Name
-              <input name="name" placeholder="server-billing-sync" required />
-            </label>
+              <Input name="name" placeholder="server-billing-sync" required />
+            </Label>
             <div className="form-field wide">
               <span className="field-label">Scopes</span>
               <div className="scope-picker">
@@ -159,31 +168,36 @@ export function APIKeysPage() {
                     <strong>{group}</strong>
                     <div className="scope-options">
                       {apiKeyScopes.filter((scope) => scope.group === group).map((scope) => (
-                        <label className="scope-option" key={scope.value}>
-                          <input defaultChecked={defaultAPIKeyScopes.has(scope.value)} name="scopes" type="checkbox" value={scope.value} />
+                        <Label className="scope-option" key={scope.value}>
+                          <Checkbox defaultChecked={defaultAPIKeyScopes.has(scope.value)} name="scopes" value={scope.value} />
                           <span>
                             <b>{scope.label}</b>
                             <small>{scope.description}</small>
                           </span>
-                        </label>
+                        </Label>
                       ))}
                     </div>
                   </section>
                 ))}
               </div>
             </div>
-            <label>
+            <Label className="grid gap-1.5">
               Allowed meters
-              <textarea name="allowed_meters" placeholder="Leave blank for all meters&#10;api_requests&#10;storage_bytes" rows={3} />
-            </label>
-            <label>
+              <Textarea name="allowed_meters" placeholder={'Leave blank for all meters\napi_requests\nstorage_bytes'} rows={3} />
+            </Label>
+            <Label className="grid gap-1.5">
               Expires after
-              <select defaultValue="" name="expires_after">
+              <Select defaultValue={neverExpiresSelectValue} name="expires_after">
+                <SelectTrigger className="min-h-[38px] w-full">
+                  <SelectValue placeholder="Select expiry" />
+                </SelectTrigger>
+                <SelectContent position="popper">
                 {apiKeyExpirationPresets.map((preset) => (
-                  <option key={preset.value || 'never'} value={preset.value}>{preset.label}</option>
+                  <SelectItem key={preset.value || 'never'} value={preset.value || neverExpiresSelectValue}>{preset.label}</SelectItem>
                 ))}
-              </select>
-            </label>
+                </SelectContent>
+              </Select>
+            </Label>
             <div className="modal-actions">
               <Button onClick={() => appStoreActions.setAPIKeyCreating(false)} type="button" variant="outline">Cancel</Button>
               <Button disabled={saving} type="submit">

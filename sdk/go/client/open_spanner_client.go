@@ -8,8 +8,10 @@ import (
 	"github.com/go-openapi/runtime"
 	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
+	"github.com/ssubedir/open-spanner/sdk/go/client/entitlements"
 	"github.com/ssubedir/open-spanner/sdk/go/client/health"
 	"github.com/ssubedir/open-spanner/sdk/go/client/meters"
+	"github.com/ssubedir/open-spanner/sdk/go/client/plans"
 	"github.com/ssubedir/open-spanner/sdk/go/client/usages"
 )
 
@@ -56,8 +58,10 @@ func New(transport runtime.ContextualTransport, formats strfmt.Registry) *OpenSp
 
 	cli := new(OpenSpanner)
 	cli.Transport = transport
+	cli.Entitlements = entitlements.New(transport, formats)
 	cli.Health = health.New(transport, formats)
 	cli.Meters = meters.New(transport, formats)
+	cli.Plans = plans.New(transport, formats)
 	cli.Usages = usages.New(transport, formats)
 
 	return cli
@@ -118,9 +122,13 @@ func (cfg *TransportConfig) WithConsumers(consumers map[string]runtime.Consumer)
 
 // OpenSpanner is a client for open spanner.
 type OpenSpanner struct {
+	Entitlements entitlements.ClientService
+
 	Health health.ClientService
 
 	Meters meters.ClientService
+
+	Plans plans.ClientService
 
 	Usages usages.ClientService
 
@@ -130,7 +138,9 @@ type OpenSpanner struct {
 // SetTransport changes the transport on the client and all its subresources.
 func (c *OpenSpanner) SetTransport(transport runtime.ContextualTransport) {
 	c.Transport = transport
+	c.Entitlements.SetTransport(transport)
 	c.Health.SetTransport(transport)
 	c.Meters.SetTransport(transport)
+	c.Plans.SetTransport(transport)
 	c.Usages.SetTransport(transport)
 }

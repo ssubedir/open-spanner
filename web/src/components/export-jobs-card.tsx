@@ -34,8 +34,8 @@ export function ExportJobsCard({
   const label = status === 'loading' && jobs.length === 0 ? 'Loading' : `${jobs.length} jobs`
 
   return (
-    <Card className="usage-export-card">
-      <CardHeader className="usage-card-header">
+    <Card className="min-w-0">
+      <CardHeader className="!px-4 !py-3">
         <div>
           <CardTitle>{title}</CardTitle>
           <CardDescription>Queued CSV exports handled by the worker.</CardDescription>

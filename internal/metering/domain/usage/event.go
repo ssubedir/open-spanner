@@ -31,14 +31,15 @@ func NewEvent(
 ) (Event, error) {
 	id = strings.TrimSpace(id)
 	idempotencyKey = strings.TrimSpace(idempotencyKey)
-	subject = strings.TrimSpace(subject)
 	meterName = strings.TrimSpace(meterName)
+	var err error
+	subject, err = NormalizeSubject(subject)
 
 	if id == "" {
 		return Event{}, fmt.Errorf("%w: event id is required", domain.ErrInvalidInput)
 	}
-	if subject == "" {
-		return Event{}, fmt.Errorf("%w: subject is required", domain.ErrInvalidInput)
+	if err != nil {
+		return Event{}, err
 	}
 	if meterName == "" {
 		return Event{}, fmt.Errorf("%w: meter is required", domain.ErrInvalidInput)

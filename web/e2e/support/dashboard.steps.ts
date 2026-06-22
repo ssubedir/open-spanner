@@ -39,6 +39,16 @@ export type WorkspaceIsolationScenario = {
   subject: string
 }
 
+export type PlanEntitlementScenario = {
+  current: number
+  eventType: string
+  limit: number
+  meterName: string
+  planID: string
+  planName: string
+  subject: string
+}
+
 export type CSVDownload = {
   filename: string
   text: string
@@ -148,6 +158,83 @@ export const Given = {
       to,
     }
   },
+
+  async aPlanEntitlementWarningExists(page: Page): Promise<PlanEntitlementScenario> {
+    const id = uniqueID()
+    const current = 7
+    const limit = 10
+    const meterName = `entitlement_api_calls_${id}`
+    const planName = `Entitlement Pro ${id}`
+    const subject = `org_entitlement_${id}`
+
+    const meterResponse = await page.request.post('/v1/meters', {
+      data: {
+        aggregation: 'sum',
+        description: 'E2E entitlement meter',
+        dimensions: [],
+        event_retention_days: 30,
+        name: meterName,
+        unit: 'call',
+      },
+    })
+    expect(meterResponse.status()).toBe(201)
+
+    const planResponse = await page.request.post('/v1/plans', {
+      data: {
+        description: 'E2E entitlement quota plan',
+        limits: [
+          {
+            limit,
+            meter: meterName,
+            period: 'month',
+            warning_percent: 60,
+          },
+        ],
+        name: planName,
+      },
+    })
+    expect(planResponse.status()).toBe(201)
+    const plan = await planResponse.json() as { id: string }
+
+    const assignmentResponse = await page.request.put(`/v1/plans/subjects/${encodeURIComponent(subject)}`, {
+      data: {
+        plan_id: plan.id,
+      },
+    })
+    expect(assignmentResponse.status()).toBe(200)
+
+    const usageResponse = await page.request.post('/v1/usages', {
+      data: {
+        idempotency_key: `entitlement-warning-${id}`,
+        metadata: {
+          endpoint: '/plans',
+        },
+        meter: meterName,
+        quantity: current,
+        subject,
+        timestamp: new Date().toISOString(),
+      },
+    })
+    expect(usageResponse.status()).toBe(201)
+
+    const query = new URLSearchParams({
+      limit: '10',
+      meter: meterName,
+      subject,
+    })
+    await waitForEntitlementState(page, `/v1/entitlements/states?${query.toString()}`, 'warning')
+    await waitForEntitlementState(page, `/v1/entitlements/events?${query.toString()}`, 'warning')
+
+    return {
+      current,
+      eventType: 'warning',
+      limit,
+      meterName,
+      planID: plan.id,
+      planName,
+      subject,
+    }
+  },
 }
 
 export const When = {
@@ -163,35 +250,35 @@ export const When = {
     await expect(page.getByRole('heading', { name: 'Meter definitions' })).toBeVisible()
 
     await page.getByRole('button', { name: 'New meter' }).click()
-    await expect(page.getByRole('dialog', { name: 'Create Meter' })).toBeVisible()
+    const dialog = page.getByRole('dialog', { name: 'Create Meter' })
+    await expect(dialog).toBeVisible()
 
-    await page.locator('#meter-name').fill(meterName)
-    await page.locator('#meter-unit').fill('request')
-    await page.locator('#meter-description').fill('E2E API requests')
-    await page.locator('select[name="aggregation"]').selectOption('sum')
+    await dialog.locator('#meter-name').fill(meterName)
+    await dialog.locator('#meter-unit').fill('request')
+    await dialog.locator('#meter-description').fill('E2E API requests')
 
-    await page.getByTestId('meter-dimensions-toggle').click()
+    await dialog.getByTestId('meter-dimensions-toggle').click()
     await fillDimension(page, 0, {
       description: 'Serving region',
       displayName: 'Region',
       name: 'region-name',
     })
 
-    await page.locator('.meter-create-form .schema-builder-actions').getByRole('button', { name: 'Add' }).click()
+    await dialog.locator('.schema-builder-actions').getByRole('button', { name: 'Add' }).click()
     await fillDimension(page, 1, {
       description: 'Service tier',
       displayName: 'Service Tier',
       name: 'service.tier',
     })
 
-    await page.locator('.meter-create-form .schema-builder-actions').getByRole('button', { name: 'Add' }).click()
+    await dialog.locator('.schema-builder-actions').getByRole('button', { name: 'Add' }).click()
     await fillDimension(page, 2, {
       description: 'HTTP status code',
       displayName: 'Status Code',
       name: 'status_code',
     })
 
-    await page.locator('.meter-create-form').getByRole('button', { name: 'Create meter' }).click()
+    await dialog.getByRole('button', { name: 'Create meter' }).click()
   },
 
   async theUserQueriesUsageByServiceTier(page: Page, scenario: UsageScenario) {
@@ -231,12 +318,35 @@ export const When = {
 
     await page.getByRole('checkbox', { name: 'Region' }).check()
     await page.getByRole('checkbox', { name: 'Service Tier' }).check()
-    await page.getByLabel('Saved query name').fill(`Gold API traffic ${scenario.meterName}`)
+    const queryName = `Gold API traffic ${scenario.meterName}`
+    await page.getByLabel('Saved query name').fill(queryName)
+    await expect(page.getByLabel('Saved query name')).toHaveValue(queryName)
     await page.getByRole('button', { name: 'Save' }).click()
-    await expect(page.getByRole('button', { name: 'Update' })).toBeVisible()
-    await page.getByRole('button', { name: 'Pin' }).click()
-    await expect(page.getByRole('button', { name: 'Unpin' })).toBeVisible()
+    await expectSavedUsageQuery(page, queryName)
     await page.getByRole('button', { name: 'Run Query' }).click()
+  },
+
+  async theUserChangesUsageChartControls(page: Page) {
+    const chart = page.locator('.usage-chart-card')
+    await expect(chart).toBeVisible()
+
+    await selectControlOption(page, chart.getByLabel('Chart bucket'), 'hour')
+    await selectControlOption(page, chart.getByLabel('Chart type'), 'area')
+
+    const stacked = chart.getByLabel('Stack chart series')
+    if (await stacked.isEnabled()) {
+      await stacked.check()
+    }
+
+    const cumulative = chart.getByLabel('Cumulative chart')
+    if (!await cumulative.isChecked()) {
+      await cumulative.check()
+    }
+
+    const points = chart.getByLabel('Show chart points')
+    if (!await points.isChecked()) {
+      await points.check()
+    }
   },
 
   async theUserOpensUsageFromSubjectActivity(page: Page, scenario: UsageScenario) {
@@ -244,6 +354,16 @@ export const When = {
     await expect(page.getByRole('heading', { name: scenario.primarySubject })).toBeVisible()
     await expect(page.locator('.subject-meter-list')).toContainText(scenario.meterName)
     await page.getByRole('button', { name: 'Open Usage' }).click()
+  },
+
+  async theUserOpensPlan(page: Page, scenario: PlanEntitlementScenario) {
+    await page.goto(`/plans/${scenario.planID}`)
+    await expect(page.getByRole('heading', { name: scenario.planName })).toBeVisible()
+  },
+
+  async theUserOpensSubjectActivityForEntitlement(page: Page, scenario: PlanEntitlementScenario) {
+    await page.goto(`/subjects/${scenario.subject}`)
+    await expect(page.getByRole('heading', { name: scenario.subject })).toBeVisible()
   },
 
   async theUserExportsCurrentUsageBuckets(page: Page): Promise<CSVDownload> {
@@ -273,7 +393,7 @@ export const When = {
 
   async theUserQueuesCurrentUsageExport(page: Page) {
     await page.getByRole('button', { name: 'Queue Export' }).click()
-    await expect(page.locator('.usage-export-card')).toContainText('Usage buckets')
+    await expect(page.locator('main')).toContainText('Usage buckets')
   },
 
   async theUserExportsSubjectEvents(page: Page, scenario: UsageScenario): Promise<CSVDownload> {
@@ -356,6 +476,26 @@ export const When = {
     })
   },
 
+  async theServiceQueuesFailingUsageExportJob(page: Page, apiKey: string, scenario: UsageScenario): Promise<ExportJobResponse> {
+    return withAPIKeyContext(page, apiKey, async (api) => {
+      const response = await api.post('/v1/exports', {
+        data: {
+          format: 'csv',
+          kind: 'usage_buckets',
+          query: {
+            bucket_size: 'day',
+            from: apiWindowForScenario(scenario).from,
+            limit: 100,
+            meter: `missing_export_meter_${uniqueID()}`,
+            to: apiWindowForScenario(scenario).to,
+          },
+        },
+      })
+      expect(response.status()).toBe(202)
+      return response.json() as Promise<ExportJobResponse>
+    })
+  },
+
   async theUserCreatesAScopedUsageWriteAPIKey(page: Page, allowedMeter: string): Promise<ScopedAPIKeyScenario> {
     const id = uniqueID()
     const scenario = {
@@ -386,7 +526,7 @@ export const When = {
     expect(key).toBeTruthy()
     scenario.key = key || ''
 
-    const table = page.locator('.api-key-table-card')
+    const table = page.locator('main')
     await expect(table).toContainText(scenario.name)
     await expect(table).toContainText('Write usage')
     await expect(table).toContainText(`meters: ${allowedMeter}`)
@@ -532,7 +672,7 @@ export const When = {
     expect(exportResponse.status()).toBe(202)
     const exportJob = await exportResponse.json() as { id: string }
 
-    return {
+    const scenario = {
       alertID: alert.id,
       alertName,
       apiKeyID: key.id,
@@ -542,6 +682,10 @@ export const When = {
       meterName,
       subject,
     }
+
+    await waitForWorkspaceResources(page, scenario)
+
+    return scenario
   },
 
   async theUserSignsOut(page: Page) {
@@ -556,9 +700,30 @@ export const Then = {
     await expect(page.getByText(account.email)).toBeVisible()
   },
 
+  async expiredDashboardSessionRedirectsCleanly(page: Page) {
+    await page.request.delete('/v1/auth/session')
+    await page.goto('/overview')
+
+    await expect(page).toHaveURL(/\/login/)
+    await expect(page.getByLabel('Email')).toBeVisible()
+    await expect(page.getByLabel('Password')).toBeVisible()
+    await expect(page.locator('body')).not.toContainText('Unauthorized')
+    await expect(page.locator('body')).not.toContainText('Bad Gateway')
+    await expect(page.locator('body')).not.toContainText('internal server error')
+    await expect(page.locator('body')).not.toContainText('Not Found')
+  },
+
   async theMeterIsVisible(page: Page, meterName: string) {
-    await expect(page.locator('.meter-table-card')).toContainText(meterName)
-    await expect(page.locator('.meter-table-card')).toContainText('Service Tier')
+    await expect(page.locator('main')).toContainText(meterName)
+    await expect(page.locator('main')).toContainText('Service Tier')
+  },
+
+  async meterDetailIsVisible(page: Page, meterName: string) {
+    await page.goto(`/meters/${meterName}`)
+    await expect(page.getByRole('heading', { name: meterName })).toBeVisible()
+    await expect(page.locator('main')).toContainText('Dimensions')
+    await expect(page.locator('main')).toContainText('Service Tier')
+    await expect(page.getByRole('button', { name: 'Analyze usage' })).toBeVisible()
   },
 
   async theUsagePageLoadsWithoutDimensionErrors(page: Page) {
@@ -596,6 +761,75 @@ export const Then = {
     await expect(chart.getByLabel('Cumulative chart')).toBeVisible()
     await expect(chart.locator('canvas')).toBeVisible()
     await expect(chart).toContainText('12')
+  },
+
+  async usageChartControlsAreApplied(page: Page) {
+    const chart = page.locator('.usage-chart-card')
+
+    await expect(chart.getByLabel('Chart bucket')).toContainText('Hour')
+    await expect(chart.getByLabel('Chart type')).toContainText('Filled Area')
+    await expect(chart.getByLabel('Cumulative chart')).toBeChecked()
+    await expect(chart.getByLabel('Show chart points')).toBeChecked()
+    if (await chart.getByLabel('Stack chart series').isEnabled()) {
+      await expect(chart.getByLabel('Stack chart series')).toBeChecked()
+      await expect(chart.getByLabel('Usage chart summary')).toContainText(/Stacked|Stack needs 2\+ series/)
+    }
+    await expect(chart).toContainText('Cumulative')
+    await expect(chart.locator('canvas')).toBeVisible()
+    await expect(chart).toContainText('12')
+  },
+
+  async usageFiltersRemainReadable(page: Page) {
+    const originalViewport = page.viewportSize()
+
+    for (const viewport of [
+      { height: 900, width: 1280 },
+      { height: 900, width: 640 },
+    ]) {
+      await page.setViewportSize(viewport)
+      const filterBuilder = page.locator('.filter-builder')
+      await expect(filterBuilder).toBeVisible()
+
+      const layout = await filterBuilder.evaluate((node) => {
+        const container = node.getBoundingClientRect()
+        const controls = Array.from(node.querySelectorAll('button,input')).map((control) => {
+          const rect = control.getBoundingClientRect()
+          return {
+            bottom: rect.bottom,
+            height: rect.height,
+            left: rect.left,
+            right: rect.right,
+            top: rect.top,
+            width: rect.width,
+          }
+        })
+        const rules = Array.from(node.querySelectorAll('.rule')).map((rule) => {
+          const rect = rule.getBoundingClientRect()
+          return {
+            bottom: rect.bottom,
+            left: rect.left,
+            right: rect.right,
+            top: rect.top,
+          }
+        })
+
+        return {
+          controlsInside: controls.every((control) => control.left >= container.left - 1 && control.right <= container.right + 1),
+          horizontalOverflow: Math.ceil(node.scrollWidth - node.clientWidth),
+          readableControls: controls.every((control) => control.width >= 28 && control.height >= 28),
+          rulesInside: rules.every((rule) => rule.left >= container.left - 1 && rule.right <= container.right + 1),
+        }
+      })
+
+      expect(layout.horizontalOverflow).toBeLessThanOrEqual(2)
+      expect(layout.controlsInside).toBe(true)
+      expect(layout.rulesInside).toBe(true)
+      expect(layout.readableControls).toBe(true)
+    }
+
+    if (originalViewport) {
+      await page.setViewportSize(originalViewport)
+    }
   },
 
   async advancedUsageBucketCSVIncludesMatchingUsage(download: CSVDownload, scenario: UsageScenario) {
@@ -640,10 +874,12 @@ export const Then = {
 
   async usageQueryIsScopedToSubjectAndMeter(page: Page, scenario: UsageScenario) {
     await expect(page).toHaveURL(/\/usage$/)
-    await expect.poll(() => queryRulePairs(page)).toEqual(expect.arrayContaining([
-      `meter:${scenario.meterName}`,
-      `subject:${scenario.primarySubject}`,
-    ]))
+    const filterBuilder = page.locator('.filter-builder')
+    await expect(filterBuilder.locator('.rule').first()).toContainText('Meter')
+    await expect(filterBuilder.locator('.rule').first()).toContainText(scenario.meterName)
+    const subjectRule = filterBuilder.locator('.rule').last()
+    await expect(subjectRule).toContainText('Subject')
+    await expect(subjectRule.locator('.rule-value')).toHaveValue(scenario.primarySubject)
   },
 
   async usageBucketCSVIncludesCurrentQuery(download: CSVDownload, scenario: UsageScenario) {
@@ -679,7 +915,7 @@ export const Then = {
   },
 
   async queuedUsageExportCompletesInDashboard(page: Page, scenario: UsageScenario): Promise<CSVDownload> {
-    const row = page.locator('.usage-export-card .export-job-row', { hasText: scenario.meterName }).first()
+    const row = page.locator('.export-job-row', { hasText: scenario.meterName }).first()
     await expect(row).toContainText('Completed', { timeout: 20_000 })
 
     const downloadPromise = page.waitForEvent('download')
@@ -700,14 +936,9 @@ export const Then = {
     await page.goto('/exports')
     await expect(page.getByRole('heading', { name: 'Export jobs' })).toBeVisible()
 
-    const filters = page.locator('.exports-filter-bar')
-    await expect(filters.getByRole('button', { name: /Completed/ })).toBeVisible()
-    await filters.getByRole('button', { name: /Completed/ }).click()
-
-    const jobs = page.locator('.usage-export-card')
-    await expect(jobs).toContainText(scenario.meterName)
-    await expect(jobs).toContainText('Completed')
-    await expect(jobs.getByRole('button', { name: 'Download' })).toBeVisible()
+    const job = page.locator('.export-job-row', { hasText: scenario.meterName }).first()
+    await expect(job).toContainText('Completed')
+    await expect(job.getByRole('button', { name: 'Download' })).toBeVisible()
   },
 
   async directUsageBucketCSVResponseIncludesCurrentQuery(response: CSVResponse, scenario: UsageScenario) {
@@ -765,6 +996,34 @@ export const Then = {
     })
   },
 
+  async failedExportDoesNotBlockCompletedExports(
+    page: Page,
+    apiKey: string,
+    failedJob: ExportJobResponse,
+    completedJob: ExportJobResponse,
+    scenario: UsageScenario,
+  ) {
+    await withAPIKeyContext(page, apiKey, async (api) => {
+      const failed = await waitForExportJobStatus(api, failedJob.id, 'failed')
+      expect(failed.error || '').toBeTruthy()
+
+      const completed = await waitForCompletedExportJob(api, completedJob.id)
+      expect(completed.query.meter).toBe(scenario.meterName)
+      expect(completed.artifact_size || 0).toBeGreaterThan(0)
+    })
+
+    await page.goto('/exports')
+    await expect(page.getByRole('heading', { name: 'Export jobs' })).toBeVisible()
+
+    const failedRow = page.locator('.export-job-row', { hasText: failedJob.query.meter }).first()
+    await expect(failedRow).toContainText('Failed')
+    await expect(failedRow.getByRole('button', { name: 'Retry' })).toBeVisible()
+
+    const completedRow = page.locator('.export-job-row', { hasText: completedJob.query.meter }).first()
+    await expect(completedRow).toContainText('Completed')
+    await expect(completedRow.getByRole('button', { name: 'Download' })).toBeVisible()
+  },
+
   async queuedUsageBucketCSVResponseIncludesCurrentQuery(response: CSVResponse, scenario: UsageScenario, jobID: string) {
     expect(response.status).toBe(200)
     expect(response.headers['content-type']).toContain('text/csv')
@@ -804,33 +1063,64 @@ export const Then = {
   async workspaceOwnedDataIsHiddenFromCurrentUser(page: Page, scenario: WorkspaceIsolationScenario) {
     await page.goto('/meters')
     await expect(page.getByRole('heading', { name: 'Meter definitions' })).toBeVisible()
-    await expect(page.locator('.meter-table-card')).not.toContainText(scenario.meterName)
+    await expect(page.locator('main')).not.toContainText(scenario.meterName)
 
     await page.goto('/usage')
     await expect(page.getByRole('heading', { name: 'Usage buckets' })).toBeVisible()
-    await expect(page.locator('body')).not.toContainText(scenario.meterName)
-    await expect(page.locator('body')).not.toContainText(scenario.subject)
+    await expect(page.locator('main')).not.toContainText(scenario.meterName)
+    await expect(page.locator('main')).not.toContainText(scenario.subject)
 
     await page.goto('/subjects')
-    await expect(page.getByRole('heading', { name: 'Subject activity' })).toBeVisible()
-    await expect(page.locator('.subject-list-card')).not.toContainText(scenario.subject)
+    await expect(page.getByRole('heading', { name: 'Subjects' })).toBeVisible()
+    await expect(page.locator('main')).not.toContainText(scenario.subject)
 
     await page.goto('/alerts')
-    await expect(page.getByRole('heading', { name: 'Threshold rules' })).toBeVisible()
-    await expect(page.locator('.alert-rules-card')).not.toContainText(scenario.alertName)
-    await expect(page.locator('.alert-destinations-card')).not.toContainText(scenario.destinationName)
+    await expect(page.getByRole('heading', { name: 'Alerts' })).toBeVisible()
+    await expect(page.locator('main')).not.toContainText(scenario.alertName)
+    await expect(page.locator('main')).not.toContainText(scenario.destinationName)
+
+    await page.goto(`/alerts/${scenario.alertID}`)
+    await expect(page.getByRole('heading', { name: 'Alert not found' })).toBeVisible()
+    await expect(page.locator('main')).not.toContainText(scenario.alertName)
 
     await page.goto('/exports')
     await expect(page.getByRole('heading', { name: 'Export jobs' })).toBeVisible()
-    await expect(page.locator('.usage-export-card')).not.toContainText(scenario.meterName)
+    await expect(page.locator('main')).not.toContainText(scenario.meterName)
 
     await page.goto('/api-keys')
     await expect(page.getByRole('heading', { name: 'SDK access' })).toBeVisible()
-    await expect(page.locator('.api-key-table-card')).not.toContainText(scenario.apiKeyName)
+    await expect(page.locator('main')).not.toContainText(scenario.apiKeyName)
 
     await page.goto('/overview')
     await expect(page.getByRole('heading', { name: 'Metering operations' })).toBeVisible()
-    await expect(page.locator('.overview-grid')).not.toContainText(scenario.subject)
+    await expect(page.locator('main')).not.toContainText(scenario.subject)
+  },
+
+  async malformedSubjectRouteShowsNotFound(page: Page) {
+    await page.goto(`/subjects/${encodeURIComponent('gggg-<>ddddd')}`)
+    await expect(page.getByRole('heading', { name: 'Subject not found' })).toBeVisible()
+    await expect(page.locator('main')).not.toContainText('Meter Activity')
+    await expect(page.locator('main')).not.toContainText('Recent Events')
+  },
+
+  async missingMeterRouteShowsNotFound(page: Page) {
+    await page.goto('/meters/missing_e2e_meter')
+    await expect(page.getByRole('heading', { name: 'Meter not found' })).toBeVisible()
+    await expect(page.locator('main')).not.toContainText('No route found')
+  },
+
+  async missingPlanRouteShowsNotFound(page: Page) {
+    await page.goto('/plans/missing_e2e_plan')
+    await expect(page.getByRole('heading', { name: 'Plan not found' })).toBeVisible()
+    await expect(page.locator('main')).not.toContainText('Assignments')
+    await expect(page.locator('main')).not.toContainText('No route found')
+  },
+
+  async missingAlertRouteShowsNotFound(page: Page) {
+    await page.goto('/alerts/missing_e2e_alert')
+    await expect(page.getByRole('heading', { name: 'Alert not found' })).toBeVisible()
+    await expect(page.locator('main')).not.toContainText('Recent Events')
+    await expect(page.locator('main')).not.toContainText('No route found')
   },
 
   async workspaceOwnedAPIResourcesAreHiddenFromCurrentUser(page: Page, scenario: WorkspaceIsolationScenario) {
@@ -877,6 +1167,46 @@ export const Then = {
     const deleteKey = await page.request.delete(`/v1/auth/api-keys/${scenario.apiKeyID}`)
     expect(deleteKey.status()).toBe(404)
   },
+
+  async workspaceOwnedAlertDetailIsVisibleToCurrentUser(page: Page, scenario: WorkspaceIsolationScenario) {
+    await page.goto(`/alerts/${scenario.alertID}`)
+    await expect(page.getByRole('heading', { name: scenario.alertName })).toBeVisible()
+    await expect(page.locator('main')).toContainText(scenario.destinationName)
+    await expect(page.locator('main')).toContainText(scenario.meterName)
+  },
+
+  async planEntitlementStateIsVisible(page: Page, scenario: PlanEntitlementScenario) {
+    const section = page.locator('section,div').filter({ has: page.getByRole('heading', { name: 'Current Entitlements' }) }).first()
+    await expect(section).toContainText(scenario.subject, { timeout: 30_000 })
+    await expect(section).toContainText(scenario.meterName, { timeout: 30_000 })
+    await expect(section).toContainText(scenario.planName, { timeout: 30_000 })
+    await expect(section).toContainText('Warning', { timeout: 30_000 })
+    await expect(section).toContainText(`${scenario.current} / ${scenario.limit}`, { timeout: 30_000 })
+  },
+
+  async planEntitlementChangeIsVisible(page: Page, scenario: PlanEntitlementScenario) {
+    const section = page.locator('section,div').filter({ has: page.getByRole('heading', { name: 'Recent Entitlement Changes' }) }).first()
+    await expect(section).toContainText(scenario.subject, { timeout: 30_000 })
+    await expect(section).toContainText(scenario.meterName, { timeout: 30_000 })
+    await expect(section).toContainText('Warning', { timeout: 30_000 })
+    await expect(section).toContainText('quota warning threshold reached', { timeout: 30_000 })
+  },
+
+  async subjectEntitlementStateIsVisible(page: Page, scenario: PlanEntitlementScenario) {
+    const section = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Entitlements' }) }).first()
+    await expect(section).toContainText(scenario.meterName, { timeout: 30_000 })
+    await expect(section).toContainText(scenario.planName, { timeout: 30_000 })
+    await expect(section).toContainText('Warning', { timeout: 30_000 })
+    await expect(section).toContainText(`${scenario.current} / ${scenario.limit}`, { timeout: 30_000 })
+  },
+
+  async subjectEntitlementChangeIsVisible(page: Page, scenario: PlanEntitlementScenario) {
+    const section = page.locator('section,div').filter({ has: page.getByRole('heading', { name: 'Entitlement Changes' }) }).first()
+    await expect(section).toContainText(scenario.meterName, { timeout: 30_000 })
+    await expect(section).toContainText(scenario.planName, { timeout: 30_000 })
+    await expect(section).toContainText('Warning', { timeout: 30_000 })
+    await expect(section).toContainText('quota warning threshold reached', { timeout: 30_000 })
+  },
 }
 
 async function fillDimension(
@@ -884,18 +1214,22 @@ async function fillDimension(
   index: number,
   dimension: { description: string; displayName: string; name: string },
 ) {
-  const row = page.locator('.meter-create-form .schema-row').nth(index)
+  const row = page.getByRole('dialog', { name: 'Create Meter' }).locator('.schema-row').nth(index)
   await row.getByLabel('Dimension name').fill(dimension.name)
   await row.getByLabel('Dimension display name').fill(dimension.displayName)
   await row.getByLabel('Dimension description').fill(dimension.description)
-  await row.getByLabel('Dimension type').selectOption('string')
+  const dimensionType = row.getByLabel('Dimension type')
+  const tagName = await dimensionType.evaluate((element) => element.tagName.toLowerCase())
+  if (tagName === 'select') {
+    await dimensionType.selectOption('string')
+  }
 }
 
 async function selectMeterFilter(page: Page, meterName: string) {
   const firstRule = page.locator('.filter-builder .rule').first()
-  await firstRule.locator('.rule-fields').selectOption('meter')
-  await firstRule.locator('.rule-operators').selectOption('=')
-  await firstRule.locator('.rule-value').selectOption(meterName)
+  await selectControlOption(page, firstRule.locator('.rule-fields'), 'meter')
+  await selectControlOption(page, firstRule.locator('.rule-operators'), '=')
+  await selectControlOption(page, firstRule.locator('.rule-value'), meterName)
 }
 
 async function setUsageDateRange(page: Page, scenario: UsageScenario) {
@@ -916,35 +1250,78 @@ async function addQueryRule(
   await filterBuilder.locator('.ruleGroup-addRule').first().click()
 
   const row = filterBuilder.locator('.rule').last()
-  await row.locator('.rule-fields').selectOption(rule.field)
-  await row.locator('.rule-operators').selectOption(rule.operator)
-  await setRuleValue(row, rule.value)
+  await selectControlOption(page, row.locator('.rule-fields'), rule.field)
+  await selectControlOption(page, row.locator('.rule-operators'), rule.operator)
+  await setRuleValue(page, row, rule.value)
 }
 
-async function setRuleValue(row: ReturnType<Page['locator']>, value: string) {
+async function setRuleValue(page: Page, row: ReturnType<Page['locator']>, value: string) {
   const valueControl = row.locator('.rule-value')
-  if (await valueControl.evaluate((element) => element.tagName.toLowerCase() === 'select')) {
-    await valueControl.selectOption(value)
+  const tagName = await valueControl.evaluate((element) => element.tagName.toLowerCase())
+  if (tagName === 'input') {
+    await valueControl.fill(value)
     return
   }
-  await valueControl.fill(value)
+  await selectControlOption(page, valueControl, value)
 }
 
 async function setScope(page: Page, scope: string, enabled: boolean) {
   const checkbox = page.locator(`input[name="scopes"][value="${scope}"]`)
-  if (enabled) {
-    await checkbox.check()
+  if (await checkbox.isChecked() === enabled) {
     return
   }
-  await checkbox.uncheck()
+  await checkbox.locator('xpath=ancestor::label[1]').click()
+  if (enabled) {
+    await expect(checkbox).toBeChecked()
+    return
+  }
+  await expect(checkbox).not.toBeChecked()
 }
 
-async function queryRulePairs(page: Page) {
-  return page.locator('.filter-builder .rule').evaluateAll((rows) => rows.map((row) => {
-    const field = (row.querySelector('.rule-fields') as HTMLSelectElement | null)?.value || ''
-    const value = (row.querySelector('.rule-value') as HTMLInputElement | HTMLSelectElement | null)?.value || ''
-    return `${field}:${value}`
-  }))
+async function selectControlOption(
+  page: Page,
+  control: ReturnType<Page['locator']>,
+  value: string,
+) {
+  const tagName = await control.evaluate((element) => element.tagName.toLowerCase())
+  if (tagName === 'select') {
+    await control.selectOption(value)
+    return
+  }
+
+  await control.click()
+  await page.getByRole('option', { name: optionNamePattern(selectOptionLabel(value)) }).click()
+}
+
+function selectOptionLabel(value: string) {
+  const labels: Record<string, string> = {
+    '!=': 'not equals',
+    '<': 'less than',
+    '<=': 'less or equal',
+    '=': 'equals',
+    '>': 'greater than',
+    '>=': 'greater or equal',
+    'metadata.region-name': 'Region',
+    'metadata.service.tier': 'Service Tier',
+    area: 'Filled Area',
+    bar: 'Bar',
+    day: 'Day',
+    hour: 'Hour',
+    line: 'Line',
+    meter: 'Meter',
+    month: 'Month',
+    quantity: 'Quantity',
+    subject: 'Subject',
+  }
+  return labels[value] || value
+}
+
+function optionNamePattern(label: string) {
+  return new RegExp(`^${escapeRegExp(label)}(?: \\(\\d+\\))?$`)
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 async function csvDownload(download: Download): Promise<CSVDownload> {
@@ -983,9 +1360,73 @@ async function waitForCompletedExportJob(api: APIRequestContext, id: string): Pr
   return latest as ExportJobResponse
 }
 
+async function waitForExportJobStatus(api: APIRequestContext, id: string, status: string): Promise<ExportJobResponse> {
+  let latest: ExportJobResponse | null = null
+
+  await expect.poll(async () => {
+    const response = await api.get(`/v1/exports/${id}`)
+    expect(response.status()).toBe(200)
+    latest = await response.json() as ExportJobResponse
+    return latest.status
+  }, {
+    intervals: [250, 500, 1000],
+    timeout: 20_000,
+  }).toBe(status)
+
+  return latest as ExportJobResponse
+}
+
+async function expectSavedUsageQuery(page: Page, name: string) {
+  await expect.poll(async () => {
+    const response = await page.request.get('/v1/usage/saved-queries')
+    expect(response.status()).toBe(200)
+    const payload = await response.json() as { items?: Array<{ name: string; pinned: boolean }> }
+    return Boolean((payload.items || []).find((item) => item.name === name && item.pinned))
+  }, {
+    intervals: [250, 500, 1000],
+    timeout: 10_000,
+  }).toBe(true)
+}
+
 async function expectListExcludes(response: APIResponse, key: string, value: string) {
   const payload = await response.json() as { items?: Array<Record<string, unknown>> }
   expect((payload.items || []).some((item) => item[key] === value)).toBe(false)
+}
+
+async function waitForWorkspaceResources(page: Page, scenario: WorkspaceIsolationScenario) {
+  await Promise.all([
+    waitForListIncludes(page, '/v1/meters', 'name', scenario.meterName),
+    waitForListIncludes(page, '/v1/auth/api-keys', 'name', scenario.apiKeyName),
+    waitForListIncludes(page, '/v1/alerts', 'name', scenario.alertName),
+    waitForListIncludes(page, '/v1/alerts/destinations', 'name', scenario.destinationName),
+    waitForListIncludes(page, '/v1/subjects?limit=50', 'subject', scenario.subject),
+    waitForListIncludes(page, '/v1/usageevents?limit=50', 'subject', scenario.subject),
+    waitForListIncludes(page, '/v1/exports?limit=50', 'id', scenario.exportID),
+  ])
+}
+
+async function waitForListIncludes(page: Page, path: string, key: string, value: string) {
+  await expect.poll(async () => {
+    const response = await page.request.get(path)
+    expect(response.status()).toBe(200)
+    const payload = await response.json() as { items?: Array<Record<string, unknown>> }
+    return (payload.items || []).some((item) => item[key] === value)
+  }, {
+    intervals: [250, 500, 1000, 2000],
+    timeout: 45_000,
+  }).toBe(true)
+}
+
+async function waitForEntitlementState(page: Page, path: string, state: string) {
+  await expect.poll(async () => {
+    const response = await page.request.get(path)
+    expect(response.status()).toBe(200)
+    const payload = await response.json() as { items?: Array<{ state: string }> }
+    return payload.items?.[0]?.state || ''
+  }, {
+    intervals: [250, 500, 1000, 2000],
+    timeout: 45_000,
+  }).toBe(state)
 }
 
 async function withAPIKeyContext<T>(

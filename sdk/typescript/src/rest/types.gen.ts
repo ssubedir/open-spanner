@@ -24,6 +24,121 @@ export type InternalMeteringAdaptersHttpUsageSearchRequest = {
 };
 
 /**
+ * EntitlementCheckRequest
+ */
+export type EntitlementCheckRequest = {
+    meter?: string;
+    quantity?: number;
+    subject?: string;
+};
+
+/**
+ * EntitlementCheckResponse
+ */
+export type EntitlementCheckResponse = {
+    allowed?: boolean;
+    current?: number;
+    from?: string;
+    limit?: number;
+    message?: string;
+    meter?: string;
+    overage?: number;
+    period?: string;
+    period_reset_at?: string;
+    plan_id?: string;
+    plan_name?: string;
+    quantity?: number;
+    remaining?: number;
+    retry_after_seconds?: number;
+    state?: string;
+    subject?: string;
+    to?: string;
+};
+
+/**
+ * PlanLimit
+ */
+export type PlanLimit = {
+    created_at?: string;
+    id?: string;
+    limit?: number;
+    meter?: string;
+    period?: string;
+    updated_at?: string;
+    warning_percent?: number;
+};
+
+/**
+ * Plan
+ */
+export type Plan = {
+    created_at?: string;
+    description?: string;
+    id?: string;
+    is_current?: boolean;
+    limits?: Array<PlanLimit>;
+    name?: string;
+    parent_plan_id?: string;
+    updated_at?: string;
+    version?: number;
+};
+
+/**
+ * EntitlementProgressItem
+ */
+export type EntitlementProgressItem = {
+    aggregation?: string;
+    current?: number;
+    from?: string;
+    limit?: number;
+    meter?: string;
+    overage?: number;
+    percent?: number;
+    period?: string;
+    period_reset_at?: string;
+    remaining?: number;
+    state?: string;
+    to?: string;
+    unit?: string;
+    warning_percent?: number;
+};
+
+/**
+ * EntitlementProgress
+ */
+export type EntitlementProgress = {
+    items?: Array<EntitlementProgressItem>;
+    plan?: Plan;
+    subject?: string;
+};
+
+/**
+ * EntitlementStateListResponse
+ */
+export type EntitlementStateListResponse = {
+    items?: Array<EntitlementState>;
+};
+
+/**
+ * EntitlementState
+ */
+export type EntitlementState = {
+    current?: number;
+    evaluated_at?: string;
+    limit?: number;
+    message?: string;
+    meter?: string;
+    period?: string;
+    plan_id?: string;
+    plan_name?: string;
+    remaining?: number;
+    state?: string;
+    subject?: string;
+    updated_at?: string;
+    warning_percent?: number;
+};
+
+/**
  * MeterCreateRequest
  */
 export type MeterCreateRequest = {
@@ -264,6 +379,92 @@ export type ReadinessCheckResponses = {
 
 export type ReadinessCheckResponse = ReadinessCheckResponses[keyof ReadinessCheckResponses];
 
+export type CheckEntitlementData = {
+    /**
+     * Entitlement check
+     */
+    body: EntitlementCheckRequest;
+    path?: never;
+    query?: never;
+    url: '/v1/entitlements/check';
+};
+
+export type CheckEntitlementErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorResponse;
+};
+
+export type CheckEntitlementError = CheckEntitlementErrors[keyof CheckEntitlementErrors];
+
+export type CheckEntitlementResponses = {
+    /**
+     * OK
+     */
+    200: EntitlementCheckResponse;
+};
+
+export type CheckEntitlementResponse = CheckEntitlementResponses[keyof CheckEntitlementResponses];
+
+export type ListEntitlementStatesData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Subject
+         */
+        subject?: string;
+        /**
+         * Meter
+         */
+        meter?: string;
+        /**
+         * State
+         */
+        state?: string;
+        /**
+         * Page size
+         */
+        limit?: number;
+    };
+    url: '/v1/entitlements/states';
+};
+
+export type ListEntitlementStatesErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorResponse;
+};
+
+export type ListEntitlementStatesError = ListEntitlementStatesErrors[keyof ListEntitlementStatesErrors];
+
+export type ListEntitlementStatesResponses = {
+    /**
+     * OK
+     */
+    200: EntitlementStateListResponse;
+};
+
+export type ListEntitlementStatesResponse = ListEntitlementStatesResponses[keyof ListEntitlementStatesResponses];
+
 export type ListMetersData = {
     body?: never;
     path?: never;
@@ -454,6 +655,44 @@ export type UpdateMeterResponses = {
 };
 
 export type UpdateMeterResponse = UpdateMeterResponses[keyof UpdateMeterResponses];
+
+export type GetSubjectPlanProgressData = {
+    body?: never;
+    path: {
+        /**
+         * Subject
+         */
+        subject: string;
+    };
+    query?: never;
+    url: '/v1/plans/subjects/{subject}/progress';
+};
+
+export type GetSubjectPlanProgressErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorResponse;
+};
+
+export type GetSubjectPlanProgressError = GetSubjectPlanProgressErrors[keyof GetSubjectPlanProgressErrors];
+
+export type GetSubjectPlanProgressResponses = {
+    /**
+     * OK
+     */
+    200: EntitlementProgress;
+};
+
+export type GetSubjectPlanProgressResponse = GetSubjectPlanProgressResponses[keyof GetSubjectPlanProgressResponses];
 
 export type CreateUsageData = {
     /**

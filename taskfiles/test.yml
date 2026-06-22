@@ -115,6 +115,7 @@ tasks:
       - task: test:examples:stream:advance:device-telemetry
       - task: test:examples:stream:advance:websocket-sessions
       - task: test:examples:stream:advance:queue-consumer
+      - task: test:examples:stream:advance:entitlement-gate
 
   test:examples:stream:advance:device-telemetry:
     desc: Verify the device telemetry advanced Go gRPC stream example
@@ -136,6 +137,13 @@ tasks:
       - task: _test:example:go
         vars:
           DIR: examples/stream/advance/queue-consumer
+
+  test:examples:stream:advance:entitlement-gate:
+    desc: Verify the entitlement-gated advanced Go gRPC stream example
+    cmds:
+      - task: _test:example:go
+        vars:
+          DIR: examples/stream/advance/entitlement-gate
 
   test:examples:rest:basic:csharp:
     desc: Verify the basic REST C# example
@@ -166,6 +174,7 @@ tasks:
       - task: test:examples:rest:advance:api-requests
       - task: test:examples:rest:advance:background-jobs
       - task: test:examples:rest:advance:feature-usage
+      - task: test:examples:rest:advance:entitlement-check
       - task: test:examples:rest:advance:historical-backfill
       - task: test:examples:rest:advance:storage-usage
 
@@ -248,6 +257,22 @@ tasks:
       - task: _test:example:typescript
         vars:
           CONFIG: examples/rest/advance/feature-usage/tsconfig.json
+
+  test:examples:rest:advance:entitlement-check:
+    desc: Verify the entitlement check advanced REST example
+    cmds:
+      - task: _test:example:go
+        vars:
+          DIR: examples/rest/advance/entitlement-check
+      - task: _test:example:csharp
+        vars:
+          PROJECT: examples/rest/advance/entitlement-check/OpenSpanner.EntitlementCheck.csproj
+      - task: _test:example:python
+        vars:
+          FILE: examples/rest/advance/entitlement-check/python.py
+      - task: _test:example:typescript
+        vars:
+          CONFIG: examples/rest/advance/entitlement-check/tsconfig.json
 
   test:examples:rest:advance:historical-backfill:
     desc: Verify the historical backfill advanced REST example

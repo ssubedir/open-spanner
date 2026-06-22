@@ -1,0 +1,325 @@
+---
+title: Check Entitlements
+description: Check subject quota before accepting more usage.
+---
+
+Entitlement checks let backend services ask whether a subject can consume more of a metered resource. Use them before work that should be limited by a plan, such as API calls, AI tokens, storage writes, seats, or premium feature usage.
+
+The dashboard is where you define the plan:
+
+1. Create the meter.
+2. Create a plan with a limit for that meter.
+3. Assign the subject to the plan.
+4. Create an API key with `plans:read` and `usage:write`.
+
+After that setup, trusted backend code can check quota and write usage only when the check allows it.
+
+## Check Then Record
+
+This example checks whether `org_123` can consume one more `api_calls` unit. If allowed, it records the usage event.
+
+<Tabs items={["cURL", "Go", "TypeScript", "Python", "C#"]}>
+<Tab value="cURL">
+
+  ```sh
+  BASE_URL="http://localhost:18081"
+  API_KEY="osp_..."
+
+  curl -X POST "$BASE_URL/v1/entitlements/check" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "subject": "org_123",
+      "meter": "api_calls",
+      "quantity": 1
+    }'
+  ```
+
+</Tab>
+<Tab value="Go">
+
+  ```go
+  import (
+    "fmt"
+    "time"
+
+    "github.com/ssubedir/open-spanner/sdk/go/client/plans"
+    "github.com/ssubedir/open-spanner/sdk/go/client/usages"
+    "github.com/ssubedir/open-spanner/sdk/go/models"
+  )
+
+  check, err := api.Plans.CheckEntitlement(
+    plans.NewCheckEntitlementParams().WithRequest(&models.EntitlementCheckRequest{
+      Subject:  "org_123",
+      Meter:    "api_calls",
+      Quantity: 1,
+    }),
+  )
+  if err != nil {
+    panic(err)
+  }
+
+  entitlement := check.Payload
+  if !entitlement.Allowed {
+    fmt.Println(entitlement.Message)
+    return
+  }
+
+  _, err = api.Usages.CreateUsage(
+    usages.NewCreateUsageParams().WithRequest(&models.UsageCreateRequest{
+      IdempotencyKey: fmt.Sprintf("api-call-%d", time.Now().UnixNano()),
+      Subject:        "org_123",
+      Meter:          "api_calls",
+      Quantity:       1,
+      Timestamp:      time.Now().UTC().Format(time.RFC3339),
+    }),
+  )
+  if err != nil {
+    panic(err)
+  }
+  ```
+
+</Tab>
+<Tab value="TypeScript">
+
+  ```ts
+  import { checkEntitlement, createUsage } from "@ssubedir/open-spanner";
+
+  const { data: entitlement } = await checkEntitlement({
+    body: {
+      subject: "org_123",
+      meter: "api_calls",
+      quantity: 1,
+    },
+    throwOnError: true,
+  });
+
+  if (!entitlement?.allowed) {
+    console.log(entitlement?.message);
+    return;
+  }
+
+  await createUsage({
+    body: {
+      idempotency_key: `api-call-${Date.now()}`,
+      subject: "org_123",
+      meter: "api_calls",
+      quantity: 1,
+      timestamp: new Date().toISOString(),
+    },
+    throwOnError: true,
+  });
+  ```
+
+</Tab>
+<Tab value="Python">
+
+  ```python
+  import time
+  from datetime import UTC, datetime
+
+  from open_spanner_client.api.plans import check_entitlement
+  from open_spanner_client.api.usages import create_usage
+  from open_spanner_client.models.entitlement_check_request import EntitlementCheckRequest
+  from open_spanner_client.models.usage_create_request import UsageCreateRequest
+
+  entitlement = check_entitlement.sync(
+      client=client,
+      body=EntitlementCheckRequest(
+          subject="org_123",
+          meter="api_calls",
+          quantity=1,
+      ),
+  )
+
+  if not entitlement.allowed:
+      print(entitlement.message)
+      raise SystemExit(0)
+
+  create_usage.sync(
+      client=client,
+      body=UsageCreateRequest(
+          idempotency_key=f"api-call-{time.time_ns()}",
+          subject="org_123",
+          meter="api_calls",
+          quantity=1,
+          timestamp=datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+      ),
+  )
+  ```
+
+</Tab>
+<Tab value="C#">
+
+  ```csharp
+  var entitlement = await client.V1.Entitlements.Check.PostAsync(new EntitlementCheckRequest
+  {
+      Subject = "org_123",
+      Meter = "api_calls",
+      Quantity = 1,
+  });
+
+  if (entitlement?.Allowed != true)
+  {
+      Console.WriteLine(entitlement?.Message);
+      return;
+  }
+
+  await client.V1.Usages.PostAsync(new UsageCreateRequest
+  {
+      IdempotencyKey = $"api-call-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}",
+      Subject = "org_123",
+      Meter = "api_calls",
+      Quantity = 1,
+      Timestamp = DateTimeOffset.UtcNow.ToString("O"),
+  });
+  ```
+
+</Tab>
+</Tabs>
+
+## Interpret The Response
+
+The check response is a decision plus context for the current plan window.
+
+| Field | Meaning |
+| --- | --- |
+| `allowed` | Whether the requested quantity can be accepted. |
+| `state` | `ok`, `warning`, `exceeded`, `no_plan`, or `not_in_plan`. |
+| `current` | Usage already recorded in the active period. |
+| `remaining` | Remaining units after accounting for the requested quantity. |
+| `plan_name` | Assigned plan used for the decision. |
+| `from` / `to` | UTC period window used for the calculation. |
+
+`warning` still allows usage. It means the subject crossed the configured warning percentage but has not exceeded the limit. `exceeded`, `no_plan`, and `not_in_plan` return `allowed: false`.
+
+## Read Progress And Status
+
+After usage is recorded, services can read the subject's current quota progress or the latest entitlement state. Use this for account pages, service diagnostics, or customer-facing quota views.
+
+<Tabs items={["cURL", "Go", "TypeScript", "Python", "C#"]}>
+<Tab value="cURL">
+
+  ```sh
+  curl "$BASE_URL/v1/plans/subjects/org_123/progress" \
+    -H "Authorization: Bearer $API_KEY"
+
+  curl "$BASE_URL/v1/entitlements/states?subject=org_123&meter=api_calls" \
+    -H "Authorization: Bearer $API_KEY"
+  ```
+
+</Tab>
+<Tab value="Go">
+
+  ```go
+  import (
+    "github.com/ssubedir/open-spanner/sdk/go/client/entitlements"
+    "github.com/ssubedir/open-spanner/sdk/go/client/plans"
+  )
+
+  progress, err := api.Plans.GetSubjectPlanProgress(
+    plans.NewGetSubjectPlanProgressParams().WithSubject("org_123"),
+  )
+  if err != nil {
+    panic(err)
+  }
+
+  subject := "org_123"
+  meter := "api_calls"
+  states, err := api.Entitlements.ListEntitlementStates(
+    entitlements.NewListEntitlementStatesParams().
+      WithSubject(&subject).
+      WithMeter(&meter),
+  )
+  if err != nil {
+    panic(err)
+  }
+
+  _ = progress.Payload
+  _ = states.Payload
+  ```
+
+</Tab>
+<Tab value="TypeScript">
+
+  ```ts
+  import { getSubjectPlanProgress, listEntitlementStates } from "@ssubedir/open-spanner";
+
+  const { data: progress } = await getSubjectPlanProgress({
+    path: { subject: "org_123" },
+    throwOnError: true,
+  });
+
+  const { data: states } = await listEntitlementStates({
+    query: {
+      subject: "org_123",
+      meter: "api_calls",
+    },
+    throwOnError: true,
+  });
+
+  console.log(progress, states);
+  ```
+
+</Tab>
+<Tab value="Python">
+
+  ```python
+  from open_spanner_client.api.entitlements import list_entitlement_states
+  from open_spanner_client.api.plans import get_subject_plan_progress
+
+  progress = get_subject_plan_progress.sync("org_123", client=client)
+
+  states = list_entitlement_states.sync(
+      client=client,
+      subject="org_123",
+      meter="api_calls",
+  )
+
+  print(progress, states)
+  ```
+
+</Tab>
+<Tab value="C#">
+
+  ```csharp
+  var progress = await client.V1.Plans.Subjects["org_123"].Progress.GetAsync();
+
+  var states = await client.V1.Entitlements.States.GetAsync(request =>
+  {
+      request.QueryParameters.Subject = "org_123";
+      request.QueryParameters.Meter = "api_calls";
+  });
+
+  Console.WriteLine(progress);
+  Console.WriteLine(states);
+  ```
+
+</Tab>
+</Tabs>
+
+## Runnable Examples
+
+The same check-and-record flow is available in every REST SDK:
+
+```sh
+examples/rest/advance/entitlement-check
+```
+
+For gRPC ingestion, use the stream example. It checks quota through REST, then writes the accepted usage event through the Go stream client:
+
+```sh
+examples/stream/advance/entitlement-gate
+```
+
+Use environment variables to point the example at your plan setup:
+
+```sh
+OPEN_SPANNER_API_KEY="osp_..."
+OPEN_SPANNER_BASE_URL="http://localhost:18081"
+OPEN_SPANNER_GRPC_ADDR="localhost:18090"
+OPEN_SPANNER_SUBJECT="org_123"
+OPEN_SPANNER_METER="api_calls"
+OPEN_SPANNER_GRPC_METER="stream_api_calls"
+OPEN_SPANNER_QUANTITY="1"
+```

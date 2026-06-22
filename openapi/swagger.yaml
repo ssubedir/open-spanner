@@ -390,6 +390,412 @@ definitions:
       id:
         type: string
     type: object
+  internal_metering_adapters_http_entitlement.AssignmentListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_entitlement.AssignmentResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_entitlement.AssignmentRequest:
+    properties:
+      effective_at:
+        type: string
+      plan_id:
+        type: string
+    type: object
+  internal_metering_adapters_http_entitlement.AssignmentResponse:
+    properties:
+      active:
+        type: boolean
+      assigned_at:
+        type: string
+      id:
+        type: string
+      period_anchor_at:
+        type: string
+      plan_id:
+        type: string
+      plan_name:
+        type: string
+      plan_version:
+        type: integer
+      status:
+        type: string
+      subject:
+        type: string
+      unassigned_at:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  internal_metering_adapters_http_entitlement.CheckRequest:
+    properties:
+      meter:
+        type: string
+      quantity:
+        type: number
+      subject:
+        type: string
+    type: object
+  internal_metering_adapters_http_entitlement.CheckResponse:
+    properties:
+      allowed:
+        type: boolean
+      current:
+        type: number
+      from:
+        type: string
+      limit:
+        type: number
+      message:
+        type: string
+      meter:
+        type: string
+      overage:
+        type: number
+      period:
+        type: string
+      period_reset_at:
+        type: string
+      plan_id:
+        type: string
+      plan_name:
+        type: string
+      quantity:
+        type: number
+      remaining:
+        type: number
+      retry_after_seconds:
+        type: integer
+      state:
+        type: string
+      subject:
+        type: string
+      to:
+        type: string
+    type: object
+  internal_metering_adapters_http_entitlement.EventListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_entitlement.EventResponse'
+        type: array
+      next_cursor:
+        type: string
+    type: object
+  internal_metering_adapters_http_entitlement.EventResponse:
+    properties:
+      created_at:
+        type: string
+      current:
+        type: number
+      id:
+        type: string
+      limit:
+        type: number
+      message:
+        type: string
+      meter:
+        type: string
+      period:
+        type: string
+      plan_id:
+        type: string
+      plan_name:
+        type: string
+      previous_state:
+        type: string
+      remaining:
+        type: number
+      state:
+        type: string
+      subject:
+        type: string
+      type:
+        type: string
+      warning_percent:
+        type: number
+    type: object
+  internal_metering_adapters_http_entitlement.LimitRequest:
+    properties:
+      limit:
+        type: number
+      meter:
+        type: string
+      period:
+        type: string
+      warning_percent:
+        type: number
+    type: object
+  internal_metering_adapters_http_entitlement.LimitResponse:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      limit:
+        type: number
+      meter:
+        type: string
+      period:
+        type: string
+      updated_at:
+        type: string
+      warning_percent:
+        type: number
+    type: object
+  internal_metering_adapters_http_entitlement.PeriodSnapshotListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_entitlement.PeriodSnapshotResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_entitlement.PeriodSnapshotResponse:
+    properties:
+      current:
+        type: number
+      event_count:
+        type: integer
+      from:
+        type: string
+      included:
+        type: number
+      limit:
+        type: number
+      meter:
+        type: string
+      overage:
+        type: number
+      period:
+        type: string
+      plan_id:
+        type: string
+      plan_name:
+        type: string
+      plan_version:
+        type: integer
+      remaining:
+        type: number
+      state:
+        type: string
+      subject:
+        type: string
+      to:
+        type: string
+      updated_at:
+        type: string
+      warning_percent:
+        type: number
+    type: object
+  internal_metering_adapters_http_entitlement.PlanListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_entitlement.PlanResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_entitlement.PlanPreviewItem:
+    properties:
+      aggregation:
+        type: string
+      current:
+        type: number
+      current_limit:
+        type: number
+      current_state:
+        type: string
+      event_count:
+        type: integer
+      existing_limit_found:
+        type: boolean
+      from:
+        type: string
+      meter:
+        type: string
+      overage:
+        type: number
+      percent:
+        type: number
+      period:
+        type: string
+      period_reset_at:
+        type: string
+      proposed_limit:
+        type: number
+      proposed_state:
+        type: string
+      remaining:
+        type: number
+      removed:
+        type: boolean
+      to:
+        type: string
+      unit:
+        type: string
+      warning_percent:
+        type: number
+    type: object
+  internal_metering_adapters_http_entitlement.PlanPreviewResponse:
+    properties:
+      current:
+        $ref: '#/definitions/internal_metering_adapters_http_entitlement.PlanResponse'
+      proposed:
+        $ref: '#/definitions/internal_metering_adapters_http_entitlement.PlanResponse'
+      subjects:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_entitlement.PlanPreviewSubject'
+        type: array
+      summary:
+        $ref: '#/definitions/internal_metering_adapters_http_entitlement.PlanPreviewSummary'
+    type: object
+  internal_metering_adapters_http_entitlement.PlanPreviewSubject:
+    properties:
+      assignment_id:
+        type: string
+      assignment_status:
+        type: string
+      current_plan_id:
+        type: string
+      current_plan_version:
+        type: integer
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_entitlement.PlanPreviewItem'
+        type: array
+      proposed_plan_id:
+        type: string
+      proposed_plan_version:
+        type: integer
+      subject:
+        type: string
+    type: object
+  internal_metering_adapters_http_entitlement.PlanPreviewSummary:
+    properties:
+      exceeded:
+        type: integer
+      ok:
+        type: integer
+      removed_limits:
+        type: integer
+      subjects:
+        type: integer
+      warning:
+        type: integer
+    type: object
+  internal_metering_adapters_http_entitlement.PlanResponse:
+    properties:
+      created_at:
+        type: string
+      description:
+        type: string
+      id:
+        type: string
+      is_current:
+        type: boolean
+      limits:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_entitlement.LimitResponse'
+        type: array
+      name:
+        type: string
+      parent_plan_id:
+        type: string
+      updated_at:
+        type: string
+      version:
+        type: integer
+    type: object
+  internal_metering_adapters_http_entitlement.PlanSaveRequest:
+    properties:
+      description:
+        type: string
+      limits:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_entitlement.LimitRequest'
+        type: array
+      name:
+        type: string
+    type: object
+  internal_metering_adapters_http_entitlement.ProgressItemResponse:
+    properties:
+      aggregation:
+        type: string
+      current:
+        type: number
+      from:
+        type: string
+      limit:
+        type: number
+      meter:
+        type: string
+      overage:
+        type: number
+      percent:
+        type: number
+      period:
+        type: string
+      period_reset_at:
+        type: string
+      remaining:
+        type: number
+      state:
+        type: string
+      to:
+        type: string
+      unit:
+        type: string
+      warning_percent:
+        type: number
+    type: object
+  internal_metering_adapters_http_entitlement.ProgressResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_entitlement.ProgressItemResponse'
+        type: array
+      plan:
+        $ref: '#/definitions/internal_metering_adapters_http_entitlement.PlanResponse'
+      subject:
+        type: string
+    type: object
+  internal_metering_adapters_http_entitlement.StateListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_entitlement.StateResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_entitlement.StateResponse:
+    properties:
+      current:
+        type: number
+      evaluated_at:
+        type: string
+      limit:
+        type: number
+      message:
+        type: string
+      meter:
+        type: string
+      period:
+        type: string
+      plan_id:
+        type: string
+      plan_name:
+        type: string
+      remaining:
+        type: number
+      state:
+        type: string
+      subject:
+        type: string
+      updated_at:
+        type: string
+      warning_percent:
+        type: number
+    type: object
   internal_metering_adapters_http_meter.CreateRequest:
     properties:
       aggregation:
@@ -1531,6 +1937,182 @@ paths:
       summary: Create auth user
       tags:
       - auth
+  /v1/entitlements/check:
+    post:
+      consumes:
+      - application/json
+      operationId: checkEntitlement
+      parameters:
+      - description: Entitlement check
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_entitlement.CheckRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_entitlement.CheckResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Check entitlement quota
+      tags:
+      - plans
+  /v1/entitlements/events:
+    get:
+      operationId: listEntitlementEvents
+      parameters:
+      - description: Subject
+        in: query
+        name: subject
+        type: string
+      - description: Meter
+        in: query
+        name: meter
+        type: string
+      - description: Plan ID
+        in: query
+        name: plan_id
+        type: string
+      - description: State
+        in: query
+        name: state
+        type: string
+      - description: Event type
+        in: query
+        name: type
+        type: string
+      - description: Cursor
+        in: query
+        name: cursor
+        type: string
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_entitlement.EventListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List entitlement events
+      tags:
+      - entitlements
+  /v1/entitlements/periods:
+    get:
+      operationId: listEntitlementPeriodSnapshots
+      parameters:
+      - description: Subject
+        in: query
+        name: subject
+        type: string
+      - description: Meter
+        in: query
+        name: meter
+        type: string
+      - description: Plan ID
+        in: query
+        name: plan_id
+        type: string
+      - description: State
+        in: query
+        name: state
+        type: string
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_entitlement.PeriodSnapshotListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List entitlement period snapshots
+      tags:
+      - entitlements
+  /v1/entitlements/states:
+    get:
+      operationId: listEntitlementStates
+      parameters:
+      - description: Subject
+        in: query
+        name: subject
+        type: string
+      - description: Meter
+        in: query
+        name: meter
+        type: string
+      - description: State
+        in: query
+        name: state
+        type: string
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_entitlement.StateListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List entitlement states
+      tags:
+      - entitlements
   /v1/exports:
     get:
       operationId: listUsageExportJobs
@@ -1902,6 +2484,337 @@ paths:
       summary: List meter stats
       tags:
       - meters
+  /v1/plans:
+    get:
+      operationId: listPlans
+      parameters:
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_entitlement.PlanListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List plans
+      tags:
+      - plans
+    post:
+      consumes:
+      - application/json
+      operationId: createPlan
+      parameters:
+      - description: Plan
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_entitlement.PlanSaveRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_entitlement.PlanResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Create plan
+      tags:
+      - plans
+  /v1/plans/{id}:
+    delete:
+      operationId: deletePlan
+      parameters:
+      - description: Plan ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Delete plan
+      tags:
+      - plans
+    get:
+      operationId: getPlan
+      parameters:
+      - description: Plan ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_entitlement.PlanResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Get plan
+      tags:
+      - plans
+    put:
+      consumes:
+      - application/json
+      operationId: updatePlan
+      parameters:
+      - description: Plan ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Plan
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_entitlement.PlanSaveRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_entitlement.PlanResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Update plan
+      tags:
+      - plans
+  /v1/plans/{id}/preview:
+    post:
+      consumes:
+      - application/json
+      operationId: previewPlan
+      parameters:
+      - description: Plan ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Plan
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_entitlement.PlanSaveRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_entitlement.PlanPreviewResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Preview plan update
+      tags:
+      - plans
+  /v1/plans/assignments:
+    get:
+      operationId: listSubjectPlanAssignments
+      parameters:
+      - description: Subject
+        in: query
+        name: subject
+        type: string
+      - description: Plan ID
+        in: query
+        name: plan_id
+        type: string
+      - description: Include ended assignments
+        in: query
+        name: include_history
+        type: boolean
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_entitlement.AssignmentListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List subject plan assignments
+      tags:
+      - plans
+  /v1/plans/subjects/{subject}:
+    delete:
+      operationId: deleteSubjectPlanAssignment
+      parameters:
+      - description: Subject
+        in: path
+        name: subject
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Remove subject plan assignment
+      tags:
+      - plans
+    put:
+      consumes:
+      - application/json
+      operationId: assignSubjectPlan
+      parameters:
+      - description: Subject
+        in: path
+        name: subject
+        required: true
+        type: string
+      - description: Assignment
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_entitlement.AssignmentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_entitlement.AssignmentResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Assign subject to plan
+      tags:
+      - plans
+  /v1/plans/subjects/{subject}/progress:
+    get:
+      operationId: getSubjectPlanProgress
+      parameters:
+      - description: Subject
+        in: path
+        name: subject
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_entitlement.ProgressResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Get subject plan progress
+      tags:
+      - plans
   /v1/subjects:
     get:
       operationId: listSubjects

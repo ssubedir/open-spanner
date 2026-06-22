@@ -101,6 +101,188 @@ CREATE TABLE meters (
 CREATE INDEX idx_meters_workspace_name
 	ON meters (workspace_id, name);
 
+CREATE TABLE plans (
+	id TEXT PRIMARY KEY,
+	workspace_id TEXT NOT NULL,
+	name TEXT NOT NULL,
+	description TEXT NOT NULL DEFAULT '',
+	version INTEGER NOT NULL DEFAULT 1,
+	parent_plan_id TEXT,
+	is_current INTEGER NOT NULL DEFAULT 1,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	UNIQUE (workspace_id, name, version),
+	FOREIGN KEY (workspace_id) REFERENCES auth_workspaces(id) ON DELETE CASCADE,
+	FOREIGN KEY (parent_plan_id) REFERENCES plans(id) ON DELETE SET NULL
+);
+
+CREATE INDEX idx_plans_workspace_name
+	ON plans (workspace_id, name, is_current);
+
+CREATE UNIQUE INDEX idx_plans_workspace_current_name
+	ON plans (workspace_id, name)
+	WHERE is_current = 1;
+
+CREATE TABLE plan_limits (
+	id TEXT PRIMARY KEY,
+	workspace_id TEXT NOT NULL,
+	plan_id TEXT NOT NULL,
+	meter_name TEXT NOT NULL,
+	period TEXT NOT NULL,
+	limit_value REAL NOT NULL,
+	warning_percent REAL NOT NULL DEFAULT 80,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	UNIQUE (workspace_id, plan_id, meter_name, period),
+	FOREIGN KEY (workspace_id) REFERENCES auth_workspaces(id) ON DELETE CASCADE,
+	FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE,
+	FOREIGN KEY (workspace_id, meter_name) REFERENCES meters(workspace_id, name)
+);
+
+CREATE INDEX idx_plan_limits_workspace_plan
+	ON plan_limits (workspace_id, plan_id);
+
+CREATE TABLE plan_subject_assignments (
+	id TEXT PRIMARY KEY,
+	workspace_id TEXT NOT NULL,
+	subject TEXT NOT NULL,
+	plan_id TEXT NOT NULL,
+	assigned_at TEXT NOT NULL,
+	period_anchor_at TEXT NOT NULL,
+	unassigned_at TEXT,
+	updated_at TEXT NOT NULL,
+	UNIQUE (workspace_id, subject, assigned_at),
+	FOREIGN KEY (workspace_id) REFERENCES auth_workspaces(id) ON DELETE CASCADE,
+	FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_plan_subject_assignments_workspace_plan
+	ON plan_subject_assignments (workspace_id, plan_id, subject, unassigned_at);
+
+CREATE INDEX idx_plan_subject_assignments_subject_window
+	ON plan_subject_assignments (workspace_id, subject, assigned_at, unassigned_at);
+
+CREATE TABLE entitlement_states (
+	workspace_id TEXT NOT NULL,
+	subject TEXT NOT NULL,
+	meter_name TEXT NOT NULL,
+	plan_id TEXT NOT NULL,
+	plan_name TEXT NOT NULL,
+	period TEXT NOT NULL,
+	state TEXT NOT NULL CHECK (state IN ('ok', 'warning', 'exceeded')),
+	current_value REAL NOT NULL,
+	limit_value REAL NOT NULL,
+	remaining_value REAL NOT NULL,
+	warning_percent REAL NOT NULL,
+	message TEXT NOT NULL,
+	evaluated_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	PRIMARY KEY (workspace_id, subject, meter_name, plan_id, period),
+	FOREIGN KEY (workspace_id) REFERENCES auth_workspaces(id) ON DELETE CASCADE,
+	FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE,
+	FOREIGN KEY (workspace_id, meter_name) REFERENCES meters(workspace_id, name)
+);
+
+CREATE INDEX idx_entitlement_states_workspace_state
+	ON entitlement_states (workspace_id, state, updated_at DESC);
+
+CREATE TABLE entitlement_events (
+	id TEXT PRIMARY KEY,
+	workspace_id TEXT NOT NULL,
+	subject TEXT NOT NULL,
+	meter_name TEXT NOT NULL,
+	plan_id TEXT NOT NULL,
+	plan_name TEXT NOT NULL,
+	period TEXT NOT NULL,
+	previous_state TEXT,
+	state TEXT NOT NULL CHECK (state IN ('ok', 'warning', 'exceeded')),
+	type TEXT NOT NULL CHECK (type IN ('warning', 'exceeded', 'recovered')),
+	current_value REAL NOT NULL,
+	limit_value REAL NOT NULL,
+	remaining_value REAL NOT NULL,
+	warning_percent REAL NOT NULL,
+	message TEXT NOT NULL,
+	created_at TEXT NOT NULL,
+	FOREIGN KEY (workspace_id) REFERENCES auth_workspaces(id) ON DELETE CASCADE,
+	FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE,
+	FOREIGN KEY (workspace_id, meter_name) REFERENCES meters(workspace_id, name)
+);
+
+CREATE INDEX idx_entitlement_events_workspace_created
+	ON entitlement_events (workspace_id, created_at DESC, id DESC);
+
+CREATE INDEX idx_entitlement_events_workspace_subject_meter_created
+	ON entitlement_events (workspace_id, subject, meter_name, created_at DESC, id DESC);
+
+CREATE TABLE entitlement_period_snapshots (
+	workspace_id TEXT NOT NULL,
+	subject TEXT NOT NULL,
+	meter_name TEXT NOT NULL,
+	plan_id TEXT NOT NULL,
+	plan_name TEXT NOT NULL,
+	plan_version INTEGER NOT NULL,
+	period TEXT NOT NULL,
+	period_start TEXT NOT NULL,
+	period_end TEXT NOT NULL,
+	state TEXT NOT NULL CHECK (state IN ('ok', 'warning', 'exceeded')),
+	current_value REAL NOT NULL,
+	limit_value REAL NOT NULL,
+	included_value REAL NOT NULL,
+	overage_value REAL NOT NULL,
+	remaining_value REAL NOT NULL,
+	warning_percent REAL NOT NULL,
+	event_count INTEGER NOT NULL,
+	updated_at TEXT NOT NULL,
+	PRIMARY KEY (workspace_id, subject, meter_name, plan_id, period, period_start),
+	FOREIGN KEY (workspace_id) REFERENCES auth_workspaces(id) ON DELETE CASCADE,
+	FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE,
+	FOREIGN KEY (workspace_id, meter_name) REFERENCES meters(workspace_id, name)
+);
+
+CREATE INDEX idx_entitlement_period_snapshots_workspace_period
+	ON entitlement_period_snapshots (workspace_id, period_start DESC, subject, meter_name);
+
+CREATE TABLE entitlement_check_jobs (
+	workspace_id TEXT NOT NULL,
+	subject TEXT NOT NULL,
+	meter_name TEXT NOT NULL,
+	run_after TEXT NOT NULL,
+	locked_until TEXT,
+	attempts INTEGER NOT NULL DEFAULT 0,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	PRIMARY KEY (workspace_id, subject, meter_name),
+	FOREIGN KEY (workspace_id) REFERENCES auth_workspaces(id) ON DELETE CASCADE,
+	FOREIGN KEY (workspace_id, meter_name) REFERENCES meters(workspace_id, name)
+);
+
+CREATE INDEX idx_entitlement_check_jobs_claim
+	ON entitlement_check_jobs (run_after, locked_until, created_at);
+
+CREATE TABLE entitlement_usage_counters (
+	workspace_id TEXT NOT NULL,
+	subject TEXT NOT NULL,
+	meter_name TEXT NOT NULL,
+	period TEXT NOT NULL,
+	period_start TEXT NOT NULL,
+	period_end TEXT NOT NULL,
+	event_count INTEGER NOT NULL,
+	quantity_sum REAL NOT NULL,
+	quantity_min REAL NOT NULL,
+	quantity_max REAL NOT NULL,
+	first_quantity REAL NOT NULL,
+	first_event_time TEXT NOT NULL,
+	last_quantity REAL NOT NULL,
+	last_event_time TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	PRIMARY KEY (workspace_id, subject, meter_name, period, period_start),
+	FOREIGN KEY (workspace_id) REFERENCES auth_workspaces(id) ON DELETE CASCADE,
+	FOREIGN KEY (workspace_id, meter_name) REFERENCES meters(workspace_id, name)
+);
+
+CREATE INDEX idx_entitlement_usage_counters_workspace_meter_period
+	ON entitlement_usage_counters (workspace_id, meter_name, period, period_start);
+
 CREATE TABLE usage_events (
 	id TEXT PRIMARY KEY,
 	workspace_id TEXT NOT NULL,

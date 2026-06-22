@@ -1,31 +1,47 @@
 import { Link, Outlet, useRouter } from '@tanstack/react-router'
 import { useSelector } from '@tanstack/react-store'
-import { BarChart3, BellRing, Boxes, FileArchive, Gauge, KeyRound, LayoutDashboard, LogOut, Users } from 'lucide-react'
+import { BarChart3, BellRing, Boxes, FileArchive, Gauge, KeyRound, LayoutDashboard, LogOut, PackageCheck, Users } from 'lucide-react'
 
 import { appStore, appStoreActions } from '../app-store'
 import { Button } from '../components/ui/button'
 
 const navGroups = [
   {
-    label: 'Workspace',
+    description: 'Status and activity',
+    label: 'Home',
     items: [
-      { description: 'Health and activity', icon: LayoutDashboard, label: 'Overview', to: '/overview' },
+      { description: 'Workspace health', icon: LayoutDashboard, label: 'Overview', to: '/overview' },
     ],
   },
   {
-    label: 'Metering',
+    description: 'Usage model',
     items: [
-      { description: 'Definitions', icon: Boxes, label: 'Meters', to: '/meters' },
-      { description: 'Accounts and customers', icon: Users, label: 'Subjects', to: '/subjects' },
-      { description: 'Query and breakdowns', icon: BarChart3, label: 'Usage', to: '/usage' },
-      { description: 'Threshold rules', icon: BellRing, label: 'Alerts', to: '/alerts' },
-      { description: 'CSV job history', icon: FileArchive, label: 'Exports', to: '/exports' },
+      { description: 'Event definitions', icon: Boxes, label: 'Meters', to: '/meters' },
+      { description: 'Customers and accounts', icon: Users, label: 'Subjects', to: '/subjects' },
     ],
+    label: 'Catalog',
   },
   {
+    description: 'Plans and limits',
+    items: [
+      { description: 'Quota packages', icon: PackageCheck, label: 'Plans', to: '/plans' },
+      { description: 'Usage analysis', icon: BarChart3, label: 'Usage', to: '/usage' },
+    ],
+    label: 'Entitlements',
+  },
+  {
+    description: 'Jobs and signals',
+    items: [
+      { description: 'Thresholds', icon: BellRing, label: 'Alerts', to: '/alerts' },
+      { description: 'CSV jobs', icon: FileArchive, label: 'Exports', to: '/exports' },
+    ],
+    label: 'Operations',
+  },
+  {
+    description: 'Credentials',
     label: 'Access',
     items: [
-      { description: 'SDK credentials', icon: KeyRound, label: 'API Keys', to: '/api-keys' },
+      { description: 'SDK access', icon: KeyRound, label: 'API Keys', to: '/api-keys' },
     ],
   },
 ] as const
@@ -47,14 +63,17 @@ export function AppShell() {
           <span className="brand-mark"><Gauge aria-hidden="true" /></span>
           <span>
             <strong>Open Spanner</strong>
-            <small>Dashboard</small>
+            <small>Usage infrastructure</small>
           </span>
         </Link>
 
         <nav className="nav" aria-label="Dashboard navigation">
           {navGroups.map((group) => (
             <div className="nav-group" key={group.label}>
-              <span className="nav-group-label">{group.label}</span>
+              <div className="nav-group-heading">
+                <span className="nav-group-label">{group.label}</span>
+                <small>{group.description}</small>
+              </div>
               <div className="nav-group-links">
                 {group.items.map((item) => {
                   const Icon = item.icon
@@ -65,7 +84,7 @@ export function AppShell() {
                       key={item.to}
                       to={item.to}
                     >
-                      <Icon aria-hidden="true" />
+                      <span className="nav-link-icon"><Icon aria-hidden="true" /></span>
                       <span>
                         <strong>{item.label}</strong>
                         <small>{item.description}</small>

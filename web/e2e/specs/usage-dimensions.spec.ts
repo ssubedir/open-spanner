@@ -3,15 +3,29 @@ import { test } from '@playwright/test'
 import { Given, Then, When } from '../support/dashboard.steps'
 
 test.describe('Feature: Dashboard usage exploration', () => {
+  test('Scenario: dashboard users see clean auth failures', async ({ page }) => {
+    const account = await Given.aDashboardAccount(page)
+
+    await When.theUserSignsIn(page, account)
+    await Then.theDashboardIsAvailable(page, account)
+
+    await Then.expiredDashboardSessionRedirectsCleanly(page)
+  })
+
   test('Scenario: a user queries usage by nested and hyphenated meter dimensions', async ({ page }) => {
     const account = await Given.aDashboardAccount(page)
     const meterName = `api_requests_${Date.now()}`
 
     await When.theUserSignsIn(page, account)
     await Then.theDashboardIsAvailable(page, account)
+    await Then.malformedSubjectRouteShowsNotFound(page)
+    await Then.missingPlanRouteShowsNotFound(page)
+    await Then.missingAlertRouteShowsNotFound(page)
 
     await When.theUserCreatesAnAPIRequestMeter(page, meterName)
     await Then.theMeterIsVisible(page, meterName)
+    await Then.meterDetailIsVisible(page, meterName)
+    await Then.missingMeterRouteShowsNotFound(page)
 
     const scenario = await Given.apiRequestUsageExists(page, meterName)
 
@@ -42,6 +56,36 @@ test.describe('Feature: Dashboard usage exploration', () => {
 
     const bucketExport = await When.theUserExportsCurrentUsageBuckets(page)
     await Then.advancedUsageBucketCSVIncludesMatchingUsage(bucketExport, scenario)
+  })
+
+  test('Scenario: a user visualizes usage over time', async ({ page }) => {
+    const account = await Given.aDashboardAccount(page)
+    const meterName = `api_requests_chart_${Date.now()}`
+
+    await When.theUserSignsIn(page, account)
+    await Then.theDashboardIsAvailable(page, account)
+
+    await When.theUserCreatesAnAPIRequestMeter(page, meterName)
+    const scenario = await Given.apiRequestUsageExists(page, meterName)
+
+    await When.theUserRunsAnAdvancedUsageQuery(page, scenario)
+    await When.theUserChangesUsageChartControls(page)
+    await Then.usageChartControlsAreApplied(page)
+    await Then.advancedQueryReturnsOnlyMatchingUsage(page, meterName)
+  })
+
+  test('Scenario: usage filters remain readable as they grow', async ({ page }) => {
+    const account = await Given.aDashboardAccount(page)
+    const meterName = `api_requests_filters_${Date.now()}`
+
+    await When.theUserSignsIn(page, account)
+    await Then.theDashboardIsAvailable(page, account)
+
+    await When.theUserCreatesAnAPIRequestMeter(page, meterName)
+    const scenario = await Given.apiRequestUsageExists(page, meterName)
+
+    await When.theUserRunsAnAdvancedUsageQuery(page, scenario)
+    await Then.usageFiltersRemainReadable(page)
   })
 
   test('Scenario: a user opens usage from subject activity', async ({ page }) => {
@@ -94,6 +138,23 @@ test.describe('Feature: Dashboard usage exploration', () => {
     await Then.queuedExportJobCompletesAndDownloads(page, apiKey, exportJob, scenario)
   })
 
+  test('Scenario: failed exports are visible without blocking other jobs', async ({ page }) => {
+    const account = await Given.aDashboardAccount(page)
+    const meterName = `api_requests_export_failure_${Date.now()}`
+
+    await When.theUserSignsIn(page, account)
+    await Then.theDashboardIsAvailable(page, account)
+
+    await When.theUserCreatesAnAPIRequestMeter(page, meterName)
+    const scenario = await Given.apiRequestUsageExists(page, meterName)
+    const apiKey = await Given.anAPIKeyExists(page)
+
+    const failedJob = await When.theServiceQueuesFailingUsageExportJob(page, apiKey, scenario)
+    const completedJob = await When.theServiceQueuesUsageExportJob(page, apiKey, scenario)
+
+    await Then.failedExportDoesNotBlockCompletedExports(page, apiKey, failedJob, completedJob, scenario)
+  })
+
   test('Scenario: a user creates a scoped API key for one meter', async ({ page }) => {
     const account = await Given.aDashboardAccount(page)
     const meterName = `api_requests_scoped_key_${Date.now()}`
@@ -116,6 +177,7 @@ test.describe('Feature: Dashboard usage exploration', () => {
     await When.theUserSignsIn(page, owner)
     await Then.theDashboardIsAvailable(page, owner)
     const scenario = await When.theSignedInUserCreatesWorkspaceOwnedResources(page)
+    await Then.workspaceOwnedAlertDetailIsVisibleToCurrentUser(page, scenario)
 
     await When.theUserSignsOut(page)
     await When.theUserSignsIn(page, other)
@@ -123,5 +185,22 @@ test.describe('Feature: Dashboard usage exploration', () => {
 
     await Then.workspaceOwnedDataIsHiddenFromCurrentUser(page, scenario)
     await Then.workspaceOwnedAPIResourcesAreHiddenFromCurrentUser(page, scenario)
+  })
+
+  test('Scenario: a user inspects entitlement states and transitions', async ({ page }) => {
+    const account = await Given.aDashboardAccount(page)
+
+    await When.theUserSignsIn(page, account)
+    await Then.theDashboardIsAvailable(page, account)
+
+    const scenario = await Given.aPlanEntitlementWarningExists(page)
+
+    await When.theUserOpensPlan(page, scenario)
+    await Then.planEntitlementStateIsVisible(page, scenario)
+    await Then.planEntitlementChangeIsVisible(page, scenario)
+
+    await When.theUserOpensSubjectActivityForEntitlement(page, scenario)
+    await Then.subjectEntitlementStateIsVisible(page, scenario)
+    await Then.subjectEntitlementChangeIsVisible(page, scenario)
   })
 })

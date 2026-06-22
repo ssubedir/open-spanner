@@ -189,8 +189,89 @@ func (r *UsageRepository) saveWithDuplicate(ctx context.Context, event domainusa
 	}); err != nil {
 		return domainusage.Event{}, false, err
 	}
+	if err := r.incrementEntitlementUsageCounters(ctx, workspaceID, event); err != nil {
+		return domainusage.Event{}, false, err
+	}
 
 	return event, false, nil
+}
+
+func (r *UsageRepository) incrementEntitlementUsageCounters(ctx context.Context, workspaceID string, event domainusage.Event) error {
+	anchorText, err := queriesFor(ctx, r.queries).FindActivePlanAssignmentAnchor(ctx, sqlitedb.FindActivePlanAssignmentAnchorParams{
+		WorkspaceID: workspaceID,
+		Subject:     event.Subject(),
+		Now:         formatTime(event.EventTime()),
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	anchor, err := time.Parse(time.RFC3339Nano, anchorText)
+	if err != nil {
+		return err
+	}
+	updatedAt := formatTime(time.Now().UTC())
+	for _, window := range entitlementCounterWindows(event.EventTime(), anchor) {
+		if err := queriesFor(ctx, r.queries).IncrementEntitlementUsageCounter(ctx, sqlitedb.IncrementEntitlementUsageCounterParams{
+			WorkspaceID: workspaceID,
+			Subject:     event.Subject(),
+			MeterName:   event.MeterName(),
+			Period:      window.period,
+			PeriodStart: formatTime(window.from),
+			PeriodEnd:   formatTime(window.to),
+			Quantity:    event.Quantity(),
+			EventTime:   formatTime(event.EventTime()),
+			UpdatedAt:   updatedAt,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type entitlementCounterWindow struct {
+	period string
+	from   time.Time
+	to     time.Time
+}
+
+func entitlementCounterWindows(at time.Time, anchor time.Time) []entitlementCounterWindow {
+	at = at.UTC()
+	anchor = anchor.UTC()
+	if anchor.IsZero() || at.Before(anchor) {
+		return nil
+	}
+	return []entitlementCounterWindow{
+		entitlementCounterWindowForPeriod(at, anchor, "day"),
+		entitlementCounterWindowForPeriod(at, anchor, "week"),
+		entitlementCounterWindowForPeriod(at, anchor, "month"),
+		entitlementCounterWindowForPeriod(at, anchor, "year"),
+	}
+}
+
+func entitlementCounterWindowForPeriod(at time.Time, anchor time.Time, period string) entitlementCounterWindow {
+	from := anchor
+	to := addEntitlementCounterPeriod(from, period)
+	for !at.Before(to) {
+		from = to
+		to = addEntitlementCounterPeriod(from, period)
+	}
+	return entitlementCounterWindow{period: period, from: from, to: to}
+}
+
+func addEntitlementCounterPeriod(from time.Time, period string) time.Time {
+	switch period {
+	case "day":
+		return from.AddDate(0, 0, 1)
+	case "week":
+		return from.AddDate(0, 0, 7)
+	case "year":
+		return from.AddDate(1, 0, 0)
+	default:
+		return from.AddDate(0, 1, 0)
+	}
 }
 
 func (r *UsageRepository) Query(ctx context.Context, query domainusage.Query) ([]domainusage.Bucket, error) {

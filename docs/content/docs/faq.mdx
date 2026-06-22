@@ -7,9 +7,13 @@ description: Common Open Spanner questions.
 
 No. Production usage should be written by backend services, workers, or scripts with an API key. The dashboard is mainly for setup, inspection, querying, and API key management.
 
-## Can SDKs create API keys?
+## Is Open Spanner a billing product?
 
-No. API keys are created in the dashboard. SDKs intentionally expose meters and usage operations, not auth administration.
+Not by itself. Open Spanner is usage and metering infrastructure. It records usage, keeps quota state, checks entitlements, and exports usage data. Billing systems still own pricing, invoices, taxes, payment collection, credits, and revenue workflows.
+
+## Can SDKs create API keys or plans?
+
+No. API keys and plans are managed from the dashboard or full REST API. SDKs intentionally expose the application-facing surface: meters, usage, direct exports, and entitlement checks.
 
 ## Can I put an API key in browser code?
 
@@ -17,7 +21,7 @@ No. Treat API keys as server-side secrets. Browser access should use the dashboa
 
 ## Does Open Spanner process payments?
 
-No. Open Spanner records and aggregates usage. Billing, invoicing, entitlements, and payment processing are separate systems that can consume Open Spanner usage data.
+No. Open Spanner records and aggregates usage, defines plan limits, and checks quota. Billing, invoicing, tax, and payment processing remain separate systems that can consume Open Spanner usage and quota data.
 
 ## Does Open Spanner support gRPC or streaming?
 

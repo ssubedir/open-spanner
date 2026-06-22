@@ -204,7 +204,7 @@ func TestAPIKeyFlow(t *testing.T) {
 	if created.ID == "" || created.Name != "sdk" || created.Key == "" || created.Prefix == "" {
 		t.Fatalf("created key = %#v", created)
 	}
-	if strings.Join(created.Scopes, ",") != "usage:write,usage:read,meters:read,meters:write" {
+	if strings.Join(created.Scopes, ",") != "usage:write,usage:read,meters:read,meters:write,plans:read" {
 		t.Fatalf("created scopes = %#v", created.Scopes)
 	}
 	if !strings.HasPrefix(created.Key, created.Prefix) {

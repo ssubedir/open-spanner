@@ -14,6 +14,7 @@ import (
 	"github.com/ssubedir/open-spanner/internal/config"
 	grpcadapter "github.com/ssubedir/open-spanner/internal/metering/adapters/grpc"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/grpc/pb"
+	entitlementworker "github.com/ssubedir/open-spanner/internal/metering/workers/entitlement"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -65,7 +66,7 @@ func runIntegrationGRPCUsageFlow(t *testing.T, cfg config.Config, namespace stri
 	})
 
 	listener := bufconn.Listen(1024 * 1024)
-	grpcServer := grpcadapter.NewServer(app.UsageService, app.AlertService, app.AuthService, app.Authorizer)
+	grpcServer := grpcadapter.NewServer(app.UsageService, app.AlertService, app.EntitlementService, app.AuthService, app.Authorizer)
 	go func() {
 		_ = grpcServer.Serve(listener)
 	}()
@@ -121,6 +122,35 @@ func runIntegrationGRPCUsageFlow(t *testing.T, cfg config.Config, namespace stri
 		t.Fatalf("create denied meter status = %d, want %d: %s", createDeniedMeter.Code, http.StatusCreated, createDeniedMeter.Body.String())
 	}
 
+	streamSubject := "org_456_" + suffix
+	createPlan := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/plans", map[string]any{
+		"name":        "gRPC Stream Pro " + suffix,
+		"description": "gRPC stream entitlement plan",
+		"limits": []map[string]any{
+			{
+				"meter":           meterName,
+				"period":          "month",
+				"limit":           5,
+				"warning_percent": 80,
+			},
+		},
+	}, authHeaders, nil)
+	if createPlan.Code != http.StatusCreated {
+		t.Fatalf("create stream plan status = %d, want %d: %s", createPlan.Code, http.StatusCreated, createPlan.Body.String())
+	}
+	var plan planTestResponse
+	decodeJSON(t, createPlan, &plan)
+	if plan.ID == "" {
+		t.Fatal("stream plan id is empty")
+	}
+
+	assignPlan := requestJSONWithHeaders(t, router, http.MethodPut, "/v1/plans/subjects/"+streamSubject, map[string]any{
+		"plan_id": plan.ID,
+	}, authHeaders, nil)
+	if assignPlan.Code != http.StatusOK {
+		t.Fatalf("assign stream plan status = %d, want %d: %s", assignPlan.Code, http.StatusOK, assignPlan.Body.String())
+	}
+
 	grpcCtx := metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+apiKey)
 	bulk, err := client.CreateUsageBulk(grpcCtx, &pb.CreateUsageBulkRequest{
 		IdempotencyKey: "grpc-bulk-" + suffix,
@@ -141,7 +171,7 @@ func runIntegrationGRPCUsageFlow(t *testing.T, cfg config.Config, namespace stri
 		t.Fatalf("open grpc stream: %v", err)
 	}
 	if err := stream.Send(&pb.StreamUsageRequest{
-		Event: grpcUsageEvent("grpc-stream-"+suffix+"-1", "org_456_"+suffix, meterName, 7, "2026-06-08T12:00:00Z", map[string]any{"endpoint": "/orders", "status": 200}),
+		Event: grpcUsageEvent("grpc-stream-"+suffix+"-1", streamSubject, meterName, 7, time.Now().UTC().Format(time.RFC3339), map[string]any{"endpoint": "/orders", "status": 200}),
 	}); err != nil {
 		t.Fatalf("send grpc stream usage: %v", err)
 	}
@@ -151,6 +181,47 @@ func runIntegrationGRPCUsageFlow(t *testing.T, cfg config.Config, namespace stri
 	}
 	if streamResult.GetAcceptedCount() != 1 || streamResult.GetDuplicateCount() != 0 || streamResult.GetFailedCount() != 0 {
 		t.Fatalf("grpc stream result = accepted %d duplicate %d failed %d, want 1/0/0", streamResult.GetAcceptedCount(), streamResult.GetDuplicateCount(), streamResult.GetFailedCount())
+	}
+
+	entitlementWorker := entitlementworker.NewWorker(app.EntitlementService, time.Millisecond, time.Minute, time.Minute, time.Second, 3, 10, t.Logf)
+	var states entitlementStateListTestResponse
+	processedAny := false
+	for attempt := 0; attempt < 200; attempt++ {
+		processed, err := entitlementWorker.ProcessOnce(context.Background())
+		if err != nil {
+			t.Fatalf("process grpc stream entitlement check: %v", err)
+		}
+		processedAny = processedAny || processed
+
+		statesRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/entitlements/states?subject="+streamSubject+"&meter="+meterName, nil, authHeaders, nil)
+		if statesRes.Code != http.StatusOK {
+			t.Fatalf("grpc stream entitlement states status = %d, want %d: %s", statesRes.Code, http.StatusOK, statesRes.Body.String())
+		}
+		decodeJSON(t, statesRes, &states)
+		if len(states.Items) > 0 && states.Items[0].State == "exceeded" {
+			break
+		}
+		if !processed {
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	if !processedAny {
+		t.Fatal("process grpc stream entitlement check = false, want queued entitlement job")
+	}
+	if len(states.Items) != 1 || states.Items[0].Subject != streamSubject || states.Items[0].Meter != meterName || states.Items[0].State != "exceeded" {
+		t.Fatalf("grpc stream entitlement states = %#v, want exceeded state for %q/%q", states, streamSubject, meterName)
+	}
+	assertFloatNear(t, states.Items[0].Current, 7, "grpc stream entitlement current")
+	assertFloatNear(t, states.Items[0].Limit, 5, "grpc stream entitlement limit")
+
+	entitlementEventsRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/entitlements/events?subject="+streamSubject+"&meter="+meterName, nil, authHeaders, nil)
+	if entitlementEventsRes.Code != http.StatusOK {
+		t.Fatalf("grpc stream entitlement events status = %d, want %d: %s", entitlementEventsRes.Code, http.StatusOK, entitlementEventsRes.Body.String())
+	}
+	var entitlementEvents entitlementEventListTestResponse
+	decodeJSON(t, entitlementEventsRes, &entitlementEvents)
+	if len(entitlementEvents.Items) != 1 || entitlementEvents.Items[0].Type != "exceeded" {
+		t.Fatalf("grpc stream entitlement events = %#v, want one exceeded event", entitlementEvents)
 	}
 
 	limitedAPIKey := createTestDashboardAPIKeyWithPayload(t, router, "grpc-limited+"+suffix+"@example.com", map[string]any{

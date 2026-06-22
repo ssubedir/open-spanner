@@ -2,6 +2,7 @@
   "title": "Overview",
   "pages": [
     "index",
+    "metering-infrastructure",
     "technical-overview",
     "roadmap",
     "release-versioning"

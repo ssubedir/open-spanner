@@ -77,6 +77,92 @@ type AuthWorkspace struct {
 	CreatedAt string
 }
 
+type EntitlementCheckJob struct {
+	WorkspaceID string
+	Subject     string
+	MeterName   string
+	RunAfter    string
+	LockedUntil sql.NullString
+	Attempts    int64
+	CreatedAt   string
+	UpdatedAt   string
+}
+
+type EntitlementEvent struct {
+	ID             string
+	WorkspaceID    string
+	Subject        string
+	MeterName      string
+	PlanID         string
+	PlanName       string
+	Period         string
+	PreviousState  sql.NullString
+	State          string
+	Type           string
+	CurrentValue   float64
+	LimitValue     float64
+	RemainingValue float64
+	WarningPercent float64
+	Message        string
+	CreatedAt      string
+}
+
+type EntitlementPeriodSnapshot struct {
+	WorkspaceID    string
+	Subject        string
+	MeterName      string
+	PlanID         string
+	PlanName       string
+	PlanVersion    int64
+	Period         string
+	PeriodStart    string
+	PeriodEnd      string
+	State          string
+	CurrentValue   float64
+	LimitValue     float64
+	IncludedValue  float64
+	OverageValue   float64
+	RemainingValue float64
+	WarningPercent float64
+	EventCount     int64
+	UpdatedAt      string
+}
+
+type EntitlementState struct {
+	WorkspaceID    string
+	Subject        string
+	MeterName      string
+	PlanID         string
+	PlanName       string
+	Period         string
+	State          string
+	CurrentValue   float64
+	LimitValue     float64
+	RemainingValue float64
+	WarningPercent float64
+	Message        string
+	EvaluatedAt    string
+	UpdatedAt      string
+}
+
+type EntitlementUsageCounter struct {
+	WorkspaceID    string
+	Subject        string
+	MeterName      string
+	Period         string
+	PeriodStart    string
+	PeriodEnd      string
+	EventCount     int64
+	QuantitySum    float64
+	QuantityMin    float64
+	QuantityMax    float64
+	FirstQuantity  float64
+	FirstEventTime string
+	LastQuantity   float64
+	LastEventTime  string
+	UpdatedAt      string
+}
+
 type UsageExportJob struct {
 	ID           string
 	WorkspaceID  string

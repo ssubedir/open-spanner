@@ -1,0 +1,140 @@
+---
+title: Plans And Entitlements
+description: Define plan quotas and check remaining usage.
+---
+
+Plans turn metered usage into product limits. A plan is a named package, such as `Free`, `Pro`, or `Enterprise`, with one or more meter limits for a billing period.
+
+Use plans when you want to answer:
+
+- Which package is this subject assigned to?
+- How much of a meter has the subject used in the current period?
+- Is the subject approaching or over the plan limit?
+- Can the backend allow another unit of usage right now?
+
+Open Spanner still does not collect payment, calculate tax, or issue invoices. It provides usage and limit state that billing systems, feature gates, product dashboards, and support workflows can use.
+
+## Core Model
+
+| Concept | Meaning |
+| --- | --- |
+| Plan | A named package with a description and one or more limits. |
+| Plan limit | A meter quota for a period, such as `api_calls <= 100000 / month`. |
+| Assignment | A subject-to-plan relationship, such as `org_123` on `Pro`. |
+| Progress | Current usage for each limit in the active period. |
+| Entitlement check | A backend decision for whether more usage can be allowed. |
+
+Plan periods are calendar windows in UTC:
+
+- `day`
+- `week`
+- `month`
+- `year`
+
+The warning state is controlled per limit with `warning_percent`. For example, a `100000` monthly API-call limit with `warning_percent=80` enters `warning` at `80000`.
+
+Open Spanner keeps per-period entitlement counters as usage is accepted. Raw usage events remain the audit trail and query source; counters give entitlement checks and progress reads a fast path for current quota state.
+
+Usage writes also queue entitlement evaluation for the affected subject and meter. The entitlement worker evaluates those jobs asynchronously and stores the latest state, transition events, and period snapshots. That gives the dashboard and API a current status record without making every usage write block on a full state refresh.
+
+## Overage States
+
+| State | Meaning |
+| --- | --- |
+| `ok` | Current usage is below the warning threshold. |
+| `warning` | Current usage is at or above the warning threshold but still within the limit. |
+| `exceeded` | Current usage is above the limit, or the requested quantity would exceed the limit. |
+| `no_plan` | The subject has not been assigned to a plan. |
+| `not_in_plan` | The subject has a plan, but the plan does not include that meter. |
+
+## Dashboard Workflow
+
+Create and manage plans from the dashboard:
+
+1. Create meters for the billable or limitable signals you want to track.
+2. Create a plan and add one limit per meter and period.
+3. Assign subjects to the plan.
+4. Review subject progress to see current usage, remaining quota, and state.
+
+Plan management is an administrative workflow. Backend services should not create plans from SDK code during normal application traffic.
+
+## Entitlement Checks
+
+Trusted backend services can ask Open Spanner whether a subject may consume more of a meter. The SDK surface exposes the entitlement check endpoint for this.
+
+Use this before product work when the user experience needs an immediate allow or deny decision. It is separate from the asynchronous entitlement worker: the check endpoint answers the request in front of you; the worker updates stored state and history after usage changes.
+
+```sh
+curl -X POST http://localhost:18081/v1/entitlements/check \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "subject": "org_123",
+    "meter": "api_calls",
+    "quantity": 1
+  }'
+```
+
+Example response:
+
+```json
+{
+  "allowed": true,
+  "state": "warning",
+  "subject": "org_123",
+  "meter": "api_calls",
+  "quantity": 1,
+  "current": 82500,
+  "limit": 100000,
+  "remaining": 17499,
+  "plan_id": "plan_123",
+  "plan_name": "Pro",
+  "period": "month",
+  "from": "2026-06-01T00:00:00Z",
+  "to": "2026-07-01T00:00:00Z",
+  "message": "quota is available"
+}
+```
+
+For service clients, include `plans:read` on API keys that need entitlement checks. Add `usage:write` when the same service should record usage after an allowed decision.
+
+See [Check Entitlements](/docs/tutorials/check-entitlements) for SDK examples in Go, TypeScript, Python, and C#.
+
+## Progress And Status
+
+Entitlement checks answer one decision: can this subject consume this quantity right now?
+
+Progress and status reads answer what is already true for the subject:
+
+- Progress shows each limit on the assigned plan, current usage, remaining quota, and state.
+- Status shows the latest stored entitlement states, optionally filtered by subject, meter, or state.
+- Event reads show state transitions such as `warning`, `exceeded`, or `resolved`.
+- Period snapshots provide an auditable record of evaluated quota periods.
+
+Use progress for customer-facing quota pages, account admin screens, and backend diagnostics:
+
+```sh
+curl "$BASE_URL/v1/plans/subjects/org_123/progress" \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+Use state reads when a service needs to inspect current entitlement status without recalculating every plan limit:
+
+```sh
+curl "$BASE_URL/v1/entitlements/states?subject=org_123&meter=api_calls" \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+Progress and status endpoints are part of the SDK surface. Event and period history are available from the dashboard and full REST API. Creating plans and assigning subjects remains a dashboard/admin workflow.
+
+## Usage Infrastructure
+
+Plans and entitlements are designed to sit before downstream billing or product enforcement:
+
+- Track usage through meters.
+- Define plan limits for the meters.
+- Assign subjects to plans.
+- Check quota during product actions.
+- Export usage for Stripe, Chargebee, finance systems, analytics, or custom reporting.
+
+This keeps Open Spanner focused on metering, usage limits, and clean infrastructure instead of becoming a payment platform.

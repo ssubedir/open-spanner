@@ -12,7 +12,23 @@ The REST API specification is generated into the repository under:
 - `openapi/swagger.json`
 - `openapi/openapi.json`
 
-The full REST API includes dashboard auth, API key management, meter operations, usage ingestion, usage querying, direct CSV exports, queued export jobs, alerts, system stats, and operational endpoints.
+The full REST API includes dashboard auth, API key management, meter operations, usage ingestion, usage querying, plans, entitlement checks, direct CSV exports, queued export jobs, alerts, system stats, and operational endpoints.
+
+Plans and entitlement checks are available through the full REST API:
+
+- `POST /v1/plans`
+- `GET /v1/plans`
+- `GET /v1/plans/{id}`
+- `PUT /v1/plans/{id}`
+- `DELETE /v1/plans/{id}`
+- `GET /v1/plans/assignments`
+- `PUT /v1/plans/subjects/{subject}`
+- `DELETE /v1/plans/subjects/{subject}`
+- `GET /v1/plans/subjects/{subject}/progress`
+- `POST /v1/entitlements/check`
+- `GET /v1/entitlements/states`
+- `GET /v1/entitlements/events`
+- `GET /v1/entitlements/periods`
 
 The direct CSV endpoints return files from the request:
 

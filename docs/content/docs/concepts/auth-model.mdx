@@ -18,9 +18,9 @@ Social login only creates dashboard sessions. It does not create API keys, bypas
 
 ## Workspaces
 
-Each dashboard user works inside a workspace. Meters, usage events, subjects, alert rules, alert destinations, export jobs, saved queries, and API keys are scoped to that workspace.
+Each dashboard user works inside a workspace. Meters, usage events, subjects, plans, alert rules, alert destinations, export jobs, saved queries, and API keys are scoped to that workspace.
 
-This means two dashboard users can use the same Open Spanner deployment without seeing each other's metering data. A user only sees the meters, usage, alerts, exports, and keys that belong to their current workspace.
+This means two dashboard users can use the same Open Spanner deployment without seeing each other's metering data. A user only sees the meters, usage, plans, alerts, exports, and keys that belong to their current workspace.
 
 API keys inherit the workspace where they were created. When a backend service sends usage with an API key, Open Spanner writes and reads data in that key's workspace. The service does not send a workspace ID in each request.
 
@@ -82,6 +82,8 @@ Common scopes:
 - `meters:write` creates or edits meter definitions.
 - `alerts:read` and `alerts:write` manage alert rules and destinations.
 - `exports:read` and `exports:write` download or queue usage exports.
+- `plans:read` checks quota and reads plan progress.
+- `plans:write` manages plans and subject assignments.
 - `system:read` reads operational stats.
 
 Leave the allowed meter list empty when a trusted backend service should work across all meters. Add meter names when a key belongs to one service or pipeline.
@@ -91,6 +93,7 @@ Good starting points:
 - Ingestion services usually need `usage:write`.
 - Reporting services usually need `usage:read`, `exports:read`, and `exports:write`.
 - Provisioning services that create meters need `meters:read` and `meters:write`.
+- Feature-gating services usually need `plans:read`.
 - Alert automation needs `alerts:read` and `alerts:write`.
 
 Use the smallest set of scopes that matches the service. If a key only writes one meter, set both the scope and the allowed meter list.

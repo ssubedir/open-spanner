@@ -1,26 +1,37 @@
 # Open Spanner
 
-Open Spanner is an open-source metering service for usage-based products. It records usage from your backend services, validates that usage against meter definitions, and turns raw events into queryable buckets for billing, limits, reporting, operations, and audits.
+Open Spanner is open-source usage and metering infrastructure for products that need a trustworthy record of what customers, accounts, or systems consume. It records usage from backend services, validates that usage against meter definitions, keeps quota state for plan limits, and turns raw events into queryable buckets for exports, limits, reporting, operations, and audits.
 
 Use it when you need to answer questions like:
 
 - How many API requests did a customer make this month?
 - Which model, region, or plan produced the most usage?
 - Did a customer cross a usage threshold?
-- What usage should be exported into billing, finance, or analytics?
+- Is a customer within their plan quota?
+- What usage should be exported into billing, finance, analytics, or customer reporting?
 - Can we replay or retry usage writes without double-counting?
 
-Open Spanner is not a payment processor, invoice generator, entitlement system, or customer identity provider. It gives those systems a clean usage record to work with.
+Open Spanner sits between your product and downstream systems such as billing, finance, analytics, support, and feature gates. It is not a payment processor, invoice generator, tax engine, or customer identity provider; it gives those systems clean usage facts and quota state to work with.
+
+## Where It Fits
+
+| Open Spanner owns | Downstream systems own |
+| --- | --- |
+| Meter definitions, dimensions, and retention windows | Customer identity, payment methods, invoices, taxes, and collection |
+| Idempotent usage ingestion over REST or gRPC | Product-specific pricing, discounts, credits, and contracts |
+| Usage queries, breakdowns, charts, and CSV exports | Revenue recognition, finance close, and external data warehouse modeling |
+| Plans, subject assignments, quota counters, and entitlement state | Customer-facing plan catalog and checkout |
+| Threshold alerts and webhook notifications | Incident routing, CRM workflows, and notification preferences |
 
 ## Product Surfaces
 
 | Surface | Use it for |
 | --- | --- |
-| Dashboard | Sign in, define meters, inspect usage, create API keys, manage exports, and view alert activity. |
-| REST API | Meter management, usage writes, usage queries, exports, and operational endpoints. |
-| Official SDKs | Typed backend clients for REST operations in Go, TypeScript, Python, and C#. |
+| Dashboard | Sign in, define meters, inspect usage, manage plans, create API keys, manage exports, and view alert activity. |
+| REST API | Meter management, usage writes, usage queries, entitlement checks, exports, and operational endpoints. |
+| Official SDKs | Typed backend clients for meters, usage, direct exports, entitlement checks, and entitlement progress reads in Go, TypeScript, Python, and C#. |
 | gRPC streaming | High-throughput usage ingestion from trusted backend services. |
-| Workers | Queued CSV export processing and alert threshold evaluation. |
+| Workers | Queued CSV exports, alert threshold evaluation, and async entitlement state updates. |
 | Storage | SQLite for local/single-node use, Postgres for production deployments. |
 
 Read the hosted docs at [ssubedir.github.io/open-spanner/docs](https://ssubedir.github.io/open-spanner/docs).
@@ -31,9 +42,11 @@ Read the hosted docs at [ssubedir.github.io/open-spanner/docs](https://ssubedir.
 - Idempotent single and bulk usage ingestion.
 - gRPC stream ingestion for backend service-to-service usage pipelines.
 - Bucketed usage queries with filters, breakdowns, dimensions, and pagination.
+- Plans, subject assignments, quota counters, entitlement checks, and entitlement state history.
 - Direct CSV exports for focused requests and queued export jobs for larger files.
 - Alert rules that watch usage windows and deliver webhook notifications.
 - Dashboard auth with HttpOnly cookies and scoped API keys for service clients.
+- Workspace isolation so each dashboard user sees their own meters, usage, plans, alerts, exports, and keys.
 - SQLite and Postgres storage, including Postgres JSONB metadata filtering.
 - Embedded React dashboard.
 - Generated REST SDKs for Go, TypeScript, Python, and C#.
@@ -41,7 +54,7 @@ Read the hosted docs at [ssubedir.github.io/open-spanner/docs](https://ssubedir.
 
 ## Quick Start
 
-The fastest full stack is Docker Compose. It starts the API, dashboard, export worker, alert worker, Postgres, and shared export storage.
+The fastest full stack is Docker Compose. It starts the API, dashboard, export worker, alert worker, entitlement worker, Postgres, and shared export storage.
 
 ```sh
 git clone https://github.com/ssubedir/open-spanner.git
@@ -87,7 +100,7 @@ docker pull ssubedir/open-spanner:latest
 Use `latest` for trials. Pin a version tag for production:
 
 ```sh
-docker pull ssubedir/open-spanner:0.1.8
+docker pull ssubedir/open-spanner:0.1.12
 ```
 
 The image includes the API and worker binaries:
@@ -96,6 +109,7 @@ The image includes the API and worker binaries:
 /usr/local/bin/open-spanner
 /usr/local/bin/open-spanner-export-worker
 /usr/local/bin/open-spanner-alert-worker
+/usr/local/bin/open-spanner-entitlement-worker
 ```
 
 For a small SQLite-backed trial:
@@ -119,11 +133,12 @@ Install [Task](https://taskfile.dev/) and run the API with SQLite:
 task run:sqlite
 ```
 
-Run workers in separate terminals when you want queued exports and alerts processed:
+Run workers in separate terminals when you want queued exports, alerts, and async entitlement state updates processed:
 
 ```sh
 task run:export-worker
 task run:alert-worker
+task run:entitlement-worker
 ```
 
 Run with Postgres:
@@ -133,6 +148,7 @@ task postgres:up
 task run:postgres
 task run:export-worker:postgres
 task run:alert-worker:postgres
+task run:entitlement-worker:postgres
 ```
 
 ## First Usage Flow
@@ -236,6 +252,7 @@ Stream examples:
 | Device telemetry | [`examples/stream/advance/device-telemetry`](examples/stream/advance/device-telemetry) |
 | WebSocket sessions | [`examples/stream/advance/websocket-sessions`](examples/stream/advance/websocket-sessions) |
 | Queue consumers | [`examples/stream/advance/queue-consumer`](examples/stream/advance/queue-consumer) |
+| Entitlement-gated ingestion | [`examples/stream/advance/entitlement-gate`](examples/stream/advance/entitlement-gate) |
 
 ## Use Cases
 
@@ -247,9 +264,10 @@ Stream examples:
 | [Active users](docs/content/docs/use-cases/active-users.mdx) | Seats, workspaces, roles, plans, and active accounts. |
 | [Background jobs](docs/content/docs/use-cases/background-jobs.mdx) | Queue throughput, job outcomes, and worker regions. |
 | [Feature usage](docs/content/docs/use-cases/feature-usage.mdx) | Product adoption, entitlement usage, and plan-level behavior. |
+| Entitlement checks | Backend quota gates before accepting usage for a subject. |
 | [Historical backfill](docs/content/docs/use-cases/historical-backfill.mdx) | Older usage imported with stable idempotency keys. |
 
-Each REST use case has runnable Go, TypeScript, Python, and C# examples under [`examples/rest/advance`](examples/rest/advance). Stream-native examples live under [`examples/stream`](examples/stream).
+Each REST use case has runnable Go, TypeScript, Python, and C# examples under [`examples/rest/advance`](examples/rest/advance), including the [`entitlement-check`](examples/rest/advance/entitlement-check) backend quota gate. Stream-native examples live under [`examples/stream`](examples/stream).
 
 ## SDKs
 
@@ -265,7 +283,7 @@ SDKs are for trusted backend code. Do not put Open Spanner API keys in browser o
 
 ## Production Notes
 
-For production, run Open Spanner with Postgres and separate API, export worker, and alert worker processes. The API and workers must share the same database. Queued exports also require shared export storage so workers can write files and the API can serve downloads.
+For production, run Open Spanner with Postgres and separate API, export worker, alert worker, and entitlement worker processes. The API and workers must share the same database. Queued exports also require shared export storage so workers can write files and the API can serve downloads.
 
 Recommended production shape:
 
@@ -275,6 +293,7 @@ Recommended production shape:
 | API | Run one or more API instances behind your ingress or load balancer. |
 | Export worker | Run separately from the API when queued exports are enabled. |
 | Alert worker | Run separately from the API when alert rules are enabled. |
+| Entitlement worker | Run separately from the API when plans and quota state are enabled. |
 | TLS | Terminate TLS at your ingress, load balancer, or reverse proxy. |
 | gRPC | Expose only to trusted backend services that emit usage. |
 | Secrets | Protect Postgres credentials, scoped API keys, and webhook signing secrets. |
@@ -303,6 +322,7 @@ Common runtime variables:
 | `OPEN_SPANNER_EXPORT_STORAGE_PATH` | `open-spanner-exports` | Shared path for generated export files. |
 | `OPEN_SPANNER_EXPORT_WORKER_INTERVAL` | `5s` | Export worker polling interval. |
 | `OPEN_SPANNER_ALERT_WORKER_INTERVAL` | `5s` | Alert worker polling interval. |
+| `OPEN_SPANNER_ENTITLEMENT_WORKER_INTERVAL` | `5s` | Entitlement worker polling interval. |
 | `OPEN_SPANNER_RETENTION_PRUNE_ENABLED` | `false` | Enables automatic retention pruning. |
 
 See [Environment Variables](docs/content/docs/configuration/environment-variables.mdx) for the full list.
@@ -403,6 +423,7 @@ task admin:dev
 cmd/api                 API entrypoint
 cmd/export-worker       Queued export worker entrypoint
 cmd/alert-worker        Alert evaluation worker entrypoint
+cmd/entitlement-worker  Entitlement state worker entrypoint
 internal/config         Runtime configuration
 internal/server/http    HTTP server wiring
 internal/ui             Embedded dashboard routes and assets

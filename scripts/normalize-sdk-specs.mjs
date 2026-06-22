@@ -18,6 +18,14 @@ const schemaNames = new Map([
   ["internal_metering_adapters_http_auth.RefreshResponse", "AuthRefreshResponse"],
   ["internal_metering_adapters_http_auth.SessionResponse", "AuthSessionResponse"],
   ["internal_metering_adapters_http_auth.UserResponse", "AuthUser"],
+  ["internal_metering_adapters_http_entitlement.CheckRequest", "EntitlementCheckRequest"],
+  ["internal_metering_adapters_http_entitlement.CheckResponse", "EntitlementCheckResponse"],
+  ["internal_metering_adapters_http_entitlement.LimitResponse", "PlanLimit"],
+  ["internal_metering_adapters_http_entitlement.PlanResponse", "Plan"],
+  ["internal_metering_adapters_http_entitlement.ProgressItemResponse", "EntitlementProgressItem"],
+  ["internal_metering_adapters_http_entitlement.ProgressResponse", "EntitlementProgress"],
+  ["internal_metering_adapters_http_entitlement.StateListResponse", "EntitlementStateListResponse"],
+  ["internal_metering_adapters_http_entitlement.StateResponse", "EntitlementState"],
   ["internal_metering_adapters_http_meter.CreateRequest", "MeterCreateRequest"],
   ["internal_metering_adapters_http_meter.DimensionRequest", "MeterDimensionRequest"],
   ["internal_metering_adapters_http_meter.DimensionResponse", "MeterDimension"],
@@ -58,8 +66,11 @@ const spec = JSON.parse(fs.readFileSync(inputPath, "utf8"));
 const sdkOperations = new Map([
   ["/health", new Set(["get"])],
   ["/ready", new Set(["get"])],
+  ["/v1/entitlements/check", new Set(["post"])],
+  ["/v1/entitlements/states", new Set(["get"])],
   ["/v1/meters", new Set(["get", "post"])],
   ["/v1/meters/{id}", new Set(["delete", "get", "put"])],
+  ["/v1/plans/subjects/{subject}/progress", new Set(["get"])],
   ["/v1/usages", new Set(["post"])],
   ["/v1/usages/breakdowns/search", new Set(["post"])],
   ["/v1/usages/bulk", new Set(["post"])],
@@ -136,6 +147,7 @@ function renameSchemaContainer(container) {
 renameSchemaContainer(spec.definitions);
 renameSchemaContainer(spec.components?.schemas);
 rewriteRefs(spec);
+delete spec.components?.requestBodies;
 pruneUnreferencedSchemas(spec);
 
 fs.writeFileSync(outputPath, `${JSON.stringify(spec, null, 2)}\n`);

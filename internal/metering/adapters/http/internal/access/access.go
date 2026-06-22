@@ -122,6 +122,14 @@ func ExportsWrite(extractor ResourceExtractor) Policy {
 	return need(appauth.ActionExportsWrite, extractor)
 }
 
+func PlansRead(extractor ResourceExtractor) Policy {
+	return need(appauth.ActionPlansRead, extractor)
+}
+
+func PlansWrite(extractor ResourceExtractor) Policy {
+	return need(appauth.ActionPlansWrite, extractor)
+}
+
 func SystemRead(extractor ResourceExtractor) Policy {
 	return need(appauth.ActionSystemRead, extractor)
 }
@@ -203,6 +211,14 @@ func Export(meter string) Resource {
 
 func ExportByID(id string, meter string) Resource {
 	return Resource{Type: appauth.ResourceExport, ID: id, Meter: meter}
+}
+
+func Plan(meter string) Resource {
+	return Resource{Type: appauth.ResourcePlan, Meter: meter}
+}
+
+func PlanByID(id string, meter string) Resource {
+	return Resource{Type: appauth.ResourcePlan, ID: id, Meter: meter}
 }
 
 func System() Resource {

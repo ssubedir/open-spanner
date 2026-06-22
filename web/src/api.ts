@@ -99,6 +99,227 @@ export type MeterDimensionRequest = {
   deprecated: boolean
 }
 
+export type PlanLimit = {
+  id: string
+  meter: string
+  period: string
+  limit: number
+  warning_percent: number
+  created_at: string
+  updated_at: string
+}
+
+export type Plan = {
+  id: string
+  name: string
+  description: string
+  version: number
+  parent_plan_id?: string
+  is_current: boolean
+  limits: PlanLimit[]
+  created_at: string
+  updated_at: string
+}
+
+export type PlanList = {
+  items: Plan[]
+}
+
+export type PlanPreviewSummary = {
+  subjects: number
+  ok: number
+  warning: number
+  exceeded: number
+  removed_limits: number
+}
+
+export type PlanPreviewItem = {
+  meter: string
+  period: string
+  current: number
+  current_limit: number
+  proposed_limit: number
+  current_state: string
+  proposed_state: string
+  remaining: number
+  overage: number
+  percent: number
+  warning_percent: number
+  from: string
+  to: string
+  period_reset_at: string
+  unit: string
+  aggregation: string
+  event_count: number
+  removed: boolean
+  existing_limit_found: boolean
+}
+
+export type PlanPreviewSubject = {
+  subject: string
+  assignment_id: string
+  assignment_status: 'scheduled' | 'active' | 'ended'
+  current_plan_id: string
+  current_plan_version: number
+  proposed_plan_id: string
+  proposed_plan_version: number
+  items: PlanPreviewItem[]
+}
+
+export type PlanPreview = {
+  current: Plan
+  proposed: Plan
+  summary: PlanPreviewSummary
+  subjects: PlanPreviewSubject[]
+}
+
+export type PlanLimitRequest = {
+  meter: string
+  period: string
+  limit: number
+  warning_percent?: number
+}
+
+export type PlanSaveRequest = {
+  name: string
+  description?: string
+  limits: PlanLimitRequest[]
+}
+
+export type PlanAssignment = {
+  id: string
+  subject: string
+  plan_id: string
+  plan_name: string
+  plan_version: number
+  status: 'scheduled' | 'active' | 'ended'
+  active: boolean
+  assigned_at: string
+  period_anchor_at: string
+  unassigned_at?: string
+  updated_at: string
+}
+
+export type PlanAssignmentList = {
+  items: PlanAssignment[]
+}
+
+export type PlanProgressItem = {
+  meter: string
+  period: string
+  state: string
+  current: number
+  limit: number
+  remaining: number
+  overage: number
+  percent: number
+  warning_percent: number
+  from: string
+  to: string
+  period_reset_at: string
+  unit: string
+  aggregation: string
+}
+
+export type SubjectPlanProgress = {
+  subject: string
+  plan: Plan
+  items: PlanProgressItem[]
+}
+
+export type EntitlementCheckRequest = {
+  subject: string
+  meter: string
+  quantity?: number
+}
+
+export type EntitlementCheckResult = {
+  allowed: boolean
+  state: string
+  subject: string
+  meter: string
+  quantity: number
+  current: number
+  limit: number
+  remaining: number
+  overage: number
+  plan_id?: string
+  plan_name?: string
+  period?: string
+  from?: string
+  to?: string
+  period_reset_at?: string
+  retry_after_seconds?: number
+  message: string
+}
+
+export type EntitlementState = {
+  subject: string
+  meter: string
+  plan_id: string
+  plan_name: string
+  period: string
+  state: string
+  current: number
+  limit: number
+  remaining: number
+  warning_percent: number
+  message: string
+  evaluated_at: string
+  updated_at: string
+}
+
+export type EntitlementStateList = {
+  items: EntitlementState[]
+}
+
+export type EntitlementEvent = {
+  id: string
+  subject: string
+  meter: string
+  plan_id: string
+  plan_name: string
+  period: string
+  previous_state?: string
+  state: string
+  type: string
+  current: number
+  limit: number
+  remaining: number
+  warning_percent: number
+  message: string
+  created_at: string
+}
+
+export type EntitlementEventList = {
+  items: EntitlementEvent[]
+  next_cursor?: string
+}
+
+export type EntitlementPeriodSnapshot = {
+  subject: string
+  meter: string
+  plan_id: string
+  plan_name: string
+  plan_version: number
+  period: string
+  from: string
+  to: string
+  state: string
+  current: number
+  limit: number
+  included: number
+  overage: number
+  remaining: number
+  warning_percent: number
+  event_count: number
+  updated_at: string
+}
+
+export type EntitlementPeriodSnapshotList = {
+  items: EntitlementPeriodSnapshot[]
+}
+
 export type UsageEvent = {
   id: string
   idempotency_key?: string
@@ -706,6 +927,124 @@ export async function deleteMeter(id: string) {
   return request<void>(`/v1/meters/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   })
+}
+
+export async function listPlans(limit = 100) {
+  return request<PlanList>(`/v1/plans?limit=${limit}`)
+}
+
+export async function createPlan(input: PlanSaveRequest) {
+  return request<Plan>('/v1/plans', {
+    body: JSON.stringify(input),
+    method: 'POST',
+  })
+}
+
+export async function updatePlan(id: string, input: PlanSaveRequest) {
+  return request<Plan>(`/v1/plans/${encodeURIComponent(id)}`, {
+    body: JSON.stringify(input),
+    method: 'PUT',
+  })
+}
+
+export async function previewPlan(id: string, input: PlanSaveRequest) {
+  return request<PlanPreview>(`/v1/plans/${encodeURIComponent(id)}/preview`, {
+    body: JSON.stringify(input),
+    method: 'POST',
+  })
+}
+
+export async function deletePlan(id: string) {
+  return request<void>(`/v1/plans/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function listPlanAssignments(limit = 100, includeHistory = false) {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (includeHistory) {
+    params.set('include_history', 'true')
+  }
+  return request<PlanAssignmentList>(`/v1/plans/assignments?${params.toString()}`)
+}
+
+export async function assignSubjectPlan(subject: string, planID: string, effectiveAt?: string) {
+  const body = effectiveAt ? { effective_at: effectiveAt, plan_id: planID } : { plan_id: planID }
+  return request<PlanAssignment>(`/v1/plans/subjects/${encodeURIComponent(subject)}`, {
+    body: JSON.stringify(body),
+    method: 'PUT',
+  })
+}
+
+export async function deleteSubjectPlanAssignment(subject: string) {
+  return request<void>(`/v1/plans/subjects/${encodeURIComponent(subject)}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function getSubjectPlanProgress(subject: string) {
+  return request<SubjectPlanProgress>(`/v1/plans/subjects/${encodeURIComponent(subject)}/progress`)
+}
+
+export async function checkEntitlement(input: EntitlementCheckRequest) {
+  return request<EntitlementCheckResult>('/v1/entitlements/check', {
+    body: JSON.stringify(input),
+    method: 'POST',
+  })
+}
+
+export async function listEntitlementStates(query: { limit?: number; meter?: string; state?: string; subject?: string } = {}) {
+  const params = new URLSearchParams({ limit: String(query.limit ?? 100) })
+  if (query.meter) {
+    params.set('meter', query.meter)
+  }
+  if (query.state) {
+    params.set('state', query.state)
+  }
+  if (query.subject) {
+    params.set('subject', query.subject)
+  }
+  return request<EntitlementStateList>(`/v1/entitlements/states?${params.toString()}`)
+}
+
+export async function listEntitlementEvents(query: { cursor?: string; limit?: number; meter?: string; plan_id?: string; state?: string; subject?: string; type?: string } = {}) {
+  const params = new URLSearchParams({ limit: String(query.limit ?? 25) })
+  if (query.cursor) {
+    params.set('cursor', query.cursor)
+  }
+  if (query.meter) {
+    params.set('meter', query.meter)
+  }
+  if (query.plan_id) {
+    params.set('plan_id', query.plan_id)
+  }
+  if (query.state) {
+    params.set('state', query.state)
+  }
+  if (query.subject) {
+    params.set('subject', query.subject)
+  }
+  if (query.type) {
+    params.set('type', query.type)
+  }
+  return request<EntitlementEventList>(`/v1/entitlements/events?${params.toString()}`)
+}
+
+export async function listEntitlementPeriodSnapshots(query: { limit?: number; meter?: string; plan_id?: string; state?: string; subject?: string } = {}) {
+  const params = new URLSearchParams({ limit: String(query.limit ?? 100) })
+  if (query.meter) {
+    params.set('meter', query.meter)
+  }
+  if (query.plan_id) {
+    params.set('plan_id', query.plan_id)
+  }
+  if (query.state) {
+    params.set('state', query.state)
+  }
+  if (query.subject) {
+    params.set('subject', query.subject)
+  }
+  return request<EntitlementPeriodSnapshotList>(`/v1/entitlements/periods?${params.toString()}`)
 }
 
 export async function createUsage(input: UsageCreateRequest) {

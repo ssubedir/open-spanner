@@ -10,6 +10,7 @@ import {
   createAuthSession,
   createAuthUser,
   createMeter as createMeterRequest,
+  createPlan as createPlanRequest,
   createSavedUsageQuery,
   createUsageExportJob,
   deleteAlertRule,
@@ -17,12 +18,19 @@ import {
   deleteAPIKey as deleteAPIKeyRequest,
   deleteAuthSession,
   deleteMeter as deleteMeterRequest,
+  deletePlan as deletePlanRequest,
+  deleteSubjectPlanAssignment as deleteSubjectPlanAssignmentRequest,
   deleteSavedUsageQuery,
   downloadUsageExportJob,
   exportUsageBuckets,
   exportUsageEvents,
   evaluateAlertRule,
   getSystemStats,
+  getSubjectPlanProgress,
+  assignSubjectPlan as assignSubjectPlanRequest,
+  listEntitlementEvents,
+  listEntitlementPeriodSnapshots,
+  listEntitlementStates,
   listAlertEvents,
   listAlertDestinations,
   listAlertRules,
@@ -31,6 +39,8 @@ import {
   listMeterStats,
   listMeters,
   listOAuthProviders,
+  listPlanAssignments,
+  listPlans,
   listSavedUsageQueries,
   listSubjectEvents,
   listSubjects,
@@ -42,6 +52,7 @@ import {
   refreshAuthSession,
   rotateAlertDestinationSecret as rotateAlertDestinationSecretRequest,
   retryUsageExportJob,
+  updatePlan as updatePlanRequest,
   updateAlertDestination as updateAlertDestinationRequest,
   updateAlertRule,
   updateMeter as updateMeterRequest,
@@ -57,12 +68,19 @@ import {
   type APIKeyCreateRequest,
   type APIKeyCreateResponse,
   type AuthSession,
+  type EntitlementEvent,
+  type EntitlementPeriodSnapshot,
+  type EntitlementState,
   type Meter,
   type MeterCreateRequest,
   type MeterStats,
   type MeterUpdateRequest,
   type OAuthProvider,
+  type Plan,
+  type PlanAssignment,
+  type PlanSaveRequest,
   type SavedUsageQuery,
+  type SubjectPlanProgress,
   type UsageBucket,
   type UsageBucketExportQuery,
   type UsageBreakdown,
@@ -176,6 +194,29 @@ type AppState = {
     stats: Record<string, MeterStats>
     status: LoadState
   }
+  plans: {
+    assignments: PlanAssignment[]
+    assignmentHistory: PlanAssignment[]
+    assigning: boolean
+    creating: boolean
+    deleting: Plan | null
+    editing: Plan | null
+    error: string
+    entitlementEventLoadingMore: boolean
+    entitlementEventNextCursor: string
+    entitlementEventStatus: LoadState
+    entitlementEvents: EntitlementEvent[]
+    entitlementPeriodSnapshots: EntitlementPeriodSnapshot[]
+    entitlementStates: EntitlementState[]
+    items: Plan[]
+    meters: Meter[]
+    progress: SubjectPlanProgress | null
+    progressStatus: LoadState
+    progressSubject: string
+    saving: boolean
+    selectedEntitlementEvent: EntitlementEvent | null
+    status: LoadState
+  }
   overview: {
     error: string
     ingestions: IngestionRun[]
@@ -186,6 +227,10 @@ type AppState = {
   }
   subjects: {
     detailStatus: LoadState
+    entitlementEventLoadingMore: boolean
+    entitlementEventNextCursor: string
+    entitlementEvents: EntitlementEvent[]
+    entitlementStates: EntitlementState[]
     error: string
     events: UsageEvent[]
     exportError: string
@@ -194,6 +239,7 @@ type AppState = {
     loadingMore: boolean
     nextCursor: string
     searchQuery: string
+    selectedEntitlementEvent: EntitlementEvent | null
     selectedSubject: string
     status: LoadState
   }
@@ -234,11 +280,13 @@ type AppState = {
   }
 }
 
-type UserDataState = Pick<AppState, 'apiKeys' | 'alerts' | 'meters' | 'overview' | 'subjects' | 'usage'>
+type UserDataState = Pick<AppState, 'apiKeys' | 'alerts' | 'meters' | 'overview' | 'plans' | 'subjects' | 'usage'>
 
 let meterDimensionID = 0
 const domainSubjectField = 'subject'
 const alertEventPageSize = 25
+const entitlementEventPageSize = 25
+const subjectEntitlementEventPageSize = 10
 const subjectPageSize = 50
 const exportJobPageSize = 50
 let userDataGeneration = 0
@@ -293,6 +341,29 @@ export const appStore = createStore<AppState>({
     stats: {},
     status: 'idle',
   },
+  plans: {
+    assignments: [],
+    assignmentHistory: [],
+    assigning: false,
+    creating: false,
+    deleting: null,
+    editing: null,
+    error: '',
+    entitlementEventLoadingMore: false,
+    entitlementEventNextCursor: '',
+    entitlementEventStatus: 'idle',
+    entitlementEvents: [],
+    entitlementPeriodSnapshots: [],
+    entitlementStates: [],
+    items: [],
+    meters: [],
+    progress: null,
+    progressStatus: 'idle',
+    progressSubject: '',
+    saving: false,
+    selectedEntitlementEvent: null,
+    status: 'idle',
+  },
   overview: {
     error: '',
     ingestions: [],
@@ -303,6 +374,10 @@ export const appStore = createStore<AppState>({
   },
   subjects: {
     detailStatus: 'idle',
+    entitlementEventLoadingMore: false,
+    entitlementEventNextCursor: '',
+    entitlementEvents: [],
+    entitlementStates: [],
     error: '',
     events: [],
     exportError: '',
@@ -311,6 +386,7 @@ export const appStore = createStore<AppState>({
     loadingMore: false,
     nextCursor: '',
     searchQuery: '',
+    selectedEntitlementEvent: null,
     selectedSubject: '',
     status: 'idle',
   },
@@ -419,6 +495,29 @@ function initialUserDataState(): UserDataState {
       stats: {},
       status: 'idle',
     },
+    plans: {
+      assignments: [],
+      assignmentHistory: [],
+      assigning: false,
+      creating: false,
+      deleting: null,
+      editing: null,
+      error: '',
+      entitlementEventLoadingMore: false,
+      entitlementEventNextCursor: '',
+      entitlementEventStatus: 'idle',
+      entitlementEvents: [],
+      entitlementPeriodSnapshots: [],
+      entitlementStates: [],
+      items: [],
+      meters: [],
+      progress: null,
+      progressStatus: 'idle',
+      progressSubject: '',
+      selectedEntitlementEvent: null,
+      saving: false,
+      status: 'idle',
+    },
     overview: {
       error: '',
       ingestions: [],
@@ -429,6 +528,10 @@ function initialUserDataState(): UserDataState {
     },
     subjects: {
       detailStatus: 'idle',
+      entitlementEventLoadingMore: false,
+      entitlementEventNextCursor: '',
+      entitlementEvents: [],
+      entitlementStates: [],
       error: '',
       events: [],
       exportError: '',
@@ -437,6 +540,7 @@ function initialUserDataState(): UserDataState {
       loadingMore: false,
       nextCursor: '',
       searchQuery: '',
+      selectedEntitlementEvent: null,
       selectedSubject: '',
       status: 'idle',
     },
@@ -838,6 +942,241 @@ export const appStoreActions = {
       setMetersState({ error: errorMessage(err, 'Unable to load meters'), status: 'error' })
     }
   },
+  async loadPlans() {
+    const generation = currentUserDataGeneration()
+    setPlansState({
+      entitlementEventLoadingMore: false,
+      entitlementEventStatus: 'loading',
+      error: '',
+      progressStatus: appStore.state.plans.progressStatus === 'idle' ? 'idle' : appStore.state.plans.progressStatus,
+      status: 'loading',
+    })
+    try {
+      const [plans, assignments, assignmentHistory, meters] = await Promise.all([
+        listPlans(),
+        listPlanAssignments(),
+        listPlanAssignments(100, true),
+        listMeters(),
+      ])
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setPlansState({
+        assignmentHistory: assignmentHistory.items,
+        assignments: assignments.items,
+        items: plans.items,
+        meters: meters.items,
+        status: 'ready',
+      })
+    } catch (err) {
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setPlansState({ entitlementEventStatus: 'error', error: errorMessage(err, 'Unable to load plans'), status: 'error' })
+      return
+    }
+
+    try {
+      const [entitlementStates, entitlementEvents, entitlementPeriodSnapshots] = await Promise.all([
+        listEntitlementStates({ limit: 100 }),
+        listEntitlementEvents({ limit: entitlementEventPageSize }),
+        listEntitlementPeriodSnapshots({ limit: 100 }),
+      ])
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setPlansState((state) => ({
+        entitlementEventNextCursor: entitlementEvents.next_cursor || '',
+        entitlementEventStatus: 'ready',
+        entitlementEvents: entitlementEvents.items,
+        entitlementPeriodSnapshots: entitlementPeriodSnapshots.items,
+        entitlementStates: entitlementStates.items,
+        selectedEntitlementEvent: state.selectedEntitlementEvent ? entitlementEvents.items.find((event) => event.id === state.selectedEntitlementEvent?.id) ?? state.selectedEntitlementEvent : null,
+      }))
+    } catch {
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setPlansState({
+        entitlementEventNextCursor: '',
+        entitlementEventStatus: 'error',
+        entitlementEvents: [],
+        entitlementPeriodSnapshots: [],
+        entitlementStates: [],
+        selectedEntitlementEvent: null,
+      })
+    }
+  },
+  async loadPlanEntitlementActivity(options: { quiet?: boolean } = {}) {
+    const generation = currentUserDataGeneration()
+    if (!options.quiet) {
+      setPlansState({ entitlementEventStatus: 'loading', error: '' })
+    }
+
+    try {
+      const [states, events, snapshots] = await Promise.all([
+        listEntitlementStates({ limit: 100 }),
+        listEntitlementEvents({ limit: entitlementEventPageSize }),
+        listEntitlementPeriodSnapshots({ limit: 100 }),
+      ])
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setPlansState((state) => ({
+        entitlementEventNextCursor: options.quiet && state.entitlementEvents.length > events.items.length ? state.entitlementEventNextCursor : events.next_cursor || '',
+        entitlementEventStatus: 'ready',
+        entitlementEvents: options.quiet && state.entitlementEvents.length > events.items.length ? mergeByID(events.items, state.entitlementEvents) : events.items,
+        entitlementPeriodSnapshots: snapshots.items,
+        entitlementStates: states.items,
+        selectedEntitlementEvent: state.selectedEntitlementEvent ? events.items.find((event) => event.id === state.selectedEntitlementEvent?.id) ?? state.selectedEntitlementEvent : null,
+      }))
+    } catch (err) {
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setPlansState(options.quiet
+        ? { entitlementEventStatus: 'error' }
+        : {
+            entitlementEventStatus: 'error',
+            error: errorMessage(err, 'Unable to load entitlement activity'),
+          })
+    }
+  },
+  async loadMorePlanEntitlementEvents() {
+    const cursor = appStore.state.plans.entitlementEventNextCursor
+    if (!cursor || appStore.state.plans.entitlementEventLoadingMore) {
+      return
+    }
+
+    const generation = currentUserDataGeneration()
+    setPlansState({ entitlementEventLoadingMore: true, error: '' })
+    try {
+      const events = await listEntitlementEvents({ cursor, limit: entitlementEventPageSize })
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setPlansState((state) => ({
+        entitlementEventNextCursor: events.next_cursor || '',
+        entitlementEvents: appendUniqueByKey(state.entitlementEvents, events.items, (event) => event.id),
+      }))
+    } catch (err) {
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setPlansState({ error: errorMessage(err, 'Unable to load more entitlement changes') })
+    } finally {
+      if (isCurrentUserDataGeneration(generation)) {
+        setPlansState({ entitlementEventLoadingMore: false })
+      }
+    }
+  },
+  async createPlan(input: PlanSaveRequest) {
+    setPlansState({ error: '', saving: true })
+    try {
+      const plan = await createPlanRequest(input)
+      await appStoreActions.loadPlans()
+      setPlansState({ creating: false })
+      return plan
+    } catch (err) {
+      setPlansState({ error: errorMessage(err, 'Unable to create plan') })
+      throw err
+    } finally {
+      setPlansState({ saving: false })
+    }
+  },
+  async updateEditingPlan(input: PlanSaveRequest) {
+    const editing = appStore.state.plans.editing
+    if (!editing) {
+      return
+    }
+    setPlansState({ error: '', saving: true })
+    try {
+      const plan = await updatePlanRequest(editing.id, input)
+      await appStoreActions.loadPlans()
+      setPlansState({ editing: null })
+      return plan
+    } catch (err) {
+      setPlansState({ error: errorMessage(err, 'Unable to update plan') })
+      throw err
+    } finally {
+      setPlansState({ saving: false })
+    }
+  },
+  async deleteSelectedPlan() {
+    const deleting = appStore.state.plans.deleting
+    if (!deleting) {
+      return
+    }
+    setPlansState({ error: '', saving: true })
+    try {
+      await deletePlanRequest(deleting.id)
+      setPlansState((state) => ({
+        deleting: null,
+        items: state.items.filter((plan) => plan.id !== deleting.id),
+      }))
+    } catch (err) {
+      setPlansState({ error: errorMessage(err, 'Unable to delete plan') })
+      throw err
+    } finally {
+      setPlansState({ saving: false })
+    }
+  },
+  async assignSubjectPlan(subject: string, planID: string, effectiveAt?: string) {
+    setPlansState({ assigning: true, error: '' })
+    try {
+      const assignment = await assignSubjectPlanRequest(subject, planID, effectiveAt)
+      if (appStore.state.plans.progressSubject === assignment.subject) {
+        await appStoreActions.loadSubjectPlanProgress(assignment.subject)
+      }
+      await appStoreActions.loadPlans()
+    } catch (err) {
+      setPlansState({ error: errorMessage(err, 'Unable to assign plan') })
+      throw err
+    } finally {
+      setPlansState({ assigning: false })
+    }
+  },
+  async deleteSubjectPlanAssignment(subject: string) {
+    setPlansState({ assigning: true, error: '' })
+    try {
+      await deleteSubjectPlanAssignmentRequest(subject)
+      setPlansState((state) => ({
+        assignmentHistory: state.assignmentHistory.map((item) => item.subject === subject && item.active ? { ...item, active: false, unassigned_at: new Date().toISOString() } : item),
+        assignments: state.assignments.filter((item) => item.subject !== subject),
+        entitlementEvents: state.entitlementEvents.filter((item) => item.subject !== subject),
+        entitlementPeriodSnapshots: state.entitlementPeriodSnapshots.filter((item) => item.subject !== subject),
+        entitlementStates: state.entitlementStates.filter((item) => item.subject !== subject),
+        progress: state.progress?.subject === subject ? null : state.progress,
+        progressStatus: state.progress?.subject === subject ? 'idle' : state.progressStatus,
+      }))
+    } catch (err) {
+      setPlansState({ error: errorMessage(err, 'Unable to remove assignment') })
+      throw err
+    } finally {
+      setPlansState({ assigning: false })
+    }
+  },
+  async loadSubjectPlanProgress(subject = appStore.state.plans.progressSubject) {
+    const normalized = subject.trim()
+    if (!normalized) {
+      setPlansState({ progress: null, progressStatus: 'idle', progressSubject: '' })
+      return
+    }
+    const generation = currentUserDataGeneration()
+    setPlansState({ error: '', progressStatus: 'loading', progressSubject: normalized })
+    try {
+      const progress = await getSubjectPlanProgress(normalized)
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setPlansState({ progress, progressStatus: 'ready' })
+    } catch (err) {
+      if (!isCurrentUserDataGeneration(generation)) {
+        return
+      }
+      setPlansState({ error: errorMessage(err, 'Unable to load plan progress'), progress: null, progressStatus: 'error' })
+    }
+  },
   async loadOverview() {
     const generation = currentUserDataGeneration()
     setOverviewState({ error: '', status: 'loading' })
@@ -892,7 +1231,7 @@ export const appStoreActions = {
       if (!isCurrentUserDataGeneration(generation)) {
         return
       }
-      const selectedSubject = preferredSubject.trim() || selectedSubjectForList(appStore.state.subjects.selectedSubject, subjects.items)
+      const selectedSubject = preferredSubject.trim()
       setSubjectsState({
         items: subjects.items,
         nextCursor: subjects.next_cursor || '',
@@ -902,7 +1241,7 @@ export const appStoreActions = {
       if (selectedSubject) {
         await appStoreActions.loadSubjectEvents(selectedSubject)
       } else {
-        setSubjectsState({ detailStatus: 'idle', events: [] })
+        setSubjectsState({ detailStatus: 'idle', entitlementEventLoadingMore: false, entitlementEventNextCursor: '', entitlementEvents: [], entitlementStates: [], events: [], selectedEntitlementEvent: null })
       }
     } catch (err) {
       if (!isCurrentUserDataGeneration(generation)) {
@@ -941,23 +1280,106 @@ export const appStoreActions = {
   },
   async loadSubjectEvents(subject: string) {
     if (!subject) {
-      setSubjectsState({ detailStatus: 'idle', events: [], selectedSubject: '' })
+      setSubjectsState({ detailStatus: 'idle', entitlementEventLoadingMore: false, entitlementEventNextCursor: '', entitlementEvents: [], entitlementStates: [], events: [], selectedEntitlementEvent: null, selectedSubject: '' })
       return
     }
 
     const generation = currentUserDataGeneration()
-    setSubjectsState({ detailStatus: 'loading', error: '', exportError: '', selectedSubject: subject })
+    setSubjectsState({ detailStatus: 'loading', entitlementEventLoadingMore: false, error: '', exportError: '', selectedSubject: subject })
     try {
       const events = await listSubjectEvents(subject, 25)
       if (!isCurrentUserDataGeneration(generation)) {
         return
       }
-      setSubjectsState({ detailStatus: 'ready', events })
+      setSubjectsState({
+        detailStatus: 'ready',
+        events,
+      })
     } catch (err) {
       if (!isCurrentUserDataGeneration(generation)) {
         return
       }
-      setSubjectsState({ detailStatus: 'error', error: errorMessage(err, 'Unable to load subject activity'), events: [] })
+      setSubjectsState({
+        detailStatus: 'error',
+        entitlementEventNextCursor: '',
+        entitlementEvents: [],
+        entitlementStates: [],
+        error: errorMessage(err, 'Unable to load subject activity'),
+        events: [],
+        selectedEntitlementEvent: null,
+      })
+      return
+    }
+
+    await appStoreActions.loadSubjectEntitlementActivity(subject, { quiet: true })
+  },
+  async loadSubjectEntitlementActivity(subject = appStore.state.subjects.selectedSubject, options: { quiet?: boolean } = {}) {
+    const normalized = subject.trim()
+    if (!normalized) {
+      setSubjectsState({ entitlementEventLoadingMore: false, entitlementEventNextCursor: '', entitlementEvents: [], entitlementStates: [], selectedEntitlementEvent: null })
+      return
+    }
+
+    const generation = currentUserDataGeneration()
+    if (!options.quiet) {
+      setSubjectsState({ detailStatus: 'loading', error: '' })
+    }
+
+    try {
+      const [states, events] = await Promise.all([
+        listEntitlementStates({ limit: 100, subject: normalized }),
+        listEntitlementEvents({ limit: subjectEntitlementEventPageSize, subject: normalized }),
+      ])
+      if (!isCurrentUserDataGeneration(generation) || appStore.state.subjects.selectedSubject !== normalized) {
+        return
+      }
+      setSubjectsState((state) => ({
+        detailStatus: options.quiet ? state.detailStatus : 'ready',
+        entitlementEventNextCursor: options.quiet && state.entitlementEvents.length > events.items.length ? state.entitlementEventNextCursor : events.next_cursor || '',
+        entitlementEvents: options.quiet && state.entitlementEvents.length > events.items.length ? mergeByID(events.items, state.entitlementEvents) : events.items,
+        entitlementStates: states.items,
+        selectedEntitlementEvent: state.selectedEntitlementEvent ? events.items.find((event) => event.id === state.selectedEntitlementEvent?.id) ?? state.selectedEntitlementEvent : null,
+      }))
+    } catch (err) {
+      if (!isCurrentUserDataGeneration(generation) || appStore.state.subjects.selectedSubject !== normalized) {
+        return
+      }
+      setSubjectsState({
+        ...(options.quiet ? {} : { detailStatus: 'error' as LoadState }),
+        ...(options.quiet ? {} : { error: errorMessage(err, 'Unable to load subject entitlement activity') }),
+      })
+    }
+  },
+  async loadMoreSubjectEntitlementEvents() {
+    const { entitlementEventLoadingMore, entitlementEventNextCursor, selectedSubject } = appStore.state.subjects
+    if (!selectedSubject || !entitlementEventNextCursor || entitlementEventLoadingMore) {
+      return
+    }
+
+    const generation = currentUserDataGeneration()
+    setSubjectsState({ entitlementEventLoadingMore: true, error: '' })
+    try {
+      const events = await listEntitlementEvents({
+        cursor: entitlementEventNextCursor,
+        limit: subjectEntitlementEventPageSize,
+        subject: selectedSubject,
+      })
+      if (!isCurrentUserDataGeneration(generation) || appStore.state.subjects.selectedSubject !== selectedSubject) {
+        return
+      }
+      setSubjectsState((state) => ({
+        entitlementEventNextCursor: events.next_cursor || '',
+        entitlementEvents: appendUniqueByKey(state.entitlementEvents, events.items, (event) => event.id),
+      }))
+    } catch (err) {
+      if (!isCurrentUserDataGeneration(generation) || appStore.state.subjects.selectedSubject !== selectedSubject) {
+        return
+      }
+      setSubjectsState({ error: errorMessage(err, 'Unable to load more entitlement changes') })
+    } finally {
+      if (isCurrentUserDataGeneration(generation) && appStore.state.subjects.selectedSubject === selectedSubject) {
+        setSubjectsState({ entitlementEventLoadingMore: false })
+      }
     }
   },
   async exportSelectedSubjectEvents() {
@@ -1292,6 +1714,24 @@ export const appStoreActions = {
   setMeterDeleting(deleting: Meter | null) {
     setMetersState({ deleting })
   },
+  setPlanCreating(creating: boolean) {
+    setPlansState({ creating })
+  },
+  setPlanEditing(editing: Plan | null) {
+    setPlansState({ editing })
+  },
+  setPlanDeleting(deleting: Plan | null) {
+    setPlansState({ deleting })
+  },
+  setPlanProgressSubject(progressSubject: string) {
+    setPlansState({ progressSubject })
+  },
+  setPlanSelectedEntitlementEvent(selectedEntitlementEvent: EntitlementEvent | null) {
+    setPlansState({ selectedEntitlementEvent })
+  },
+  setSubjectSelectedEntitlementEvent(selectedEntitlementEvent: EntitlementEvent | null) {
+    setSubjectsState({ selectedEntitlementEvent })
+  },
   setAPIKeyCreating(creating: boolean) {
     setAPIKeysState({ creating })
   },
@@ -1548,6 +1988,8 @@ export const appStoreActions = {
   async saveCurrentUsageQuery() {
     const state = appStore.state.usage
     const selectedID = state.selectedSavedQueryID
+    const selectedQuery = state.savedQueries.find((item) => item.id === selectedID)
+    const position = selectedQuery?.pinned ? selectedQuery.position : nextPinnedPosition(state.savedQueries, selectedID)
     setUsageState({ savedQueryError: '', savedQuerySaving: true })
     try {
       const input = {
@@ -1555,8 +1997,8 @@ export const appStoreActions = {
         group_by: state.groupBy,
         limit: state.limit,
         name: state.savedQueryName,
-        pinned: state.savedQueries.find((item) => item.id === selectedID)?.pinned ?? false,
-        position: state.savedQueries.find((item) => item.id === selectedID)?.position ?? 0,
+        pinned: true,
+        position,
         query: state.filterQuery,
       }
       const saved = selectedID
@@ -1600,29 +2042,6 @@ export const appStoreActions = {
       }))
     } catch (err) {
       setUsageState({ savedQueryError: errorMessage(err, 'Unable to delete usage query') })
-      throw err
-    } finally {
-      setUsageState({ savedQuerySaving: false })
-    }
-  },
-  async toggleSavedUsageQueryPinned(query: SavedUsageQuery) {
-    const state = appStore.state.usage
-    const pinned = !query.pinned
-    const position = pinned
-      ? nextPinnedPosition(state.savedQueries, query.id)
-      : 0
-
-    setUsageState({ savedQueryError: '', savedQuerySaving: true })
-    try {
-      const updated = await updateSavedUsageQuery(query.id, savedUsageQueryRequest(query, { pinned, position }))
-      const list = await listSavedUsageQueries()
-      setUsageState({
-        savedQueries: list.items,
-        selectedSavedQueryID: state.selectedSavedQueryID === query.id ? updated.id : state.selectedSavedQueryID,
-      })
-      return updated
-    } catch (err) {
-      setUsageState({ savedQueryError: errorMessage(err, 'Unable to update pinned query') })
       throw err
     } finally {
       setUsageState({ savedQuerySaving: false })
@@ -1766,6 +2185,16 @@ function setMetersState(update: Partial<AppState['meters']> | ((state: AppState[
   }))
 }
 
+function setPlansState(update: Partial<AppState['plans']> | ((state: AppState['plans']) => Partial<AppState['plans']>)) {
+  appStore.setState((state) => ({
+    ...state,
+    plans: {
+      ...state.plans,
+      ...(typeof update === 'function' ? update(state.plans) : update),
+    },
+  }))
+}
+
 function setOverviewState(update: Partial<AppState['overview']>) {
   appStore.setState((state) => ({
     ...state,
@@ -1794,13 +2223,6 @@ function setUsageState(update: Partial<AppState['usage']> | ((state: AppState['u
       ...(typeof update === 'function' ? update(state.usage) : update),
     },
   }))
-}
-
-function selectedSubjectForList(selectedSubject: string, subjects: SubjectStats[]) {
-  if (selectedSubject && subjects.some((subject) => subject.subject === selectedSubject)) {
-    return selectedSubject
-  }
-  return subjects[0]?.subject ?? ''
 }
 
 async function summarizePinnedUsageQuery(query: SavedUsageQuery, meters: Meter[]): Promise<PinnedUsageQuerySummary> {
@@ -1900,18 +2322,6 @@ function mergeSavedUsageQuery(items: SavedUsageQuery[], query: SavedUsageQuery) 
   const next = items.filter((item) => item.id !== query.id)
   next.push(query)
   return next.sort((left, right) => Number(right.pinned) - Number(left.pinned) || left.position - right.position || left.name.localeCompare(right.name))
-}
-
-function savedUsageQueryRequest(query: SavedUsageQuery, overrides: Partial<Pick<SavedUsageQuery, 'pinned' | 'position'>> = {}) {
-  return {
-    bucket_size: query.bucket_size,
-    group_by: query.group_by,
-    limit: query.limit,
-    name: query.name,
-    pinned: overrides.pinned ?? query.pinned,
-    position: overrides.position ?? query.position,
-    query: query.query,
-  }
 }
 
 function nextPinnedPosition(items: SavedUsageQuery[], excludeID: string) {

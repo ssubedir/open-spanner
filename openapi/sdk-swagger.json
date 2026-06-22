@@ -42,6 +42,122 @@
         }
       }
     },
+    "/v1/entitlements/check": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "plans"
+        ],
+        "summary": "Check entitlement quota",
+        "operationId": "checkEntitlement",
+        "parameters": [
+          {
+            "description": "Entitlement check",
+            "name": "request",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/EntitlementCheckRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/EntitlementCheckResponse"
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/v1/entitlements/states": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "entitlements"
+        ],
+        "summary": "List entitlement states",
+        "operationId": "listEntitlementStates",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Subject",
+            "name": "subject",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Meter",
+            "name": "meter",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "State",
+            "name": "state",
+            "in": "query"
+          },
+          {
+            "type": "integer",
+            "description": "Page size",
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/EntitlementStateListResponse"
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/v1/meters": {
       "get": {
         "produces": [
@@ -271,6 +387,53 @@
           },
           "409": {
             "description": "Conflict",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/v1/plans/subjects/{subject}/progress": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "plans"
+        ],
+        "summary": "Get subject plan progress",
+        "operationId": "getSubjectPlanProgress",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Subject",
+            "name": "subject",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/EntitlementProgress"
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -789,6 +952,264 @@
           "type": "string"
         }
       }
+    },
+    "EntitlementCheckRequest": {
+      "type": "object",
+      "properties": {
+        "meter": {
+          "type": "string"
+        },
+        "quantity": {
+          "type": "number"
+        },
+        "subject": {
+          "type": "string"
+        }
+      },
+      "title": "EntitlementCheckRequest"
+    },
+    "EntitlementCheckResponse": {
+      "type": "object",
+      "properties": {
+        "allowed": {
+          "type": "boolean"
+        },
+        "current": {
+          "type": "number"
+        },
+        "from": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "message": {
+          "type": "string"
+        },
+        "meter": {
+          "type": "string"
+        },
+        "overage": {
+          "type": "number"
+        },
+        "period": {
+          "type": "string"
+        },
+        "period_reset_at": {
+          "type": "string"
+        },
+        "plan_id": {
+          "type": "string"
+        },
+        "plan_name": {
+          "type": "string"
+        },
+        "quantity": {
+          "type": "number"
+        },
+        "remaining": {
+          "type": "number"
+        },
+        "retry_after_seconds": {
+          "type": "integer"
+        },
+        "state": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        }
+      },
+      "title": "EntitlementCheckResponse"
+    },
+    "PlanLimit": {
+      "type": "object",
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "meter": {
+          "type": "string"
+        },
+        "period": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "warning_percent": {
+          "type": "number"
+        }
+      },
+      "title": "PlanLimit"
+    },
+    "Plan": {
+      "type": "object",
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "is_current": {
+          "type": "boolean"
+        },
+        "limits": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PlanLimit"
+          }
+        },
+        "name": {
+          "type": "string"
+        },
+        "parent_plan_id": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "title": "Plan"
+    },
+    "EntitlementProgressItem": {
+      "type": "object",
+      "properties": {
+        "aggregation": {
+          "type": "string"
+        },
+        "current": {
+          "type": "number"
+        },
+        "from": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "meter": {
+          "type": "string"
+        },
+        "overage": {
+          "type": "number"
+        },
+        "percent": {
+          "type": "number"
+        },
+        "period": {
+          "type": "string"
+        },
+        "period_reset_at": {
+          "type": "string"
+        },
+        "remaining": {
+          "type": "number"
+        },
+        "state": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "warning_percent": {
+          "type": "number"
+        }
+      },
+      "title": "EntitlementProgressItem"
+    },
+    "EntitlementProgress": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/EntitlementProgressItem"
+          }
+        },
+        "plan": {
+          "$ref": "#/definitions/Plan"
+        },
+        "subject": {
+          "type": "string"
+        }
+      },
+      "title": "EntitlementProgress"
+    },
+    "EntitlementStateListResponse": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/EntitlementState"
+          }
+        }
+      },
+      "title": "EntitlementStateListResponse"
+    },
+    "EntitlementState": {
+      "type": "object",
+      "properties": {
+        "current": {
+          "type": "number"
+        },
+        "evaluated_at": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "message": {
+          "type": "string"
+        },
+        "meter": {
+          "type": "string"
+        },
+        "period": {
+          "type": "string"
+        },
+        "plan_id": {
+          "type": "string"
+        },
+        "plan_name": {
+          "type": "string"
+        },
+        "remaining": {
+          "type": "number"
+        },
+        "state": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "warning_percent": {
+          "type": "number"
+        }
+      },
+      "title": "EntitlementState"
     },
     "MeterCreateRequest": {
       "type": "object",

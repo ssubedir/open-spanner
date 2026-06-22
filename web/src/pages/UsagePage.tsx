@@ -1,5 +1,5 @@
 import { useSelector } from '@tanstack/react-store'
-import { BarChart3, Copy, Download, FileClock, List, Loader2, Pin, PinOff, RefreshCw, Save, Search, Trash2, X } from 'lucide-react'
+import { BarChart3, Copy, Download, FileClock, List, Loader2, RefreshCw, Save, Search, Trash2, X } from 'lucide-react'
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 
 import { appStore, appStoreActions } from '../app-store'
@@ -10,6 +10,10 @@ import { FilterBuilder } from '../components/filter-builder'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
+import { Checkbox } from '../components/ui/checkbox'
+import { Input } from '../components/ui/input'
+import { Label } from '../components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
 import { isActiveExportJob } from '../lib/export-jobs'
 import { formatDate, formatNumber } from '../lib/format'
 import { useInitialLoad } from '../lib/hooks'
@@ -25,6 +29,7 @@ import {
 } from '../lib/usage-query'
 
 const maxGroupByFields = 5
+const newSavedQuerySelectValue = '__new_query__'
 
 export function UsagePage() {
   const [chartMode, setChartMode] = useState<UsageChartMode>('line')
@@ -171,9 +176,9 @@ export function UsagePage() {
 
       {error ? <div className="error-banner">{error}</div> : null}
 
-      <section className="usage-grid">
+      <section className="grid gap-3">
         <Card className="usage-query-card">
-          <CardHeader className="usage-card-header">
+          <CardHeader className="!px-4 !py-3">
             <div>
               <CardTitle>Usage Query</CardTitle>
               <CardDescription>Filter with rules, then choose the result shape.</CardDescription>
@@ -182,30 +187,34 @@ export function UsagePage() {
           <CardContent className="usage-query-content">
             <form className="usage-query-form" onSubmit={(event) => void submitQuery(event)}>
               <div className="saved-query-controls wide">
-                <label>
+                <Label className="grid gap-1.5">
                   Saved Query
-                  <select
-                    aria-label="Saved query"
+                  <Select
                     disabled={savedQueryStatus === 'loading'}
-                    onChange={(event) => appStoreActions.selectSavedUsageQuery(event.target.value)}
-                    value={selectedSavedQueryID}
+                    onValueChange={(value) => appStoreActions.selectSavedUsageQuery(value === newSavedQuerySelectValue ? '' : value)}
+                    value={selectedSavedQueryID || newSavedQuerySelectValue}
                   >
-                    <option value="">New query</option>
-                    {savedQueries.map((query) => (
-                      <option key={query.id} value={query.id}>{query.name}</option>
-                    ))}
-                  </select>
-                </label>
-                <label>
+                    <SelectTrigger aria-label="Saved query" className="min-h-[38px] w-full">
+                      <SelectValue placeholder="Select saved query" />
+                    </SelectTrigger>
+                    <SelectContent position="popper">
+                      <SelectItem value={newSavedQuerySelectValue}>New query</SelectItem>
+                      {savedQueries.map((query) => (
+                        <SelectItem key={query.id} value={query.id}>{query.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Label>
+                <Label className="grid gap-1.5">
                   Name
-                  <input
+                  <Input
                     aria-label="Saved query name"
                     maxLength={120}
                     onChange={(event) => appStoreActions.setSavedUsageQueryName(event.target.value)}
                     placeholder="API usage by endpoint"
                     value={savedQueryName}
                   />
-                </label>
+                </Label>
                 <div className="saved-query-actions">
                   <Button
                     disabled={savedQuerySaving || savedQueryName.trim() === ''}
@@ -214,15 +223,6 @@ export function UsagePage() {
                   >
                     {savedQuerySaving ? <Loader2 className="spin" aria-hidden="true" /> : <Save aria-hidden="true" />}
                     {selectedSavedQueryID ? 'Update' : 'Save'}
-                  </Button>
-                  <Button
-                    disabled={!selectedSavedQuery || savedQuerySaving}
-                    onClick={() => selectedSavedQuery && void appStoreActions.toggleSavedUsageQueryPinned(selectedSavedQuery)}
-                    type="button"
-                    variant="outline"
-                  >
-                    {selectedSavedQuery?.pinned ? <PinOff aria-hidden="true" /> : <Pin aria-hidden="true" />}
-                    {selectedSavedQuery?.pinned ? 'Unpin' : 'Pin'}
                   </Button>
                   <Button
                     disabled={!selectedSavedQuery || savedQuerySaving}
@@ -248,41 +248,44 @@ export function UsagePage() {
                     <span>Result Shape</span>
                     <small>{activeGroupBy.length}/{maxGroupByFields} groups</small>
                   </div>
-                  <label>
+                  <Label className="grid gap-1.5">
                     Bucket
-                    <select
-                      aria-label="Bucket"
+                    <Select
                       name="bucket_size"
-                      onChange={(event) => appStoreActions.setUsageBucketSize(event.target.value)}
+                      onValueChange={appStoreActions.setUsageBucketSize}
                       value={bucketSize}
                     >
-                      <option value="day">Day</option>
-                      <option value="hour">Hour</option>
-                      <option value="month">Month</option>
-                    </select>
-                  </label>
+                      <SelectTrigger aria-label="Bucket" className="min-h-[38px] w-full">
+                        <SelectValue placeholder="Select bucket" />
+                      </SelectTrigger>
+                      <SelectContent position="popper">
+                        <SelectItem value="day">Day</SelectItem>
+                        <SelectItem value="hour">Hour</SelectItem>
+                        <SelectItem value="month">Month</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Label>
                   <div className="dimension-picker">
                     <span>Group By</span>
                     <div className="dimension-options">
                       {groupKeys.map((key) => {
                         const active = activeGroupBy.includes(key)
                         return (
-                          <label className="dimension-option" key={key}>
-                            <input
+                          <Label className="dimension-option" key={key}>
+                            <Checkbox
                               checked={active}
                               disabled={!active && activeGroupBy.length >= maxGroupByFields}
-                              onChange={() => appStoreActions.toggleUsageGroupBy(key)}
-                              type="checkbox"
+                              onCheckedChange={() => appStoreActions.toggleUsageGroupBy(key)}
                             />
                             <span>{groupLabel(key, metadataLabels)}</span>
-                          </label>
+                          </Label>
                         )
                       })}
                     </div>
                   </div>
-                  <label>
+                  <Label className="grid gap-1.5">
                     Limit
-                    <input
+                    <Input
                       max="1000"
                       min="1"
                       name="limit"
@@ -290,7 +293,7 @@ export function UsagePage() {
                       type="number"
                       value={limit}
                     />
-                  </label>
+                  </Label>
                   <div className="query-actions">
                     <Button onClick={resetQuery} type="button" variant="outline">
                       <RefreshCw aria-hidden="true" />
@@ -336,7 +339,7 @@ export function UsagePage() {
         />
 
         <Card className="usage-breakdown-card">
-          <CardHeader className="usage-card-header">
+          <CardHeader className="!px-4 !py-3">
             <div>
               <CardTitle>Breakdowns</CardTitle>
               <CardDescription>Top subjects and dimensions for the current query window.</CardDescription>
@@ -372,62 +375,67 @@ export function UsagePage() {
               <CardDescription>Graph the current query by bucket, chart type, and series behavior.</CardDescription>
             </div>
             <div className="usage-chart-controls" aria-label="Usage chart controls">
-              <label>
+              <Label className="grid gap-1.5">
                 Chart Bucket
-                <select
-                  aria-label="Chart bucket"
+                <Select
                   disabled={status === 'loading'}
-                  onChange={(event) => void changeChartBucketSize(event.target.value)}
+                  onValueChange={(value) => void changeChartBucketSize(value)}
                   value={bucketSize}
                 >
-                  <option value="hour">Hour</option>
-                  <option value="day">Day</option>
-                  <option value="month">Month</option>
-                </select>
-              </label>
-              <label>
+                  <SelectTrigger aria-label="Chart bucket" className="min-h-[38px] w-full">
+                    <SelectValue placeholder="Select chart bucket" />
+                  </SelectTrigger>
+                  <SelectContent position="popper">
+                    <SelectItem value="hour">Hour</SelectItem>
+                    <SelectItem value="day">Day</SelectItem>
+                    <SelectItem value="month">Month</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Label>
+              <Label className="grid gap-1.5">
                 Chart Type
-                <select
-                  aria-label="Chart type"
-                  onChange={(event) => setChartMode(event.target.value as UsageChartMode)}
+                <Select
+                  onValueChange={(value) => setChartMode(value as UsageChartMode)}
                   value={chartMode}
                 >
-                  <option value="line">Line</option>
-                  <option value="area">Filled Area</option>
-                  <option value="bar">Bar</option>
-                </select>
-              </label>
-              <label
+                  <SelectTrigger aria-label="Chart type" className="min-h-[38px] w-full">
+                    <SelectValue placeholder="Select chart type" />
+                  </SelectTrigger>
+                  <SelectContent position="popper">
+                    <SelectItem value="line">Line</SelectItem>
+                    <SelectItem value="area">Filled Area</SelectItem>
+                    <SelectItem value="bar">Bar</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Label>
+              <Label
                 className={`checkbox-row usage-chart-toggle${canStackChart ? '' : ' disabled'}`}
                 title={canStackChart ? 'Stack grouped chart series.' : 'Choose a Group By field to enable stacking.'}
               >
-                <input
+                <Checkbox
                   aria-label="Stack chart series"
                   checked={canStackChart && chartStacked}
                   disabled={!canStackChart}
-                  onChange={(event) => setChartStacked(event.target.checked)}
-                  type="checkbox"
+                  onCheckedChange={(checked) => setChartStacked(checked === true)}
                 />
                 <span>Stack</span>
-              </label>
-              <label className="checkbox-row usage-chart-toggle">
-                <input
+              </Label>
+              <Label className="checkbox-row usage-chart-toggle">
+                <Checkbox
                   aria-label="Cumulative chart"
                   checked={chartCumulative}
-                  onChange={(event) => setChartCumulative(event.target.checked)}
-                  type="checkbox"
+                  onCheckedChange={(checked) => setChartCumulative(checked === true)}
                 />
                 <span>Cumulative</span>
-              </label>
-              <label className="checkbox-row usage-chart-toggle">
-                <input
+              </Label>
+              <Label className="checkbox-row usage-chart-toggle">
+                <Checkbox
                   aria-label="Show chart points"
                   checked={chartShowPoints}
-                  onChange={(event) => setChartShowPoints(event.target.checked)}
-                  type="checkbox"
+                  onCheckedChange={(checked) => setChartShowPoints(checked === true)}
                 />
                 <span>Points</span>
-              </label>
+              </Label>
             </div>
           </CardHeader>
           <CardContent>

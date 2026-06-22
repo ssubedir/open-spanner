@@ -48,6 +48,19 @@ tasks:
     cmds:
       - go run ./cmd/alert-worker
 
+  run:entitlement-worker:
+    desc: Run the entitlement worker
+    cmds:
+      - go run ./cmd/entitlement-worker
+
+  run:entitlement-worker:postgres:
+    desc: Run the entitlement worker with Postgres storage
+    env:
+      OPEN_SPANNER_DB_DRIVER: postgres
+      OPEN_SPANNER_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/open_spanner?sslmode=disable
+    cmds:
+      - go run ./cmd/entitlement-worker
+
   postgres:up:
     desc: Start local Postgres for development and integration tests
     cmds:

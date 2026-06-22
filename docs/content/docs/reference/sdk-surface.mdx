@@ -3,29 +3,42 @@ title: SDK API Surface
 description: Operations exposed by generated SDK packages.
 ---
 
-SDKs expose the application-facing subset of the REST API:
+SDKs expose the application-facing subset of the REST API. They are meant for trusted backend services that need to define meters, record usage, query usage, export focused CSV results, or read runtime entitlement state.
 
 - `GET /health`
 - `GET /ready`
+- `POST /v1/entitlements/check`
+- `GET /v1/entitlements/states`
 - `GET /v1/meters`
 - `POST /v1/meters`
 - `GET /v1/meters/{id}`
 - `PUT /v1/meters/{id}`
 - `DELETE /v1/meters/{id}`
+- `GET /v1/plans/subjects/{subject}/progress`
 - `POST /v1/usages`
 - `POST /v1/usages/bulk`
-- `GET /v1/usages/dimensions`
 - `GET /v1/usages/export`
+- `GET /v1/usages/dimensions`
+- `POST /v1/usages/breakdowns/search`
 - `POST /v1/usages/export`
 - `POST /v1/usages/search`
 
-The SDK export methods use the direct CSV export endpoints. Queued export jobs are REST-only so backend SDKs stay focused on meter definitions, ingestion, usage queries, and direct exports.
+The SDK entitlement methods expose runtime quota reads:
+
+- `POST /v1/entitlements/check` lets backend services ask whether a subject has remaining quota before allowing more usage.
+- `GET /v1/plans/subjects/{subject}/progress` returns current quota progress for a subject's assigned plan.
+- `GET /v1/entitlements/states` returns the latest entitlement states, optionally filtered by subject, meter, or state.
+
+The common backend flow is: check entitlement, allow or deny product work, then record usage with `POST /v1/usages` when the work is accepted. Progress and state reads are useful for customer portals, worker decisions, and service-side diagnostics.
+
+The SDK export methods use the direct CSV export endpoints. Queued export jobs, alert administration, API key administration, plan management, and subject assignment remain dashboard/full-REST workflows so backend SDKs stay focused on runtime metering infrastructure.
 
 These endpoints are intentionally excluded from SDKs:
 
 - Dashboard auth and sessions
 - User registration
 - API key creation and deletion
+- Plan creation, updates, deletion, and subject assignment
 - System stats
 - Subject admin views
 - Raw usage event admin views

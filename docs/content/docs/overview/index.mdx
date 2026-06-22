@@ -3,27 +3,37 @@ title: What Is Open Spanner?
 description: The product model behind Open Spanner.
 ---
 
-Open Spanner is a small metering service for usage-based products. It records usage facts from your application and lets you query those facts as aggregate buckets later.
+Open Spanner is usage and metering infrastructure for products that need a reliable record of consumption. It records usage facts from your application, validates them against meter definitions, updates quota state, and lets you query those facts as aggregate buckets later.
 
 Use it when your product needs answers like:
 
 - How many API requests did `org_123` make last month?
 - How many tokens were consumed by each model or region?
 - Which customers crossed a usage threshold?
-- What usage data should be exported into billing or analytics?
+- Is a customer still within their plan quota?
+- What usage data should be exported into billing, analytics, finance, or support workflows?
 
 ## Product Model
 
-Open Spanner has three core ideas:
+Open Spanner has four core ideas:
 
 - **Meters** define what can be measured.
 - **Usage events** record facts against a meter.
 - **Usage queries** aggregate those facts into time buckets.
+- **Plans** define quota limits and subject assignments.
 
-The dashboard helps people set up and inspect the system. API keys and SDKs connect trusted backend services that create meters, write usage, query buckets, and export data.
+The dashboard helps people set up and inspect the system. API keys and SDKs connect trusted backend services that create meters, write usage, query buckets, check entitlements, and export data. gRPC streaming is available when backend services need a high-throughput usage ingestion path.
+
+## Where It Sits
+
+Open Spanner sits between your product and the systems that consume usage:
+
+- Product services write usage and optionally check entitlement before allowing work.
+- Open Spanner stores the usage truth, quota counters, alert state, and export jobs.
+- Billing, finance, analytics, support, and customer-facing dashboards consume usage, quota state, or CSV exports.
 
 ## What It Is Not
 
-Open Spanner is not a payment processor, invoice generator, entitlement system, or customer identity provider. It gives those systems clean usage data to work with.
+Open Spanner is not a payment processor, invoice generator, tax engine, pricing engine, checkout flow, or customer identity provider. It gives those systems clean usage and quota data to work with.
 
 The main control-plane surface is HTTP plus generated SDK packages. gRPC is scoped to trusted backend usage ingestion.

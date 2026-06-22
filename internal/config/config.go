@@ -11,27 +11,33 @@ import (
 )
 
 type Config struct {
-	HTTPAddr                string
-	GRPCAddr                string
-	OAuth                   OAuthConfigs
-	DBDriver                string
-	SQLitePath              string
-	PostgresDSN             string
-	DBPool                  DBPoolConfig
-	ExportStoragePath       string
-	ExportWorkerInterval    time.Duration
-	ExportWorkerLockTTL     time.Duration
-	ExportWorkerTimeout     time.Duration
-	ExportWorkerMaxAttempts int
-	AlertWorkerInterval     time.Duration
-	AlertWorkerLockTTL      time.Duration
-	AlertWorkerTimeout      time.Duration
-	AlertWorkerRetryAfter   time.Duration
-	AlertWorkerMaxAttempts  int
-	AlertWorkerBatchSize    int
-	RetentionPruneEnabled   bool
-	RetentionPruneInterval  time.Duration
-	RetentionPruneTimeout   time.Duration
+	HTTPAddr                     string
+	GRPCAddr                     string
+	OAuth                        OAuthConfigs
+	DBDriver                     string
+	SQLitePath                   string
+	PostgresDSN                  string
+	DBPool                       DBPoolConfig
+	ExportStoragePath            string
+	ExportWorkerInterval         time.Duration
+	ExportWorkerLockTTL          time.Duration
+	ExportWorkerTimeout          time.Duration
+	ExportWorkerMaxAttempts      int
+	AlertWorkerInterval          time.Duration
+	AlertWorkerLockTTL           time.Duration
+	AlertWorkerTimeout           time.Duration
+	AlertWorkerRetryAfter        time.Duration
+	AlertWorkerMaxAttempts       int
+	AlertWorkerBatchSize         int
+	EntitlementWorkerInterval    time.Duration
+	EntitlementWorkerLockTTL     time.Duration
+	EntitlementWorkerTimeout     time.Duration
+	EntitlementWorkerRetryAfter  time.Duration
+	EntitlementWorkerMaxAttempts int
+	EntitlementWorkerBatchSize   int
+	RetentionPruneEnabled        bool
+	RetentionPruneInterval       time.Duration
+	RetentionPruneTimeout        time.Duration
 }
 
 type OAuthConfig struct {
@@ -112,6 +118,30 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	entitlementWorkerInterval, err := envDuration("OPEN_SPANNER_ENTITLEMENT_WORKER_INTERVAL", 5*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	entitlementWorkerLockTTL, err := envDuration("OPEN_SPANNER_ENTITLEMENT_WORKER_LOCK_TTL", 5*time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	entitlementWorkerTimeout, err := envDuration("OPEN_SPANNER_ENTITLEMENT_WORKER_TIMEOUT", time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	entitlementWorkerRetryAfter, err := envDuration("OPEN_SPANNER_ENTITLEMENT_WORKER_RETRY_AFTER", 30*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	entitlementWorkerMaxAttempts, err := envInt("OPEN_SPANNER_ENTITLEMENT_WORKER_MAX_ATTEMPTS", 3)
+	if err != nil {
+		return Config{}, err
+	}
+	entitlementWorkerBatchSize, err := envInt("OPEN_SPANNER_ENTITLEMENT_WORKER_BATCH_SIZE", 100)
+	if err != nil {
+		return Config{}, err
+	}
 
 	gitHubOAuth, err := loadOAuthConfig("GITHUB")
 	if err != nil {
@@ -129,24 +159,30 @@ func Load() (Config, error) {
 			GitHub: gitHubOAuth,
 			Google: googleOAuth,
 		},
-		DBDriver:                strings.ToLower(env("OPEN_SPANNER_DB_DRIVER", "sqlite")),
-		SQLitePath:              env("OPEN_SPANNER_SQLITE_PATH", "open-spanner.db"),
-		PostgresDSN:             env("OPEN_SPANNER_POSTGRES_DSN", ""),
-		DBPool:                  pool,
-		ExportStoragePath:       env("OPEN_SPANNER_EXPORT_STORAGE_PATH", "open-spanner-exports"),
-		ExportWorkerInterval:    exportWorkerInterval,
-		ExportWorkerLockTTL:     exportWorkerLockTTL,
-		ExportWorkerTimeout:     exportWorkerTimeout,
-		ExportWorkerMaxAttempts: exportWorkerMaxAttempts,
-		AlertWorkerInterval:     alertWorkerInterval,
-		AlertWorkerLockTTL:      alertWorkerLockTTL,
-		AlertWorkerTimeout:      alertWorkerTimeout,
-		AlertWorkerRetryAfter:   alertWorkerRetryAfter,
-		AlertWorkerMaxAttempts:  alertWorkerMaxAttempts,
-		AlertWorkerBatchSize:    alertWorkerBatchSize,
-		RetentionPruneEnabled:   retentionEnabled,
-		RetentionPruneInterval:  retentionInterval,
-		RetentionPruneTimeout:   retentionTimeout,
+		DBDriver:                     strings.ToLower(env("OPEN_SPANNER_DB_DRIVER", "sqlite")),
+		SQLitePath:                   env("OPEN_SPANNER_SQLITE_PATH", "open-spanner.db"),
+		PostgresDSN:                  env("OPEN_SPANNER_POSTGRES_DSN", ""),
+		DBPool:                       pool,
+		ExportStoragePath:            env("OPEN_SPANNER_EXPORT_STORAGE_PATH", "open-spanner-exports"),
+		ExportWorkerInterval:         exportWorkerInterval,
+		ExportWorkerLockTTL:          exportWorkerLockTTL,
+		ExportWorkerTimeout:          exportWorkerTimeout,
+		ExportWorkerMaxAttempts:      exportWorkerMaxAttempts,
+		AlertWorkerInterval:          alertWorkerInterval,
+		AlertWorkerLockTTL:           alertWorkerLockTTL,
+		AlertWorkerTimeout:           alertWorkerTimeout,
+		AlertWorkerRetryAfter:        alertWorkerRetryAfter,
+		AlertWorkerMaxAttempts:       alertWorkerMaxAttempts,
+		AlertWorkerBatchSize:         alertWorkerBatchSize,
+		EntitlementWorkerInterval:    entitlementWorkerInterval,
+		EntitlementWorkerLockTTL:     entitlementWorkerLockTTL,
+		EntitlementWorkerTimeout:     entitlementWorkerTimeout,
+		EntitlementWorkerRetryAfter:  entitlementWorkerRetryAfter,
+		EntitlementWorkerMaxAttempts: entitlementWorkerMaxAttempts,
+		EntitlementWorkerBatchSize:   entitlementWorkerBatchSize,
+		RetentionPruneEnabled:        retentionEnabled,
+		RetentionPruneInterval:       retentionInterval,
+		RetentionPruneTimeout:        retentionTimeout,
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -235,6 +271,24 @@ func (cfg Config) Validate() error {
 	}
 	if cfg.AlertWorkerBatchSize <= 0 {
 		return fmt.Errorf("OPEN_SPANNER_ALERT_WORKER_BATCH_SIZE must be greater than zero")
+	}
+	if cfg.EntitlementWorkerInterval <= 0 {
+		return fmt.Errorf("OPEN_SPANNER_ENTITLEMENT_WORKER_INTERVAL must be greater than zero")
+	}
+	if cfg.EntitlementWorkerLockTTL <= 0 {
+		return fmt.Errorf("OPEN_SPANNER_ENTITLEMENT_WORKER_LOCK_TTL must be greater than zero")
+	}
+	if cfg.EntitlementWorkerTimeout <= 0 {
+		return fmt.Errorf("OPEN_SPANNER_ENTITLEMENT_WORKER_TIMEOUT must be greater than zero")
+	}
+	if cfg.EntitlementWorkerRetryAfter <= 0 {
+		return fmt.Errorf("OPEN_SPANNER_ENTITLEMENT_WORKER_RETRY_AFTER must be greater than zero")
+	}
+	if cfg.EntitlementWorkerMaxAttempts <= 0 {
+		return fmt.Errorf("OPEN_SPANNER_ENTITLEMENT_WORKER_MAX_ATTEMPTS must be greater than zero")
+	}
+	if cfg.EntitlementWorkerBatchSize <= 0 {
+		return fmt.Errorf("OPEN_SPANNER_ENTITLEMENT_WORKER_BATCH_SIZE must be greater than zero")
 	}
 	if cfg.RetentionPruneInterval <= 0 {
 		return fmt.Errorf("OPEN_SPANNER_RETENTION_PRUNE_INTERVAL must be greater than zero")

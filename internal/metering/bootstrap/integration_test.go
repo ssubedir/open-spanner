@@ -25,6 +25,7 @@ import (
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/fileexport"
 	appalert "github.com/ssubedir/open-spanner/internal/metering/app/alert"
 	alertworker "github.com/ssubedir/open-spanner/internal/metering/workers/alert"
+	entitlementworker "github.com/ssubedir/open-spanner/internal/metering/workers/entitlement"
 	exportworker "github.com/ssubedir/open-spanner/internal/metering/workers/export"
 )
 
@@ -213,6 +214,27 @@ func TestIntegrationPostgresWorkspaceIsolation(t *testing.T) {
 	}
 
 	runIntegrationWorkspaceIsolationFlow(t, config.Config{
+		DBDriver:    "postgres",
+		PostgresDSN: dsn,
+		DBPool:      config.DBPoolConfig{MaxOpenConns: 1},
+	}, "postgres")
+}
+
+func TestIntegrationSQLitePlanEntitlementFlow(t *testing.T) {
+	runIntegrationPlanEntitlementFlow(t, config.Config{
+		DBDriver:   "sqlite",
+		SQLitePath: ":memory:",
+		DBPool:     config.DBPoolConfig{MaxOpenConns: 1},
+	}, "sqlite")
+}
+
+func TestIntegrationPostgresPlanEntitlementFlow(t *testing.T) {
+	dsn := os.Getenv("OPEN_SPANNER_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set OPEN_SPANNER_TEST_POSTGRES_DSN to run Postgres bootstrap integration tests")
+	}
+
+	runIntegrationPlanEntitlementFlow(t, config.Config{
 		DBDriver:    "postgres",
 		PostgresDSN: dsn,
 		DBPool:      config.DBPoolConfig{MaxOpenConns: 1},
@@ -674,6 +696,338 @@ func runIntegrationWorkspaceIsolationFlow(t *testing.T, cfg config.Config, names
 	deleteOwnerKey := requestJSON(t, router, http.MethodDelete, "/v1/auth/api-keys/"+ownerAPIKey.ID, nil, other.Cookies)
 	if deleteOwnerKey.Code != http.StatusNotFound {
 		t.Fatalf("other workspace delete api key status = %d, want %d: %s", deleteOwnerKey.Code, http.StatusNotFound, deleteOwnerKey.Body.String())
+	}
+}
+
+func runIntegrationPlanEntitlementFlow(t *testing.T, cfg config.Config, namespace string) {
+	t.Helper()
+
+	if cfg.ExportStoragePath == "" {
+		cfg.ExportStoragePath = t.TempDir()
+	}
+
+	ctx := context.Background()
+	router := chi.NewRouter()
+	app, err := RegisterRoutes(ctx, router, cfg)
+	if err != nil {
+		t.Fatalf("register routes: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := app.Cleanup(); err != nil {
+			t.Fatalf("cleanup: %v", err)
+		}
+	})
+
+	suffix := namespace + "_plans_" + strconv.FormatInt(time.Now().UTC().UnixNano(), 36)
+	identity := createTestDashboardIdentity(t, router, "plans+"+suffix+"@example.com")
+	meterName := "quota_api_calls_" + suffix
+	subject := "quota_subject_" + suffix
+
+	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name":        meterName,
+		"description": "Plan entitlement quota meter",
+		"unit":        "call",
+		"aggregation": "sum",
+		"dimensions":  []any{},
+	}, identity.Headers, nil)
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create plan meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
+	}
+
+	planPayload := map[string]any{
+		"name":        "Pro " + suffix,
+		"description": "Plan entitlement integration test",
+		"limits": []map[string]any{
+			{
+				"meter":           meterName,
+				"period":          "month",
+				"limit":           10,
+				"warning_percent": 60,
+			},
+		},
+	}
+	createPlan := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/plans", planPayload, identity.Headers, nil)
+	if createPlan.Code != http.StatusCreated {
+		t.Fatalf("create plan status = %d, want %d: %s", createPlan.Code, http.StatusCreated, createPlan.Body.String())
+	}
+	var plan planTestResponse
+	decodeJSON(t, createPlan, &plan)
+	if plan.ID == "" || len(plan.Limits) != 1 || plan.Limits[0].Meter != meterName {
+		t.Fatalf("created plan = %#v, want one limit for %q", plan, meterName)
+	}
+	if plan.Version != 1 || !plan.IsCurrent {
+		t.Fatalf("created plan version = %#v, want current v1", plan)
+	}
+
+	assign := requestJSONWithHeaders(t, router, http.MethodPut, "/v1/plans/subjects/"+url.PathEscape(subject), map[string]any{
+		"plan_id": plan.ID,
+	}, identity.Headers, nil)
+	if assign.Code != http.StatusOK {
+		t.Fatalf("assign plan status = %d, want %d: %s", assign.Code, http.StatusOK, assign.Body.String())
+	}
+	var assignment planAssignmentTestResponse
+	decodeJSON(t, assign, &assignment)
+	if assignment.Subject != subject || assignment.PlanID != plan.ID {
+		t.Fatalf("assignment = %#v, want subject %q on plan %q", assignment, subject, plan.ID)
+	}
+	if assignment.ID == "" || assignment.PlanVersion != 1 || !assignment.Active {
+		t.Fatalf("assignment version = %#v, want active v1 assignment", assignment)
+	}
+	assignmentAnchor, err := time.Parse(time.RFC3339Nano, assignment.PeriodAnchorAt)
+	if err != nil || assignmentAnchor.IsZero() {
+		t.Fatalf("assignment period anchor = %q, want RFC3339 timestamp: %v", assignment.PeriodAnchorAt, err)
+	}
+
+	updatedPlanPayload := map[string]any{
+		"name":        plan.Name,
+		"description": "Plan entitlement integration test v2",
+		"limits": []map[string]any{
+			{
+				"meter":           meterName,
+				"period":          "month",
+				"limit":           20,
+				"warning_percent": 60,
+			},
+		},
+	}
+	updatePlan := requestJSONWithHeaders(t, router, http.MethodPut, "/v1/plans/"+url.PathEscape(plan.ID), updatedPlanPayload, identity.Headers, nil)
+	if updatePlan.Code != http.StatusOK {
+		t.Fatalf("update plan status = %d, want %d: %s", updatePlan.Code, http.StatusOK, updatePlan.Body.String())
+	}
+	var updatedPlan planTestResponse
+	decodeJSON(t, updatePlan, &updatedPlan)
+	if updatedPlan.ID == plan.ID || updatedPlan.ParentPlanID != plan.ID || updatedPlan.Version != 2 || !updatedPlan.IsCurrent {
+		t.Fatalf("updated plan = %#v, want new current v2 child of %q", updatedPlan, plan.ID)
+	}
+	if len(updatedPlan.Limits) != 1 {
+		t.Fatalf("updated plan limits = %#v, want one limit", updatedPlan.Limits)
+	}
+	assertFloatNear(t, updatedPlan.Limits[0].Limit, 20, "updated plan limit")
+
+	currentPlans := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/plans", nil, identity.Headers, nil)
+	if currentPlans.Code != http.StatusOK {
+		t.Fatalf("list current plans status = %d, want %d: %s", currentPlans.Code, http.StatusOK, currentPlans.Body.String())
+	}
+	var currentPlanList planListTestResponse
+	decodeJSON(t, currentPlans, &currentPlanList)
+	if len(currentPlanList.Items) != 1 || currentPlanList.Items[0].ID != updatedPlan.ID {
+		t.Fatalf("current plans = %#v, want only v2 plan %q", currentPlanList, updatedPlan.ID)
+	}
+
+	historyBeforeReassign := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/plans/assignments?include_history=true&subject="+url.QueryEscape(subject), nil, identity.Headers, nil)
+	if historyBeforeReassign.Code != http.StatusOK {
+		t.Fatalf("assignment history status = %d, want %d: %s", historyBeforeReassign.Code, http.StatusOK, historyBeforeReassign.Body.String())
+	}
+	var assignmentHistory planAssignmentListTestResponse
+	decodeJSON(t, historyBeforeReassign, &assignmentHistory)
+	if len(assignmentHistory.Items) != 2 {
+		t.Fatalf("assignment history after plan update = %#v, want active v2 and ended v1", assignmentHistory)
+	}
+	activeV2 := false
+	endedV1 := false
+	for _, item := range assignmentHistory.Items {
+		switch {
+		case item.PlanID == updatedPlan.ID && item.PlanVersion == 2 && item.Active && item.UnassignedAt == "":
+			activeV2 = true
+		case item.PlanID == plan.ID && item.PlanVersion == 1 && !item.Active && item.UnassignedAt != "":
+			endedV1 = true
+		}
+	}
+	if !activeV2 || !endedV1 {
+		t.Fatalf("assignment history after plan update = %#v, want active v2 and ended v1", assignmentHistory)
+	}
+
+	assignRetiredPlan := requestJSONWithHeaders(t, router, http.MethodPut, "/v1/plans/subjects/"+url.PathEscape(subject+"_retired"), map[string]any{
+		"plan_id": plan.ID,
+	}, identity.Headers, nil)
+	if assignRetiredPlan.Code != http.StatusConflict {
+		t.Fatalf("assign retired plan status = %d, want %d: %s", assignRetiredPlan.Code, http.StatusConflict, assignRetiredPlan.Body.String())
+	}
+
+	createSDKKey := requestJSON(t, router, http.MethodPost, "/v1/auth/api-keys", map[string]any{
+		"name": "entitlement-sdk-" + suffix,
+	}, identity.Cookies)
+	if createSDKKey.Code != http.StatusCreated {
+		t.Fatalf("create entitlement sdk key status = %d, want %d: %s", createSDKKey.Code, http.StatusCreated, createSDKKey.Body.String())
+	}
+	var sdkKey apiKeyCreateTestResponse
+	decodeJSON(t, createSDKKey, &sdkKey)
+	sdkHeaders := map[string]string{"Authorization": "Bearer " + sdkKey.Key}
+
+	deniedPlanCreate := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/plans", map[string]any{
+		"name":   "Blocked " + suffix,
+		"limits": []map[string]any{{"meter": meterName, "period": "month", "limit": 1}},
+	}, sdkHeaders, nil)
+	if deniedPlanCreate.Code != http.StatusForbidden {
+		t.Fatalf("sdk plan create status = %d, want %d: %s", deniedPlanCreate.Code, http.StatusForbidden, deniedPlanCreate.Body.String())
+	}
+
+	createUsage := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages", map[string]any{
+		"idempotency_key": "plan-entitlement-" + suffix,
+		"subject":         subject,
+		"meter":           meterName,
+		"quantity":        13,
+		"timestamp":       time.Now().UTC().Format(time.RFC3339),
+		"metadata":        map[string]any{},
+	}, sdkHeaders, nil)
+	if createUsage.Code != http.StatusCreated {
+		t.Fatalf("create entitlement usage status = %d, want %d: %s", createUsage.Code, http.StatusCreated, createUsage.Body.String())
+	}
+	replayUsage := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages", map[string]any{
+		"idempotency_key": "plan-entitlement-" + suffix,
+		"subject":         subject,
+		"meter":           meterName,
+		"quantity":        9,
+		"timestamp":       time.Now().UTC().Add(time.Minute).Format(time.RFC3339),
+		"metadata":        map[string]any{},
+	}, sdkHeaders, nil)
+	if replayUsage.Code != http.StatusCreated {
+		t.Fatalf("replay entitlement usage status = %d, want %d: %s", replayUsage.Code, http.StatusCreated, replayUsage.Body.String())
+	}
+
+	entitlementWorker := entitlementworker.NewWorker(app.EntitlementService, time.Millisecond, time.Minute, time.Minute, time.Second, 3, 10, t.Logf)
+	var states entitlementStateListTestResponse
+	processedAny := false
+	for attempt := 0; attempt < 200; attempt++ {
+		processed, err := entitlementWorker.ProcessOnce(context.Background())
+		if err != nil {
+			t.Fatalf("process entitlement check: %v", err)
+		}
+		processedAny = processedAny || processed
+
+		statesRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/entitlements/states?subject="+url.QueryEscape(subject)+"&meter="+url.QueryEscape(meterName), nil, sdkHeaders, nil)
+		if statesRes.Code != http.StatusOK {
+			t.Fatalf("entitlement states status = %d, want %d: %s", statesRes.Code, http.StatusOK, statesRes.Body.String())
+		}
+		decodeJSON(t, statesRes, &states)
+		if len(states.Items) > 0 {
+			break
+		}
+		if !processed {
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	if !processedAny {
+		t.Fatal("process entitlement check = false, want queued entitlement job")
+	}
+
+	progressRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/plans/subjects/"+url.PathEscape(subject)+"/progress", nil, sdkHeaders, nil)
+	if progressRes.Code != http.StatusOK {
+		t.Fatalf("progress status = %d, want %d: %s", progressRes.Code, http.StatusOK, progressRes.Body.String())
+	}
+	var progress planProgressTestResponse
+	decodeJSON(t, progressRes, &progress)
+	if progress.Subject != subject || progress.Plan.ID != updatedPlan.ID || progress.Plan.Version != 2 || len(progress.Items) != 1 {
+		t.Fatalf("progress = %#v, want one item for subject %q plan %q", progress, subject, updatedPlan.ID)
+	}
+	assertFloatNear(t, progress.Items[0].Current, 13, "progress current")
+	assertFloatNear(t, progress.Items[0].Limit, 20, "progress limit")
+	assertFloatNear(t, progress.Items[0].Remaining, 7, "progress remaining")
+	if progress.Items[0].State != "warning" {
+		t.Fatalf("progress state = %q, want warning", progress.Items[0].State)
+	}
+	if progress.Items[0].From != assignment.PeriodAnchorAt {
+		t.Fatalf("progress period from = %q, want assignment anchor %q", progress.Items[0].From, assignment.PeriodAnchorAt)
+	}
+	progressTo, err := time.Parse(time.RFC3339Nano, progress.Items[0].To)
+	if err != nil || !progressTo.After(assignmentAnchor) {
+		t.Fatalf("progress period to = %q, want after assignment anchor %q: %v", progress.Items[0].To, assignment.PeriodAnchorAt, err)
+	}
+
+	if len(states.Items) != 1 {
+		t.Fatalf("entitlement states = %#v, want one state", states)
+	}
+	if states.Items[0].Subject != subject || states.Items[0].Meter != meterName || states.Items[0].State != "warning" {
+		t.Fatalf("entitlement state = %#v, want warning state for %q/%q", states.Items[0], subject, meterName)
+	}
+	assertFloatNear(t, states.Items[0].Current, 13, "state current")
+	assertFloatNear(t, states.Items[0].Limit, 20, "state limit")
+
+	snapshotsRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/entitlements/periods?subject="+url.QueryEscape(subject)+"&meter="+url.QueryEscape(meterName), nil, sdkHeaders, nil)
+	if snapshotsRes.Code != http.StatusOK {
+		t.Fatalf("entitlement period snapshots status = %d, want %d: %s", snapshotsRes.Code, http.StatusOK, snapshotsRes.Body.String())
+	}
+	var snapshots entitlementPeriodSnapshotListTestResponse
+	decodeJSON(t, snapshotsRes, &snapshots)
+	if len(snapshots.Items) != 1 {
+		t.Fatalf("entitlement period snapshots = %#v, want one snapshot", snapshots)
+	}
+	snapshot := snapshots.Items[0]
+	if snapshot.Subject != subject || snapshot.Meter != meterName || snapshot.PlanID != updatedPlan.ID || snapshot.PlanVersion != 2 || snapshot.State != "warning" {
+		t.Fatalf("entitlement period snapshot = %#v, want warning snapshot for %q/%q on v2 plan", snapshot, subject, meterName)
+	}
+	if snapshot.From != assignment.PeriodAnchorAt {
+		t.Fatalf("snapshot period from = %q, want assignment anchor %q", snapshot.From, assignment.PeriodAnchorAt)
+	}
+	assertFloatNear(t, snapshot.Current, 13, "snapshot current")
+	assertFloatNear(t, snapshot.Limit, 20, "snapshot limit")
+	assertFloatNear(t, snapshot.Included, 13, "snapshot included")
+	assertFloatNear(t, snapshot.Overage, 0, "snapshot overage")
+	assertFloatNear(t, snapshot.Remaining, 7, "snapshot remaining")
+	if snapshot.EventCount != 1 {
+		t.Fatalf("snapshot event count = %d, want 1", snapshot.EventCount)
+	}
+
+	eventsRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/entitlements/events?subject="+url.QueryEscape(subject)+"&meter="+url.QueryEscape(meterName), nil, sdkHeaders, nil)
+	if eventsRes.Code != http.StatusOK {
+		t.Fatalf("entitlement events status = %d, want %d: %s", eventsRes.Code, http.StatusOK, eventsRes.Body.String())
+	}
+	var entitlementEvents entitlementEventListTestResponse
+	decodeJSON(t, eventsRes, &entitlementEvents)
+	if len(entitlementEvents.Items) != 1 {
+		t.Fatalf("entitlement events = %#v, want one event", entitlementEvents)
+	}
+	if entitlementEvents.Items[0].Subject != subject || entitlementEvents.Items[0].Meter != meterName || entitlementEvents.Items[0].Type != "warning" {
+		t.Fatalf("entitlement event = %#v, want warning event for %q/%q", entitlementEvents.Items[0], subject, meterName)
+	}
+
+	allowed := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/entitlements/check", map[string]any{
+		"subject":  subject,
+		"meter":    meterName,
+		"quantity": 2,
+	}, sdkHeaders, nil)
+	if allowed.Code != http.StatusOK {
+		t.Fatalf("allowed entitlement status = %d, want %d: %s", allowed.Code, http.StatusOK, allowed.Body.String())
+	}
+	var allowedCheck entitlementCheckTestResponse
+	decodeJSON(t, allowed, &allowedCheck)
+	if !allowedCheck.Allowed || allowedCheck.State != "warning" {
+		t.Fatalf("allowed check = %#v, want allowed warning", allowedCheck)
+	}
+	assertFloatNear(t, allowedCheck.Current, 13, "allowed current")
+	assertFloatNear(t, allowedCheck.Remaining, 5, "allowed remaining")
+
+	denied := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/entitlements/check", map[string]any{
+		"subject":  subject,
+		"meter":    meterName,
+		"quantity": 8,
+	}, sdkHeaders, nil)
+	if denied.Code != http.StatusOK {
+		t.Fatalf("denied entitlement status = %d, want %d: %s", denied.Code, http.StatusOK, denied.Body.String())
+	}
+	var deniedCheck entitlementCheckTestResponse
+	decodeJSON(t, denied, &deniedCheck)
+	if deniedCheck.Allowed || deniedCheck.State != "exceeded" {
+		t.Fatalf("denied check = %#v, want denied exceeded", deniedCheck)
+	}
+	assertFloatNear(t, deniedCheck.Remaining, 0, "denied remaining")
+
+	updatedProgressRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/plans/subjects/"+url.PathEscape(subject)+"/progress", nil, sdkHeaders, nil)
+	if updatedProgressRes.Code != http.StatusOK {
+		t.Fatalf("updated progress status = %d, want %d: %s", updatedProgressRes.Code, http.StatusOK, updatedProgressRes.Body.String())
+	}
+	var updatedProgress planProgressTestResponse
+	decodeJSON(t, updatedProgressRes, &updatedProgress)
+	if updatedProgress.Plan.ID != updatedPlan.ID || updatedProgress.Plan.Version != 2 || len(updatedProgress.Items) != 1 {
+		t.Fatalf("updated progress = %#v, want v2 plan progress", updatedProgress)
+	}
+	if updatedProgress.Items[0].From != assignment.PeriodAnchorAt {
+		t.Fatalf("updated progress period from = %q, want preserved assignment anchor %q", updatedProgress.Items[0].From, assignment.PeriodAnchorAt)
+	}
+	assertFloatNear(t, updatedProgress.Items[0].Current, 13, "updated progress current")
+	assertFloatNear(t, updatedProgress.Items[0].Limit, 20, "updated progress limit")
+	if updatedProgress.Items[0].State != "warning" {
+		t.Fatalf("updated progress state = %q, want warning", updatedProgress.Items[0].State)
 	}
 }
 
@@ -2237,6 +2591,8 @@ func fullAccessAPIKeyPayload(name string) map[string]any {
 			"alerts:read",
 			"exports:write",
 			"exports:read",
+			"plans:write",
+			"plans:read",
 			"system:read",
 		},
 	}
@@ -2436,6 +2792,133 @@ type usageExportJobResponse struct {
 
 type usageExportJobListTestResponse struct {
 	Items []usageExportJobResponse `json:"items"`
+}
+
+type planLimitTestResponse struct {
+	ID             string  `json:"id"`
+	Meter          string  `json:"meter"`
+	Period         string  `json:"period"`
+	Limit          float64 `json:"limit"`
+	WarningPercent float64 `json:"warning_percent"`
+}
+
+type planTestResponse struct {
+	ID           string                  `json:"id"`
+	Name         string                  `json:"name"`
+	Description  string                  `json:"description"`
+	Version      int                     `json:"version"`
+	ParentPlanID string                  `json:"parent_plan_id"`
+	IsCurrent    bool                    `json:"is_current"`
+	Limits       []planLimitTestResponse `json:"limits"`
+}
+
+type planListTestResponse struct {
+	Items []planTestResponse `json:"items"`
+}
+
+type planAssignmentTestResponse struct {
+	ID             string `json:"id"`
+	Subject        string `json:"subject"`
+	PlanID         string `json:"plan_id"`
+	PlanName       string `json:"plan_name"`
+	PlanVersion    int    `json:"plan_version"`
+	Active         bool   `json:"active"`
+	PeriodAnchorAt string `json:"period_anchor_at"`
+	UnassignedAt   string `json:"unassigned_at"`
+}
+
+type planAssignmentListTestResponse struct {
+	Items []planAssignmentTestResponse `json:"items"`
+}
+
+type planProgressItemTestResponse struct {
+	Meter          string  `json:"meter"`
+	Period         string  `json:"period"`
+	State          string  `json:"state"`
+	Current        float64 `json:"current"`
+	Limit          float64 `json:"limit"`
+	Remaining      float64 `json:"remaining"`
+	Percent        float64 `json:"percent"`
+	WarningPercent float64 `json:"warning_percent"`
+	From           string  `json:"from"`
+	To             string  `json:"to"`
+}
+
+type planProgressTestResponse struct {
+	Subject string                         `json:"subject"`
+	Plan    planTestResponse               `json:"plan"`
+	Items   []planProgressItemTestResponse `json:"items"`
+}
+
+type entitlementCheckTestResponse struct {
+	Allowed   bool    `json:"allowed"`
+	State     string  `json:"state"`
+	Subject   string  `json:"subject"`
+	Meter     string  `json:"meter"`
+	Quantity  float64 `json:"quantity"`
+	Current   float64 `json:"current"`
+	Limit     float64 `json:"limit"`
+	Remaining float64 `json:"remaining"`
+	PlanID    string  `json:"plan_id"`
+	PlanName  string  `json:"plan_name"`
+	Period    string  `json:"period"`
+	Message   string  `json:"message"`
+}
+
+type entitlementStateTestResponse struct {
+	Subject        string  `json:"subject"`
+	Meter          string  `json:"meter"`
+	PlanID         string  `json:"plan_id"`
+	PlanName       string  `json:"plan_name"`
+	Period         string  `json:"period"`
+	State          string  `json:"state"`
+	Current        float64 `json:"current"`
+	Limit          float64 `json:"limit"`
+	Remaining      float64 `json:"remaining"`
+	WarningPercent float64 `json:"warning_percent"`
+	Message        string  `json:"message"`
+	UpdatedAt      string  `json:"updated_at"`
+}
+
+type entitlementStateListTestResponse struct {
+	Items []entitlementStateTestResponse `json:"items"`
+}
+
+type entitlementEventTestResponse struct {
+	ID            string `json:"id"`
+	Subject       string `json:"subject"`
+	Meter         string `json:"meter"`
+	PlanID        string `json:"plan_id"`
+	PlanName      string `json:"plan_name"`
+	PreviousState string `json:"previous_state"`
+	State         string `json:"state"`
+	Type          string `json:"type"`
+	Message       string `json:"message"`
+}
+
+type entitlementEventListTestResponse struct {
+	Items      []entitlementEventTestResponse `json:"items"`
+	NextCursor string                         `json:"next_cursor"`
+}
+
+type entitlementPeriodSnapshotTestResponse struct {
+	Subject     string  `json:"subject"`
+	Meter       string  `json:"meter"`
+	PlanID      string  `json:"plan_id"`
+	PlanVersion int     `json:"plan_version"`
+	State       string  `json:"state"`
+	Current     float64 `json:"current"`
+	Limit       float64 `json:"limit"`
+	Included    float64 `json:"included"`
+	Overage     float64 `json:"overage"`
+	Remaining   float64 `json:"remaining"`
+	EventCount  int64   `json:"event_count"`
+	From        string  `json:"from"`
+	To          string  `json:"to"`
+}
+
+type entitlementPeriodSnapshotListTestResponse struct {
+	Items []entitlementPeriodSnapshotTestResponse `json:"items"`
 }
 
 type alertRuleResponse struct {
