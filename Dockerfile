@@ -3,6 +3,8 @@
 FROM node:24-alpine AS web-build
 WORKDIR /src
 
+RUN npm install --global npm@11.6.2
+
 COPY web/package.json web/package-lock.json ./web/
 RUN cd web && npm ci
 
