@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"embed"
 	"errors"
+	"net/url"
+	"strings"
 
 	"github.com/golang-migrate/migrate/v4"
 	migratesqlite "github.com/golang-migrate/migrate/v4/database/sqlite"
@@ -23,7 +25,7 @@ type Store struct {
 type txContextKey struct{}
 
 func NewStore(ctx context.Context, path string, poolConfigs ...config.DBPoolConfig) (*Store, error) {
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite", sqliteDSN(path))
 	if err != nil {
 		return nil, err
 	}
@@ -40,6 +42,22 @@ func NewStore(ctx context.Context, path string, poolConfigs ...config.DBPoolConf
 	}
 
 	return store, nil
+}
+
+func sqliteDSN(path string) string {
+	values := url.Values{}
+	values.Add("_pragma", "busy_timeout=10000")
+	values.Add("_pragma", "foreign_keys=ON")
+	values.Add("_pragma", "journal_mode=WAL")
+	values.Add("_pragma", "synchronous=NORMAL")
+	values.Set("_txlock", "immediate")
+
+	separator := "?"
+	if strings.Contains(path, "?") {
+		separator = "&"
+	}
+
+	return path + separator + values.Encode()
 }
 
 func applyPoolConfig(db *sql.DB, poolConfigs ...config.DBPoolConfig) {
