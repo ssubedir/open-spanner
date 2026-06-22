@@ -1,5 +1,5 @@
 import { Eye, Loader2, Plus, Trash2 } from 'lucide-react'
-import { type FormEvent, useEffect, useState } from 'react'
+import { type FormEvent, useEffect, useRef, useState } from 'react'
 
 import { appStoreActions } from '../app-store'
 import { DataTable, Modal } from '../components/dashboard'
@@ -9,7 +9,7 @@ import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
-import type { EntitlementEvent, EntitlementPeriodSnapshot, EntitlementState, Meter, Plan, PlanAssignment, PlanLimit, PlanSaveRequest, SubjectPlanProgress } from '../api'
+import type { EntitlementEvent, EntitlementPeriodSnapshot, EntitlementState, Meter, Plan, PlanAssignment, PlanLimit, PlanPreview, PlanSaveRequest, SubjectPlanProgress } from '../api'
 import { formatDate, formatNumber } from '../lib/format'
 
 const periodOptions = [
@@ -27,8 +27,9 @@ type LimitDraft = {
   warningPercent: string
 }
 
-export function PlanModal({ meters, onClose, onSubmit, plan, saving, title }: { meters: Meter[]; onClose: () => void; onSubmit: (input: PlanSaveRequest) => Promise<void>; plan?: Plan; saving: boolean; title: string }) {
+export function PlanModal({ meters, onClose, onPreview, onSubmit, plan, previewError, previewing, saving, title }: { meters: Meter[]; onClose: () => void; onPreview?: (input: PlanSaveRequest) => Promise<void>; onSubmit: (input: PlanSaveRequest) => Promise<void>; plan?: Plan; previewError?: string; previewing?: boolean; saving: boolean; title: string }) {
   const [limits, setLimits] = useState<LimitDraft[]>(() => draftLimits(plan?.limits, meters))
+  const formRef = useRef<HTMLFormElement | null>(null)
 
   useEffect(() => {
     setLimits(draftLimits(plan?.limits, meters))
@@ -36,17 +37,14 @@ export function PlanModal({ meters, onClose, onSubmit, plan, saving, title }: { 
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const form = new FormData(event.currentTarget)
-    await onSubmit({
-      description: String(form.get('description') || ''),
-      limits: limits.map((limit) => ({
-        limit: Number(limit.limit),
-        meter: limit.meter,
-        period: limit.period,
-        warning_percent: limit.warningPercent ? Number(limit.warningPercent) : undefined,
-      })),
-      name: String(form.get('name') || ''),
-    })
+    await onSubmit(planInputFromForm(event.currentTarget, limits))
+  }
+
+  async function preview() {
+    if (!formRef.current || !onPreview) {
+      return
+    }
+    await onPreview(planInputFromForm(formRef.current, limits))
   }
 
   function updateLimit(id: string, update: Partial<LimitDraft>) {
@@ -63,7 +61,7 @@ export function PlanModal({ meters, onClose, onSubmit, plan, saving, title }: { 
 
   return (
     <Modal className="!w-full !max-w-[780px]" title={title} onClose={onClose}>
-      <form className="grid max-h-[calc(100vh-128px)] min-w-0 grid-cols-2 gap-2.5 overflow-auto p-4 max-md:grid-cols-1" onSubmit={(event) => void submit(event)}>
+      <form ref={formRef} className="grid max-h-[calc(100vh-128px)] min-w-0 grid-cols-2 gap-2.5 overflow-auto p-4 max-md:grid-cols-1" onSubmit={(event) => void submit(event)}>
         <Label className="grid min-w-0 gap-1.5">
           Name
           <Input defaultValue={plan?.name || ''} name="name" placeholder="Pro" required />
@@ -120,14 +118,69 @@ export function PlanModal({ meters, onClose, onSubmit, plan, saving, title }: { 
           ))}
         </div>
 
+        {previewError ? <div className="error-banner col-span-full !mb-0">{previewError}</div> : null}
+
         <div className="col-span-full flex justify-end gap-2.5 border-t border-border pt-4">
           <Button onClick={onClose} type="button" variant="outline">Cancel</Button>
+          {onPreview ? (
+            <Button disabled={previewing || saving || meters.length === 0} onClick={() => void preview()} type="button" variant="outline">
+              {previewing ? <Loader2 className="spin" aria-hidden="true" /> : null}
+              Preview changes
+            </Button>
+          ) : null}
           <Button disabled={saving || meters.length === 0} type="submit">
             {saving ? <Loader2 className="spin" aria-hidden="true" /> : null}
             Save
           </Button>
         </div>
       </form>
+    </Modal>
+  )
+}
+
+export function PlanPreviewModal({ onClose, preview }: { onClose: () => void; preview: PlanPreview }) {
+  const summaryItems = [
+    { label: 'Subjects', value: preview.summary.subjects, variant: 'muted' as const },
+    { label: 'OK', value: preview.summary.ok, variant: 'success' as const },
+    { label: 'Warning', value: preview.summary.warning, variant: 'warning' as const },
+    { label: 'Exceeded', value: preview.summary.exceeded, variant: 'warning' as const },
+  ]
+
+  return (
+    <Modal className="!w-full !max-w-[640px]" title="Plan Change Impact" onClose={onClose}>
+      <div className="grid gap-4 p-4">
+        <div className="grid gap-2">
+          <p className="text-sm text-muted">
+            Projected impact across current and scheduled subjects. Assignments are not changed by this preview.
+          </p>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+            <Badge variant="muted">{preview.current.name} v{preview.current.version}</Badge>
+            <span>to</span>
+            <Badge variant="muted">{preview.proposed.name} v{preview.proposed.version}</Badge>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {summaryItems.map((item) => (
+            <div className="grid gap-1 rounded-md border border-border bg-[#f8fafc] p-3" key={item.label}>
+              <span className="text-xs font-semibold uppercase text-muted">{item.label}</span>
+              <strong className="text-2xl leading-none">{formatNumber(item.value)}</strong>
+              <Badge className="w-fit" variant={item.variant}>{item.label.toLowerCase()}</Badge>
+            </div>
+          ))}
+        </div>
+
+        {preview.summary.removed_limits > 0 ? (
+          <div className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm">
+            <strong>{formatNumber(preview.summary.removed_limits)} removed limit impacts.</strong>
+            <span className="ml-1 text-muted">Some assigned subjects currently use meters that this plan version no longer limits.</span>
+          </div>
+        ) : null}
+
+        <div className="modal-actions">
+          <Button onClick={onClose} type="button" variant="outline">Close</Button>
+        </div>
+      </div>
     </Modal>
   )
 }
@@ -162,7 +215,7 @@ export function LimitChips({ limits }: { limits: PlanLimit[] }) {
   )
 }
 
-export function AssignmentTable({ assigning, assignments, progressStatus }: { assigning: boolean; assignments: PlanAssignment[]; progressStatus: string }) {
+export function AssignmentTable({ assigning, assignments, onProgress, progressStatus }: { assigning: boolean; assignments: PlanAssignment[]; onProgress: (subject: string) => Promise<void> | void; progressStatus: string }) {
   return (
     <DataTable
       emptyLabel="No assignments yet"
@@ -179,7 +232,7 @@ export function AssignmentTable({ assigning, assignments, progressStatus }: { as
           <Button
             aria-label={`View ${assignment.subject} progress`}
             disabled={progressStatus === 'loading'}
-            onClick={() => void appStoreActions.loadSubjectPlanProgress(assignment.subject)}
+            onClick={() => void onProgress(assignment.subject)}
             size="sm"
             type="button"
             variant="outline"
@@ -199,6 +252,19 @@ export function AssignmentTable({ assigning, assignments, progressStatus }: { as
         </span>,
       ])}
     />
+  )
+}
+
+export function ProgressModal({ onClose, progress }: { onClose: () => void; progress: SubjectPlanProgress }) {
+  return (
+    <Modal className="!w-full !max-w-[760px]" title="Usage Progress" onClose={onClose}>
+      <div className="grid gap-4 p-4">
+        <ProgressList progress={progress} />
+        <div className="modal-actions">
+          <Button onClick={onClose} type="button" variant="outline">Close</Button>
+        </div>
+      </div>
+    </Modal>
   )
 }
 
@@ -336,6 +402,12 @@ function StateBadge({ state }: { state: string }) {
   if (state === 'warning') {
     return <Badge variant="warning">Warning</Badge>
   }
+  if (state === 'not_in_plan') {
+    return <Badge variant="warning">Not in plan</Badge>
+  }
+  if (state === 'no_plan') {
+    return <Badge variant="warning">No plan</Badge>
+  }
   return <Badge variant="success">OK</Badge>
 }
 
@@ -374,6 +446,20 @@ function emptyLimitDraft(meters: Meter[]): LimitDraft {
 
 function draftID() {
   return `limit_${Date.now()}_${Math.random().toString(16).slice(2)}`
+}
+
+function planInputFromForm(form: HTMLFormElement, limits: LimitDraft[]): PlanSaveRequest {
+  const data = new FormData(form)
+  return {
+    description: String(data.get('description') || ''),
+    limits: limits.map((limit) => ({
+      limit: Number(limit.limit),
+      meter: limit.meter,
+      period: limit.period,
+      warning_percent: limit.warningPercent ? Number(limit.warningPercent) : undefined,
+    })),
+    name: String(data.get('name') || ''),
+  }
 }
 
 function formatPeriodRange(from: string, to: string) {

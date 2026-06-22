@@ -94,6 +94,7 @@ type UsageRepository interface {
 type Service interface {
 	CreatePlan(ctx context.Context, cmd SavePlanCommand) (PlanResult, error)
 	UpdatePlan(ctx context.Context, cmd UpdatePlanCommand) (PlanResult, error)
+	PreviewPlan(ctx context.Context, cmd UpdatePlanCommand) (PlanPreviewResult, error)
 	DeletePlan(ctx context.Context, cmd DeletePlanCommand) error
 	GetPlan(ctx context.Context, query GetPlanQuery) (PlanResult, error)
 	ListPlans(ctx context.Context, query ListPlansQuery) (PlanListResult, error)
@@ -436,6 +437,54 @@ type PlanListResult struct {
 	Items []PlanResult
 }
 
+type PlanPreviewSummary struct {
+	Subjects      int
+	OK            int
+	Warning       int
+	Exceeded      int
+	RemovedLimits int
+}
+
+type PlanPreviewResult struct {
+	Current  PlanResult
+	Proposed PlanResult
+	Summary  PlanPreviewSummary
+	Subjects []PlanPreviewSubject
+}
+
+type PlanPreviewSubject struct {
+	Subject             string
+	AssignmentID        string
+	AssignmentStatus    AssignmentStatus
+	CurrentPlanID       string
+	CurrentPlanVersion  int
+	ProposedPlanID      string
+	ProposedPlanVersion int
+	Items               []PlanPreviewItem
+}
+
+type PlanPreviewItem struct {
+	MeterName          string
+	Period             Period
+	Current            float64
+	CurrentLimit       float64
+	ProposedLimit      float64
+	CurrentState       OverageState
+	ProposedState      OverageState
+	Remaining          float64
+	Overage            float64
+	Percent            float64
+	WarningPercent     float64
+	From               time.Time
+	To                 time.Time
+	PeriodResetAt      time.Time
+	Unit               string
+	Aggregation        domainmeter.Aggregation
+	EventCount         int64
+	Removed            bool
+	ExistingLimitFound bool
+}
+
 type SubjectAssignmentResult struct {
 	Assignment SubjectAssignment
 }
@@ -544,6 +593,9 @@ func (s *service) UpdatePlan(ctx context.Context, cmd UpdatePlanCommand) (PlanRe
 	if err != nil {
 		return PlanResult{}, err
 	}
+	if !existing.Plan.IsCurrent {
+		return PlanResult{}, errors.Join(domain.ErrConflict, errors.New("plan version is not current"))
+	}
 
 	now := s.now()
 	plan, limits, err := s.normalizePlan(ctx, "", cmd.Name, cmd.Description, cmd.Limits, now)
@@ -560,19 +612,161 @@ func (s *service) UpdatePlan(ctx context.Context, cmd UpdatePlanCommand) (PlanRe
 	}
 
 	err = s.transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
+		assignments, err := s.repo.FindSubjectAssignments(txCtx, AssignmentQuery{
+			PlanID:     existing.Plan.ID,
+			ActiveOnly: true,
+			Limit:      MaxLimit,
+		})
+		if err != nil {
+			return err
+		}
 		if err := s.repo.RetirePlan(txCtx, existing.Plan.ID, now); err != nil {
 			return err
 		}
 		if _, err := s.repo.SavePlan(txCtx, plan); err != nil {
 			return err
 		}
-		return s.repo.ReplacePlanLimits(txCtx, plan.ID, limits)
+		if err := s.repo.ReplacePlanLimits(txCtx, plan.ID, limits); err != nil {
+			return err
+		}
+		for _, assignment := range assignments {
+			_, err := s.repo.SaveSubjectAssignment(txCtx, SubjectAssignment{
+				ID:             uuid.NewString(),
+				Subject:        assignment.Subject,
+				PlanID:         plan.ID,
+				PlanName:       plan.Name,
+				PlanVersion:    plan.Version,
+				AssignedAt:     now,
+				PeriodAnchorAt: assignment.PeriodAnchorAt,
+				UpdatedAt:      now,
+			})
+			if err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return PlanResult{}, err
 	}
 
 	return PlanResult{Plan: plan, Limits: limits}, nil
+}
+
+func (s *service) PreviewPlan(ctx context.Context, cmd UpdatePlanCommand) (PlanPreviewResult, error) {
+	id := strings.TrimSpace(cmd.ID)
+	if id == "" {
+		return PlanPreviewResult{}, fmt.Errorf("%w: plan id is required", domain.ErrInvalidInput)
+	}
+
+	current, err := s.findPlan(ctx, id)
+	if err != nil {
+		return PlanPreviewResult{}, err
+	}
+	if !current.Plan.IsCurrent {
+		return PlanPreviewResult{}, errors.Join(domain.ErrConflict, errors.New("plan version is not current"))
+	}
+
+	now := s.now()
+	proposedPlan, proposedLimits, err := s.normalizePlan(ctx, "", cmd.Name, cmd.Description, cmd.Limits, now)
+	if err != nil {
+		return PlanPreviewResult{}, err
+	}
+	proposedPlan.Version = current.Plan.Version + 1
+	proposedPlan.ParentPlanID = current.Plan.ID
+	proposedPlan.IsCurrent = true
+	for i := range proposedLimits {
+		proposedLimits[i].PlanID = proposedPlan.ID
+		proposedLimits[i].CreatedAt = now
+		proposedLimits[i].UpdatedAt = now
+	}
+
+	assignments, err := s.repo.FindSubjectAssignments(ctx, AssignmentQuery{
+		PlanID:     current.Plan.ID,
+		ActiveOnly: true,
+		Limit:      MaxLimit,
+	})
+	if err != nil {
+		return PlanPreviewResult{}, err
+	}
+
+	currentLimits := limitsByMeterPeriod(current.Limits)
+	proposedKeys := make(map[string]struct{}, len(proposedLimits))
+	subjects := make([]PlanPreviewSubject, 0, len(assignments))
+	summary := PlanPreviewSummary{Subjects: len(assignments)}
+
+	for _, assignment := range assignments {
+		subject := PlanPreviewSubject{
+			Subject:             assignment.Subject,
+			AssignmentID:        assignment.ID,
+			AssignmentStatus:    assignment.StatusAt(now),
+			CurrentPlanID:       current.Plan.ID,
+			CurrentPlanVersion:  current.Plan.Version,
+			ProposedPlanID:      proposedPlan.ID,
+			ProposedPlanVersion: proposedPlan.Version,
+			Items:               make([]PlanPreviewItem, 0, len(proposedLimits)),
+		}
+		worst := StateOK
+
+		for _, limit := range proposedLimits {
+			key := limitKey(limit.MeterName, limit.Period)
+			proposedKeys[key] = struct{}{}
+			item, err := s.previewItem(ctx, assignment.Subject, assignment, limit)
+			if err != nil {
+				return PlanPreviewResult{}, err
+			}
+			item.ProposedLimit = limit.Limit
+			item.ProposedState = itemState(item.Percent, item.Current, limit.Limit, limit.WarningPercent)
+			item.WarningPercent = limit.WarningPercent
+			if currentLimit, ok := currentLimits[key]; ok {
+				currentItem, err := s.previewItem(ctx, assignment.Subject, assignment, currentLimit)
+				if err != nil {
+					return PlanPreviewResult{}, err
+				}
+				item.CurrentLimit = currentLimit.Limit
+				item.CurrentState = itemState(currentItem.Percent, currentItem.Current, currentLimit.Limit, currentLimit.WarningPercent)
+				item.ExistingLimitFound = true
+			} else {
+				item.CurrentState = StateNotInPlan
+			}
+			worst = worstState(worst, item.ProposedState)
+			subject.Items = append(subject.Items, item)
+		}
+
+		for _, limit := range current.Limits {
+			if _, ok := proposedKeys[limitKey(limit.MeterName, limit.Period)]; ok {
+				continue
+			}
+			item, err := s.previewItem(ctx, assignment.Subject, assignment, limit)
+			if err != nil {
+				return PlanPreviewResult{}, err
+			}
+			item.CurrentLimit = limit.Limit
+			item.CurrentState = itemState(item.Percent, item.Current, limit.Limit, limit.WarningPercent)
+			item.ProposedState = StateNotInPlan
+			item.Removed = true
+			item.ExistingLimitFound = true
+			subject.Items = append(subject.Items, item)
+			summary.RemovedLimits++
+		}
+
+		switch worst {
+		case StateExceeded:
+			summary.Exceeded++
+		case StateWarning:
+			summary.Warning++
+		default:
+			summary.OK++
+		}
+		subjects = append(subjects, subject)
+	}
+
+	return PlanPreviewResult{
+		Current:  current,
+		Proposed: PlanResult{Plan: proposedPlan, Limits: proposedLimits},
+		Summary:  summary,
+		Subjects: subjects,
+	}, nil
 }
 
 func (s *service) DeletePlan(ctx context.Context, cmd DeletePlanCommand) error {
@@ -1235,6 +1429,27 @@ func (s *service) progressItem(ctx context.Context, subject string, assignment S
 	}, nil
 }
 
+func (s *service) previewItem(ctx context.Context, subject string, assignment SubjectAssignment, limit PlanLimit) (PlanPreviewItem, error) {
+	item, err := s.progressItem(ctx, subject, assignment, limit)
+	if err != nil {
+		return PlanPreviewItem{}, err
+	}
+	return PlanPreviewItem{
+		MeterName:     item.MeterName,
+		Period:        item.Period,
+		Current:       item.Current,
+		Remaining:     item.Remaining,
+		Overage:       item.Overage,
+		Percent:       item.Percent,
+		From:          item.From,
+		To:            item.To,
+		PeriodResetAt: item.PeriodResetAt,
+		Unit:          item.Unit,
+		Aggregation:   item.Aggregation,
+		EventCount:    item.EventCount,
+	}, nil
+}
+
 func (p PlanResult) limitForMeter(meterName string) (PlanLimit, bool) {
 	for _, limit := range p.Limits {
 		if limit.MeterName == meterName {
@@ -1242,6 +1457,32 @@ func (p PlanResult) limitForMeter(meterName string) (PlanLimit, bool) {
 		}
 	}
 	return PlanLimit{}, false
+}
+
+func limitsByMeterPeriod(limits []PlanLimit) map[string]PlanLimit {
+	result := make(map[string]PlanLimit, len(limits))
+	for _, limit := range limits {
+		result[limitKey(limit.MeterName, limit.Period)] = limit
+	}
+	return result
+}
+
+func limitKey(meterName string, period Period) string {
+	return meterName + "\x00" + string(period)
+}
+
+func itemState(percent float64, current float64, limit float64, warningPercent float64) OverageState {
+	return overageState(percent, current, limit, warningPercent)
+}
+
+func worstState(current OverageState, next OverageState) OverageState {
+	if next == StateExceeded || current == StateExceeded {
+		return StateExceeded
+	}
+	if next == StateWarning || current == StateWarning {
+		return StateWarning
+	}
+	return StateOK
 }
 
 func counterValue(counter EntitlementUsageCounter, aggregation domainmeter.Aggregation, durationSeconds float64) float64 {

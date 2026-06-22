@@ -134,6 +134,40 @@ func (h *Handler) UpdatePlan(w http.ResponseWriter, r *http.Request) {
 	respond.JSON(w, http.StatusOK, planResponse(plan))
 }
 
+// PreviewPlan previews a proposed plan update.
+//
+// @Summary Preview plan update
+// @ID previewPlan
+// @Tags plans
+// @Accept json
+// @Produce json
+// @Param id path string true "Plan ID"
+// @Param request body PlanSaveRequest true "Plan"
+// @Success 200 {object} PlanPreviewResponse
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 404 {object} respond.ErrorResponse
+// @Failure 409 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/plans/{id}/preview [post]
+func (h *Handler) PreviewPlan(w http.ResponseWriter, r *http.Request) {
+	var req PlanSaveRequest
+	if err := request.DecodeJSON(r.Body, &req); err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+	preview, err := h.service.PreviewPlan(r.Context(), appentitlement.UpdatePlanCommand{
+		ID:          chi.URLParam(r, "id"),
+		Name:        req.Name,
+		Description: req.Description,
+		Limits:      limitCommands(req.Limits),
+	})
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	respond.JSON(w, http.StatusOK, planPreviewResponse(preview))
+}
+
 // DeletePlan deletes a plan.
 //
 // @Summary Delete plan
@@ -454,6 +488,58 @@ func planResponse(result appentitlement.PlanResult) PlanResponse {
 		Limits:       limits,
 		CreatedAt:    formatTime(result.Plan.CreatedAt),
 		UpdatedAt:    formatTime(result.Plan.UpdatedAt),
+	}
+}
+
+func planPreviewResponse(result appentitlement.PlanPreviewResult) PlanPreviewResponse {
+	subjects := make([]PlanPreviewSubject, 0, len(result.Subjects))
+	for _, subject := range result.Subjects {
+		items := make([]PlanPreviewItem, 0, len(subject.Items))
+		for _, item := range subject.Items {
+			items = append(items, PlanPreviewItem{
+				Meter:              item.MeterName,
+				Period:             string(item.Period),
+				Current:            item.Current,
+				CurrentLimit:       item.CurrentLimit,
+				ProposedLimit:      item.ProposedLimit,
+				CurrentState:       string(item.CurrentState),
+				ProposedState:      string(item.ProposedState),
+				Remaining:          item.Remaining,
+				Overage:            item.Overage,
+				Percent:            item.Percent,
+				WarningPercent:     item.WarningPercent,
+				From:               formatTime(item.From),
+				To:                 formatTime(item.To),
+				PeriodResetAt:      formatTime(item.PeriodResetAt),
+				Unit:               item.Unit,
+				Aggregation:        string(item.Aggregation),
+				EventCount:         item.EventCount,
+				Removed:            item.Removed,
+				ExistingLimitFound: item.ExistingLimitFound,
+			})
+		}
+		subjects = append(subjects, PlanPreviewSubject{
+			Subject:             subject.Subject,
+			AssignmentID:        subject.AssignmentID,
+			AssignmentStatus:    string(subject.AssignmentStatus),
+			CurrentPlanID:       subject.CurrentPlanID,
+			CurrentPlanVersion:  subject.CurrentPlanVersion,
+			ProposedPlanID:      subject.ProposedPlanID,
+			ProposedPlanVersion: subject.ProposedPlanVersion,
+			Items:               items,
+		})
+	}
+	return PlanPreviewResponse{
+		Current:  planResponse(result.Current),
+		Proposed: planResponse(result.Proposed),
+		Summary: PlanPreviewSummary{
+			Subjects:      result.Summary.Subjects,
+			OK:            result.Summary.OK,
+			Warning:       result.Summary.Warning,
+			Exceeded:      result.Summary.Exceeded,
+			RemovedLimits: result.Summary.RemovedLimits,
+		},
+		Subjects: subjects,
 	}
 }
 

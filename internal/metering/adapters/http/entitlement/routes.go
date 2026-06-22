@@ -20,6 +20,7 @@ func (h *Handler) RegisterRoutes(router chi.Router, authorizer access.Authorizer
 		r.Delete("/subjects/{subject}", h.DeleteSubjectAssignment, access.PlansWrite(allPlansResource))
 		r.Get("/subjects/{subject}/progress", h.GetSubjectProgress, access.PlansRead(allPlansResource))
 		r.Get("/{id}", h.GetPlan, access.PlansRead(h.planByIDResource))
+		r.Post("/{id}/preview", h.PreviewPlan, access.PlansRead(h.planUpdateResource))
 		r.Put("/{id}", h.UpdatePlan, access.PlansWrite(h.planUpdateResource))
 		r.Delete("/{id}", h.DeletePlan, access.PlansWrite(h.planByIDResource))
 	})

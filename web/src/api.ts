@@ -125,6 +125,54 @@ export type PlanList = {
   items: Plan[]
 }
 
+export type PlanPreviewSummary = {
+  subjects: number
+  ok: number
+  warning: number
+  exceeded: number
+  removed_limits: number
+}
+
+export type PlanPreviewItem = {
+  meter: string
+  period: string
+  current: number
+  current_limit: number
+  proposed_limit: number
+  current_state: string
+  proposed_state: string
+  remaining: number
+  overage: number
+  percent: number
+  warning_percent: number
+  from: string
+  to: string
+  period_reset_at: string
+  unit: string
+  aggregation: string
+  event_count: number
+  removed: boolean
+  existing_limit_found: boolean
+}
+
+export type PlanPreviewSubject = {
+  subject: string
+  assignment_id: string
+  assignment_status: 'scheduled' | 'active' | 'ended'
+  current_plan_id: string
+  current_plan_version: number
+  proposed_plan_id: string
+  proposed_plan_version: number
+  items: PlanPreviewItem[]
+}
+
+export type PlanPreview = {
+  current: Plan
+  proposed: Plan
+  summary: PlanPreviewSummary
+  subjects: PlanPreviewSubject[]
+}
+
 export type PlanLimitRequest = {
   meter: string
   period: string
@@ -896,6 +944,13 @@ export async function updatePlan(id: string, input: PlanSaveRequest) {
   return request<Plan>(`/v1/plans/${encodeURIComponent(id)}`, {
     body: JSON.stringify(input),
     method: 'PUT',
+  })
+}
+
+export async function previewPlan(id: string, input: PlanSaveRequest) {
+  return request<PlanPreview>(`/v1/plans/${encodeURIComponent(id)}/preview`, {
+    body: JSON.stringify(input),
+    method: 'POST',
   })
 }
 

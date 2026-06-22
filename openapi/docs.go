@@ -2277,6 +2277,71 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/plans/{id}/preview": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "plans"
+                ],
+                "summary": "Preview plan update",
+                "operationId": "previewPlan",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Plan ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Plan",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_entitlement.PlanSaveRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_entitlement.PlanPreviewResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/subjects": {
             "get": {
                 "produces": [
@@ -4209,6 +4274,140 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/internal_metering_adapters_http_entitlement.PlanResponse"
                     }
+                }
+            }
+        },
+        "internal_metering_adapters_http_entitlement.PlanPreviewItem": {
+            "type": "object",
+            "properties": {
+                "aggregation": {
+                    "type": "string"
+                },
+                "current": {
+                    "type": "number"
+                },
+                "current_limit": {
+                    "type": "number"
+                },
+                "current_state": {
+                    "type": "string"
+                },
+                "event_count": {
+                    "type": "integer"
+                },
+                "existing_limit_found": {
+                    "type": "boolean"
+                },
+                "from": {
+                    "type": "string"
+                },
+                "meter": {
+                    "type": "string"
+                },
+                "overage": {
+                    "type": "number"
+                },
+                "percent": {
+                    "type": "number"
+                },
+                "period": {
+                    "type": "string"
+                },
+                "period_reset_at": {
+                    "type": "string"
+                },
+                "proposed_limit": {
+                    "type": "number"
+                },
+                "proposed_state": {
+                    "type": "string"
+                },
+                "remaining": {
+                    "type": "number"
+                },
+                "removed": {
+                    "type": "boolean"
+                },
+                "to": {
+                    "type": "string"
+                },
+                "unit": {
+                    "type": "string"
+                },
+                "warning_percent": {
+                    "type": "number"
+                }
+            }
+        },
+        "internal_metering_adapters_http_entitlement.PlanPreviewResponse": {
+            "type": "object",
+            "properties": {
+                "current": {
+                    "$ref": "#/definitions/internal_metering_adapters_http_entitlement.PlanResponse"
+                },
+                "proposed": {
+                    "$ref": "#/definitions/internal_metering_adapters_http_entitlement.PlanResponse"
+                },
+                "subjects": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_entitlement.PlanPreviewSubject"
+                    }
+                },
+                "summary": {
+                    "$ref": "#/definitions/internal_metering_adapters_http_entitlement.PlanPreviewSummary"
+                }
+            }
+        },
+        "internal_metering_adapters_http_entitlement.PlanPreviewSubject": {
+            "type": "object",
+            "properties": {
+                "assignment_id": {
+                    "type": "string"
+                },
+                "assignment_status": {
+                    "type": "string"
+                },
+                "current_plan_id": {
+                    "type": "string"
+                },
+                "current_plan_version": {
+                    "type": "integer"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_entitlement.PlanPreviewItem"
+                    }
+                },
+                "proposed_plan_id": {
+                    "type": "string"
+                },
+                "proposed_plan_version": {
+                    "type": "integer"
+                },
+                "subject": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_entitlement.PlanPreviewSummary": {
+            "type": "object",
+            "properties": {
+                "exceeded": {
+                    "type": "integer"
+                },
+                "ok": {
+                    "type": "integer"
+                },
+                "removed_limits": {
+                    "type": "integer"
+                },
+                "subjects": {
+                    "type": "integer"
+                },
+                "warning": {
+                    "type": "integer"
                 }
             }
         },

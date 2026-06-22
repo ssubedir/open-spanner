@@ -44,6 +44,58 @@ type PlanListResponse struct {
 	Items []PlanResponse `json:"items"`
 }
 
+// PlanPreviewResponse describes the impact of a proposed plan version.
+type PlanPreviewResponse struct {
+	Current  PlanResponse         `json:"current"`
+	Proposed PlanResponse         `json:"proposed"`
+	Summary  PlanPreviewSummary   `json:"summary"`
+	Subjects []PlanPreviewSubject `json:"subjects"`
+}
+
+// PlanPreviewSummary summarizes the proposed plan impact.
+type PlanPreviewSummary struct {
+	Subjects      int `json:"subjects"`
+	OK            int `json:"ok"`
+	Warning       int `json:"warning"`
+	Exceeded      int `json:"exceeded"`
+	RemovedLimits int `json:"removed_limits"`
+}
+
+// PlanPreviewSubject describes proposed impact for one assigned subject.
+type PlanPreviewSubject struct {
+	Subject             string            `json:"subject"`
+	AssignmentID        string            `json:"assignment_id"`
+	AssignmentStatus    string            `json:"assignment_status"`
+	CurrentPlanID       string            `json:"current_plan_id"`
+	CurrentPlanVersion  int               `json:"current_plan_version"`
+	ProposedPlanID      string            `json:"proposed_plan_id"`
+	ProposedPlanVersion int               `json:"proposed_plan_version"`
+	Items               []PlanPreviewItem `json:"items"`
+}
+
+// PlanPreviewItem describes proposed impact for one subject meter limit.
+type PlanPreviewItem struct {
+	Meter              string  `json:"meter"`
+	Period             string  `json:"period"`
+	Current            float64 `json:"current"`
+	CurrentLimit       float64 `json:"current_limit"`
+	ProposedLimit      float64 `json:"proposed_limit"`
+	CurrentState       string  `json:"current_state"`
+	ProposedState      string  `json:"proposed_state"`
+	Remaining          float64 `json:"remaining"`
+	Overage            float64 `json:"overage"`
+	Percent            float64 `json:"percent"`
+	WarningPercent     float64 `json:"warning_percent"`
+	From               string  `json:"from"`
+	To                 string  `json:"to"`
+	PeriodResetAt      string  `json:"period_reset_at"`
+	Unit               string  `json:"unit"`
+	Aggregation        string  `json:"aggregation"`
+	EventCount         int64   `json:"event_count"`
+	Removed            bool    `json:"removed"`
+	ExistingLimitFound bool    `json:"existing_limit_found"`
+}
+
 // AssignmentRequest assigns a subject to a plan.
 type AssignmentRequest struct {
 	PlanID      string `json:"plan_id"`

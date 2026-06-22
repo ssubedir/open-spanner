@@ -820,8 +820,21 @@ func runIntegrationPlanEntitlementFlow(t *testing.T, cfg config.Config, namespac
 	}
 	var assignmentHistory planAssignmentListTestResponse
 	decodeJSON(t, historyBeforeReassign, &assignmentHistory)
-	if len(assignmentHistory.Items) != 1 || assignmentHistory.Items[0].PlanID != plan.ID || !assignmentHistory.Items[0].Active {
-		t.Fatalf("assignment history before reassign = %#v, want active v1 assignment", assignmentHistory)
+	if len(assignmentHistory.Items) != 2 {
+		t.Fatalf("assignment history after plan update = %#v, want active v2 and ended v1", assignmentHistory)
+	}
+	activeV2 := false
+	endedV1 := false
+	for _, item := range assignmentHistory.Items {
+		switch {
+		case item.PlanID == updatedPlan.ID && item.PlanVersion == 2 && item.Active && item.UnassignedAt == "":
+			activeV2 = true
+		case item.PlanID == plan.ID && item.PlanVersion == 1 && !item.Active && item.UnassignedAt != "":
+			endedV1 = true
+		}
+	}
+	if !activeV2 || !endedV1 {
+		t.Fatalf("assignment history after plan update = %#v, want active v2 and ended v1", assignmentHistory)
 	}
 
 	assignRetiredPlan := requestJSONWithHeaders(t, router, http.MethodPut, "/v1/plans/subjects/"+url.PathEscape(subject+"_retired"), map[string]any{
@@ -853,7 +866,7 @@ func runIntegrationPlanEntitlementFlow(t *testing.T, cfg config.Config, namespac
 		"idempotency_key": "plan-entitlement-" + suffix,
 		"subject":         subject,
 		"meter":           meterName,
-		"quantity":        7,
+		"quantity":        13,
 		"timestamp":       time.Now().UTC().Format(time.RFC3339),
 		"metadata":        map[string]any{},
 	}, sdkHeaders, nil)
@@ -904,12 +917,12 @@ func runIntegrationPlanEntitlementFlow(t *testing.T, cfg config.Config, namespac
 	}
 	var progress planProgressTestResponse
 	decodeJSON(t, progressRes, &progress)
-	if progress.Subject != subject || progress.Plan.ID != plan.ID || len(progress.Items) != 1 {
-		t.Fatalf("progress = %#v, want one item for subject %q plan %q", progress, subject, plan.ID)
+	if progress.Subject != subject || progress.Plan.ID != updatedPlan.ID || progress.Plan.Version != 2 || len(progress.Items) != 1 {
+		t.Fatalf("progress = %#v, want one item for subject %q plan %q", progress, subject, updatedPlan.ID)
 	}
-	assertFloatNear(t, progress.Items[0].Current, 7, "progress current")
-	assertFloatNear(t, progress.Items[0].Limit, 10, "progress limit")
-	assertFloatNear(t, progress.Items[0].Remaining, 3, "progress remaining")
+	assertFloatNear(t, progress.Items[0].Current, 13, "progress current")
+	assertFloatNear(t, progress.Items[0].Limit, 20, "progress limit")
+	assertFloatNear(t, progress.Items[0].Remaining, 7, "progress remaining")
 	if progress.Items[0].State != "warning" {
 		t.Fatalf("progress state = %q, want warning", progress.Items[0].State)
 	}
@@ -927,8 +940,8 @@ func runIntegrationPlanEntitlementFlow(t *testing.T, cfg config.Config, namespac
 	if states.Items[0].Subject != subject || states.Items[0].Meter != meterName || states.Items[0].State != "warning" {
 		t.Fatalf("entitlement state = %#v, want warning state for %q/%q", states.Items[0], subject, meterName)
 	}
-	assertFloatNear(t, states.Items[0].Current, 7, "state current")
-	assertFloatNear(t, states.Items[0].Limit, 10, "state limit")
+	assertFloatNear(t, states.Items[0].Current, 13, "state current")
+	assertFloatNear(t, states.Items[0].Limit, 20, "state limit")
 
 	snapshotsRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/entitlements/periods?subject="+url.QueryEscape(subject)+"&meter="+url.QueryEscape(meterName), nil, sdkHeaders, nil)
 	if snapshotsRes.Code != http.StatusOK {
@@ -940,17 +953,17 @@ func runIntegrationPlanEntitlementFlow(t *testing.T, cfg config.Config, namespac
 		t.Fatalf("entitlement period snapshots = %#v, want one snapshot", snapshots)
 	}
 	snapshot := snapshots.Items[0]
-	if snapshot.Subject != subject || snapshot.Meter != meterName || snapshot.PlanID != plan.ID || snapshot.PlanVersion != 1 || snapshot.State != "warning" {
-		t.Fatalf("entitlement period snapshot = %#v, want warning snapshot for %q/%q on v1 plan", snapshot, subject, meterName)
+	if snapshot.Subject != subject || snapshot.Meter != meterName || snapshot.PlanID != updatedPlan.ID || snapshot.PlanVersion != 2 || snapshot.State != "warning" {
+		t.Fatalf("entitlement period snapshot = %#v, want warning snapshot for %q/%q on v2 plan", snapshot, subject, meterName)
 	}
 	if snapshot.From != assignment.PeriodAnchorAt {
 		t.Fatalf("snapshot period from = %q, want assignment anchor %q", snapshot.From, assignment.PeriodAnchorAt)
 	}
-	assertFloatNear(t, snapshot.Current, 7, "snapshot current")
-	assertFloatNear(t, snapshot.Limit, 10, "snapshot limit")
-	assertFloatNear(t, snapshot.Included, 7, "snapshot included")
+	assertFloatNear(t, snapshot.Current, 13, "snapshot current")
+	assertFloatNear(t, snapshot.Limit, 20, "snapshot limit")
+	assertFloatNear(t, snapshot.Included, 13, "snapshot included")
 	assertFloatNear(t, snapshot.Overage, 0, "snapshot overage")
-	assertFloatNear(t, snapshot.Remaining, 3, "snapshot remaining")
+	assertFloatNear(t, snapshot.Remaining, 7, "snapshot remaining")
 	if snapshot.EventCount != 1 {
 		t.Fatalf("snapshot event count = %d, want 1", snapshot.EventCount)
 	}
@@ -981,13 +994,13 @@ func runIntegrationPlanEntitlementFlow(t *testing.T, cfg config.Config, namespac
 	if !allowedCheck.Allowed || allowedCheck.State != "warning" {
 		t.Fatalf("allowed check = %#v, want allowed warning", allowedCheck)
 	}
-	assertFloatNear(t, allowedCheck.Current, 7, "allowed current")
-	assertFloatNear(t, allowedCheck.Remaining, 1, "allowed remaining")
+	assertFloatNear(t, allowedCheck.Current, 13, "allowed current")
+	assertFloatNear(t, allowedCheck.Remaining, 5, "allowed remaining")
 
 	denied := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/entitlements/check", map[string]any{
 		"subject":  subject,
 		"meter":    meterName,
-		"quantity": 4,
+		"quantity": 8,
 	}, sdkHeaders, nil)
 	if denied.Code != http.StatusOK {
 		t.Fatalf("denied entitlement status = %d, want %d: %s", denied.Code, http.StatusOK, denied.Body.String())
@@ -998,44 +1011,6 @@ func runIntegrationPlanEntitlementFlow(t *testing.T, cfg config.Config, namespac
 		t.Fatalf("denied check = %#v, want denied exceeded", deniedCheck)
 	}
 	assertFloatNear(t, deniedCheck.Remaining, 0, "denied remaining")
-
-	reassign := requestJSONWithHeaders(t, router, http.MethodPut, "/v1/plans/subjects/"+url.PathEscape(subject), map[string]any{
-		"plan_id": updatedPlan.ID,
-	}, identity.Headers, nil)
-	if reassign.Code != http.StatusOK {
-		t.Fatalf("reassign plan status = %d, want %d: %s", reassign.Code, http.StatusOK, reassign.Body.String())
-	}
-	var updatedAssignment planAssignmentTestResponse
-	decodeJSON(t, reassign, &updatedAssignment)
-	if updatedAssignment.Subject != subject || updatedAssignment.PlanID != updatedPlan.ID || updatedAssignment.PlanVersion != 2 || !updatedAssignment.Active {
-		t.Fatalf("updated assignment = %#v, want active v2 assignment", updatedAssignment)
-	}
-	if updatedAssignment.PeriodAnchorAt != assignment.PeriodAnchorAt {
-		t.Fatalf("updated assignment anchor = %q, want preserved anchor %q", updatedAssignment.PeriodAnchorAt, assignment.PeriodAnchorAt)
-	}
-
-	historyAfterReassign := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/plans/assignments?include_history=true&subject="+url.QueryEscape(subject), nil, identity.Headers, nil)
-	if historyAfterReassign.Code != http.StatusOK {
-		t.Fatalf("assignment history after reassign status = %d, want %d: %s", historyAfterReassign.Code, http.StatusOK, historyAfterReassign.Body.String())
-	}
-	var updatedAssignmentHistory planAssignmentListTestResponse
-	decodeJSON(t, historyAfterReassign, &updatedAssignmentHistory)
-	if len(updatedAssignmentHistory.Items) != 2 {
-		t.Fatalf("assignment history after reassign = %#v, want two rows", updatedAssignmentHistory)
-	}
-	activeV2 := false
-	endedV1 := false
-	for _, item := range updatedAssignmentHistory.Items {
-		switch {
-		case item.PlanID == updatedPlan.ID && item.PlanVersion == 2 && item.Active && item.UnassignedAt == "":
-			activeV2 = true
-		case item.PlanID == plan.ID && item.PlanVersion == 1 && !item.Active && item.UnassignedAt != "":
-			endedV1 = true
-		}
-	}
-	if !activeV2 || !endedV1 {
-		t.Fatalf("assignment history after reassign = %#v, want active v2 and ended v1", updatedAssignmentHistory)
-	}
 
 	updatedProgressRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/plans/subjects/"+url.PathEscape(subject)+"/progress", nil, sdkHeaders, nil)
 	if updatedProgressRes.Code != http.StatusOK {
@@ -1049,10 +1024,10 @@ func runIntegrationPlanEntitlementFlow(t *testing.T, cfg config.Config, namespac
 	if updatedProgress.Items[0].From != assignment.PeriodAnchorAt {
 		t.Fatalf("updated progress period from = %q, want preserved assignment anchor %q", updatedProgress.Items[0].From, assignment.PeriodAnchorAt)
 	}
-	assertFloatNear(t, updatedProgress.Items[0].Current, 7, "updated progress current")
+	assertFloatNear(t, updatedProgress.Items[0].Current, 13, "updated progress current")
 	assertFloatNear(t, updatedProgress.Items[0].Limit, 20, "updated progress limit")
-	if updatedProgress.Items[0].State != "ok" {
-		t.Fatalf("updated progress state = %q, want ok", updatedProgress.Items[0].State)
+	if updatedProgress.Items[0].State != "warning" {
+		t.Fatalf("updated progress state = %q, want warning", updatedProgress.Items[0].State)
 	}
 }
 

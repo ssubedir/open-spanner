@@ -12,7 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
-import type { PlanSaveRequest } from '../api'
+import { previewPlan as previewPlanRequest, type PlanPreview, type PlanSaveRequest } from '../api'
 import { useInitialLoad } from '../lib/hooks'
 import {
   AssignmentHistoryTable,
@@ -23,7 +23,8 @@ import {
   LimitChips,
   PeriodSnapshotTable,
   PlanModal,
-  ProgressList,
+  PlanPreviewModal,
+  ProgressModal,
 } from './PlanPageParts'
 
 export function PlanDetailPage({ planId }: { planId: string }) {
@@ -52,7 +53,11 @@ export function PlanDetailPage({ planId }: { planId: string }) {
   } = useSelector(appStore, (state) => state.plans)
   const [assignOpen, setAssignOpen] = useState(false)
   const [assignmentTiming, setAssignmentTiming] = useState<'now' | 'scheduled'>('now')
+  const [previewError, setPreviewError] = useState('')
+  const [planPreview, setPlanPreview] = useState<PlanPreview | null>(null)
+  const [previewing, setPreviewing] = useState(false)
   const [progressOpen, setProgressOpen] = useState(false)
+  const [progressResultOpen, setProgressResultOpen] = useState(false)
   const load = useCallback(() => appStoreActions.loadPlans(), [])
   const pollEntitlementActivity = useCallback(() => appStoreActions.loadPlanEntitlementActivity({ quiet: true }), [])
   const plan = items.find((item) => item.id === planId) ?? null
@@ -95,14 +100,32 @@ export function PlanDetailPage({ planId }: { planId: string }) {
   async function submitProgress(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
-    await appStoreActions.loadSubjectPlanProgress(String(form.get('subject') || ''))
+    await openProgressForSubject(String(form.get('subject') || ''))
     setProgressOpen(false)
+  }
+
+  async function openProgressForSubject(subject: string) {
+    await appStoreActions.loadSubjectPlanProgress(subject)
+    setProgressResultOpen(true)
   }
 
   async function submitUpdate(input: PlanSaveRequest) {
     const updatedPlan = await appStoreActions.updateEditingPlan(input)
     if (updatedPlan && updatedPlan.id !== planId) {
       void router.navigate({ to: '/plans/$planId', params: { planId: updatedPlan.id } })
+    }
+  }
+
+  async function previewUpdate(input: PlanSaveRequest) {
+    setPreviewError('')
+    setPreviewing(true)
+    try {
+      const preview = await previewPlanRequest(planId, input)
+      setPlanPreview(preview)
+    } catch (err) {
+      setPreviewError(errorMessage(err, 'Could not preview plan changes'))
+    } finally {
+      setPreviewing(false)
     }
   }
 
@@ -223,21 +246,9 @@ export function PlanDetailPage({ planId }: { planId: string }) {
             </div>
           </CardHeader>
           <CardContent>
-            <AssignmentTable assignments={planAssignments} assigning={assigning} progressStatus={progressStatus} />
+            <AssignmentTable assignments={planAssignments} assigning={assigning} onProgress={openProgressForSubject} progressStatus={progressStatus} />
           </CardContent>
         </Card>
-
-        {visibleProgress ? (
-          <Card className="max-w-[920px] min-w-0">
-            <CardHeader className="!grid !justify-start !gap-1 !px-4 !py-3">
-              <CardTitle>Usage Progress</CardTitle>
-              <CardDescription>Current window usage against assigned limits.</CardDescription>
-            </CardHeader>
-            <CardContent className="!p-3">
-              <ProgressList progress={visibleProgress} />
-            </CardContent>
-          </Card>
-        ) : null}
 
         <Card className="min-w-0">
           <CardHeader className="!px-4 !py-3">
@@ -371,15 +382,29 @@ export function PlanDetailPage({ planId }: { planId: string }) {
         </Modal>
       ) : null}
 
+      {progressResultOpen && visibleProgress ? (
+        <ProgressModal onClose={() => setProgressResultOpen(false)} progress={visibleProgress} />
+      ) : null}
+
       {editing ? (
         <PlanModal
           meters={meters}
-          onClose={() => appStoreActions.setPlanEditing(null)}
+          onClose={() => {
+            setPreviewError('')
+            appStoreActions.setPlanEditing(null)
+          }}
+          onPreview={previewUpdate}
           onSubmit={submitUpdate}
           plan={editing}
+          previewError={previewError}
+          previewing={previewing}
           saving={saving}
           title="Edit Plan"
         />
+      ) : null}
+
+      {planPreview ? (
+        <PlanPreviewModal onClose={() => setPlanPreview(null)} preview={planPreview} />
       ) : null}
 
       {deleting ? (
@@ -396,4 +421,8 @@ export function PlanDetailPage({ planId }: { planId: string }) {
       ) : null}
     </>
   )
+}
+
+function errorMessage(err: unknown, fallback: string) {
+  return err instanceof Error && err.message ? err.message : fallback
 }

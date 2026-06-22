@@ -1,17 +1,17 @@
 import { useRouter } from '@tanstack/react-router'
 import { useSelector } from '@tanstack/react-store'
 import { ArrowRight, PackageCheck, Pencil, Plus, Trash2 } from 'lucide-react'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 import { appStore, appStoreActions } from '../app-store'
 import { DataTable, PageHeader } from '../components/dashboard'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
-import type { PlanSaveRequest } from '../api'
+import { previewPlan as previewPlanRequest, type PlanPreview, type PlanSaveRequest } from '../api'
 import { formatDate, formatNumber } from '../lib/format'
 import { useInitialLoad } from '../lib/hooks'
-import { DeletePlanModal, LimitChips, PlanModal, countAssignmentsByPlan } from './PlanPageParts'
+import { DeletePlanModal, LimitChips, PlanModal, PlanPreviewModal, countAssignmentsByPlan } from './PlanPageParts'
 
 export function PlansPage() {
   const router = useRouter()
@@ -26,6 +26,9 @@ export function PlansPage() {
     saving,
     status,
   } = useSelector(appStore, (state) => state.plans)
+  const [previewError, setPreviewError] = useState('')
+  const [planPreview, setPlanPreview] = useState<PlanPreview | null>(null)
+  const [previewing, setPreviewing] = useState(false)
   const assignmentCounts = useMemo(() => countAssignmentsByPlan(assignments), [assignments])
   const load = useCallback(() => appStoreActions.loadPlans(), [])
 
@@ -42,6 +45,22 @@ export function PlansPage() {
     const plan = await appStoreActions.updateEditingPlan(input)
     if (plan) {
       void router.navigate({ to: '/plans/$planId', params: { planId: plan.id } })
+    }
+  }
+
+  async function previewUpdate(input: PlanSaveRequest) {
+    if (!editing) {
+      return
+    }
+    setPreviewError('')
+    setPreviewing(true)
+    try {
+      const preview = await previewPlanRequest(editing.id, input)
+      setPlanPreview(preview)
+    } catch (err) {
+      setPreviewError(errorMessage(err, 'Could not preview plan changes'))
+    } finally {
+      setPreviewing(false)
     }
   }
 
@@ -122,12 +141,22 @@ export function PlansPage() {
       {editing ? (
         <PlanModal
           meters={meters}
-          onClose={() => appStoreActions.setPlanEditing(null)}
+          onClose={() => {
+            setPreviewError('')
+            appStoreActions.setPlanEditing(null)
+          }}
+          onPreview={previewUpdate}
           onSubmit={submitUpdate}
           plan={editing}
+          previewError={previewError}
+          previewing={previewing}
           saving={saving}
           title="Edit Plan"
         />
+      ) : null}
+
+      {planPreview ? (
+        <PlanPreviewModal onClose={() => setPlanPreview(null)} preview={planPreview} />
       ) : null}
 
       {deleting ? (
@@ -135,4 +164,8 @@ export function PlansPage() {
       ) : null}
     </>
   )
+}
+
+function errorMessage(err: unknown, fallback: string) {
+  return err instanceof Error && err.message ? err.message : fallback
 }

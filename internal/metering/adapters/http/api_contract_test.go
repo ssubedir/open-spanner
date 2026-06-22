@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -733,6 +734,155 @@ func TestPlanAssignmentAPISchedulesFutureChanges(t *testing.T) {
 	}
 	if !statuses["active"] || !statuses["scheduled"] {
 		t.Fatalf("assignment statuses = %#v, want active and scheduled", assignments.Items)
+	}
+}
+
+func TestPlanPreviewAPIShowsAssignedSubjectImpact(t *testing.T) {
+	router := newTestRouter()
+
+	for _, meter := range []string{"preview_api_calls", "preview_storage"} {
+		createMeter := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
+			"name":        meter,
+			"description": "Preview meter",
+			"unit":        "unit",
+			"aggregation": "sum",
+		})
+		if createMeter.Code != http.StatusCreated {
+			t.Fatalf("create meter %s status = %d, want %d: %s", meter, createMeter.Code, http.StatusCreated, createMeter.Body.String())
+		}
+	}
+
+	createPlan := requestJSON(t, router, http.MethodPost, "/v1/plans", map[string]any{
+		"name":        "Preview Pro",
+		"description": "Preview plan",
+		"limits": []map[string]any{
+			{"meter": "preview_api_calls", "period": "month", "limit": 10, "warning_percent": 80},
+		},
+	})
+	if createPlan.Code != http.StatusCreated {
+		t.Fatalf("create plan status = %d, want %d: %s", createPlan.Code, http.StatusCreated, createPlan.Body.String())
+	}
+	var plan entitlementPlanResponse
+	decodeJSON(t, createPlan, &plan)
+
+	assign := requestJSON(t, router, http.MethodPut, "/v1/plans/subjects/org_preview", map[string]any{
+		"plan_id": plan.ID,
+	})
+	if assign.Code != http.StatusOK {
+		t.Fatalf("assign plan status = %d, want %d: %s", assign.Code, http.StatusOK, assign.Body.String())
+	}
+
+	createUsage := requestJSON(t, router, http.MethodPost, "/v1/usages", map[string]any{
+		"idempotency_key": "preview-usage-1",
+		"subject":         "org_preview",
+		"meter":           "preview_api_calls",
+		"quantity":        8,
+		"timestamp":       time.Now().UTC().Format(time.RFC3339),
+		"metadata":        map[string]any{},
+	})
+	if createUsage.Code != http.StatusCreated {
+		t.Fatalf("create usage status = %d, want %d: %s", createUsage.Code, http.StatusCreated, createUsage.Body.String())
+	}
+
+	previewResponse := requestJSON(t, router, http.MethodPost, "/v1/plans/"+url.PathEscape(plan.ID)+"/preview", map[string]any{
+		"name":        "Preview Pro",
+		"description": "Preview plan v2",
+		"limits": []map[string]any{
+			{"meter": "preview_api_calls", "period": "month", "limit": 5, "warning_percent": 80},
+			{"meter": "preview_storage", "period": "month", "limit": 100, "warning_percent": 80},
+		},
+	})
+	if previewResponse.Code != http.StatusOK {
+		t.Fatalf("preview status = %d, want %d: %s", previewResponse.Code, http.StatusOK, previewResponse.Body.String())
+	}
+	var preview entitlementPlanPreviewResponse
+	decodeJSON(t, previewResponse, &preview)
+	if preview.Current.ID != plan.ID || preview.Proposed.Version != plan.Version+1 {
+		t.Fatalf("preview versions = %#v, want current %q and proposed v%d", preview, plan.ID, plan.Version+1)
+	}
+	if preview.Summary.Subjects != 1 || preview.Summary.Exceeded != 1 {
+		t.Fatalf("preview summary = %#v, want one exceeded subject", preview.Summary)
+	}
+	if len(preview.Subjects) != 1 || preview.Subjects[0].Subject != "org_preview" {
+		t.Fatalf("preview subjects = %#v, want org_preview", preview.Subjects)
+	}
+	var apiCallImpact *entitlementPlanPreviewItemResponse
+	for i := range preview.Subjects[0].Items {
+		if preview.Subjects[0].Items[i].Meter == "preview_api_calls" {
+			apiCallImpact = &preview.Subjects[0].Items[i]
+			break
+		}
+	}
+	if apiCallImpact == nil {
+		t.Fatalf("preview items = %#v, want preview_api_calls impact", preview.Subjects[0].Items)
+	}
+	if apiCallImpact.Current != 8 || apiCallImpact.CurrentLimit != 10 || apiCallImpact.ProposedLimit != 5 || apiCallImpact.ProposedState != "exceeded" {
+		t.Fatalf("api call impact = %#v, want 8 of 5 exceeded", *apiCallImpact)
+	}
+
+	updatePlan := requestJSON(t, router, http.MethodPut, "/v1/plans/"+url.PathEscape(plan.ID), map[string]any{
+		"name":        "Preview Pro",
+		"description": "Preview plan v2",
+		"limits": []map[string]any{
+			{"meter": "preview_api_calls", "period": "month", "limit": 5, "warning_percent": 80},
+		},
+	})
+	if updatePlan.Code != http.StatusOK {
+		t.Fatalf("update plan status = %d, want %d: %s", updatePlan.Code, http.StatusOK, updatePlan.Body.String())
+	}
+	var updatedPlan entitlementPlanResponse
+	decodeJSON(t, updatePlan, &updatedPlan)
+	if updatedPlan.ID == plan.ID || updatedPlan.Version != plan.Version+1 {
+		t.Fatalf("updated plan = %#v, want new v%d plan", updatedPlan, plan.Version+1)
+	}
+
+	assignmentList := requestJSON(t, router, http.MethodGet, "/v1/plans/assignments?limit=100&include_history=true", nil)
+	if assignmentList.Code != http.StatusOK {
+		t.Fatalf("list assignments status = %d, want %d: %s", assignmentList.Code, http.StatusOK, assignmentList.Body.String())
+	}
+	var assignments entitlementAssignmentListResponse
+	decodeJSON(t, assignmentList, &assignments)
+	if len(assignments.Items) != 2 {
+		t.Fatalf("assignment count = %d, want old and upgraded assignments: %#v", len(assignments.Items), assignments.Items)
+	}
+	var oldAssignment, upgradedAssignment *entitlementAssignmentResponse
+	for i := range assignments.Items {
+		switch assignments.Items[i].PlanID {
+		case plan.ID:
+			oldAssignment = &assignments.Items[i]
+		case updatedPlan.ID:
+			upgradedAssignment = &assignments.Items[i]
+		}
+	}
+	if oldAssignment == nil || oldAssignment.Active || oldAssignment.UnassignedAt == "" {
+		t.Fatalf("old assignment = %#v, want inactive history row", oldAssignment)
+	}
+	if upgradedAssignment == nil || !upgradedAssignment.Active || upgradedAssignment.PlanVersion != updatedPlan.Version {
+		t.Fatalf("upgraded assignment = %#v, want active v%d row", upgradedAssignment, updatedPlan.Version)
+	}
+
+	progressResponse := requestJSON(t, router, http.MethodGet, "/v1/plans/subjects/org_preview/progress", nil)
+	if progressResponse.Code != http.StatusOK {
+		t.Fatalf("progress status = %d, want %d: %s", progressResponse.Code, http.StatusOK, progressResponse.Body.String())
+	}
+	var progress entitlementProgressResponse
+	decodeJSON(t, progressResponse, &progress)
+	if progress.Plan.ID != updatedPlan.ID || progress.Plan.Version != updatedPlan.Version {
+		t.Fatalf("progress plan = %#v, want upgraded plan %#v", progress.Plan, updatedPlan)
+	}
+	if len(progress.Items) != 1 || progress.Items[0].Limit != 5 || progress.Items[0].State != "exceeded" {
+		t.Fatalf("progress items = %#v, want usage evaluated against upgraded limit", progress.Items)
+	}
+
+	retiredPreview := requestJSON(t, router, http.MethodPost, "/v1/plans/"+url.PathEscape(plan.ID)+"/preview", map[string]any{
+		"name":        "Preview Pro",
+		"description": "Preview retired plan",
+		"limits": []map[string]any{
+			{"meter": "preview_api_calls", "period": "month", "limit": 20, "warning_percent": 80},
+		},
+	})
+	if retiredPreview.Code != http.StatusConflict {
+		t.Fatalf("retired preview status = %d, want %d: %s", retiredPreview.Code, http.StatusConflict, retiredPreview.Body.String())
 	}
 }
 
@@ -2503,9 +2653,10 @@ type meterStatsListResponse struct {
 }
 
 type entitlementPlanResponse struct {
-	ID     string                     `json:"id"`
-	Name   string                     `json:"name"`
-	Limits []entitlementLimitResponse `json:"limits"`
+	ID      string                     `json:"id"`
+	Name    string                     `json:"name"`
+	Version int                        `json:"version"`
+	Limits  []entitlementLimitResponse `json:"limits"`
 }
 
 type entitlementLimitResponse struct {
@@ -2520,6 +2671,7 @@ type entitlementAssignmentResponse struct {
 	Subject        string `json:"subject"`
 	PlanID         string `json:"plan_id"`
 	PlanName       string `json:"plan_name"`
+	PlanVersion    int    `json:"plan_version"`
 	Status         string `json:"status"`
 	Active         bool   `json:"active"`
 	AssignedAt     string `json:"assigned_at"`
@@ -2529,6 +2681,31 @@ type entitlementAssignmentResponse struct {
 
 type entitlementAssignmentListResponse struct {
 	Items []entitlementAssignmentResponse `json:"items"`
+}
+
+type entitlementPlanPreviewResponse struct {
+	Current  entitlementPlanResponse              `json:"current"`
+	Proposed entitlementPlanResponse              `json:"proposed"`
+	Summary  entitlementPlanPreviewSummary        `json:"summary"`
+	Subjects []entitlementPlanPreviewSubjectReply `json:"subjects"`
+}
+
+type entitlementPlanPreviewSummary struct {
+	Subjects int `json:"subjects"`
+	Exceeded int `json:"exceeded"`
+}
+
+type entitlementPlanPreviewSubjectReply struct {
+	Subject string                               `json:"subject"`
+	Items   []entitlementPlanPreviewItemResponse `json:"items"`
+}
+
+type entitlementPlanPreviewItemResponse struct {
+	Meter         string  `json:"meter"`
+	Current       float64 `json:"current"`
+	CurrentLimit  float64 `json:"current_limit"`
+	ProposedLimit float64 `json:"proposed_limit"`
+	ProposedState string  `json:"proposed_state"`
 }
 
 type entitlementCheckResponse struct {
@@ -2548,6 +2725,7 @@ type entitlementCheckResponse struct {
 
 type entitlementProgressResponse struct {
 	Subject string                         `json:"subject"`
+	Plan    entitlementPlanResponse        `json:"plan"`
 	Items   []entitlementProgressItemReply `json:"items"`
 }
 
