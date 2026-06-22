@@ -5,7 +5,7 @@ description: Run Open Spanner and send the first usage event.
 
 Open Spanner can run as a single container with SQLite or as an API, workers, and Postgres stack with Docker Compose.
 
-Use Docker Run when you want the smallest local instance. Use Docker Compose when you want the API, export worker, alert worker, Postgres, and shared export storage started together.
+Use Docker Run when you want the smallest local instance. Use Docker Compose when you want the API, export worker, alert worker, entitlement worker, Postgres, and shared export storage started together.
 
 ## Option 1: Docker Run
 
@@ -24,9 +24,9 @@ docker run --detach \
 
 Open the dashboard at `http://localhost:18081/register`.
 
-Use `latest` for a quick trial. For production, pin a release tag such as `ssubedir/open-spanner:0.1.8`.
+Use `latest` for a quick trial. For production, pin a release tag such as `ssubedir/open-spanner:0.1.12`.
 
-Queued export jobs and alerts use worker processes. Start workers against the same Docker volume when you want dashboard export jobs to produce downloadable files or alert rules to evaluate outside the API process:
+Queued export jobs, alerts, and entitlement state updates use worker processes. Start workers against the same Docker volume when you want dashboard export jobs to produce downloadable files, alert rules to evaluate, or quota state history to refresh outside the API process:
 
 ```sh
 docker run --detach \
@@ -40,6 +40,12 @@ docker run --detach \
   --volume open-spanner-data:/data \
   --entrypoint /usr/local/bin/open-spanner-alert-worker \
   "$IMAGE"
+
+docker run --detach \
+  --name open-spanner-entitlement-worker \
+  --volume open-spanner-data:/data \
+  --entrypoint /usr/local/bin/open-spanner-entitlement-worker \
+  "$IMAGE"
 ```
 
 Stop and remove the container:
@@ -47,6 +53,7 @@ Stop and remove the container:
 ```sh
 docker rm -f open-spanner-export-worker
 docker rm -f open-spanner-alert-worker
+docker rm -f open-spanner-entitlement-worker
 docker rm -f open-spanner
 ```
 
@@ -54,7 +61,7 @@ The data stays in the `open-spanner-data` volume until you remove that volume.
 
 ## Option 2: Docker Compose
 
-This starts the Open Spanner API, export worker, alert worker, and Postgres together. Postgres is private to the Compose network and is not published on host port `5432`.
+This starts the Open Spanner API, export worker, alert worker, entitlement worker, and Postgres together. Postgres is private to the Compose network and is not published on host port `5432`.
 
 ```sh
 git clone https://github.com/ssubedir/open-spanner.git
@@ -127,11 +134,12 @@ cd open-spanner
 task run:sqlite
 ```
 
-Run workers in separate terminals when you want queued export jobs and alert rules processed outside the API:
+Run workers in separate terminals when you want queued export jobs, alert rules, and entitlement state updates processed outside the API:
 
 ```sh
 task run:export-worker
 task run:alert-worker
+task run:entitlement-worker
 ```
 
 For Postgres, start Postgres first:
@@ -146,6 +154,7 @@ Then run the API and worker in separate terminals:
 task run:postgres
 task run:export-worker:postgres
 task run:alert-worker:postgres
+task run:entitlement-worker:postgres
 ```
 
 ## Create An API Key

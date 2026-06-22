@@ -3,7 +3,7 @@ title: SDK API Surface
 description: Operations exposed by generated SDK packages.
 ---
 
-SDKs expose the application-facing subset of the REST API:
+SDKs expose the application-facing subset of the REST API. They are meant for trusted backend services that need to define meters, record usage, query usage, export focused CSV results, or read runtime entitlement state.
 
 - `GET /health`
 - `GET /ready`
@@ -31,7 +31,7 @@ The SDK entitlement methods expose runtime quota reads:
 
 The common backend flow is: check entitlement, allow or deny product work, then record usage with `POST /v1/usages` when the work is accepted. Progress and state reads are useful for customer portals, worker decisions, and service-side diagnostics.
 
-The SDK export methods use the direct CSV export endpoints. Queued export jobs and plan management are REST-only so backend SDKs stay focused on meter definitions, ingestion, usage queries, direct exports, and runtime entitlement reads.
+The SDK export methods use the direct CSV export endpoints. Queued export jobs, alert administration, API key administration, plan management, and subject assignment remain dashboard/full-REST workflows so backend SDKs stay focused on runtime metering infrastructure.
 
 These endpoints are intentionally excluded from SDKs:
 

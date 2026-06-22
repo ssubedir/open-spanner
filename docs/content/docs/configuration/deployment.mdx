@@ -14,6 +14,7 @@ Run Open Spanner as separate processes against the same Postgres database:
 | API | Serves the dashboard, REST API, and gRPC usage ingestion. | Always |
 | Export worker | Claims queued export jobs and writes CSV artifacts. | Dashboard export jobs are enabled |
 | Alert worker | Evaluates alert rules and delivers webhooks. | Alerts are enabled |
+| Entitlement worker | Refreshes quota state, entitlement events, and period snapshots. | Plans and entitlements are enabled |
 | Postgres | Stores users, sessions, API keys, meters, plans, usage events, jobs, alerts, and query state. | Production deployments |
 
 SQLite is useful for demos and small single-node installs. Use Postgres when you need normal production operations such as backups, connection pooling, multiple API instances, multiple workers, or managed database observability.
@@ -29,15 +30,16 @@ docker pull ssubedir/open-spanner:latest
 Use `latest` for a quick trial. Pin a version tag for production:
 
 ```sh
-docker pull ssubedir/open-spanner:0.1.8
+docker pull ssubedir/open-spanner:0.1.12
 ```
 
-The image contains the API binary and both worker binaries:
+The image contains the API binary and worker binaries:
 
 ```text
 /usr/local/bin/open-spanner
 /usr/local/bin/open-spanner-export-worker
 /usr/local/bin/open-spanner-alert-worker
+/usr/local/bin/open-spanner-entitlement-worker
 ```
 
 ## API Process
@@ -53,7 +55,7 @@ docker run --detach \
   --env OPEN_SPANNER_POSTGRES_DSN="postgres://open_spanner:change-me@postgres.example.com:5432/open_spanner?sslmode=require" \
   --env OPEN_SPANNER_EXPORT_STORAGE_PATH=/data/exports \
   --volume open-spanner-exports:/data/exports \
-  ssubedir/open-spanner:0.1.8
+  ssubedir/open-spanner:0.1.12
 ```
 
 The API runs database migrations on startup. Back up Postgres before upgrading across releases, especially while Open Spanner is pre-1.0.
@@ -70,19 +72,26 @@ docker run --detach \
   --env OPEN_SPANNER_EXPORT_STORAGE_PATH=/data/exports \
   --volume open-spanner-exports:/data/exports \
   --entrypoint /usr/local/bin/open-spanner-export-worker \
-  ssubedir/open-spanner:0.1.8
+  ssubedir/open-spanner:0.1.12
 
 docker run --detach \
   --name open-spanner-alert-worker \
   --env OPEN_SPANNER_DB_DRIVER=postgres \
   --env OPEN_SPANNER_POSTGRES_DSN="postgres://open_spanner:change-me@postgres.example.com:5432/open_spanner?sslmode=require" \
   --entrypoint /usr/local/bin/open-spanner-alert-worker \
-  ssubedir/open-spanner:0.1.8
+  ssubedir/open-spanner:0.1.12
+
+docker run --detach \
+  --name open-spanner-entitlement-worker \
+  --env OPEN_SPANNER_DB_DRIVER=postgres \
+  --env OPEN_SPANNER_POSTGRES_DSN="postgres://open_spanner:change-me@postgres.example.com:5432/open_spanner?sslmode=require" \
+  --entrypoint /usr/local/bin/open-spanner-entitlement-worker \
+  ssubedir/open-spanner:0.1.12
 ```
 
 Queued exports need shared artifact storage. In a single-host Docker setup, a shared Docker volume is enough. In a multi-host deployment, the API and export workers need the same mounted filesystem path, or exports should stay co-located until external artifact storage is added.
 
-With Postgres, multiple export workers and alert workers can run at the same time. Jobs are claimed through database locks so replicas can share the queue.
+With Postgres, multiple export, alert, and entitlement workers can run at the same time. Jobs are claimed through database locks so replicas can share the queue.
 
 ## Network And TLS
 
@@ -116,7 +125,7 @@ Only put API keys in trusted backend services, workers, or server-side jobs. Do 
 
 ## Data Protection
 
-Back up Postgres. It is the system of record for meters, plans, subject assignments, usage events, entitlement counters, API keys, sessions, alert rules, alert state, and export job records.
+Back up Postgres. It is the system of record for meters, plans, subject assignments, usage events, entitlement counters, entitlement state history, API keys, sessions, alert rules, alert state, and export job records.
 
 Export CSV files are generated artifacts. If your finance or audit workflow treats generated files as evidence, back up the export storage path too. Otherwise, export files can be regenerated while the source usage events are still retained.
 
@@ -128,7 +137,7 @@ Before upgrading a production deployment:
 
 1. Pin the target image tag instead of using `latest`.
 2. Back up Postgres.
-3. Confirm API, export worker, and alert worker containers use the same image version.
+3. Confirm API, export worker, alert worker, and entitlement worker containers use the same image version.
 4. Start the API and wait for `/ready`.
 5. Restart workers after the API has completed migrations.
 6. Check the dashboard, queued exports, and alert events after the rollout.

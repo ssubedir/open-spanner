@@ -9,6 +9,7 @@ Queued work is handled by separate worker binaries:
 
 - The export worker claims queued CSV export jobs and writes export artifacts.
 - The alert worker claims alert evaluation jobs and delivers webhook notifications.
+- The entitlement worker claims quota state jobs and records entitlement state, events, and period snapshots.
 
 ## Request Flow
 
@@ -18,10 +19,13 @@ Queued work is handled by separate worker binaries:
 4. Metering handlers validate request shape and pass commands into the application layer.
 5. The domain layer applies meter, usage, plan, entitlement, alert, export, and retention rules.
 6. A storage adapter writes to or reads from SQLite or Postgres.
+7. Usage writes enqueue related alert and entitlement jobs when matching rules or plan assignments exist.
 
 ## Storage Model
 
-Meters and plans are configuration records. Usage events are immutable facts with idempotency keys. Usage queries aggregate retained events at request time using SQL. Entitlement progress uses per-period counters that are updated as accepted usage is recorded, so quota checks do not need to scan raw events on every request.
+Meters and plans are configuration records. Usage events are immutable facts with idempotency keys. Usage queries aggregate retained events at request time using SQL.
+
+Entitlement progress uses per-period counters that are updated as accepted usage is recorded, so quota checks do not need to scan raw events on every request. The entitlement worker then evaluates queued subject and meter pairs to store the latest quota state, state transition events, and period snapshots for dashboard and API reads.
 
 Postgres and SQLite share the same domain behavior but use database-specific SQL where it matters for performance.
 
@@ -32,3 +36,16 @@ Postgres and SQLite share the same domain behavior but use database-specific SQL
 - SDKs expose meters, usage operations, direct exports, and entitlement checks.
 - gRPC stream ingestion accepts API keys from backend services.
 - Generated OpenAPI artifacts document the REST API for SDK and reference workflows.
+
+## Process Topology
+
+For production, treat the API and workers as separate processes that share one Postgres database:
+
+| Process | Main work |
+| --- | --- |
+| API | Dashboard, REST, gRPC ingestion, auth, migrations, and readiness. |
+| Export worker | CSV export jobs and artifact writes. |
+| Alert worker | Alert rule evaluation and webhook delivery. |
+| Entitlement worker | Quota state refresh, entitlement events, and period snapshots. |
+
+SQLite is best for local demos or single-node trials. Postgres is the recommended production store because it supports durable backups, multiple API instances, multiple workers, and row-level job claiming.

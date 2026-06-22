@@ -33,6 +33,12 @@ description: Runtime configuration for the Open Spanner service.
 | `OPEN_SPANNER_ALERT_WORKER_RETRY_AFTER` | `30s` | How long to wait before a failed alert evaluation can be claimed again. |
 | `OPEN_SPANNER_ALERT_WORKER_MAX_ATTEMPTS` | `3` | Maximum claim attempts before expired running alert jobs stop being retried. |
 | `OPEN_SPANNER_ALERT_WORKER_BATCH_SIZE` | `100` | Maximum alert jobs claimed in one worker polling cycle. |
+| `OPEN_SPANNER_ENTITLEMENT_WORKER_INTERVAL` | `5s` | How often the entitlement worker checks for queued quota state jobs. |
+| `OPEN_SPANNER_ENTITLEMENT_WORKER_LOCK_TTL` | `5m` | Lease duration for a claimed entitlement job. |
+| `OPEN_SPANNER_ENTITLEMENT_WORKER_TIMEOUT` | `1m` | Maximum processing time for one entitlement state job. |
+| `OPEN_SPANNER_ENTITLEMENT_WORKER_RETRY_AFTER` | `30s` | How long to wait before a failed entitlement job can be claimed again. |
+| `OPEN_SPANNER_ENTITLEMENT_WORKER_MAX_ATTEMPTS` | `3` | Maximum claim attempts before expired running entitlement jobs stop being retried. |
+| `OPEN_SPANNER_ENTITLEMENT_WORKER_BATCH_SIZE` | `100` | Maximum entitlement jobs claimed in one worker polling cycle. |
 | `OPEN_SPANNER_RETENTION_PRUNE_ENABLED` | `false` | Enable automatic retention pruning. |
 | `OPEN_SPANNER_RETENTION_PRUNE_INTERVAL` | `1h` | Background prune interval. |
 | `OPEN_SPANNER_RETENTION_PRUNE_TIMEOUT` | `30m` | Maximum duration for one background prune run. |
@@ -99,6 +105,12 @@ These variables are read by `docker-compose.app.yml` before the Open Spanner con
 | `OPEN_SPANNER_ALERT_WORKER_RETRY_AFTER` | `30s` | Passed through to the alert worker container. |
 | `OPEN_SPANNER_ALERT_WORKER_MAX_ATTEMPTS` | `3` | Passed through to the alert worker container. |
 | `OPEN_SPANNER_ALERT_WORKER_BATCH_SIZE` | `100` | Passed through to the alert worker container. |
+| `OPEN_SPANNER_ENTITLEMENT_WORKER_INTERVAL` | `5s` | Passed through to the entitlement worker container. |
+| `OPEN_SPANNER_ENTITLEMENT_WORKER_LOCK_TTL` | `5m` | Passed through to the entitlement worker container. |
+| `OPEN_SPANNER_ENTITLEMENT_WORKER_TIMEOUT` | `1m` | Passed through to the entitlement worker container. |
+| `OPEN_SPANNER_ENTITLEMENT_WORKER_RETRY_AFTER` | `30s` | Passed through to the entitlement worker container. |
+| `OPEN_SPANNER_ENTITLEMENT_WORKER_MAX_ATTEMPTS` | `3` | Passed through to the entitlement worker container. |
+| `OPEN_SPANNER_ENTITLEMENT_WORKER_BATCH_SIZE` | `100` | Passed through to the entitlement worker container. |
 | `OPEN_SPANNER_RETENTION_PRUNE_ENABLED` | `false` | Passed through to the app container. |
 
 ## Postgres Example

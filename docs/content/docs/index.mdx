@@ -1,17 +1,22 @@
 ---
 title: Open Spanner
-description: Open-source metering for usage-based products.
+description: Open-source usage and metering infrastructure.
 ---
 
-Open Spanner records product usage and turns it into queryable buckets for billing, reporting, limits, and audits.
+Open Spanner records product usage and turns it into queryable buckets, quota state, exports, and threshold signals for the systems around your product.
 
-Define the signals your product cares about, send usage from your backend, and use the dashboard to manage meters, API keys, and usage views. REST and the official SDKs are available for services that need to write, query, or export usage.
+Use it as metering infrastructure: define the signals your product cares about, send usage from trusted backend services, enforce plan limits, inspect usage, and export clean data to billing, finance, analytics, support, or internal reporting tools.
+
+Open Spanner does not replace payment processing, invoicing, taxes, or customer identity. It gives those systems a reliable usage and quota record.
 
 ## Start Here
 
 <Cards>
   <Card title="What is Open Spanner?" href="/docs/overview">
     Understand the product model and where it fits in your stack.
+  </Card>
+  <Card title="Metering infrastructure" href="/docs/overview/metering-infrastructure">
+    See what Open Spanner owns and what downstream systems still own.
   </Card>
   <Card title="Core service installation" href="/docs/getting-started/core-service-installation">
     Run Open Spanner with Docker, Docker Compose, or directly from source.
@@ -40,7 +45,7 @@ Define the signals your product cares about, send usage from your backend, and u
     Send idempotent usage events from backend services and workers.
   </Card>
   <Card title="Query buckets" href="/docs/concepts/query-model">
-    Turn raw usage events into windows for billing, reporting, limits, and exports.
+    Turn raw usage events into windows for reporting, limits, exports, and audits.
   </Card>
   <Card title="Manage plans" href="/docs/concepts/plans-entitlements">
     Assign subjects to plans, track quota progress, and check remaining entitlement.
@@ -66,6 +71,9 @@ Define the signals your product cares about, send usage from your backend, and u
     Use idempotency keys so retries do not double-count usage.
   </Card>
   <Card title="Export usage" href="/docs/tutorials/export-usage">
-    Produce CSV usage data for billing, analytics, or audits.
+    Produce CSV usage data for downstream billing, analytics, or audits.
+  </Card>
+  <Card title="Check entitlements" href="/docs/tutorials/check-entitlements">
+    Gate product actions against plan limits before recording usage.
   </Card>
 </Cards>

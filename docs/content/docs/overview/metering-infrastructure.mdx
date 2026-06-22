@@ -1,0 +1,72 @@
+---
+title: Metering Infrastructure
+description: How Open Spanner fits beside billing, analytics, and product services.
+---
+
+Open Spanner is the usage infrastructure layer. It is responsible for collecting usage facts, keeping quota state, making usage queryable, and producing exports or signals that other systems can trust.
+
+It is deliberately not the whole billing stack. Payment collection, invoices, taxes, pricing contracts, customer identity, and checkout remain in the systems that already specialize in those jobs.
+
+## Responsibilities
+
+| Layer | Open Spanner responsibility |
+| --- | --- |
+| Meter model | Define meters, units, aggregation, retention, and typed dimensions. |
+| Ingestion | Accept idempotent usage from REST and gRPC stream clients. |
+| Querying | Aggregate usage into time buckets with filters, dimensions, and breakdowns. |
+| Limits | Assign subjects to plans, maintain quota counters, and expose entitlement checks. |
+| Signals | Evaluate alert rules and entitlement state transitions from usage activity. |
+| Exports | Produce CSV data for downstream billing, finance, analytics, or audit workflows. |
+
+## Boundaries
+
+Open Spanner should usually not own:
+
+- Customer registration, login, or account identity for your product.
+- Product checkout, payment methods, invoices, tax, or collections.
+- Contract-specific pricing, credits, discounts, or revenue recognition.
+- Notification preference centers or incident routing rules.
+- Long-term warehouse modeling beyond the usage exports it produces.
+
+Those systems can consume Open Spanner data without pushing their whole domain into Open Spanner.
+
+## Control Plane And Data Plane
+
+The dashboard and REST API are the control plane:
+
+- Create meters and dimensions.
+- Create API keys and scopes.
+- Create plans and assign subjects.
+- Inspect subjects, usage, alerts, exports, and quota progress.
+
+Backend services are the data plane:
+
+- Check entitlement when a product action needs quota enforcement.
+- Record accepted usage with an idempotency key.
+- Stream high-volume usage over gRPC when REST is not the right fit.
+- Query or export usage when another backend workflow needs usage facts.
+
+## Operational Model
+
+For production, run Postgres as the system of record and run workers beside the API:
+
+- The API serves the dashboard, REST API, gRPC ingestion, health checks, and readiness checks.
+- The export worker processes queued CSV jobs.
+- The alert worker evaluates alert rules and sends webhook notifications.
+- The entitlement worker updates stored quota state, events, and period snapshots after usage changes.
+
+This keeps ingestion responsive while heavier exports and state evaluations happen outside request paths.
+
+## Adoption Pattern
+
+Start small:
+
+1. Define one meter for a product action that already matters.
+2. Record usage from one trusted backend service.
+3. Query buckets and inspect subjects in the dashboard.
+4. Add dimensions only when they will be used for filtering, breakdowns, or exports.
+5. Add plans and entitlement checks when a product action needs quota enforcement.
+6. Add alerts when operators need threshold notifications.
+7. Export usage when another system needs a file-based handoff.
+
+This keeps the integration incremental while still building toward a durable usage source of truth.
