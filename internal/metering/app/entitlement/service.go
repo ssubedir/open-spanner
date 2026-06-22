@@ -630,15 +630,19 @@ func (s *service) UpdatePlan(ctx context.Context, cmd UpdatePlanCommand) (PlanRe
 			return err
 		}
 		for _, assignment := range assignments {
+			assignedAt := now
+			if !assignedAt.After(assignment.AssignedAt) {
+				assignedAt = assignment.AssignedAt.Add(time.Nanosecond)
+			}
 			_, err := s.repo.SaveSubjectAssignment(txCtx, SubjectAssignment{
 				ID:             uuid.NewString(),
 				Subject:        assignment.Subject,
 				PlanID:         plan.ID,
 				PlanName:       plan.Name,
 				PlanVersion:    plan.Version,
-				AssignedAt:     now,
+				AssignedAt:     assignedAt,
 				PeriodAnchorAt: assignment.PeriodAnchorAt,
-				UpdatedAt:      now,
+				UpdatedAt:      assignedAt,
 			})
 			if err != nil {
 				return err

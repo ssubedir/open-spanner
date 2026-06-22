@@ -267,7 +267,6 @@ export const When = {
     await dialog.locator('#meter-name').fill(meterName)
     await dialog.locator('#meter-unit').fill('request')
     await dialog.locator('#meter-description').fill('E2E API requests')
-    await dialog.locator('select[name="aggregation"]').selectOption('sum')
 
     await dialog.getByTestId('meter-dimensions-toggle').click()
     await fillDimension(page, 0, {
@@ -336,6 +335,29 @@ export const When = {
     await page.getByRole('button', { name: 'Save' }).click()
     await expectSavedUsageQuery(page, queryName)
     await page.getByRole('button', { name: 'Run Query' }).click()
+  },
+
+  async theUserChangesUsageChartControls(page: Page) {
+    const chart = page.locator('.usage-chart-card')
+    await expect(chart).toBeVisible()
+
+    await selectControlOption(page, chart.getByLabel('Chart bucket'), 'hour')
+    await selectControlOption(page, chart.getByLabel('Chart type'), 'area')
+
+    const stacked = chart.getByLabel('Stack chart series')
+    if (await stacked.isEnabled()) {
+      await stacked.check()
+    }
+
+    const cumulative = chart.getByLabel('Cumulative chart')
+    if (!await cumulative.isChecked()) {
+      await cumulative.check()
+    }
+
+    const points = chart.getByLabel('Show chart points')
+    if (!await points.isChecked()) {
+      await points.check()
+    }
   },
 
   async theUserOpensUsageFromSubjectActivity(page: Page, scenario: UsageScenario) {
@@ -456,6 +478,26 @@ export const When = {
             group_by: ['service.tier'],
             limit: 100,
             meter: scenario.meterName,
+            to: apiWindowForScenario(scenario).to,
+          },
+        },
+      })
+      expect(response.status()).toBe(202)
+      return response.json() as Promise<ExportJobResponse>
+    })
+  },
+
+  async theServiceQueuesFailingUsageExportJob(page: Page, apiKey: string, scenario: UsageScenario): Promise<ExportJobResponse> {
+    return withAPIKeyContext(page, apiKey, async (api) => {
+      const response = await api.post('/v1/exports', {
+        data: {
+          format: 'csv',
+          kind: 'usage_buckets',
+          query: {
+            bucket_size: 'day',
+            from: apiWindowForScenario(scenario).from,
+            limit: 100,
+            meter: `missing_export_meter_${uniqueID()}`,
             to: apiWindowForScenario(scenario).to,
           },
         },
@@ -665,6 +707,19 @@ export const Then = {
     await expect(page.getByText(account.email)).toBeVisible()
   },
 
+  async expiredDashboardSessionRedirectsCleanly(page: Page) {
+    await page.request.delete('/v1/auth/session')
+    await page.goto('/overview')
+
+    await expect(page).toHaveURL(/\/login/)
+    await expect(page.getByLabel('Email')).toBeVisible()
+    await expect(page.getByLabel('Password')).toBeVisible()
+    await expect(page.locator('body')).not.toContainText('Unauthorized')
+    await expect(page.locator('body')).not.toContainText('Bad Gateway')
+    await expect(page.locator('body')).not.toContainText('internal server error')
+    await expect(page.locator('body')).not.toContainText('Not Found')
+  },
+
   async theMeterIsVisible(page: Page, meterName: string) {
     await expect(page.locator('main')).toContainText(meterName)
     await expect(page.locator('main')).toContainText('Service Tier')
@@ -713,6 +768,75 @@ export const Then = {
     await expect(chart.getByLabel('Cumulative chart')).toBeVisible()
     await expect(chart.locator('canvas')).toBeVisible()
     await expect(chart).toContainText('12')
+  },
+
+  async usageChartControlsAreApplied(page: Page) {
+    const chart = page.locator('.usage-chart-card')
+
+    await expect(chart.getByLabel('Chart bucket')).toContainText('Hour')
+    await expect(chart.getByLabel('Chart type')).toContainText('Filled Area')
+    await expect(chart.getByLabel('Cumulative chart')).toBeChecked()
+    await expect(chart.getByLabel('Show chart points')).toBeChecked()
+    if (await chart.getByLabel('Stack chart series').isEnabled()) {
+      await expect(chart.getByLabel('Stack chart series')).toBeChecked()
+      await expect(chart.getByLabel('Usage chart summary')).toContainText(/Stacked|Stack needs 2\+ series/)
+    }
+    await expect(chart).toContainText('Cumulative')
+    await expect(chart.locator('canvas')).toBeVisible()
+    await expect(chart).toContainText('12')
+  },
+
+  async usageFiltersRemainReadable(page: Page) {
+    const originalViewport = page.viewportSize()
+
+    for (const viewport of [
+      { height: 900, width: 1280 },
+      { height: 900, width: 640 },
+    ]) {
+      await page.setViewportSize(viewport)
+      const filterBuilder = page.locator('.filter-builder')
+      await expect(filterBuilder).toBeVisible()
+
+      const layout = await filterBuilder.evaluate((node) => {
+        const container = node.getBoundingClientRect()
+        const controls = Array.from(node.querySelectorAll('button,input')).map((control) => {
+          const rect = control.getBoundingClientRect()
+          return {
+            bottom: rect.bottom,
+            height: rect.height,
+            left: rect.left,
+            right: rect.right,
+            top: rect.top,
+            width: rect.width,
+          }
+        })
+        const rules = Array.from(node.querySelectorAll('.rule')).map((rule) => {
+          const rect = rule.getBoundingClientRect()
+          return {
+            bottom: rect.bottom,
+            left: rect.left,
+            right: rect.right,
+            top: rect.top,
+          }
+        })
+
+        return {
+          controlsInside: controls.every((control) => control.left >= container.left - 1 && control.right <= container.right + 1),
+          horizontalOverflow: Math.ceil(node.scrollWidth - node.clientWidth),
+          readableControls: controls.every((control) => control.width >= 28 && control.height >= 28),
+          rulesInside: rules.every((rule) => rule.left >= container.left - 1 && rule.right <= container.right + 1),
+        }
+      })
+
+      expect(layout.horizontalOverflow).toBeLessThanOrEqual(2)
+      expect(layout.controlsInside).toBe(true)
+      expect(layout.rulesInside).toBe(true)
+      expect(layout.readableControls).toBe(true)
+    }
+
+    if (originalViewport) {
+      await page.setViewportSize(originalViewport)
+    }
   },
 
   async advancedUsageBucketCSVIncludesMatchingUsage(download: CSVDownload, scenario: UsageScenario) {
@@ -877,6 +1001,34 @@ export const Then = {
       const csv = await csvResponse(downloadResponse)
       await Then.queuedUsageBucketCSVResponseIncludesCurrentQuery(csv, scenario, job.id)
     })
+  },
+
+  async failedExportDoesNotBlockCompletedExports(
+    page: Page,
+    apiKey: string,
+    failedJob: ExportJobResponse,
+    completedJob: ExportJobResponse,
+    scenario: UsageScenario,
+  ) {
+    await withAPIKeyContext(page, apiKey, async (api) => {
+      const failed = await waitForExportJobStatus(api, failedJob.id, 'failed')
+      expect(failed.error || '').toBeTruthy()
+
+      const completed = await waitForCompletedExportJob(api, completedJob.id)
+      expect(completed.query.meter).toBe(scenario.meterName)
+      expect(completed.artifact_size || 0).toBeGreaterThan(0)
+    })
+
+    await page.goto('/exports')
+    await expect(page.getByRole('heading', { name: 'Export jobs' })).toBeVisible()
+
+    const failedRow = page.locator('.export-job-row', { hasText: failedJob.query.meter }).first()
+    await expect(failedRow).toContainText('Failed')
+    await expect(failedRow.getByRole('button', { name: 'Retry' })).toBeVisible()
+
+    const completedRow = page.locator('.export-job-row', { hasText: completedJob.query.meter }).first()
+    await expect(completedRow).toContainText('Completed')
+    await expect(completedRow.getByRole('button', { name: 'Download' })).toBeVisible()
   },
 
   async queuedUsageBucketCSVResponseIncludesCurrentQuery(response: CSVResponse, scenario: UsageScenario, jobID: string) {
@@ -1158,7 +1310,13 @@ function selectOptionLabel(value: string) {
     '>=': 'greater or equal',
     'metadata.region-name': 'Region',
     'metadata.service.tier': 'Service Tier',
+    area: 'Filled Area',
+    bar: 'Bar',
+    day: 'Day',
+    hour: 'Hour',
+    line: 'Line',
     meter: 'Meter',
+    month: 'Month',
     quantity: 'Quantity',
     subject: 'Subject',
   }
@@ -1205,6 +1363,22 @@ async function waitForCompletedExportJob(api: APIRequestContext, id: string): Pr
     intervals: [250, 500, 1000],
     timeout: 20_000,
   }).toBe('completed')
+
+  return latest as ExportJobResponse
+}
+
+async function waitForExportJobStatus(api: APIRequestContext, id: string, status: string): Promise<ExportJobResponse> {
+  let latest: ExportJobResponse | null = null
+
+  await expect.poll(async () => {
+    const response = await api.get(`/v1/exports/${id}`)
+    expect(response.status()).toBe(200)
+    latest = await response.json() as ExportJobResponse
+    return latest.status
+  }, {
+    intervals: [250, 500, 1000],
+    timeout: 20_000,
+  }).toBe(status)
 
   return latest as ExportJobResponse
 }
