@@ -440,10 +440,12 @@ type ProgressItem struct {
 	Current        float64
 	Limit          float64
 	Remaining      float64
+	Overage        float64
 	Percent        float64
 	WarningPercent float64
 	From           time.Time
 	To             time.Time
+	PeriodResetAt  time.Time
 	Unit           string
 	Aggregation    domainmeter.Aggregation
 	EventCount     int64
@@ -456,20 +458,23 @@ type SubjectProgressResult struct {
 }
 
 type EntitlementCheckResult struct {
-	Allowed   bool
-	State     OverageState
-	Subject   string
-	MeterName string
-	Quantity  float64
-	Current   float64
-	Limit     float64
-	Remaining float64
-	PlanID    string
-	PlanName  string
-	Period    Period
-	From      time.Time
-	To        time.Time
-	Message   string
+	Allowed           bool
+	State             OverageState
+	Subject           string
+	MeterName         string
+	Quantity          float64
+	Current           float64
+	Limit             float64
+	Remaining         float64
+	Overage           float64
+	PlanID            string
+	PlanName          string
+	Period            Period
+	From              time.Time
+	To                time.Time
+	PeriodResetAt     time.Time
+	RetryAfterSeconds int64
+	Message           string
 }
 
 type CheckJobResult struct {
@@ -815,28 +820,45 @@ func (s *service) Check(ctx context.Context, cmd CheckCommand) (EntitlementCheck
 	if remaining < 0 {
 		remaining = 0
 	}
-	state := item.State
+	overage := projected - item.Limit
+	if overage < 0 {
+		overage = 0
+	}
+	percent := 0.0
+	if item.Limit > 0 {
+		percent = projected / item.Limit * 100
+	}
+	state := overageState(percent, projected, item.Limit, item.WarningPercent)
 	message := "quota is available"
+	retryAfter := int64(0)
 	if !allowed {
 		state = StateExceeded
 		message = "quota would be exceeded"
+		retryAfter = quotaRetryAfterSeconds(s.now(), item.PeriodResetAt)
+	} else if state == StateExceeded {
+		message = "quota is available; quota limit reached"
+	} else if state == StateWarning {
+		message = "quota is available; warning threshold reached"
 	}
 
 	return EntitlementCheckResult{
-		Allowed:   allowed,
-		State:     state,
-		Subject:   subject,
-		MeterName: meterName,
-		Quantity:  quantity,
-		Current:   item.Current,
-		Limit:     item.Limit,
-		Remaining: remaining,
-		PlanID:    plan.Plan.ID,
-		PlanName:  plan.Plan.Name,
-		Period:    item.Period,
-		From:      item.From,
-		To:        item.To,
-		Message:   message,
+		Allowed:           allowed,
+		State:             state,
+		Subject:           subject,
+		MeterName:         meterName,
+		Quantity:          quantity,
+		Current:           item.Current,
+		Limit:             item.Limit,
+		Remaining:         remaining,
+		Overage:           overage,
+		PlanID:            plan.Plan.ID,
+		PlanName:          plan.Plan.Name,
+		Period:            item.Period,
+		From:              item.From,
+		To:                item.To,
+		PeriodResetAt:     item.PeriodResetAt,
+		RetryAfterSeconds: retryAfter,
+		Message:           message,
 	}, nil
 }
 
@@ -1161,6 +1183,10 @@ func (s *service) progressItem(ctx context.Context, subject string, assignment S
 	if remaining < 0 {
 		remaining = 0
 	}
+	overage := current - limit.Limit
+	if overage < 0 {
+		overage = 0
+	}
 	percent := 0.0
 	if limit.Limit > 0 {
 		percent = current / limit.Limit * 100
@@ -1173,10 +1199,12 @@ func (s *service) progressItem(ctx context.Context, subject string, assignment S
 		Current:        current,
 		Limit:          limit.Limit,
 		Remaining:      remaining,
+		Overage:        overage,
 		Percent:        percent,
 		WarningPercent: limit.WarningPercent,
 		From:           from,
 		To:             to,
+		PeriodResetAt:  to,
 		Unit:           meter.Unit(),
 		Aggregation:    meter.Aggregation(),
 		EventCount:     counter.EventCount,
@@ -1276,6 +1304,13 @@ func overageState(percent float64, current float64, limit float64, warningPercen
 		return StateWarning
 	}
 	return StateOK
+}
+
+func quotaRetryAfterSeconds(now time.Time, resetAt time.Time) int64 {
+	if resetAt.IsZero() || !resetAt.After(now) {
+		return 0
+	}
+	return int64(math.Ceil(resetAt.Sub(now).Seconds()))
 }
 
 func entitlementStateFromProgress(subject string, plan Plan, item ProgressItem, now time.Time) EntitlementState {

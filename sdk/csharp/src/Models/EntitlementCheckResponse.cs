@@ -44,6 +44,8 @@ namespace OpenSpanner.Models
 #else
         public string Meter { get; set; }
 #endif
+        /// <summary>The overage property</summary>
+        public double? Overage { get; set; }
         /// <summary>The period property</summary>
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
 #nullable enable
@@ -51,6 +53,14 @@ namespace OpenSpanner.Models
 #nullable restore
 #else
         public string Period { get; set; }
+#endif
+        /// <summary>The period_reset_at property</summary>
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
+#nullable enable
+        public string? PeriodResetAt { get; set; }
+#nullable restore
+#else
+        public string PeriodResetAt { get; set; }
 #endif
         /// <summary>The plan_id property</summary>
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
@@ -72,6 +82,8 @@ namespace OpenSpanner.Models
         public double? Quantity { get; set; }
         /// <summary>The remaining property</summary>
         public double? Remaining { get; set; }
+        /// <summary>The retry_after_seconds property</summary>
+        public int? RetryAfterSeconds { get; set; }
         /// <summary>The state property</summary>
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
 #nullable enable
@@ -127,11 +139,14 @@ namespace OpenSpanner.Models
                 { "limit", n => { Limit = n.GetDoubleValue(); } },
                 { "message", n => { Message = n.GetStringValue(); } },
                 { "meter", n => { Meter = n.GetStringValue(); } },
+                { "overage", n => { Overage = n.GetDoubleValue(); } },
                 { "period", n => { Period = n.GetStringValue(); } },
+                { "period_reset_at", n => { PeriodResetAt = n.GetStringValue(); } },
                 { "plan_id", n => { PlanId = n.GetStringValue(); } },
                 { "plan_name", n => { PlanName = n.GetStringValue(); } },
                 { "quantity", n => { Quantity = n.GetDoubleValue(); } },
                 { "remaining", n => { Remaining = n.GetDoubleValue(); } },
+                { "retry_after_seconds", n => { RetryAfterSeconds = n.GetIntValue(); } },
                 { "state", n => { State = n.GetStringValue(); } },
                 { "subject", n => { Subject = n.GetStringValue(); } },
                 { "to", n => { To = n.GetStringValue(); } },
@@ -150,11 +165,14 @@ namespace OpenSpanner.Models
             writer.WriteDoubleValue("limit", Limit);
             writer.WriteStringValue("message", Message);
             writer.WriteStringValue("meter", Meter);
+            writer.WriteDoubleValue("overage", Overage);
             writer.WriteStringValue("period", Period);
+            writer.WriteStringValue("period_reset_at", PeriodResetAt);
             writer.WriteStringValue("plan_id", PlanId);
             writer.WriteStringValue("plan_name", PlanName);
             writer.WriteDoubleValue("quantity", Quantity);
             writer.WriteDoubleValue("remaining", Remaining);
+            writer.WriteIntValue("retry_after_seconds", RetryAfterSeconds);
             writer.WriteStringValue("state", State);
             writer.WriteStringValue("subject", Subject);
             writer.WriteStringValue("to", To);

@@ -42,11 +42,14 @@ export type EntitlementCheckResponse = {
     limit?: number;
     message?: string;
     meter?: string;
+    overage?: number;
     period?: string;
+    period_reset_at?: string;
     plan_id?: string;
     plan_name?: string;
     quantity?: number;
     remaining?: number;
+    retry_after_seconds?: number;
     state?: string;
     subject?: string;
     to?: string;
@@ -89,8 +92,10 @@ export type EntitlementProgressItem = {
     from?: string;
     limit?: number;
     meter?: string;
+    overage?: number;
     percent?: number;
     period?: string;
+    period_reset_at?: string;
     remaining?: number;
     state?: string;
     to?: string;

@@ -42,6 +42,8 @@ namespace OpenSpanner.Models
 #else
         public string Meter { get; set; }
 #endif
+        /// <summary>The overage property</summary>
+        public double? Overage { get; set; }
         /// <summary>The percent property</summary>
         public double? Percent { get; set; }
         /// <summary>The period property</summary>
@@ -51,6 +53,14 @@ namespace OpenSpanner.Models
 #nullable restore
 #else
         public string Period { get; set; }
+#endif
+        /// <summary>The period_reset_at property</summary>
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
+#nullable enable
+        public string? PeriodResetAt { get; set; }
+#nullable restore
+#else
+        public string PeriodResetAt { get; set; }
 #endif
         /// <summary>The remaining property</summary>
         public double? Remaining { get; set; }
@@ -110,8 +120,10 @@ namespace OpenSpanner.Models
                 { "from", n => { From = n.GetStringValue(); } },
                 { "limit", n => { Limit = n.GetDoubleValue(); } },
                 { "meter", n => { Meter = n.GetStringValue(); } },
+                { "overage", n => { Overage = n.GetDoubleValue(); } },
                 { "percent", n => { Percent = n.GetDoubleValue(); } },
                 { "period", n => { Period = n.GetStringValue(); } },
+                { "period_reset_at", n => { PeriodResetAt = n.GetStringValue(); } },
                 { "remaining", n => { Remaining = n.GetDoubleValue(); } },
                 { "state", n => { State = n.GetStringValue(); } },
                 { "to", n => { To = n.GetStringValue(); } },
@@ -131,8 +143,10 @@ namespace OpenSpanner.Models
             writer.WriteStringValue("from", From);
             writer.WriteDoubleValue("limit", Limit);
             writer.WriteStringValue("meter", Meter);
+            writer.WriteDoubleValue("overage", Overage);
             writer.WriteDoubleValue("percent", Percent);
             writer.WriteStringValue("period", Period);
+            writer.WriteStringValue("period_reset_at", PeriodResetAt);
             writer.WriteDoubleValue("remaining", Remaining);
             writer.WriteStringValue("state", State);
             writer.WriteStringValue("to", To);

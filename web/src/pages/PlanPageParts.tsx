@@ -222,9 +222,11 @@ export function ProgressList({ progress }: { progress: SubjectPlanProgress }) {
           <small className="text-xs text-muted">
             {formatNumber(item.current)} / {formatNumber(item.limit)} {item.unit} this {item.period}
             {item.remaining > 0 ? `, ${formatNumber(item.remaining)} remaining` : ''}
+            {item.overage > 0 ? `, ${formatNumber(item.overage)} over` : ''}
           </small>
           <small className="text-xs text-muted">
             Current period: {formatPeriodRange(item.from, item.to)}
+            {item.period_reset_at ? ` - resets ${formatDate(item.period_reset_at)}` : ''}
           </small>
         </div>
       ))}
@@ -236,12 +238,13 @@ export function EntitlementStateTable({ states }: { states: EntitlementState[] }
   return (
     <DataTable
       emptyLabel="No entitlement states yet"
-      headers={['Subject', 'Meter', 'Plan', 'Usage', 'State', 'Updated']}
+      headers={['Subject', 'Meter', 'Plan', 'Usage', 'Remaining', 'State', 'Updated']}
       rows={states.map((state) => [
         <span className="mono">{state.subject}</span>,
         <Badge variant="muted">{state.meter}</Badge>,
         state.plan_name,
         <span>{formatNumber(state.current)} / {formatNumber(state.limit)}</span>,
+        state.remaining > 0 ? formatNumber(state.remaining) : <span className="muted">0</span>,
         <StateBadge state={state.state} />,
         formatDate(state.updated_at),
       ])}

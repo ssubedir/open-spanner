@@ -162,10 +162,12 @@ export type PlanProgressItem = {
   current: number
   limit: number
   remaining: number
+  overage: number
   percent: number
   warning_percent: number
   from: string
   to: string
+  period_reset_at: string
   unit: string
   aggregation: string
 }
@@ -191,11 +193,14 @@ export type EntitlementCheckResult = {
   current: number
   limit: number
   remaining: number
+  overage: number
   plan_id?: string
   plan_name?: string
   period?: string
   from?: string
   to?: string
+  period_reset_at?: string
+  retry_after_seconds?: number
   message: string
 }
 

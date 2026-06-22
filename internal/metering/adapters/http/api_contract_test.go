@@ -18,11 +18,13 @@ import (
 	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/config"
 	httpauth "github.com/ssubedir/open-spanner/internal/metering/adapters/http/auth"
+	httpentitlement "github.com/ssubedir/open-spanner/internal/metering/adapters/http/entitlement"
 	httpmeter "github.com/ssubedir/open-spanner/internal/metering/adapters/http/meter"
 	httpsubject "github.com/ssubedir/open-spanner/internal/metering/adapters/http/subject"
 	httpsystem "github.com/ssubedir/open-spanner/internal/metering/adapters/http/system"
 	httpusage "github.com/ssubedir/open-spanner/internal/metering/adapters/http/usage"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/sqlite"
+	appentitlement "github.com/ssubedir/open-spanner/internal/metering/app/entitlement"
 	appmeter "github.com/ssubedir/open-spanner/internal/metering/app/meter"
 	appsubject "github.com/ssubedir/open-spanner/internal/metering/app/subject"
 	appsystem "github.com/ssubedir/open-spanner/internal/metering/app/system"
@@ -518,6 +520,109 @@ func TestSubjectUsageEventsAPIContract(t *testing.T) {
 	}
 	if events[1].Subject != "org_123" || events[1].Quantity != 1 || events[1].Timestamp != "2026-06-08T10:00:00Z" {
 		t.Fatalf("second subject usage event = %#v", events[1])
+	}
+}
+
+func TestEntitlementCheckAPIProvidesQuotaMetadata(t *testing.T) {
+	router := newTestRouter()
+
+	createMeter := requestJSON(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name":        "quota_api_calls",
+		"description": "API calls governed by plan quota",
+		"unit":        "call",
+		"aggregation": "sum",
+	})
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
+	}
+
+	createPlan := requestJSON(t, router, http.MethodPost, "/v1/plans", map[string]any{
+		"name":        "Pro",
+		"description": "Test quota plan",
+		"limits": []map[string]any{
+			{
+				"meter":           "quota_api_calls",
+				"period":          "month",
+				"limit":           10,
+				"warning_percent": 80,
+			},
+		},
+	})
+	if createPlan.Code != http.StatusCreated {
+		t.Fatalf("create plan status = %d, want %d: %s", createPlan.Code, http.StatusCreated, createPlan.Body.String())
+	}
+	var plan entitlementPlanResponse
+	decodeJSON(t, createPlan, &plan)
+	if plan.ID == "" || len(plan.Limits) != 1 {
+		t.Fatalf("created plan = %#v", plan)
+	}
+
+	assign := requestJSON(t, router, http.MethodPut, "/v1/plans/subjects/org_quota", map[string]any{
+		"plan_id": plan.ID,
+	})
+	if assign.Code != http.StatusOK {
+		t.Fatalf("assign subject status = %d, want %d: %s", assign.Code, http.StatusOK, assign.Body.String())
+	}
+
+	initialCheck := requestJSON(t, router, http.MethodPost, "/v1/entitlements/check", map[string]any{
+		"subject":  "org_quota",
+		"meter":    "quota_api_calls",
+		"quantity": 3,
+	})
+	if initialCheck.Code != http.StatusOK {
+		t.Fatalf("initial check status = %d, want %d: %s", initialCheck.Code, http.StatusOK, initialCheck.Body.String())
+	}
+	var initial entitlementCheckResponse
+	decodeJSON(t, initialCheck, &initial)
+	if !initial.Allowed || initial.State != "ok" || initial.Current != 0 || initial.Remaining != 7 || initial.Overage != 0 || initial.PeriodResetAt == "" || initial.RetryAfterSeconds != 0 {
+		t.Fatalf("initial entitlement check = %#v", initial)
+	}
+
+	createUsage := requestJSON(t, router, http.MethodPost, "/v1/usages", map[string]any{
+		"subject":  "org_quota",
+		"meter":    "quota_api_calls",
+		"quantity": 8,
+	})
+	if createUsage.Code != http.StatusCreated {
+		t.Fatalf("create usage status = %d, want %d: %s", createUsage.Code, http.StatusCreated, createUsage.Body.String())
+	}
+
+	warningCheck := requestJSON(t, router, http.MethodPost, "/v1/entitlements/check", map[string]any{
+		"subject":  "org_quota",
+		"meter":    "quota_api_calls",
+		"quantity": 1,
+	})
+	if warningCheck.Code != http.StatusOK {
+		t.Fatalf("warning check status = %d, want %d: %s", warningCheck.Code, http.StatusOK, warningCheck.Body.String())
+	}
+	var warning entitlementCheckResponse
+	decodeJSON(t, warningCheck, &warning)
+	if !warning.Allowed || warning.State != "warning" || warning.Current != 8 || warning.Remaining != 1 || warning.Overage != 0 || warning.Message == "" {
+		t.Fatalf("warning entitlement check = %#v", warning)
+	}
+
+	exceededCheck := requestJSON(t, router, http.MethodPost, "/v1/entitlements/check", map[string]any{
+		"subject":  "org_quota",
+		"meter":    "quota_api_calls",
+		"quantity": 3,
+	})
+	if exceededCheck.Code != http.StatusOK {
+		t.Fatalf("exceeded check status = %d, want %d: %s", exceededCheck.Code, http.StatusOK, exceededCheck.Body.String())
+	}
+	var exceeded entitlementCheckResponse
+	decodeJSON(t, exceededCheck, &exceeded)
+	if exceeded.Allowed || exceeded.State != "exceeded" || exceeded.Current != 8 || exceeded.Remaining != 0 || exceeded.Overage != 1 || exceeded.PeriodResetAt == "" || exceeded.RetryAfterSeconds <= 0 {
+		t.Fatalf("exceeded entitlement check = %#v", exceeded)
+	}
+
+	progress := requestJSON(t, router, http.MethodGet, "/v1/plans/subjects/org_quota/progress", nil)
+	if progress.Code != http.StatusOK {
+		t.Fatalf("progress status = %d, want %d: %s", progress.Code, http.StatusOK, progress.Body.String())
+	}
+	var progressResult entitlementProgressResponse
+	decodeJSON(t, progress, &progressResult)
+	if len(progressResult.Items) != 1 || progressResult.Items[0].Current != 8 || progressResult.Items[0].Remaining != 2 || progressResult.Items[0].Overage != 0 || progressResult.Items[0].PeriodResetAt == "" {
+		t.Fatalf("progress result = %#v", progressResult)
 	}
 }
 
@@ -2100,6 +2205,7 @@ func newTestRouter() http.Handler {
 	authService := appauth.NewService(authRepo)
 	meterService := appmeter.NewService(meterRepo, usageRepo)
 	subjectService := appsubject.NewService(usageRepo)
+	entitlementService := appentitlement.NewService(sqlite.NewEntitlementRepository(store), meterRepo, usageRepo, store)
 	usageService := appusage.NewService(meterRepo, usageRepo, store)
 	systemService := appsystem.NewService(sqlite.NewSystemRepository(store))
 
@@ -2114,7 +2220,8 @@ func newTestRouter() http.Handler {
 		httpauth.NewHandler(authService).RegisterRoutes(r)
 		httpmeter.NewHandler(meterService).RegisterRoutes(r, nil)
 		httpsubject.NewHandler(subjectService).RegisterRoutes(r, nil)
-		httpusage.NewHandler(usageService, httpusage.HandlerOptions{}).RegisterRoutes(r, nil)
+		httpentitlement.NewHandler(entitlementService).RegisterRoutes(r, nil)
+		httpusage.NewHandler(usageService, httpusage.HandlerOptions{Entitlements: entitlementService}).RegisterRoutes(r, nil)
 		httpsystem.NewHandler(systemService).RegisterRoutes(r, nil)
 	})
 
@@ -2136,6 +2243,7 @@ func newProtectedTestRouter() http.Handler {
 	}
 	meterService := appmeter.NewService(meterRepo, usageRepo)
 	subjectService := appsubject.NewService(usageRepo)
+	entitlementService := appentitlement.NewService(sqlite.NewEntitlementRepository(store), meterRepo, usageRepo, store)
 	usageService := appusage.NewService(meterRepo, usageRepo, store)
 	systemService := appsystem.NewService(sqlite.NewSystemRepository(store))
 	authHandler := httpauth.NewHandler(authService)
@@ -2147,7 +2255,8 @@ func newProtectedTestRouter() http.Handler {
 			protected.Use(authHandler.RequireAuth)
 			httpmeter.NewHandler(meterService).RegisterRoutes(protected, authorizer)
 			httpsubject.NewHandler(subjectService).RegisterRoutes(protected, authorizer)
-			httpusage.NewHandler(usageService, httpusage.HandlerOptions{}).RegisterRoutes(protected, authorizer)
+			httpentitlement.NewHandler(entitlementService).RegisterRoutes(protected, authorizer)
+			httpusage.NewHandler(usageService, httpusage.HandlerOptions{Entitlements: entitlementService}).RegisterRoutes(protected, authorizer)
 			httpsystem.NewHandler(systemService).RegisterRoutes(protected, authorizer)
 		})
 	})
@@ -2281,6 +2390,50 @@ type meterStatsResponse struct {
 type meterStatsListResponse struct {
 	Items      []meterStatsResponse `json:"items"`
 	NextCursor string               `json:"next_cursor"`
+}
+
+type entitlementPlanResponse struct {
+	ID     string                     `json:"id"`
+	Name   string                     `json:"name"`
+	Limits []entitlementLimitResponse `json:"limits"`
+}
+
+type entitlementLimitResponse struct {
+	Meter          string  `json:"meter"`
+	Period         string  `json:"period"`
+	Limit          float64 `json:"limit"`
+	WarningPercent float64 `json:"warning_percent"`
+}
+
+type entitlementCheckResponse struct {
+	Allowed           bool    `json:"allowed"`
+	State             string  `json:"state"`
+	Subject           string  `json:"subject"`
+	Meter             string  `json:"meter"`
+	Quantity          float64 `json:"quantity"`
+	Current           float64 `json:"current"`
+	Limit             float64 `json:"limit"`
+	Remaining         float64 `json:"remaining"`
+	Overage           float64 `json:"overage"`
+	PeriodResetAt     string  `json:"period_reset_at"`
+	RetryAfterSeconds int64   `json:"retry_after_seconds"`
+	Message           string  `json:"message"`
+}
+
+type entitlementProgressResponse struct {
+	Subject string                         `json:"subject"`
+	Items   []entitlementProgressItemReply `json:"items"`
+}
+
+type entitlementProgressItemReply struct {
+	Meter         string  `json:"meter"`
+	Period        string  `json:"period"`
+	State         string  `json:"state"`
+	Current       float64 `json:"current"`
+	Limit         float64 `json:"limit"`
+	Remaining     float64 `json:"remaining"`
+	Overage       float64 `json:"overage"`
+	PeriodResetAt string  `json:"period_reset_at"`
 }
 
 type subjectStatsResponse struct {

@@ -3986,7 +3986,13 @@ const docTemplate = `{
                 "meter": {
                     "type": "string"
                 },
+                "overage": {
+                    "type": "number"
+                },
                 "period": {
+                    "type": "string"
+                },
+                "period_reset_at": {
                     "type": "string"
                 },
                 "plan_id": {
@@ -4000,6 +4006,9 @@ const docTemplate = `{
                 },
                 "remaining": {
                     "type": "number"
+                },
+                "retry_after_seconds": {
+                    "type": "integer"
                 },
                 "state": {
                     "type": "string"
@@ -4267,10 +4276,16 @@ const docTemplate = `{
                 "meter": {
                     "type": "string"
                 },
+                "overage": {
+                    "type": "number"
+                },
                 "percent": {
                     "type": "number"
                 },
                 "period": {
+                    "type": "string"
+                },
+                "period_reset_at": {
                     "type": "string"
                 },
                 "remaining": {

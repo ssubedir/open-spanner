@@ -3982,7 +3982,13 @@
                 "meter": {
                     "type": "string"
                 },
+                "overage": {
+                    "type": "number"
+                },
                 "period": {
+                    "type": "string"
+                },
+                "period_reset_at": {
                     "type": "string"
                 },
                 "plan_id": {
@@ -3996,6 +4002,9 @@
                 },
                 "remaining": {
                     "type": "number"
+                },
+                "retry_after_seconds": {
+                    "type": "integer"
                 },
                 "state": {
                     "type": "string"
@@ -4263,10 +4272,16 @@
                 "meter": {
                     "type": "string"
                 },
+                "overage": {
+                    "type": "number"
+                },
                 "percent": {
                     "type": "number"
                 },
                 "period": {
+                    "type": "string"
+                },
+                "period_reset_at": {
                     "type": "string"
                 },
                 "remaining": {

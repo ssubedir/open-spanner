@@ -21,11 +21,14 @@ class EntitlementCheckResponse:
         limit (float | Unset):
         message (str | Unset):
         meter (str | Unset):
+        overage (float | Unset):
         period (str | Unset):
+        period_reset_at (str | Unset):
         plan_id (str | Unset):
         plan_name (str | Unset):
         quantity (float | Unset):
         remaining (float | Unset):
+        retry_after_seconds (int | Unset):
         state (str | Unset):
         subject (str | Unset):
         to (str | Unset):
@@ -37,11 +40,14 @@ class EntitlementCheckResponse:
     limit: float | Unset = UNSET
     message: str | Unset = UNSET
     meter: str | Unset = UNSET
+    overage: float | Unset = UNSET
     period: str | Unset = UNSET
+    period_reset_at: str | Unset = UNSET
     plan_id: str | Unset = UNSET
     plan_name: str | Unset = UNSET
     quantity: float | Unset = UNSET
     remaining: float | Unset = UNSET
+    retry_after_seconds: int | Unset = UNSET
     state: str | Unset = UNSET
     subject: str | Unset = UNSET
     to: str | Unset = UNSET
@@ -60,7 +66,11 @@ class EntitlementCheckResponse:
 
         meter = self.meter
 
+        overage = self.overage
+
         period = self.period
+
+        period_reset_at = self.period_reset_at
 
         plan_id = self.plan_id
 
@@ -69,6 +79,8 @@ class EntitlementCheckResponse:
         quantity = self.quantity
 
         remaining = self.remaining
+
+        retry_after_seconds = self.retry_after_seconds
 
         state = self.state
 
@@ -91,8 +103,12 @@ class EntitlementCheckResponse:
             field_dict["message"] = message
         if meter is not UNSET:
             field_dict["meter"] = meter
+        if overage is not UNSET:
+            field_dict["overage"] = overage
         if period is not UNSET:
             field_dict["period"] = period
+        if period_reset_at is not UNSET:
+            field_dict["period_reset_at"] = period_reset_at
         if plan_id is not UNSET:
             field_dict["plan_id"] = plan_id
         if plan_name is not UNSET:
@@ -101,6 +117,8 @@ class EntitlementCheckResponse:
             field_dict["quantity"] = quantity
         if remaining is not UNSET:
             field_dict["remaining"] = remaining
+        if retry_after_seconds is not UNSET:
+            field_dict["retry_after_seconds"] = retry_after_seconds
         if state is not UNSET:
             field_dict["state"] = state
         if subject is not UNSET:
@@ -125,7 +143,11 @@ class EntitlementCheckResponse:
 
         meter = d.pop("meter", UNSET)
 
+        overage = d.pop("overage", UNSET)
+
         period = d.pop("period", UNSET)
+
+        period_reset_at = d.pop("period_reset_at", UNSET)
 
         plan_id = d.pop("plan_id", UNSET)
 
@@ -134,6 +156,8 @@ class EntitlementCheckResponse:
         quantity = d.pop("quantity", UNSET)
 
         remaining = d.pop("remaining", UNSET)
+
+        retry_after_seconds = d.pop("retry_after_seconds", UNSET)
 
         state = d.pop("state", UNSET)
 
@@ -148,11 +172,14 @@ class EntitlementCheckResponse:
             limit=limit,
             message=message,
             meter=meter,
+            overage=overage,
             period=period,
+            period_reset_at=period_reset_at,
             plan_id=plan_id,
             plan_name=plan_name,
             quantity=quantity,
             remaining=remaining,
+            retry_after_seconds=retry_after_seconds,
             state=state,
             subject=subject,
             to=to,

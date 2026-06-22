@@ -32,8 +32,14 @@ type EntitlementCheckResponse struct {
 	// meter
 	Meter string `json:"meter,omitempty"`
 
+	// overage
+	Overage float64 `json:"overage,omitempty"`
+
 	// period
 	Period string `json:"period,omitempty"`
+
+	// period reset at
+	PeriodResetAt string `json:"period_reset_at,omitempty"`
 
 	// plan id
 	PlanID string `json:"plan_id,omitempty"`
@@ -46,6 +52,9 @@ type EntitlementCheckResponse struct {
 
 	// remaining
 	Remaining float64 `json:"remaining,omitempty"`
+
+	// retry after seconds
+	RetryAfterSeconds int64 `json:"retry_after_seconds,omitempty"`
 
 	// state
 	State string `json:"state,omitempty"`

@@ -29,11 +29,17 @@ type EntitlementProgressItem struct {
 	// meter
 	Meter string `json:"meter,omitempty"`
 
+	// overage
+	Overage float64 `json:"overage,omitempty"`
+
 	// percent
 	Percent float64 `json:"percent,omitempty"`
 
 	// period
 	Period string `json:"period,omitempty"`
+
+	// period reset at
+	PeriodResetAt string `json:"period_reset_at,omitempty"`
 
 	// remaining
 	Remaining float64 `json:"remaining,omitempty"`

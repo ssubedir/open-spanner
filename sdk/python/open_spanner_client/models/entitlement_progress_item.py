@@ -20,8 +20,10 @@ class EntitlementProgressItem:
         from_ (str | Unset):
         limit (float | Unset):
         meter (str | Unset):
+        overage (float | Unset):
         percent (float | Unset):
         period (str | Unset):
+        period_reset_at (str | Unset):
         remaining (float | Unset):
         state (str | Unset):
         to (str | Unset):
@@ -34,8 +36,10 @@ class EntitlementProgressItem:
     from_: str | Unset = UNSET
     limit: float | Unset = UNSET
     meter: str | Unset = UNSET
+    overage: float | Unset = UNSET
     percent: float | Unset = UNSET
     period: str | Unset = UNSET
+    period_reset_at: str | Unset = UNSET
     remaining: float | Unset = UNSET
     state: str | Unset = UNSET
     to: str | Unset = UNSET
@@ -54,9 +58,13 @@ class EntitlementProgressItem:
 
         meter = self.meter
 
+        overage = self.overage
+
         percent = self.percent
 
         period = self.period
+
+        period_reset_at = self.period_reset_at
 
         remaining = self.remaining
 
@@ -81,10 +89,14 @@ class EntitlementProgressItem:
             field_dict["limit"] = limit
         if meter is not UNSET:
             field_dict["meter"] = meter
+        if overage is not UNSET:
+            field_dict["overage"] = overage
         if percent is not UNSET:
             field_dict["percent"] = percent
         if period is not UNSET:
             field_dict["period"] = period
+        if period_reset_at is not UNSET:
+            field_dict["period_reset_at"] = period_reset_at
         if remaining is not UNSET:
             field_dict["remaining"] = remaining
         if state is not UNSET:
@@ -111,9 +123,13 @@ class EntitlementProgressItem:
 
         meter = d.pop("meter", UNSET)
 
+        overage = d.pop("overage", UNSET)
+
         percent = d.pop("percent", UNSET)
 
         period = d.pop("period", UNSET)
+
+        period_reset_at = d.pop("period_reset_at", UNSET)
 
         remaining = d.pop("remaining", UNSET)
 
@@ -131,8 +147,10 @@ class EntitlementProgressItem:
             from_=from_,
             limit=limit,
             meter=meter,
+            overage=overage,
             percent=percent,
             period=period,
+            period_reset_at=period_reset_at,
             remaining=remaining,
             state=state,
             to=to,

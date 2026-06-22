@@ -83,10 +83,12 @@ type ProgressItemResponse struct {
 	Current        float64 `json:"current"`
 	Limit          float64 `json:"limit"`
 	Remaining      float64 `json:"remaining"`
+	Overage        float64 `json:"overage"`
 	Percent        float64 `json:"percent"`
 	WarningPercent float64 `json:"warning_percent"`
 	From           string  `json:"from"`
 	To             string  `json:"to"`
+	PeriodResetAt  string  `json:"period_reset_at"`
 	Unit           string  `json:"unit"`
 	Aggregation    string  `json:"aggregation"`
 }
@@ -100,20 +102,23 @@ type CheckRequest struct {
 
 // CheckResponse is the entitlement decision for a subject and meter.
 type CheckResponse struct {
-	Allowed   bool    `json:"allowed"`
-	State     string  `json:"state"`
-	Subject   string  `json:"subject"`
-	Meter     string  `json:"meter"`
-	Quantity  float64 `json:"quantity"`
-	Current   float64 `json:"current"`
-	Limit     float64 `json:"limit"`
-	Remaining float64 `json:"remaining"`
-	PlanID    string  `json:"plan_id,omitempty"`
-	PlanName  string  `json:"plan_name,omitempty"`
-	Period    string  `json:"period,omitempty"`
-	From      string  `json:"from,omitempty"`
-	To        string  `json:"to,omitempty"`
-	Message   string  `json:"message"`
+	Allowed           bool    `json:"allowed"`
+	State             string  `json:"state"`
+	Subject           string  `json:"subject"`
+	Meter             string  `json:"meter"`
+	Quantity          float64 `json:"quantity"`
+	Current           float64 `json:"current"`
+	Limit             float64 `json:"limit"`
+	Remaining         float64 `json:"remaining"`
+	Overage           float64 `json:"overage"`
+	PlanID            string  `json:"plan_id,omitempty"`
+	PlanName          string  `json:"plan_name,omitempty"`
+	Period            string  `json:"period,omitempty"`
+	From              string  `json:"from,omitempty"`
+	To                string  `json:"to,omitempty"`
+	PeriodResetAt     string  `json:"period_reset_at,omitempty"`
+	RetryAfterSeconds int64   `json:"retry_after_seconds,omitempty"`
+	Message           string  `json:"message"`
 }
 
 // StateResponse is the latest entitlement state for a subject and meter.
