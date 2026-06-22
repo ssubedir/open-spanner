@@ -21,6 +21,29 @@ export function PageHeader({ action, description, eyebrow, icon, title }: { acti
   )
 }
 
+export function DetailLoadingPage({ title = 'Loading details' }: { action?: React.ReactNode; description?: string; eyebrow?: string; icon?: React.ReactNode; title?: string }) {
+  return (
+    <section aria-busy="true" aria-label={title} className="grid min-h-[calc(100vh-52px)] place-items-center">
+      <Loader2 aria-hidden="true" className="h-8 w-8 animate-spin text-primary" />
+    </section>
+  )
+}
+
+export function DetailStatePage({ action, description, icon, title }: { action?: React.ReactNode; description: string; icon: React.ReactNode; title: string }) {
+  return (
+    <section className="grid min-h-[calc(100vh-52px)] place-items-center">
+      <Card className="grid w-full max-w-[460px] justify-items-center gap-3 p-6 text-center">
+        <span className="grid h-11 w-11 place-items-center rounded-md bg-secondary text-primary">{icon}</span>
+        <div className="grid gap-2">
+          <h1 className="text-xl font-semibold leading-tight">{title}</h1>
+          <p className="text-sm text-muted">{description}</p>
+        </div>
+        {action ? <div className="mt-2 flex justify-center">{action}</div> : null}
+      </Card>
+    </section>
+  )
+}
+
 export function MetricCard({ helper, icon, label, loading = false, value }: { helper: string; icon: React.ReactNode; label: string; loading?: boolean; value: number }) {
   return (
     <Card className="metric-card">

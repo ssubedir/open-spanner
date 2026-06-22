@@ -9,9 +9,14 @@ test.describe('Feature: Dashboard usage exploration', () => {
 
     await When.theUserSignsIn(page, account)
     await Then.theDashboardIsAvailable(page, account)
+    await Then.malformedSubjectRouteShowsNotFound(page)
+    await Then.missingPlanRouteShowsNotFound(page)
+    await Then.missingAlertRouteShowsNotFound(page)
 
     await When.theUserCreatesAnAPIRequestMeter(page, meterName)
     await Then.theMeterIsVisible(page, meterName)
+    await Then.meterDetailIsVisible(page, meterName)
+    await Then.missingMeterRouteShowsNotFound(page)
 
     const scenario = await Given.apiRequestUsageExists(page, meterName)
 
@@ -116,6 +121,7 @@ test.describe('Feature: Dashboard usage exploration', () => {
     await When.theUserSignsIn(page, owner)
     await Then.theDashboardIsAvailable(page, owner)
     const scenario = await When.theSignedInUserCreatesWorkspaceOwnedResources(page)
+    await Then.workspaceOwnedAlertDetailIsVisibleToCurrentUser(page, scenario)
 
     await When.theUserSignsOut(page)
     await When.theUserSignsIn(page, other)
@@ -133,7 +139,7 @@ test.describe('Feature: Dashboard usage exploration', () => {
 
     const scenario = await Given.aPlanEntitlementWarningExists(page)
 
-    await When.theUserOpensPlans(page)
+    await When.theUserOpensPlan(page, scenario)
     await Then.planEntitlementStateIsVisible(page, scenario)
     await Then.planEntitlementChangeIsVisible(page, scenario)
 

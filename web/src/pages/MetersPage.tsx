@@ -1,9 +1,9 @@
+import { useRouter } from '@tanstack/react-router'
 import { useSelector } from '@tanstack/react-store'
-import { Boxes, ChevronDown, Loader2, Lock, Pencil, Plus, Trash2 } from 'lucide-react'
+import { ArrowRight, Boxes, ChevronDown, Loader2, Lock, Pencil, Plus, Trash2 } from 'lucide-react'
 import { type FormEvent, useCallback, useState } from 'react'
 
 import { appStore, appStoreActions, type MeterDimensionDraft } from '../app-store'
-import type { Meter, MeterDimension } from '../api'
 import { EmptyRow, Modal, PageHeader } from '../components/dashboard'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
@@ -16,11 +16,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { formatDate, formatNumber } from '../lib/format'
 import { useInitialLoad } from '../lib/hooks'
 import { metadataDimensionNameError, meterDimensionsFromRows } from '../lib/metadata'
+import { DimensionChips } from './MeterPageParts'
 
 const aggregations = ['sum', 'count', 'avg', 'min', 'max', 'first', 'last', 'rate']
 const metadataTypes = ['string', 'number', 'boolean']
 
 export function MetersPage() {
+  const router = useRouter()
   const { creating, createDimensions, deleting, editDimensions, editing, error, items: meters, saving, stats } = useSelector(appStore, (state) => state.meters)
   const load = useCallback(() => appStoreActions.loadMeters(), [])
 
@@ -158,6 +160,10 @@ export function MetersPage() {
                       <TableCell><DimensionChips meter={meter} /></TableCell>
                       <TableCell>
                         <div className="table-actions">
+                          <Button aria-label={`Open ${meter.name}`} onClick={() => void router.navigate({ to: '/meters/$meter', params: { meter: meter.name } })} size="sm" type="button" variant="outline">
+                            Open
+                            <ArrowRight aria-hidden="true" />
+                          </Button>
                           <Button aria-label={`Edit ${meter.name}`} onClick={() => appStoreActions.setMeterEditing(meter)} size="icon" type="button" variant="ghost">
                             <Pencil aria-hidden="true" />
                           </Button>
@@ -479,35 +485,4 @@ function DimensionSchemaEditor({
       </div>
     </div>
   )
-}
-
-function DimensionChips({ meter }: { meter: Meter }) {
-  const dimensions = normalizedMeterDimensions(meter)
-  if (dimensions.length === 0) {
-    return <span className="muted">No dimensions</span>
-  }
-
-  return (
-    <div className="schema-chips">
-      {dimensions.map((dimension) => (
-        <span className="schema-chip" key={dimension.name}>
-          <span>{dimension.display_name || humanizeField(dimension.name)}</span>
-          <strong>{dimension.deprecated ? `${dimension.type} deprecated` : dimension.required ? dimension.type : `${dimension.type} optional`}</strong>
-        </span>
-      ))}
-    </div>
-  )
-}
-
-function normalizedMeterDimensions(meter: Meter): MeterDimension[] {
-  return meter.dimensions || []
-}
-
-function humanizeField(key: string) {
-  return key
-    .replace(/^metadata\./, '')
-    .split(/[._-]/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ')
 }

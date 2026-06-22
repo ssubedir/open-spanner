@@ -44,6 +44,7 @@ export type PlanEntitlementScenario = {
   eventType: string
   limit: number
   meterName: string
+  planID: string
   planName: string
   subject: string
 }
@@ -240,6 +241,7 @@ export const Given = {
       eventType: 'warning',
       limit,
       meterName,
+      planID: plan.id,
       planName,
       subject,
     }
@@ -343,9 +345,9 @@ export const When = {
     await page.getByRole('button', { name: 'Open Usage' }).click()
   },
 
-  async theUserOpensPlans(page: Page) {
-    await page.goto('/plans')
-    await expect(page.getByRole('heading', { name: 'Plans and entitlements' })).toBeVisible()
+  async theUserOpensPlan(page: Page, scenario: PlanEntitlementScenario) {
+    await page.goto(`/plans/${scenario.planID}`)
+    await expect(page.getByRole('heading', { name: scenario.planName })).toBeVisible()
   },
 
   async theUserOpensSubjectActivityForEntitlement(page: Page, scenario: PlanEntitlementScenario) {
@@ -668,6 +670,14 @@ export const Then = {
     await expect(page.locator('main')).toContainText('Service Tier')
   },
 
+  async meterDetailIsVisible(page: Page, meterName: string) {
+    await page.goto(`/meters/${meterName}`)
+    await expect(page.getByRole('heading', { name: meterName })).toBeVisible()
+    await expect(page.locator('main')).toContainText('Dimensions')
+    await expect(page.locator('main')).toContainText('Service Tier')
+    await expect(page.getByRole('button', { name: 'Analyze usage' })).toBeVisible()
+  },
+
   async theUsagePageLoadsWithoutDimensionErrors(page: Page) {
     await expect(page.getByText(/unsupported breakdown field/i)).toHaveCount(0)
     await expect(page.getByText(/unable to load usage breakdowns/i)).toHaveCount(0)
@@ -916,13 +926,17 @@ export const Then = {
     await expect(page.locator('body')).not.toContainText(scenario.subject)
 
     await page.goto('/subjects')
-    await expect(page.getByRole('heading', { name: 'Subject activity' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Subjects' })).toBeVisible()
     await expect(page.locator('main')).not.toContainText(scenario.subject)
 
     await page.goto('/alerts')
-    await expect(page.getByRole('heading', { name: 'Threshold rules' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Alerts' })).toBeVisible()
     await expect(page.locator('main')).not.toContainText(scenario.alertName)
     await expect(page.locator('main')).not.toContainText(scenario.destinationName)
+
+    await page.goto(`/alerts/${scenario.alertID}`)
+    await expect(page.getByRole('heading', { name: 'Alert not found' })).toBeVisible()
+    await expect(page.locator('main')).not.toContainText(scenario.alertName)
 
     await page.goto('/exports')
     await expect(page.getByRole('heading', { name: 'Export jobs' })).toBeVisible()
@@ -935,6 +949,33 @@ export const Then = {
     await page.goto('/overview')
     await expect(page.getByRole('heading', { name: 'Metering operations' })).toBeVisible()
     await expect(page.locator('main')).not.toContainText(scenario.subject)
+  },
+
+  async malformedSubjectRouteShowsNotFound(page: Page) {
+    await page.goto(`/subjects/${encodeURIComponent('gggg-<>ddddd')}`)
+    await expect(page.getByRole('heading', { name: 'Subject not found' })).toBeVisible()
+    await expect(page.locator('main')).not.toContainText('Meter Activity')
+    await expect(page.locator('main')).not.toContainText('Recent Events')
+  },
+
+  async missingMeterRouteShowsNotFound(page: Page) {
+    await page.goto('/meters/missing_e2e_meter')
+    await expect(page.getByRole('heading', { name: 'Meter not found' })).toBeVisible()
+    await expect(page.locator('main')).not.toContainText('No route found')
+  },
+
+  async missingPlanRouteShowsNotFound(page: Page) {
+    await page.goto('/plans/missing_e2e_plan')
+    await expect(page.getByRole('heading', { name: 'Plan not found' })).toBeVisible()
+    await expect(page.locator('main')).not.toContainText('Assignments')
+    await expect(page.locator('main')).not.toContainText('No route found')
+  },
+
+  async missingAlertRouteShowsNotFound(page: Page) {
+    await page.goto('/alerts/missing_e2e_alert')
+    await expect(page.getByRole('heading', { name: 'Alert not found' })).toBeVisible()
+    await expect(page.locator('main')).not.toContainText('Recent Events')
+    await expect(page.locator('main')).not.toContainText('No route found')
   },
 
   async workspaceOwnedAPIResourcesAreHiddenFromCurrentUser(page: Page, scenario: WorkspaceIsolationScenario) {
@@ -980,6 +1021,13 @@ export const Then = {
     expect(exportJob.status()).toBe(404)
     const deleteKey = await page.request.delete(`/v1/auth/api-keys/${scenario.apiKeyID}`)
     expect(deleteKey.status()).toBe(404)
+  },
+
+  async workspaceOwnedAlertDetailIsVisibleToCurrentUser(page: Page, scenario: WorkspaceIsolationScenario) {
+    await page.goto(`/alerts/${scenario.alertID}`)
+    await expect(page.getByRole('heading', { name: scenario.alertName })).toBeVisible()
+    await expect(page.locator('main')).toContainText(scenario.destinationName)
+    await expect(page.locator('main')).toContainText(scenario.meterName)
   },
 
   async planEntitlementStateIsVisible(page: Page, scenario: PlanEntitlementScenario) {

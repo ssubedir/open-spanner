@@ -151,7 +151,10 @@ func NewEventQuery(subject, meterName string, from, to time.Time, limit int, cur
 }
 
 func NewFilteredEventQuery(subject, meterName string, from, to time.Time, limit int, cursor EventCursor, filter Filter) (EventQuery, error) {
-	subject = strings.TrimSpace(subject)
+	subject, err := NormalizeOptionalSubject(subject)
+	if err != nil {
+		return EventQuery{}, err
+	}
 	meterName = strings.TrimSpace(meterName)
 
 	if !from.IsZero() && !to.IsZero() && !from.Before(to) {
@@ -200,7 +203,10 @@ func NewEventPage(events []Event, limit int) EventPage {
 func NewDimensionValueQuery(meterName string, field string, subject string, from time.Time, to time.Time, limit int) (DimensionValueQuery, error) {
 	meterName = strings.TrimSpace(meterName)
 	field = strings.TrimPrefix(strings.TrimSpace(field), "metadata.")
-	subject = strings.TrimSpace(subject)
+	subject, err := NormalizeOptionalSubject(subject)
+	if err != nil {
+		return DimensionValueQuery{}, err
+	}
 
 	if meterName == "" {
 		return DimensionValueQuery{}, fmt.Errorf("%w: meter is required", domain.ErrInvalidInput)
@@ -233,7 +239,10 @@ func NewDimensionValue(field string, value string, usageEvents int) DimensionVal
 func NewBreakdownQuery(meterName string, field string, subject string, from time.Time, to time.Time, aggregation domainmeter.Aggregation, limit int, filter Filter) (BreakdownQuery, error) {
 	meterName = strings.TrimSpace(meterName)
 	field = strings.TrimPrefix(strings.TrimSpace(field), "metadata.")
-	subject = strings.TrimSpace(subject)
+	subject, err := NormalizeOptionalSubject(subject)
+	if err != nil {
+		return BreakdownQuery{}, err
+	}
 
 	if meterName == "" {
 		return BreakdownQuery{}, fmt.Errorf("%w: meter is required", domain.ErrInvalidInput)
@@ -273,7 +282,10 @@ func NewBreakdownItem(field string, value string, quantity float64, usageEvents 
 }
 
 func NewAggregateQuery(subject, meterName string, from, to time.Time, aggregation domainmeter.Aggregation, metadata map[string]string, filter Filter) (AggregateQuery, error) {
-	subject = strings.TrimSpace(subject)
+	subject, err := NormalizeOptionalSubject(subject)
+	if err != nil {
+		return AggregateQuery{}, err
+	}
 	meterName = strings.TrimSpace(meterName)
 
 	if meterName == "" {
@@ -346,7 +358,10 @@ func NewGroupedQuery(subject, meterName string, from, to time.Time, bucketSize B
 }
 
 func NewGroupedFilteredQuery(subject, meterName string, from, to time.Time, bucketSize BucketSize, aggregation domainmeter.Aggregation, metadata map[string]string, groupBy []string, limit int, filter Filter) (Query, error) {
-	subject = strings.TrimSpace(subject)
+	subject, err := NormalizeOptionalSubject(subject)
+	if err != nil {
+		return Query{}, err
+	}
 	meterName = strings.TrimSpace(meterName)
 	groupByFields, err := NormalizeGroupBy(groupBy)
 	if err != nil {

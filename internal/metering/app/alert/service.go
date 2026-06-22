@@ -1267,7 +1267,10 @@ func validateRule(rule Rule, now time.Time) (Rule, error) {
 	if err != nil {
 		return Rule{}, err
 	}
-	subject := strings.TrimSpace(rule.Subject)
+	subject, err := domainusage.NormalizeOptionalSubject(rule.Subject)
+	if err != nil {
+		return Rule{}, err
+	}
 	metadata, err := normalizeMetadata(rule.Metadata)
 	if err != nil {
 		return Rule{}, err

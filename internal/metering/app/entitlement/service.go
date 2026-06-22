@@ -585,11 +585,11 @@ func (s *service) ListPlans(ctx context.Context, query ListPlansQuery) (PlanList
 }
 
 func (s *service) AssignSubject(ctx context.Context, cmd AssignSubjectCommand) (SubjectAssignmentResult, error) {
-	subject := strings.TrimSpace(cmd.Subject)
-	planID := strings.TrimSpace(cmd.PlanID)
-	if subject == "" {
-		return SubjectAssignmentResult{}, fmt.Errorf("%w: subject is required", domain.ErrInvalidInput)
+	subject, err := domainusage.NormalizeSubject(cmd.Subject)
+	if err != nil {
+		return SubjectAssignmentResult{}, err
 	}
+	planID := strings.TrimSpace(cmd.PlanID)
 	if planID == "" {
 		return SubjectAssignmentResult{}, fmt.Errorf("%w: plan id is required", domain.ErrInvalidInput)
 	}
@@ -630,16 +630,20 @@ func (s *service) AssignSubject(ctx context.Context, cmd AssignSubjectCommand) (
 }
 
 func (s *service) DeleteSubjectAssignment(ctx context.Context, cmd DeleteSubjectAssignmentCommand) error {
-	subject := strings.TrimSpace(cmd.Subject)
-	if subject == "" {
-		return fmt.Errorf("%w: subject is required", domain.ErrInvalidInput)
+	subject, err := domainusage.NormalizeSubject(cmd.Subject)
+	if err != nil {
+		return err
 	}
 	return s.repo.DeleteSubjectAssignment(ctx, subject)
 }
 
 func (s *service) ListSubjectAssignments(ctx context.Context, query AssignmentListQuery) (SubjectAssignmentListResult, error) {
+	subject, err := domainusage.NormalizeOptionalSubject(query.Subject)
+	if err != nil {
+		return SubjectAssignmentListResult{}, err
+	}
 	assignments, err := s.repo.FindSubjectAssignments(ctx, AssignmentQuery{
-		Subject:    strings.TrimSpace(query.Subject),
+		Subject:    subject,
 		PlanID:     strings.TrimSpace(query.PlanID),
 		ActiveOnly: !query.IncludeHistory,
 		Limit:      normalizeLimit(query.Limit),
@@ -651,8 +655,12 @@ func (s *service) ListSubjectAssignments(ctx context.Context, query AssignmentLi
 }
 
 func (s *service) ListEntitlementStates(ctx context.Context, query StateListQuery) (StateListResult, error) {
+	subject, err := domainusage.NormalizeOptionalSubject(query.Subject)
+	if err != nil {
+		return StateListResult{}, err
+	}
 	states, err := s.repo.FindEntitlementStates(ctx, StateListQuery{
-		Subject:   strings.TrimSpace(query.Subject),
+		Subject:   subject,
 		MeterName: strings.TrimSpace(query.MeterName),
 		State:     OverageState(strings.TrimSpace(string(query.State))),
 		Limit:     normalizeLimit(query.Limit),
@@ -672,9 +680,13 @@ func (s *service) ListEntitlementEvents(ctx context.Context, query EventListQuer
 	if query.Cursor != "" && (cursor.Time.IsZero() || cursor.ID == "") {
 		return EventListResult{}, domain.ErrInvalidInput
 	}
+	subject, err := domainusage.NormalizeOptionalSubject(query.Subject)
+	if err != nil {
+		return EventListResult{}, err
+	}
 
 	events, err := s.repo.FindEntitlementEvents(ctx, EventQuery{
-		Subject:   strings.TrimSpace(query.Subject),
+		Subject:   subject,
 		MeterName: strings.TrimSpace(query.MeterName),
 		PlanID:    strings.TrimSpace(query.PlanID),
 		State:     OverageState(strings.TrimSpace(string(query.State))),
@@ -701,8 +713,12 @@ func (s *service) ListEntitlementEvents(ctx context.Context, query EventListQuer
 }
 
 func (s *service) ListEntitlementPeriodSnapshots(ctx context.Context, query SnapshotListQuery) (SnapshotListResult, error) {
+	subject, err := domainusage.NormalizeOptionalSubject(query.Subject)
+	if err != nil {
+		return SnapshotListResult{}, err
+	}
 	snapshots, err := s.repo.FindEntitlementPeriodSnapshots(ctx, SnapshotQuery{
-		Subject:   strings.TrimSpace(query.Subject),
+		Subject:   subject,
 		MeterName: strings.TrimSpace(query.MeterName),
 		PlanID:    strings.TrimSpace(query.PlanID),
 		State:     OverageState(strings.TrimSpace(string(query.State))),
@@ -715,9 +731,9 @@ func (s *service) ListEntitlementPeriodSnapshots(ctx context.Context, query Snap
 }
 
 func (s *service) GetSubjectProgress(ctx context.Context, query SubjectProgressQuery) (SubjectProgressResult, error) {
-	subject := strings.TrimSpace(query.Subject)
-	if subject == "" {
-		return SubjectProgressResult{}, fmt.Errorf("%w: subject is required", domain.ErrInvalidInput)
+	subject, err := domainusage.NormalizeSubject(query.Subject)
+	if err != nil {
+		return SubjectProgressResult{}, err
 	}
 
 	assignment, err := s.findSubjectAssignment(ctx, subject)
@@ -741,11 +757,11 @@ func (s *service) GetSubjectProgress(ctx context.Context, query SubjectProgressQ
 }
 
 func (s *service) Check(ctx context.Context, cmd CheckCommand) (EntitlementCheckResult, error) {
-	subject := strings.TrimSpace(cmd.Subject)
-	meterName := strings.TrimSpace(cmd.Meter)
-	if subject == "" {
-		return EntitlementCheckResult{}, fmt.Errorf("%w: subject is required", domain.ErrInvalidInput)
+	subject, err := domainusage.NormalizeSubject(cmd.Subject)
+	if err != nil {
+		return EntitlementCheckResult{}, err
 	}
+	meterName := strings.TrimSpace(cmd.Meter)
 	if meterName == "" {
 		return EntitlementCheckResult{}, fmt.Errorf("%w: meter is required", domain.ErrInvalidInput)
 	}
@@ -832,7 +848,10 @@ func (s *service) EnqueueForUsageEvents(ctx context.Context, events []UsageEvent
 	runAfter := now.Add(DefaultCheckEvaluationWait)
 	seen := map[string]struct{}{}
 	for _, event := range events {
-		subject := strings.TrimSpace(event.Subject)
+		subject, err := domainusage.NormalizeOptionalSubject(event.Subject)
+		if err != nil {
+			continue
+		}
 		meterName := strings.TrimSpace(event.Meter)
 		if subject == "" || meterName == "" {
 			continue
@@ -870,11 +889,11 @@ func (s *service) ClaimCheckJob(ctx context.Context, cmd ClaimCommand) (CheckJob
 }
 
 func (s *service) Evaluate(ctx context.Context, cmd EvaluateCommand) (EvaluationResult, error) {
-	subject := strings.TrimSpace(cmd.Subject)
-	meterName := strings.TrimSpace(cmd.Meter)
-	if subject == "" {
-		return EvaluationResult{}, fmt.Errorf("%w: subject is required", domain.ErrInvalidInput)
+	subject, err := domainusage.NormalizeSubject(cmd.Subject)
+	if err != nil {
+		return EvaluationResult{}, err
 	}
+	meterName := strings.TrimSpace(cmd.Meter)
 	if meterName == "" {
 		return EvaluationResult{}, fmt.Errorf("%w: meter is required", domain.ErrInvalidInput)
 	}
@@ -960,11 +979,12 @@ func (s *service) Evaluate(ctx context.Context, cmd EvaluateCommand) (Evaluation
 }
 
 func (s *service) CompleteCheckJob(ctx context.Context, cmd CompleteCommand) error {
-	cmd.Subject = strings.TrimSpace(cmd.Subject)
-	cmd.Meter = strings.TrimSpace(cmd.Meter)
-	if cmd.Subject == "" {
-		return fmt.Errorf("%w: subject is required", domain.ErrInvalidInput)
+	subject, err := domainusage.NormalizeSubject(cmd.Subject)
+	if err != nil {
+		return err
 	}
+	cmd.Subject = subject
+	cmd.Meter = strings.TrimSpace(cmd.Meter)
 	if cmd.Meter == "" {
 		return fmt.Errorf("%w: meter is required", domain.ErrInvalidInput)
 	}
@@ -972,11 +992,12 @@ func (s *service) CompleteCheckJob(ctx context.Context, cmd CompleteCommand) err
 }
 
 func (s *service) FailCheckJob(ctx context.Context, cmd FailCommand) error {
-	cmd.Subject = strings.TrimSpace(cmd.Subject)
-	cmd.Meter = strings.TrimSpace(cmd.Meter)
-	if cmd.Subject == "" {
-		return fmt.Errorf("%w: subject is required", domain.ErrInvalidInput)
+	subject, err := domainusage.NormalizeSubject(cmd.Subject)
+	if err != nil {
+		return err
 	}
+	cmd.Subject = subject
+	cmd.Meter = strings.TrimSpace(cmd.Meter)
 	if cmd.Meter == "" {
 		return fmt.Errorf("%w: meter is required", domain.ErrInvalidInput)
 	}

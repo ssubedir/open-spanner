@@ -1,7 +1,13 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, useParams } from '@tanstack/react-router'
 
-import { PlanRoutePage } from '../../pages/PlansPage'
+import { PlanDetailPage } from '../../pages/PlanDetailPage'
 
 export const Route = createFileRoute('/_dashboard/plans_/$planId')({
-  component: PlanRoutePage,
+  component: PlanRoute,
 })
+
+function PlanRoute() {
+  const { planId } = useParams({ from: '/_dashboard/plans_/$planId' })
+
+  return <PlanDetailPage planId={planId} />
+}

@@ -23,6 +23,7 @@ import { Route as DashboardApiKeysRouteRouteImport } from './routes/_dashboard/a
 import { Route as DashboardAlertsRouteRouteImport } from './routes/_dashboard/alerts/route'
 import { Route as DashboardSubjectsSubjectRouteImport } from './routes/_dashboard/subjects_.$subject'
 import { Route as DashboardPlansPlanIdRouteImport } from './routes/_dashboard/plans_.$planId'
+import { Route as DashboardMetersMeterRouteImport } from './routes/_dashboard/meters_.$meter'
 import { Route as DashboardAlertsRuleIdRouteImport } from './routes/_dashboard/alerts_.$ruleId'
 
 const RegisterRouteRoute = RegisterRouteRouteImport.update({
@@ -95,6 +96,11 @@ const DashboardPlansPlanIdRoute = DashboardPlansPlanIdRouteImport.update({
   path: '/plans/$planId',
   getParentRoute: () => DashboardRouteRoute,
 } as any)
+const DashboardMetersMeterRoute = DashboardMetersMeterRouteImport.update({
+  id: '/meters_/$meter',
+  path: '/meters/$meter',
+  getParentRoute: () => DashboardRouteRoute,
+} as any)
 const DashboardAlertsRuleIdRoute = DashboardAlertsRuleIdRouteImport.update({
   id: '/alerts_/$ruleId',
   path: '/alerts/$ruleId',
@@ -114,6 +120,7 @@ export interface FileRoutesByFullPath {
   '/subjects': typeof DashboardSubjectsRouteRoute
   '/usage': typeof DashboardUsageRouteRoute
   '/alerts/$ruleId': typeof DashboardAlertsRuleIdRoute
+  '/meters/$meter': typeof DashboardMetersMeterRoute
   '/plans/$planId': typeof DashboardPlansPlanIdRoute
   '/subjects/$subject': typeof DashboardSubjectsSubjectRoute
 }
@@ -130,6 +137,7 @@ export interface FileRoutesByTo {
   '/subjects': typeof DashboardSubjectsRouteRoute
   '/usage': typeof DashboardUsageRouteRoute
   '/alerts/$ruleId': typeof DashboardAlertsRuleIdRoute
+  '/meters/$meter': typeof DashboardMetersMeterRoute
   '/plans/$planId': typeof DashboardPlansPlanIdRoute
   '/subjects/$subject': typeof DashboardSubjectsSubjectRoute
 }
@@ -148,6 +156,7 @@ export interface FileRoutesById {
   '/_dashboard/subjects': typeof DashboardSubjectsRouteRoute
   '/_dashboard/usage': typeof DashboardUsageRouteRoute
   '/_dashboard/alerts_/$ruleId': typeof DashboardAlertsRuleIdRoute
+  '/_dashboard/meters_/$meter': typeof DashboardMetersMeterRoute
   '/_dashboard/plans_/$planId': typeof DashboardPlansPlanIdRoute
   '/_dashboard/subjects_/$subject': typeof DashboardSubjectsSubjectRoute
 }
@@ -166,6 +175,7 @@ export interface FileRouteTypes {
     | '/subjects'
     | '/usage'
     | '/alerts/$ruleId'
+    | '/meters/$meter'
     | '/plans/$planId'
     | '/subjects/$subject'
   fileRoutesByTo: FileRoutesByTo
@@ -182,6 +192,7 @@ export interface FileRouteTypes {
     | '/subjects'
     | '/usage'
     | '/alerts/$ruleId'
+    | '/meters/$meter'
     | '/plans/$planId'
     | '/subjects/$subject'
   id:
@@ -199,6 +210,7 @@ export interface FileRouteTypes {
     | '/_dashboard/subjects'
     | '/_dashboard/usage'
     | '/_dashboard/alerts_/$ruleId'
+    | '/_dashboard/meters_/$meter'
     | '/_dashboard/plans_/$planId'
     | '/_dashboard/subjects_/$subject'
   fileRoutesById: FileRoutesById
@@ -310,6 +322,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardPlansPlanIdRouteImport
       parentRoute: typeof DashboardRouteRoute
     }
+    '/_dashboard/meters_/$meter': {
+      id: '/_dashboard/meters_/$meter'
+      path: '/meters/$meter'
+      fullPath: '/meters/$meter'
+      preLoaderRoute: typeof DashboardMetersMeterRouteImport
+      parentRoute: typeof DashboardRouteRoute
+    }
     '/_dashboard/alerts_/$ruleId': {
       id: '/_dashboard/alerts_/$ruleId'
       path: '/alerts/$ruleId'
@@ -330,6 +349,7 @@ interface DashboardRouteRouteChildren {
   DashboardSubjectsRouteRoute: typeof DashboardSubjectsRouteRoute
   DashboardUsageRouteRoute: typeof DashboardUsageRouteRoute
   DashboardAlertsRuleIdRoute: typeof DashboardAlertsRuleIdRoute
+  DashboardMetersMeterRoute: typeof DashboardMetersMeterRoute
   DashboardPlansPlanIdRoute: typeof DashboardPlansPlanIdRoute
   DashboardSubjectsSubjectRoute: typeof DashboardSubjectsSubjectRoute
 }
@@ -344,6 +364,7 @@ const DashboardRouteRouteChildren: DashboardRouteRouteChildren = {
   DashboardSubjectsRouteRoute: DashboardSubjectsRouteRoute,
   DashboardUsageRouteRoute: DashboardUsageRouteRoute,
   DashboardAlertsRuleIdRoute: DashboardAlertsRuleIdRoute,
+  DashboardMetersMeterRoute: DashboardMetersMeterRoute,
   DashboardPlansPlanIdRoute: DashboardPlansPlanIdRoute,
   DashboardSubjectsSubjectRoute: DashboardSubjectsSubjectRoute,
 }
