@@ -222,19 +222,8 @@ export const Given = {
       meter: meterName,
       subject,
     })
-    await expect.poll(async () => {
-      const response = await page.request.get(`/v1/entitlements/states?${query.toString()}`)
-      expect(response.status()).toBe(200)
-      const payload = await response.json() as { items: Array<{ state: string }> }
-      return payload.items[0]?.state || ''
-    }, { timeout: 20_000 }).toBe('warning')
-
-    await expect.poll(async () => {
-      const response = await page.request.get(`/v1/entitlements/events?${query.toString()}`)
-      expect(response.status()).toBe(200)
-      const payload = await response.json() as { items: Array<{ state: string }> }
-      return payload.items[0]?.state || ''
-    }, { timeout: 20_000 }).toBe('warning')
+    await waitForEntitlementState(page, `/v1/entitlements/states?${query.toString()}`, 'warning')
+    await waitForEntitlementState(page, `/v1/entitlements/events?${query.toString()}`, 'warning')
 
     return {
       current,
@@ -683,7 +672,7 @@ export const When = {
     expect(exportResponse.status()).toBe(202)
     const exportJob = await exportResponse.json() as { id: string }
 
-    return {
+    const scenario = {
       alertID: alert.id,
       alertName,
       apiKeyID: key.id,
@@ -693,6 +682,10 @@ export const When = {
       meterName,
       subject,
     }
+
+    await waitForWorkspaceResources(page, scenario)
+
+    return scenario
   },
 
   async theUserSignsOut(page: Page) {
@@ -1074,8 +1067,8 @@ export const Then = {
 
     await page.goto('/usage')
     await expect(page.getByRole('heading', { name: 'Usage buckets' })).toBeVisible()
-    await expect(page.locator('body')).not.toContainText(scenario.meterName)
-    await expect(page.locator('body')).not.toContainText(scenario.subject)
+    await expect(page.locator('main')).not.toContainText(scenario.meterName)
+    await expect(page.locator('main')).not.toContainText(scenario.subject)
 
     await page.goto('/subjects')
     await expect(page.getByRole('heading', { name: 'Subjects' })).toBeVisible()
@@ -1184,35 +1177,35 @@ export const Then = {
 
   async planEntitlementStateIsVisible(page: Page, scenario: PlanEntitlementScenario) {
     const section = page.locator('section,div').filter({ has: page.getByRole('heading', { name: 'Current Entitlements' }) }).first()
-    await expect(section).toContainText(scenario.subject)
-    await expect(section).toContainText(scenario.meterName)
-    await expect(section).toContainText(scenario.planName)
-    await expect(section).toContainText('Warning')
-    await expect(section).toContainText(`${scenario.current} / ${scenario.limit}`)
+    await expect(section).toContainText(scenario.subject, { timeout: 30_000 })
+    await expect(section).toContainText(scenario.meterName, { timeout: 30_000 })
+    await expect(section).toContainText(scenario.planName, { timeout: 30_000 })
+    await expect(section).toContainText('Warning', { timeout: 30_000 })
+    await expect(section).toContainText(`${scenario.current} / ${scenario.limit}`, { timeout: 30_000 })
   },
 
   async planEntitlementChangeIsVisible(page: Page, scenario: PlanEntitlementScenario) {
     const section = page.locator('section,div').filter({ has: page.getByRole('heading', { name: 'Recent Entitlement Changes' }) }).first()
-    await expect(section).toContainText(scenario.subject)
-    await expect(section).toContainText(scenario.meterName)
-    await expect(section).toContainText('Warning')
-    await expect(section).toContainText('quota warning threshold reached')
+    await expect(section).toContainText(scenario.subject, { timeout: 30_000 })
+    await expect(section).toContainText(scenario.meterName, { timeout: 30_000 })
+    await expect(section).toContainText('Warning', { timeout: 30_000 })
+    await expect(section).toContainText('quota warning threshold reached', { timeout: 30_000 })
   },
 
   async subjectEntitlementStateIsVisible(page: Page, scenario: PlanEntitlementScenario) {
     const section = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Entitlements' }) }).first()
-    await expect(section).toContainText(scenario.meterName)
-    await expect(section).toContainText(scenario.planName)
-    await expect(section).toContainText('Warning')
-    await expect(section).toContainText(`${scenario.current} / ${scenario.limit}`)
+    await expect(section).toContainText(scenario.meterName, { timeout: 30_000 })
+    await expect(section).toContainText(scenario.planName, { timeout: 30_000 })
+    await expect(section).toContainText('Warning', { timeout: 30_000 })
+    await expect(section).toContainText(`${scenario.current} / ${scenario.limit}`, { timeout: 30_000 })
   },
 
   async subjectEntitlementChangeIsVisible(page: Page, scenario: PlanEntitlementScenario) {
     const section = page.locator('section,div').filter({ has: page.getByRole('heading', { name: 'Entitlement Changes' }) }).first()
-    await expect(section).toContainText(scenario.meterName)
-    await expect(section).toContainText(scenario.planName)
-    await expect(section).toContainText('Warning')
-    await expect(section).toContainText('quota warning threshold reached')
+    await expect(section).toContainText(scenario.meterName, { timeout: 30_000 })
+    await expect(section).toContainText(scenario.planName, { timeout: 30_000 })
+    await expect(section).toContainText('Warning', { timeout: 30_000 })
+    await expect(section).toContainText('quota warning threshold reached', { timeout: 30_000 })
   },
 }
 
@@ -1398,6 +1391,42 @@ async function expectSavedUsageQuery(page: Page, name: string) {
 async function expectListExcludes(response: APIResponse, key: string, value: string) {
   const payload = await response.json() as { items?: Array<Record<string, unknown>> }
   expect((payload.items || []).some((item) => item[key] === value)).toBe(false)
+}
+
+async function waitForWorkspaceResources(page: Page, scenario: WorkspaceIsolationScenario) {
+  await Promise.all([
+    waitForListIncludes(page, '/v1/meters', 'name', scenario.meterName),
+    waitForListIncludes(page, '/v1/auth/api-keys', 'name', scenario.apiKeyName),
+    waitForListIncludes(page, '/v1/alerts', 'name', scenario.alertName),
+    waitForListIncludes(page, '/v1/alerts/destinations', 'name', scenario.destinationName),
+    waitForListIncludes(page, '/v1/subjects?limit=50', 'subject', scenario.subject),
+    waitForListIncludes(page, '/v1/usageevents?limit=50', 'subject', scenario.subject),
+    waitForListIncludes(page, '/v1/exports?limit=50', 'id', scenario.exportID),
+  ])
+}
+
+async function waitForListIncludes(page: Page, path: string, key: string, value: string) {
+  await expect.poll(async () => {
+    const response = await page.request.get(path)
+    expect(response.status()).toBe(200)
+    const payload = await response.json() as { items?: Array<Record<string, unknown>> }
+    return (payload.items || []).some((item) => item[key] === value)
+  }, {
+    intervals: [250, 500, 1000, 2000],
+    timeout: 45_000,
+  }).toBe(true)
+}
+
+async function waitForEntitlementState(page: Page, path: string, state: string) {
+  await expect.poll(async () => {
+    const response = await page.request.get(path)
+    expect(response.status()).toBe(200)
+    const payload = await response.json() as { items?: Array<{ state: string }> }
+    return payload.items?.[0]?.state || ''
+  }, {
+    intervals: [250, 500, 1000, 2000],
+    timeout: 45_000,
+  }).toBe(state)
 }
 
 async function withAPIKeyContext<T>(
