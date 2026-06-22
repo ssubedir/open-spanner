@@ -32,11 +32,17 @@ export function PlansPage() {
   useInitialLoad(load)
 
   async function submitCreate(input: PlanSaveRequest) {
-    await appStoreActions.createPlan(input)
+    const plan = await appStoreActions.createPlan(input)
+    if (plan) {
+      void router.navigate({ to: '/plans/$planId', params: { planId: plan.id } })
+    }
   }
 
   async function submitUpdate(input: PlanSaveRequest) {
-    await appStoreActions.updateEditingPlan(input)
+    const plan = await appStoreActions.updateEditingPlan(input)
+    if (plan) {
+      void router.navigate({ to: '/plans/$planId', params: { planId: plan.id } })
+    }
   }
 
   async function confirmDelete() {

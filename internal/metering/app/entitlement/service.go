@@ -626,6 +626,9 @@ func (s *service) AssignSubject(ctx context.Context, cmd AssignSubjectCommand) (
 	if err != nil {
 		return SubjectAssignmentResult{}, err
 	}
+	if !plan.Plan.IsCurrent {
+		return SubjectAssignmentResult{}, errors.Join(domain.ErrConflict, errors.New("plan version is not current"))
+	}
 
 	now := s.now()
 	effectiveAt := cmd.EffectiveAt.UTC()

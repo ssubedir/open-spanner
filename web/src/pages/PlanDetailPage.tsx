@@ -6,6 +6,7 @@ import { type FormEvent, useCallback, useEffect, useState } from 'react'
 import { appStore, appStoreActions } from '../app-store'
 import { DetailLoadingPage, DetailStatePage, Modal, PageHeader } from '../components/dashboard'
 import { EntitlementEventDetail } from '../components/entitlement-event-detail'
+import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { Input } from '../components/ui/input'
@@ -55,8 +56,9 @@ export function PlanDetailPage({ planId }: { planId: string }) {
   const load = useCallback(() => appStoreActions.loadPlans(), [])
   const pollEntitlementActivity = useCallback(() => appStoreActions.loadPlanEntitlementActivity({ quiet: true }), [])
   const plan = items.find((item) => item.id === planId) ?? null
+  const planFamilyName = plan?.name ?? ''
   const planAssignments = assignments.filter((assignment) => assignment.plan_id === planId)
-  const planAssignmentHistory = assignmentHistory.filter((assignment) => assignment.plan_id === planId)
+  const planAssignmentHistory = assignmentHistory.filter((assignment) => assignment.plan_id === planId || (planFamilyName !== '' && assignment.plan_name === planFamilyName))
   const planStates = entitlementStates.filter((state) => state.plan_id === planId)
   const planEvents = entitlementEvents.filter((event) => event.plan_id === planId)
   const planSnapshots = entitlementPeriodSnapshots.filter((snapshot) => snapshot.plan_id === planId)
@@ -98,7 +100,10 @@ export function PlanDetailPage({ planId }: { planId: string }) {
   }
 
   async function submitUpdate(input: PlanSaveRequest) {
-    await appStoreActions.updateEditingPlan(input)
+    const updatedPlan = await appStoreActions.updateEditingPlan(input)
+    if (updatedPlan && updatedPlan.id !== planId) {
+      void router.navigate({ to: '/plans/$planId', params: { planId: updatedPlan.id } })
+    }
   }
 
   async function confirmDelete() {
@@ -171,6 +176,11 @@ export function PlanDetailPage({ planId }: { planId: string }) {
               </div>
             </CardHeader>
             <CardContent className="grid gap-3 !p-4">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+                <Badge variant={plan.is_current ? 'success' : 'muted'}>{plan.is_current ? 'Current version' : 'Historical version'}</Badge>
+                <Badge variant="muted">v{plan.version}</Badge>
+                {plan.parent_plan_id ? <span>Created from a previous version.</span> : <span>Original version.</span>}
+              </div>
               {plan ? <LimitChips limits={plan.limits} /> : <span className="muted">Loading limits</span>}
             </CardContent>
           </Card>

@@ -824,6 +824,13 @@ func runIntegrationPlanEntitlementFlow(t *testing.T, cfg config.Config, namespac
 		t.Fatalf("assignment history before reassign = %#v, want active v1 assignment", assignmentHistory)
 	}
 
+	assignRetiredPlan := requestJSONWithHeaders(t, router, http.MethodPut, "/v1/plans/subjects/"+url.PathEscape(subject+"_retired"), map[string]any{
+		"plan_id": plan.ID,
+	}, identity.Headers, nil)
+	if assignRetiredPlan.Code != http.StatusConflict {
+		t.Fatalf("assign retired plan status = %d, want %d: %s", assignRetiredPlan.Code, http.StatusConflict, assignRetiredPlan.Body.String())
+	}
+
 	createSDKKey := requestJSON(t, router, http.MethodPost, "/v1/auth/api-keys", map[string]any{
 		"name": "entitlement-sdk-" + suffix,
 	}, identity.Cookies)

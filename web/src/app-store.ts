@@ -1073,9 +1073,10 @@ export const appStoreActions = {
   async createPlan(input: PlanSaveRequest) {
     setPlansState({ error: '', saving: true })
     try {
-      await createPlanRequest(input)
+      const plan = await createPlanRequest(input)
       await appStoreActions.loadPlans()
       setPlansState({ creating: false })
+      return plan
     } catch (err) {
       setPlansState({ error: errorMessage(err, 'Unable to create plan') })
       throw err
@@ -1090,9 +1091,10 @@ export const appStoreActions = {
     }
     setPlansState({ error: '', saving: true })
     try {
-      await updatePlanRequest(editing.id, input)
+      const plan = await updatePlanRequest(editing.id, input)
       await appStoreActions.loadPlans()
       setPlansState({ editing: null })
+      return plan
     } catch (err) {
       setPlansState({ error: errorMessage(err, 'Unable to update plan') })
       throw err
