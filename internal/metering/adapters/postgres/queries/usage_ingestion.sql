@@ -1,4 +1,4 @@
--- name: SaveUsageEvent :exec
+-- name: SaveUsageEvent :execrows
 INSERT INTO usage_events (
 	id,
 	workspace_id,
@@ -19,7 +19,8 @@ INSERT INTO usage_events (
 	sqlc.arg('event_time'),
 	sqlc.arg('received_at'),
 	sqlc.arg('metadata')::jsonb
-);
+)
+ON CONFLICT DO NOTHING;
 
 -- name: FindUsageEventByID :one
 SELECT id, idempotency_key, subject, meter_name, quantity, event_time, received_at, metadata
@@ -33,9 +34,10 @@ FROM usage_events
 WHERE workspace_id = sqlc.arg('workspace_id')::text
 	AND idempotency_key = sqlc.arg('idempotency_key')::text;
 
--- name: SaveBulkUsageIngestion :exec
+-- name: SaveBulkUsageIngestion :execrows
 INSERT INTO bulk_usage_ingestions (workspace_id, idempotency_key, response, created_at)
-VALUES ($1, $2, $3, $4);
+VALUES ($1, $2, $3, $4)
+ON CONFLICT DO NOTHING;
 
 -- name: FindBulkUsageIngestion :one
 SELECT response

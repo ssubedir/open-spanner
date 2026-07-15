@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -239,6 +240,208 @@ func TestIntegrationPostgresPlanEntitlementFlow(t *testing.T) {
 		PostgresDSN: dsn,
 		DBPool:      config.DBPoolConfig{MaxOpenConns: 1},
 	}, "postgres")
+}
+
+func TestIntegrationSQLiteConcurrentUsageIdempotency(t *testing.T) {
+	runIntegrationConcurrentUsageIdempotency(t, config.Config{
+		DBDriver:   "sqlite",
+		SQLitePath: t.TempDir() + "/concurrent-idempotency.db",
+		DBPool:     config.DBPoolConfig{MaxOpenConns: 8},
+	}, "sqlite")
+}
+
+func TestIntegrationPostgresConcurrentUsageIdempotency(t *testing.T) {
+	dsn := os.Getenv("OPEN_SPANNER_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set OPEN_SPANNER_TEST_POSTGRES_DSN to run Postgres bootstrap integration tests")
+	}
+
+	runIntegrationConcurrentUsageIdempotency(t, config.Config{
+		DBDriver:    "postgres",
+		PostgresDSN: dsn,
+		DBPool:      config.DBPoolConfig{MaxOpenConns: 8},
+	}, "postgres")
+}
+
+func runIntegrationConcurrentUsageIdempotency(t *testing.T, cfg config.Config, namespace string) {
+	t.Helper()
+
+	ctx := context.Background()
+	router := chi.NewRouter()
+	app, err := RegisterRoutes(ctx, router, cfg)
+	if err != nil {
+		t.Fatalf("register routes: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := app.Cleanup(); err != nil {
+			t.Fatalf("cleanup: %v", err)
+		}
+	})
+
+	suffix := namespace + "_concurrent_" + strconv.FormatInt(time.Now().UTC().UnixNano(), 36)
+	meterName := "requests_" + suffix
+	subject := "subject_" + suffix
+	authHeaders := map[string]string{
+		"Authorization": "Bearer " + createTestDashboardAPIKey(t, router, "concurrent+"+suffix+"@example.com"),
+	}
+	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name":        meterName,
+		"description": "Concurrent idempotency test",
+		"unit":        "request",
+		"aggregation": "sum",
+		"dimensions":  []any{},
+	}, authHeaders, nil)
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
+	}
+
+	payload, err := json.Marshal(map[string]any{
+		"idempotency_key": "concurrent-event-" + suffix,
+		"subject":         subject,
+		"meter":           meterName,
+		"quantity":        1,
+		"timestamp":       "2026-06-08T10:00:00Z",
+		"metadata":        map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("marshal usage payload: %v", err)
+	}
+
+	const requests = 16
+	type response struct {
+		status int
+		body   string
+		event  usageEventResponse
+		err    error
+	}
+	responses := make(chan response, requests)
+	start := make(chan struct{})
+	var ready sync.WaitGroup
+	ready.Add(requests)
+	for range requests {
+		go func() {
+			ready.Done()
+			<-start
+			req := httptest.NewRequest(http.MethodPost, "/v1/usages", bytes.NewReader(payload))
+			req.Header.Set("Content-Type", "application/json")
+			for key, value := range authHeaders {
+				req.Header.Set(key, value)
+			}
+			res := httptest.NewRecorder()
+			router.ServeHTTP(res, req)
+			var event usageEventResponse
+			decodeErr := json.NewDecoder(res.Body).Decode(&event)
+			responses <- response{status: res.Code, body: res.Body.String(), event: event, err: decodeErr}
+		}()
+	}
+	ready.Wait()
+	close(start)
+
+	eventIDs := map[string]struct{}{}
+	for range requests {
+		res := <-responses
+		if res.status != http.StatusCreated {
+			t.Errorf("concurrent create status = %d, want %d: %s", res.status, http.StatusCreated, res.body)
+			continue
+		}
+		if res.err != nil {
+			t.Errorf("decode concurrent create response: %v", res.err)
+			continue
+		}
+		eventIDs[res.event.ID] = struct{}{}
+	}
+	if len(eventIDs) != 1 {
+		t.Fatalf("concurrent create returned %d event IDs, want one: %#v", len(eventIDs), eventIDs)
+	}
+
+	bulkPayload, err := json.Marshal([]map[string]any{
+		{
+			"idempotency_key": "concurrent-bulk-event-1-" + suffix,
+			"subject":         subject,
+			"meter":           meterName,
+			"quantity":        2,
+			"timestamp":       "2026-06-08T11:00:00Z",
+			"metadata":        map[string]any{},
+		},
+		{
+			"idempotency_key": "concurrent-bulk-event-2-" + suffix,
+			"subject":         subject,
+			"meter":           meterName,
+			"quantity":        3,
+			"timestamp":       "2026-06-08T12:00:00Z",
+			"metadata":        map[string]any{},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal bulk usage payload: %v", err)
+	}
+	type bulkResponse struct {
+		AcceptedCount int                  `json:"accepted"`
+		Accepted      []usageEventResponse `json:"accepted_items"`
+	}
+	type bulkResult struct {
+		status int
+		body   string
+		result bulkResponse
+		err    error
+	}
+	bulkResponses := make(chan bulkResult, requests)
+	bulkStart := make(chan struct{})
+	ready = sync.WaitGroup{}
+	ready.Add(requests)
+	for range requests {
+		go func() {
+			ready.Done()
+			<-bulkStart
+			req := httptest.NewRequest(http.MethodPost, "/v1/usages/bulk", bytes.NewReader(bulkPayload))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Idempotency-Key", "concurrent-bulk-"+suffix)
+			for key, value := range authHeaders {
+				req.Header.Set(key, value)
+			}
+			res := httptest.NewRecorder()
+			router.ServeHTTP(res, req)
+			body := res.Body.String()
+			var result bulkResponse
+			decodeErr := json.Unmarshal([]byte(body), &result)
+			bulkResponses <- bulkResult{status: res.Code, body: body, result: result, err: decodeErr}
+		}()
+	}
+	ready.Wait()
+	close(bulkStart)
+
+	bulkEventIDSets := map[string]struct{}{}
+	for range requests {
+		res := <-bulkResponses
+		if res.status != http.StatusCreated {
+			t.Errorf("concurrent bulk status = %d, want %d: %s", res.status, http.StatusCreated, res.body)
+			continue
+		}
+		if res.err != nil {
+			t.Errorf("decode concurrent bulk response: %v", res.err)
+			continue
+		}
+		if res.result.AcceptedCount != 2 || len(res.result.Accepted) != 2 {
+			t.Errorf("concurrent bulk accepted = %d/%d, want 2/2: %s", res.result.AcceptedCount, len(res.result.Accepted), res.body)
+			continue
+		}
+		ids := []string{res.result.Accepted[0].ID, res.result.Accepted[1].ID}
+		sort.Strings(ids)
+		bulkEventIDSets[strings.Join(ids, ",")] = struct{}{}
+	}
+	if len(bulkEventIDSets) != 1 {
+		t.Fatalf("concurrent bulk returned %d event ID sets, want one: %#v", len(bulkEventIDSets), bulkEventIDSets)
+	}
+
+	eventsRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/usageevents?meter="+url.QueryEscape(meterName)+"&subject="+url.QueryEscape(subject), nil, authHeaders, nil)
+	if eventsRes.Code != http.StatusOK {
+		t.Fatalf("list usage events status = %d, want %d: %s", eventsRes.Code, http.StatusOK, eventsRes.Body.String())
+	}
+	var events usageEventListResponse
+	decodeJSON(t, eventsRes, &events)
+	if len(events.Items) != 3 {
+		t.Fatalf("stored concurrent usage events = %d, want three: %#v", len(events.Items), events.Items)
+	}
 }
 
 func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace string) {

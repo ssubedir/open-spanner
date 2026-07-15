@@ -94,28 +94,23 @@ func (r *UsageRepository) SaveBulk(ctx context.Context, idempotencyKey string, e
 			return err
 		}
 
-		err = queriesFor(txCtx, r.queries).SaveBulkUsageIngestion(txCtx, sqlitedb.SaveBulkUsageIngestionParams{
+		rowsAffected, err := queriesFor(txCtx, r.queries).SaveBulkUsageIngestion(txCtx, sqlitedb.SaveBulkUsageIngestionParams{
 			IdempotencyKey: idempotencyKey,
 			WorkspaceID:    workspaceID,
 			Response:       response,
 			CreatedAt:      formatTime(time.Now().UTC()),
 		})
 		if err != nil {
-			if isUniqueConstraint(err) {
-				existing, findErr := r.findBulk(ctx, idempotencyKey)
-				if findErr != nil {
-					return findErr
-				}
-				result = existing
-				return errBulkReplay
-			}
 			return err
+		}
+		if rowsAffected == 0 {
+			return errBulkReplay
 		}
 
 		return nil
 	})
 	if errors.Is(err, errBulkReplay) {
-		return result, nil
+		return r.findBulk(ctx, idempotencyKey)
 	}
 	if err != nil {
 		return domainusage.BulkSaveResult{}, err
@@ -160,7 +155,7 @@ func (r *UsageRepository) saveWithDuplicate(ctx context.Context, event domainusa
 		return domainusage.Event{}, false, err
 	}
 
-	err = queriesFor(ctx, r.queries).SaveUsageEvent(ctx, sqlitedb.SaveUsageEventParams{
+	rowsAffected, err := queriesFor(ctx, r.queries).SaveUsageEvent(ctx, sqlitedb.SaveUsageEventParams{
 		ID:             event.ID(),
 		WorkspaceID:    workspaceID,
 		IdempotencyKey: event.IdempotencyKey(),
@@ -172,14 +167,19 @@ func (r *UsageRepository) saveWithDuplicate(ctx context.Context, event domainusa
 		Metadata:       string(metadata),
 	})
 	if err != nil {
-		if isUniqueConstraint(err) && event.IdempotencyKey() != "" {
+		return domainusage.Event{}, false, err
+	}
+	if rowsAffected == 0 {
+		if _, findErr := r.findByID(ctx, event.ID()); findErr == nil {
+			return domainusage.Event{}, false, domain.ErrConflict
+		} else if findErr != sql.ErrNoRows {
+			return domainusage.Event{}, false, findErr
+		}
+		if event.IdempotencyKey() != "" {
 			existing, findErr := r.findByIdempotencyKey(ctx, event.IdempotencyKey())
 			return existing, true, findErr
 		}
-		if isUniqueConstraint(err) {
-			return domainusage.Event{}, false, errors.Join(domain.ErrConflict, err)
-		}
-		return domainusage.Event{}, false, err
+		return domainusage.Event{}, false, domain.ErrConflict
 	}
 
 	if err := queriesFor(ctx, r.queries).IncrementWorkspaceUsageEvents(ctx, sqlitedb.IncrementWorkspaceUsageEventsParams{

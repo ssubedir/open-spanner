@@ -107,9 +107,10 @@ func (q *Queries) FindUsageEventByIdempotencyKey(ctx context.Context, arg FindUs
 	return i, err
 }
 
-const saveBulkUsageIngestion = `-- name: SaveBulkUsageIngestion :exec
+const saveBulkUsageIngestion = `-- name: SaveBulkUsageIngestion :execrows
 INSERT INTO bulk_usage_ingestions (workspace_id, idempotency_key, response, created_at)
 VALUES (?, ?, ?, ?)
+ON CONFLICT DO NOTHING
 `
 
 type SaveBulkUsageIngestionParams struct {
@@ -119,17 +120,20 @@ type SaveBulkUsageIngestionParams struct {
 	CreatedAt      string
 }
 
-func (q *Queries) SaveBulkUsageIngestion(ctx context.Context, arg SaveBulkUsageIngestionParams) error {
-	_, err := q.db.ExecContext(ctx, saveBulkUsageIngestion,
+func (q *Queries) SaveBulkUsageIngestion(ctx context.Context, arg SaveBulkUsageIngestionParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, saveBulkUsageIngestion,
 		arg.WorkspaceID,
 		arg.IdempotencyKey,
 		arg.Response,
 		arg.CreatedAt,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
-const saveUsageEvent = `-- name: SaveUsageEvent :exec
+const saveUsageEvent = `-- name: SaveUsageEvent :execrows
 INSERT INTO usage_events (
 	id,
 	workspace_id,
@@ -151,6 +155,7 @@ INSERT INTO usage_events (
 	?8,
 	?9
 )
+ON CONFLICT DO NOTHING
 `
 
 type SaveUsageEventParams struct {
@@ -165,8 +170,8 @@ type SaveUsageEventParams struct {
 	Metadata       string
 }
 
-func (q *Queries) SaveUsageEvent(ctx context.Context, arg SaveUsageEventParams) error {
-	_, err := q.db.ExecContext(ctx, saveUsageEvent,
+func (q *Queries) SaveUsageEvent(ctx context.Context, arg SaveUsageEventParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, saveUsageEvent,
 		arg.ID,
 		arg.WorkspaceID,
 		arg.IdempotencyKey,
@@ -177,5 +182,8 @@ func (q *Queries) SaveUsageEvent(ctx context.Context, arg SaveUsageEventParams) 
 		arg.ReceivedAt,
 		arg.Metadata,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
