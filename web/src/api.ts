@@ -17,6 +17,7 @@ export type SystemStats = {
 		dry_run: boolean
 		created_at: string
 	}
+	last_reconciliation_run: ReconciliationRun | null
 }
 
 export type ConsumptionDecision = {
@@ -65,6 +66,21 @@ export type ReconciliationResult = {
 	truncated: boolean
 	lookback_hours: number
 	checked_at: string
+}
+
+export type ReconciliationRun = {
+	id: string
+	status: 'healthy' | 'drift_detected' | 'failed'
+	decisions_checked: number
+	counters_checked: number
+	issue_count: number
+	truncated: boolean
+	lookback_hours: number
+	duration_ms: number
+	fingerprint?: string
+	issues: ReconciliationIssue[]
+	error?: string
+	created_at: string
 }
 
 export type CounterSnapshot = {
@@ -982,6 +998,10 @@ export async function repairQuotaCounter(input: { subject: string; meter: string
 
 export async function listQuotaCounterRepairs(limit = 50) {
 	return request<{ items: CounterRepair[] }>(`/v1/system/reconciliation/repairs?limit=${limit}`)
+}
+
+export async function listReconciliationRuns(limit = 50) {
+	return request<{ items: ReconciliationRun[] }>(`/v1/system/reconciliation/runs?limit=${limit}`)
 }
 
 export async function listConsumptionDecisions(query: { subject?: string; meter?: string; outcome?: string; evaluation_failed?: boolean; enforcement?: string; state?: string; limit?: number; cursor?: string } = {}) {

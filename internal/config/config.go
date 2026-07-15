@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -39,6 +40,16 @@ type Config struct {
 	RetentionPruneInterval       time.Duration
 	RetentionPruneTimeout        time.Duration
 	ConsumptionDecisionRetention time.Duration
+	ReconciliationEnabled        bool
+	ReconciliationPollInterval   time.Duration
+	ReconciliationSchedule       time.Duration
+	ReconciliationLockTTL        time.Duration
+	ReconciliationTimeout        time.Duration
+	ReconciliationRetryAfter     time.Duration
+	ReconciliationLimit          int
+	ReconciliationLookbackHours  int
+	ReconciliationWebhookURL     string
+	ReconciliationWebhookSecret  string
 }
 
 type OAuthConfig struct {
@@ -80,6 +91,38 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	decisionRetention, err := envDuration("OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION", 30*24*time.Hour)
+	if err != nil {
+		return Config{}, err
+	}
+	reconciliationEnabled, err := envBool("OPEN_SPANNER_RECONCILIATION_ENABLED", false)
+	if err != nil {
+		return Config{}, err
+	}
+	reconciliationPoll, err := envDuration("OPEN_SPANNER_RECONCILIATION_POLL_INTERVAL", 5*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	reconciliationSchedule, err := envDuration("OPEN_SPANNER_RECONCILIATION_SCHEDULE", 15*time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	reconciliationLockTTL, err := envDuration("OPEN_SPANNER_RECONCILIATION_LOCK_TTL", 5*time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	reconciliationTimeout, err := envDuration("OPEN_SPANNER_RECONCILIATION_TIMEOUT", 2*time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	reconciliationRetryAfter, err := envDuration("OPEN_SPANNER_RECONCILIATION_RETRY_AFTER", time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	reconciliationLimit, err := envInt("OPEN_SPANNER_RECONCILIATION_LIMIT", 100)
+	if err != nil {
+		return Config{}, err
+	}
+	reconciliationLookback, err := envInt("OPEN_SPANNER_RECONCILIATION_LOOKBACK_HOURS", 24)
 	if err != nil {
 		return Config{}, err
 	}
@@ -189,6 +232,16 @@ func Load() (Config, error) {
 		RetentionPruneInterval:       retentionInterval,
 		RetentionPruneTimeout:        retentionTimeout,
 		ConsumptionDecisionRetention: decisionRetention,
+		ReconciliationEnabled:        reconciliationEnabled,
+		ReconciliationPollInterval:   reconciliationPoll,
+		ReconciliationSchedule:       reconciliationSchedule,
+		ReconciliationLockTTL:        reconciliationLockTTL,
+		ReconciliationTimeout:        reconciliationTimeout,
+		ReconciliationRetryAfter:     reconciliationRetryAfter,
+		ReconciliationLimit:          reconciliationLimit,
+		ReconciliationLookbackHours:  reconciliationLookback,
+		ReconciliationWebhookURL:     env("OPEN_SPANNER_RECONCILIATION_WEBHOOK_URL", ""),
+		ReconciliationWebhookSecret:  env("OPEN_SPANNER_RECONCILIATION_WEBHOOK_SECRET", ""),
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -304,6 +357,21 @@ func (cfg Config) Validate() error {
 	}
 	if cfg.ConsumptionDecisionRetention <= 0 {
 		return fmt.Errorf("OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION must be greater than zero")
+	}
+	if cfg.ReconciliationPollInterval <= 0 || cfg.ReconciliationSchedule <= 0 || cfg.ReconciliationLockTTL <= 0 || cfg.ReconciliationTimeout <= 0 || cfg.ReconciliationRetryAfter <= 0 {
+		return fmt.Errorf("reconciliation durations must be greater than zero")
+	}
+	if cfg.ReconciliationLimit < 1 || cfg.ReconciliationLimit > 500 {
+		return fmt.Errorf("OPEN_SPANNER_RECONCILIATION_LIMIT must be between 1 and 500")
+	}
+	if cfg.ReconciliationLookbackHours < 1 || cfg.ReconciliationLookbackHours > 720 {
+		return fmt.Errorf("OPEN_SPANNER_RECONCILIATION_LOOKBACK_HOURS must be between 1 and 720")
+	}
+	if cfg.ReconciliationWebhookURL != "" {
+		webhookURL, err := url.ParseRequestURI(cfg.ReconciliationWebhookURL)
+		if err != nil || webhookURL.Host == "" || (webhookURL.Scheme != "http" && webhookURL.Scheme != "https") {
+			return fmt.Errorf("OPEN_SPANNER_RECONCILIATION_WEBHOOK_URL must be an absolute HTTP(S) URL")
+		}
 	}
 
 	return nil

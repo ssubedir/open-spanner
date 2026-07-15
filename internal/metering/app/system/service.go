@@ -15,6 +15,11 @@ type Service interface {
 	Reconcile(ctx context.Context, query ReconciliationQuery) (ReconciliationResult, error)
 	RepairCounter(ctx context.Context, cmd RepairCounterCommand) (CounterRepairResult, error)
 	ListCounterRepairRuns(ctx context.Context, limit int) ([]CounterRepairResult, error)
+	ClaimScheduledReconciliation(ctx context.Context, now, lockedUntil time.Time) (ReconciliationClaim, bool, error)
+	RunScheduledReconciliation(ctx context.Context, claim ReconciliationClaim, scheduleInterval time.Duration, query ReconciliationQuery) (ReconciliationRun, bool, error)
+	FailScheduledReconciliation(ctx context.Context, claim ReconciliationClaim, retryAt time.Time, runErr error) error
+	MarkReconciliationNotified(ctx context.Context, workspaceID, fingerprint string) error
+	ListReconciliationRuns(ctx context.Context, limit int) ([]ReconciliationRun, error)
 }
 
 type service struct {
@@ -33,6 +38,12 @@ type Repository interface {
 	SaveQuotaCounterRepairRun(ctx context.Context, run CounterRepairResult) error
 	ListQuotaCounterRepairRuns(ctx context.Context, limit int) ([]CounterRepairResult, error)
 	FindLatestMeterPruneCutoff(ctx context.Context, meterName string) (time.Time, error)
+	ClaimReconciliationSchedule(ctx context.Context, now, lockedUntil time.Time) (ReconciliationClaim, bool, error)
+	SaveReconciliationRun(ctx context.Context, workspaceID string, run ReconciliationRun) error
+	CompleteReconciliationSchedule(ctx context.Context, workspaceID, fingerprint string, nextRunAt time.Time) error
+	FailReconciliationSchedule(ctx context.Context, workspaceID string, nextRunAt time.Time) error
+	MarkReconciliationNotified(ctx context.Context, workspaceID, fingerprint string) error
+	ListReconciliationRuns(ctx context.Context, limit int) ([]ReconciliationRun, error)
 }
 
 const (
@@ -58,16 +69,16 @@ type ReconciliationResult struct {
 }
 
 type ReconciliationIssue struct {
-	Kind           string
-	Severity       string
-	Subject        string
-	MeterName      string
-	IdempotencyKey string
-	Period         string
-	PeriodStart    time.Time
-	Expected       string
-	Actual         string
-	Message        string
+	Kind           string    `json:"kind"`
+	Severity       string    `json:"severity"`
+	Subject        string    `json:"subject,omitempty"`
+	MeterName      string    `json:"meter,omitempty"`
+	IdempotencyKey string    `json:"idempotency_key,omitempty"`
+	Period         string    `json:"period,omitempty"`
+	PeriodStart    time.Time `json:"period_start,omitempty"`
+	Expected       string    `json:"expected"`
+	Actual         string    `json:"actual"`
+	Message        string    `json:"message"`
 }
 
 type DecisionReconciliationRow struct {
@@ -114,13 +125,14 @@ type ReconciliationAssignment struct {
 }
 
 type StatsResult struct {
-	Meters               int
-	UsageEvents          int
-	PruneRuns            int
-	LastPruneRun         LastPruneRunResult
-	ConsumptionDecisions int
-	DecisionPruneRuns    int
-	LastDecisionPruneRun LastDecisionPruneRunResult
+	Meters                int
+	UsageEvents           int
+	PruneRuns             int
+	LastPruneRun          LastPruneRunResult
+	ConsumptionDecisions  int
+	DecisionPruneRuns     int
+	LastDecisionPruneRun  LastDecisionPruneRunResult
+	LastReconciliationRun ReconciliationRun
 }
 
 type LastDecisionPruneRunResult struct {
@@ -146,7 +158,18 @@ func NewService(repo Repository, transactor apptransaction.Transactor) Service {
 }
 
 func (s *service) Stats(ctx context.Context) (StatsResult, error) {
-	return s.repo.FindStats(ctx)
+	stats, err := s.repo.FindStats(ctx)
+	if err != nil {
+		return StatsResult{}, err
+	}
+	runs, err := s.repo.ListReconciliationRuns(ctx, 1)
+	if err != nil {
+		return StatsResult{}, err
+	}
+	if len(runs) > 0 {
+		stats.LastReconciliationRun = runs[0]
+	}
+	return stats, nil
 }
 
 func (s *service) Reconcile(ctx context.Context, query ReconciliationQuery) (ReconciliationResult, error) {

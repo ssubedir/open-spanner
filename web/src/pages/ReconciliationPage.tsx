@@ -1,7 +1,7 @@
 import { ScanSearch } from 'lucide-react'
 import { useCallback, useState } from 'react'
 
-import { listQuotaCounterRepairs, reconcileQuotaRecords, repairQuotaCounter, type CounterRepair, type ReconciliationIssue, type ReconciliationResult } from '../api'
+import { listQuotaCounterRepairs, listReconciliationRuns, reconcileQuotaRecords, repairQuotaCounter, type CounterRepair, type ReconciliationIssue, type ReconciliationResult, type ReconciliationRun } from '../api'
 import { DataTable, MetricCard, Modal, PageHeader } from '../components/dashboard'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
@@ -13,13 +13,14 @@ export function ReconciliationPage() {
 	const [loading, setLoading] = useState(false)
 	const [error, setError] = useState('')
 	const [preview, setPreview] = useState<CounterRepair | null>(null)
-	const [runs, setRuns] = useState<CounterRepair[]>([])
+	const [repairRuns, setRepairRuns] = useState<CounterRepair[]>([])
+	const [scheduledRuns, setScheduledRuns] = useState<ReconciliationRun[]>([])
 	const load = useCallback(async () => {
 		setLoading(true)
 		setError('')
 		try {
-			const [scan, history] = await Promise.all([reconcileQuotaRecords(), listQuotaCounterRepairs()])
-			setResult(scan); setRuns(history.items)
+			const [scan, repairs, scheduled] = await Promise.all([reconcileQuotaRecords(), listQuotaCounterRepairs(), listReconciliationRuns()])
+			setResult(scan); setRepairRuns(repairs.items); setScheduledRuns(scheduled.items)
 		}
 		catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to reconcile quota records') }
 		finally { setLoading(false) }
@@ -57,8 +58,12 @@ export function ReconciliationPage() {
 			<Badge variant="warning">{issue.severity}</Badge>, <span className="font-mono text-xs">{issue.kind}</span>, issue.subject ?? '—', issue.meter ?? '—', issue.expected, issue.actual, issue.message,
 			issue.kind.startsWith('counter_') ? <Button disabled={loading} onClick={() => void previewRepair(issue)} size="sm" type="button" variant="outline">Preview repair</Button> : <span className="text-xs text-muted">Manual review</span>,
 		])} />
+		<h2 className="mb-3 mt-6 text-lg font-semibold">Scheduled scan history</h2>
+		<DataTable emptyLabel="No scheduled reconciliation runs yet." headers={['Time', 'Status', 'Issues', 'Decisions', 'Counters', 'Duration', 'Details']} rows={scheduledRuns.map((run) => [
+			formatDate(run.created_at), <Badge variant={run.status === 'healthy' ? 'success' : 'warning'}>{run.status.replaceAll('_', ' ')}</Badge>, formatNumber(run.issue_count), formatNumber(run.decisions_checked), formatNumber(run.counters_checked), `${formatNumber(run.duration_ms)} ms`, run.error || (run.truncated ? 'Bounded result' : 'Complete bounded scan'),
+		])} />
 		<h2 className="mb-3 mt-6 text-lg font-semibold">Repair history</h2>
-		<DataTable emptyLabel="No repair previews or applications yet." headers={['Time', 'Mode', 'Subject', 'Meter', 'Period', 'Events before', 'Events after']} rows={runs.map((run) => [
+		<DataTable emptyLabel="No repair previews or applications yet." headers={['Time', 'Mode', 'Subject', 'Meter', 'Period', 'Events before', 'Events after']} rows={repairRuns.map((run) => [
 			formatDate(run.created_at), <Badge variant={run.applied ? 'success' : 'muted'}>{run.applied ? 'Applied' : 'Preview'}</Badge>, run.subject, run.meter, run.period, formatNumber(run.before.event_count), formatNumber(run.after.event_count),
 		])} />
 		{preview ? <RepairPreviewModal loading={loading} onApply={() => void applyRepair()} onClose={() => setPreview(null)} preview={preview} /> : null}

@@ -18,6 +18,39 @@ type reconciliationRepository struct {
 	pruneCutoff time.Time
 }
 
+func (r *reconciliationRepository) ClaimReconciliationSchedule(context.Context, time.Time, time.Time) (ReconciliationClaim, bool, error) {
+	return ReconciliationClaim{}, false, nil
+}
+func (r *reconciliationRepository) SaveReconciliationRun(context.Context, string, ReconciliationRun) error {
+	return nil
+}
+func (r *reconciliationRepository) CompleteReconciliationSchedule(context.Context, string, string, time.Time) error {
+	return nil
+}
+func (r *reconciliationRepository) FailReconciliationSchedule(context.Context, string, time.Time) error {
+	return nil
+}
+func (r *reconciliationRepository) MarkReconciliationNotified(context.Context, string, string) error {
+	return nil
+}
+func (r *reconciliationRepository) ListReconciliationRuns(context.Context, int) ([]ReconciliationRun, error) {
+	return nil, nil
+}
+
+func TestReconciliationFingerprintIsStable(t *testing.T) {
+	first := ReconciliationIssue{Kind: "counter_quantity_sum_mismatch", Subject: "customer", MeterName: "requests", Expected: "4", Actual: "3"}
+	second := ReconciliationIssue{Kind: "accepted_decision_missing_event", IdempotencyKey: "decision"}
+	left := reconciliationFingerprint([]ReconciliationIssue{first, second})
+	right := reconciliationFingerprint([]ReconciliationIssue{second, first})
+	if left == "" || left != right {
+		t.Fatalf("fingerprints left=%q right=%q", left, right)
+	}
+	second.IdempotencyKey = "changed"
+	if reconciliationFingerprint([]ReconciliationIssue{first, second}) == left {
+		t.Fatal("fingerprint did not change with issue identity")
+	}
+}
+
 type directTransactor struct{}
 
 func (directTransactor) WithinTransaction(ctx context.Context, fn func(context.Context) error) error {

@@ -9,6 +9,61 @@ WHERE d.workspace_id = sqlc.arg('workspace_id')
 ORDER BY d.created_at DESC, d.idempotency_key DESC
 LIMIT sqlc.arg('limit');
 
+-- name: EnsureReconciliationSchedules :exec
+INSERT INTO reconciliation_schedules (workspace_id, next_run_at, updated_at)
+SELECT id, sqlc.arg('now'), sqlc.arg('now')
+FROM auth_workspaces
+WHERE 1
+ON CONFLICT (workspace_id) DO NOTHING;
+
+-- name: ClaimReconciliationSchedule :one
+UPDATE reconciliation_schedules
+SET locked_until = sqlc.arg('locked_until'), updated_at = sqlc.arg('now')
+WHERE workspace_id = (
+	SELECT workspace_id FROM reconciliation_schedules
+	WHERE julianday(next_run_at) <= julianday(sqlc.arg('now'))
+		AND (locked_until IS NULL OR julianday(locked_until) <= julianday(sqlc.arg('now')))
+	ORDER BY next_run_at, workspace_id LIMIT 1
+)
+RETURNING workspace_id, last_fingerprint, last_notified_fingerprint;
+
+-- name: SaveReconciliationRun :exec
+INSERT INTO reconciliation_runs (
+	id, workspace_id, status, decisions_checked, counters_checked, issue_count,
+	truncated, lookback_hours, duration_ms, fingerprint, issues, error, created_at
+) VALUES (
+	sqlc.arg('id'), sqlc.arg('workspace_id'), sqlc.arg('status'),
+	sqlc.arg('decisions_checked'), sqlc.arg('counters_checked'), sqlc.arg('issue_count'),
+	sqlc.arg('truncated'), sqlc.arg('lookback_hours'), sqlc.arg('duration_ms'),
+	sqlc.arg('fingerprint'), sqlc.arg('issues'), sqlc.arg('error'), sqlc.arg('created_at')
+);
+
+-- name: CompleteReconciliationSchedule :exec
+UPDATE reconciliation_schedules
+SET next_run_at = sqlc.arg('next_run_at'), locked_until = NULL,
+	last_fingerprint = sqlc.arg('fingerprint'),
+	last_notified_fingerprint = CASE WHEN sqlc.arg('fingerprint') = '' THEN '' ELSE last_notified_fingerprint END,
+	updated_at = sqlc.arg('updated_at')
+WHERE workspace_id = sqlc.arg('workspace_id');
+
+-- name: FailReconciliationSchedule :exec
+UPDATE reconciliation_schedules
+SET next_run_at = sqlc.arg('next_run_at'), locked_until = NULL, updated_at = sqlc.arg('updated_at')
+WHERE workspace_id = sqlc.arg('workspace_id');
+
+-- name: MarkReconciliationNotified :exec
+UPDATE reconciliation_schedules
+SET last_notified_fingerprint = sqlc.arg('fingerprint'), updated_at = sqlc.arg('updated_at')
+WHERE workspace_id = sqlc.arg('workspace_id') AND last_fingerprint = sqlc.arg('fingerprint');
+
+-- name: ListReconciliationRuns :many
+SELECT id, status, decisions_checked, counters_checked, issue_count, truncated,
+	lookback_hours, duration_ms, fingerprint, issues, error, created_at
+FROM reconciliation_runs
+WHERE workspace_id = sqlc.arg('workspace_id')
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg('limit');
+
 -- name: ListActiveEntitlementCounters :many
 SELECT c.subject, c.meter_name, c.period, c.period_start, c.period_end,
 	c.event_count, c.quantity_sum, c.quantity_min, c.quantity_max, c.updated_at,

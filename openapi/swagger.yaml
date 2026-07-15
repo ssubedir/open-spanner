@@ -1090,6 +1090,42 @@ definitions:
       truncated:
         type: boolean
     type: object
+  internal_metering_adapters_http_system.ReconciliationRunListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_system.ReconciliationRunResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_system.ReconciliationRunResponse:
+    properties:
+      counters_checked:
+        type: integer
+      created_at:
+        type: string
+      decisions_checked:
+        type: integer
+      duration_ms:
+        type: integer
+      error:
+        type: string
+      fingerprint:
+        type: string
+      id:
+        type: string
+      issue_count:
+        type: integer
+      issues:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_system.ReconciliationIssueResponse'
+        type: array
+      lookback_hours:
+        type: integer
+      status:
+        type: string
+      truncated:
+        type: boolean
+    type: object
   internal_metering_adapters_http_system.StatsResponse:
     properties:
       consumption_decisions:
@@ -1100,6 +1136,8 @@ definitions:
         $ref: '#/definitions/internal_metering_adapters_http_system.LastDecisionPruneRunResponse'
       last_prune_run:
         $ref: '#/definitions/internal_metering_adapters_http_system.LastPruneRunResponse'
+      last_reconciliation_run:
+        $ref: '#/definitions/internal_metering_adapters_http_system.ReconciliationRunResponse'
       meters:
         type: integer
       prune_runs:
@@ -3336,6 +3374,34 @@ paths:
           schema:
             $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
       summary: Repair a quota counter
+      tags:
+      - system
+  /v1/system/reconciliation/runs:
+    get:
+      operationId: listReconciliationRuns
+      parameters:
+      - default: 50
+        description: Maximum run records
+        in: query
+        maximum: 200
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_system.ReconciliationRunListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List reconciliation runs
       tags:
       - system
   /v1/system/stats:

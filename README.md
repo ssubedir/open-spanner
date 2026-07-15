@@ -324,6 +324,11 @@ Common runtime variables:
 | `OPEN_SPANNER_ALERT_WORKER_INTERVAL` | `5s` | Alert worker polling interval. |
 | `OPEN_SPANNER_ENTITLEMENT_WORKER_INTERVAL` | `5s` | Entitlement worker polling interval. |
 | `OPEN_SPANNER_RETENTION_PRUNE_ENABLED` | `false` | Enables automatic retention pruning. |
+| `OPEN_SPANNER_RECONCILIATION_ENABLED` | `false` | Enables scheduled, read-only quota reconciliation in the API process. |
+| `OPEN_SPANNER_RECONCILIATION_SCHEDULE` | `15m` | Interval between scans for each workspace. |
+| `OPEN_SPANNER_RECONCILIATION_LOOKBACK_HOURS` | `24` | Decision history included in each scheduled scan. |
+| `OPEN_SPANNER_RECONCILIATION_WEBHOOK_URL` | empty | Optional webhook notified when a new drift fingerprint appears. |
+| `OPEN_SPANNER_RECONCILIATION_WEBHOOK_SECRET` | empty | Optional HMAC-SHA256 signing secret for reconciliation webhooks. |
 | `OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION` | `720h` | Keeps consume idempotency decisions for 30 days before pruning. |
 
 See [Environment Variables](docs/content/docs/configuration/environment-variables.mdx) for the full list.

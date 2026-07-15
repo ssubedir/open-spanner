@@ -2767,6 +2767,48 @@
                 }
             }
         },
+        "/v1/system/reconciliation/runs": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "List reconciliation runs",
+                "operationId": "listReconciliationRuns",
+                "parameters": [
+                    {
+                        "maximum": 200,
+                        "type": "integer",
+                        "default": 50,
+                        "description": "Maximum run records",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_system.ReconciliationRunListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/system/stats": {
             "get": {
                 "produces": [
@@ -5361,6 +5403,61 @@
                 }
             }
         },
+        "internal_metering_adapters_http_system.ReconciliationRunListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_system.ReconciliationRunResponse"
+                    }
+                }
+            }
+        },
+        "internal_metering_adapters_http_system.ReconciliationRunResponse": {
+            "type": "object",
+            "properties": {
+                "counters_checked": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "decisions_checked": {
+                    "type": "integer"
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "fingerprint": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "issue_count": {
+                    "type": "integer"
+                },
+                "issues": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_system.ReconciliationIssueResponse"
+                    }
+                },
+                "lookback_hours": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "truncated": {
+                    "type": "boolean"
+                }
+            }
+        },
         "internal_metering_adapters_http_system.StatsResponse": {
             "type": "object",
             "properties": {
@@ -5375,6 +5472,9 @@
                 },
                 "last_prune_run": {
                     "$ref": "#/definitions/internal_metering_adapters_http_system.LastPruneRunResponse"
+                },
+                "last_reconciliation_run": {
+                    "$ref": "#/definitions/internal_metering_adapters_http_system.ReconciliationRunResponse"
                 },
                 "meters": {
                     "type": "integer"

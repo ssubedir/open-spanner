@@ -120,6 +120,35 @@ func (h *Handler) ListCounterRepairs(w http.ResponseWriter, r *http.Request) {
 	respond.JSON(w, http.StatusOK, CounterRepairListResponse{Items: items})
 }
 
+// ListReconciliationRuns lists durable scheduled reconciliation outcomes.
+//
+// @Summary List reconciliation runs
+// @ID listReconciliationRuns
+// @Tags system
+// @Produce json
+// @Param limit query int false "Maximum run records" default(50) maximum(200)
+// @Success 200 {object} ReconciliationRunListResponse
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/system/reconciliation/runs [get]
+func (h *Handler) ListReconciliationRuns(w http.ResponseWriter, r *http.Request) {
+	limit, err := request.ParseLimit(r.URL.Query().Get("limit"))
+	if err != nil {
+		respond.Error(w, http.StatusBadRequest, request.Code(err), request.Message(err))
+		return
+	}
+	runs, err := h.service.ListReconciliationRuns(r.Context(), limit)
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	items := make([]ReconciliationRunResponse, 0, len(runs))
+	for _, run := range runs {
+		items = append(items, reconciliationRunResponse(run))
+	}
+	respond.JSON(w, http.StatusOK, ReconciliationRunListResponse{Items: items})
+}
+
 func reconciliationResponseFromResult(result appsystem.ReconciliationResult) ReconciliationResponse {
 	issues := make([]ReconciliationIssueResponse, 0, len(result.Issues))
 	for _, issue := range result.Issues {
@@ -137,6 +166,11 @@ func reconciliationResponseFromResult(result appsystem.ReconciliationResult) Rec
 		Status: result.Status, DecisionsChecked: result.DecisionChecked, CountersChecked: result.CountersChecked,
 		Issues: issues, Truncated: result.Truncated, LookbackHours: result.LookbackHours, CheckedAt: result.CheckedAt.Format(time.RFC3339),
 	}
+}
+
+func reconciliationRunResponse(run appsystem.ReconciliationRun) ReconciliationRunResponse {
+	issues := reconciliationResponseFromResult(appsystem.ReconciliationResult{Issues: run.Issues}).Issues
+	return ReconciliationRunResponse{ID: run.ID, Status: run.Status, DecisionsChecked: run.DecisionsChecked, CountersChecked: run.CountersChecked, IssueCount: run.IssueCount, Truncated: run.Truncated, LookbackHours: run.LookbackHours, DurationMS: run.Duration.Milliseconds(), Fingerprint: run.Fingerprint, Issues: issues, Error: run.Error, CreatedAt: run.CreatedAt.Format(time.RFC3339Nano)}
 }
 
 func counterRepairResponse(result appsystem.CounterRepairResult) CounterRepairResponse {
@@ -203,14 +237,20 @@ func statsResponseFromResult(stats appsystem.StatsResult) StatsResponse {
 			CreatedAt: stats.LastDecisionPruneRun.CreatedAt.Format(time.RFC3339),
 		}
 	}
+	var lastReconciliationRun *ReconciliationRunResponse
+	if stats.LastReconciliationRun.ID != "" {
+		response := reconciliationRunResponse(stats.LastReconciliationRun)
+		lastReconciliationRun = &response
+	}
 
 	return StatsResponse{
-		Meters:               stats.Meters,
-		UsageEvents:          stats.UsageEvents,
-		PruneRuns:            stats.PruneRuns,
-		LastPruneRun:         lastPruneRun,
-		ConsumptionDecisions: stats.ConsumptionDecisions,
-		DecisionPruneRuns:    stats.DecisionPruneRuns,
-		LastDecisionPruneRun: lastDecisionPruneRun,
+		Meters:                stats.Meters,
+		UsageEvents:           stats.UsageEvents,
+		PruneRuns:             stats.PruneRuns,
+		LastPruneRun:          lastPruneRun,
+		ConsumptionDecisions:  stats.ConsumptionDecisions,
+		DecisionPruneRuns:     stats.DecisionPruneRuns,
+		LastDecisionPruneRun:  lastDecisionPruneRun,
+		LastReconciliationRun: lastReconciliationRun,
 	}
 }

@@ -12,6 +12,69 @@ import (
 	"time"
 )
 
+const claimReconciliationSchedule = `-- name: ClaimReconciliationSchedule :one
+WITH due AS (
+	SELECT workspace_id
+	FROM reconciliation_schedules
+	WHERE next_run_at <= $2::timestamptz
+		AND (locked_until IS NULL OR locked_until <= $2::timestamptz)
+	ORDER BY next_run_at, workspace_id
+	FOR UPDATE SKIP LOCKED
+	LIMIT 1
+)
+UPDATE reconciliation_schedules s
+SET locked_until = $1::timestamptz,
+	updated_at = $2::timestamptz
+FROM due
+WHERE s.workspace_id = due.workspace_id
+RETURNING s.workspace_id, s.last_fingerprint, s.last_notified_fingerprint
+`
+
+type ClaimReconciliationScheduleParams struct {
+	LockedUntil time.Time
+	Now         time.Time
+}
+
+type ClaimReconciliationScheduleRow struct {
+	WorkspaceID             string
+	LastFingerprint         string
+	LastNotifiedFingerprint string
+}
+
+func (q *Queries) ClaimReconciliationSchedule(ctx context.Context, arg ClaimReconciliationScheduleParams) (ClaimReconciliationScheduleRow, error) {
+	row := q.db.QueryRowContext(ctx, claimReconciliationSchedule, arg.LockedUntil, arg.Now)
+	var i ClaimReconciliationScheduleRow
+	err := row.Scan(&i.WorkspaceID, &i.LastFingerprint, &i.LastNotifiedFingerprint)
+	return i, err
+}
+
+const completeReconciliationSchedule = `-- name: CompleteReconciliationSchedule :exec
+UPDATE reconciliation_schedules
+SET next_run_at = $1::timestamptz,
+	locked_until = NULL,
+	last_fingerprint = $2,
+	last_notified_fingerprint = CASE WHEN $2::text = '' THEN '' ELSE last_notified_fingerprint END,
+	updated_at = $3::timestamptz
+WHERE workspace_id = $4
+`
+
+type CompleteReconciliationScheduleParams struct {
+	NextRunAt   time.Time
+	Fingerprint string
+	UpdatedAt   time.Time
+	WorkspaceID string
+}
+
+func (q *Queries) CompleteReconciliationSchedule(ctx context.Context, arg CompleteReconciliationScheduleParams) error {
+	_, err := q.db.ExecContext(ctx, completeReconciliationSchedule,
+		arg.NextRunAt,
+		arg.Fingerprint,
+		arg.UpdatedAt,
+		arg.WorkspaceID,
+	)
+	return err
+}
+
 const deleteEntitlementCounterForRepair = `-- name: DeleteEntitlementCounterForRepair :execrows
 DELETE FROM entitlement_usage_counters
 WHERE workspace_id = $1::text
@@ -44,6 +107,37 @@ func (q *Queries) DeleteEntitlementCounterForRepair(ctx context.Context, arg Del
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const ensureReconciliationSchedules = `-- name: EnsureReconciliationSchedules :exec
+INSERT INTO reconciliation_schedules (workspace_id, next_run_at, updated_at)
+SELECT id, $1::timestamptz, $1::timestamptz
+FROM auth_workspaces
+ON CONFLICT (workspace_id) DO NOTHING
+`
+
+func (q *Queries) EnsureReconciliationSchedules(ctx context.Context, now time.Time) error {
+	_, err := q.db.ExecContext(ctx, ensureReconciliationSchedules, now)
+	return err
+}
+
+const failReconciliationSchedule = `-- name: FailReconciliationSchedule :exec
+UPDATE reconciliation_schedules
+SET next_run_at = $1::timestamptz,
+	locked_until = NULL,
+	updated_at = $2::timestamptz
+WHERE workspace_id = $3
+`
+
+type FailReconciliationScheduleParams struct {
+	NextRunAt   time.Time
+	UpdatedAt   time.Time
+	WorkspaceID string
+}
+
+func (q *Queries) FailReconciliationSchedule(ctx context.Context, arg FailReconciliationScheduleParams) error {
+	_, err := q.db.ExecContext(ctx, failReconciliationSchedule, arg.NextRunAt, arg.UpdatedAt, arg.WorkspaceID)
+	return err
 }
 
 const getEntitlementCounterForRepair = `-- name: GetEntitlementCounterForRepair :one
@@ -427,6 +521,88 @@ func (q *Queries) ListQuotaCounterRepairRuns(ctx context.Context, arg ListQuotaC
 	return items, nil
 }
 
+const listReconciliationRuns = `-- name: ListReconciliationRuns :many
+SELECT id, status, decisions_checked, counters_checked, issue_count, truncated,
+	lookback_hours, duration_ms, fingerprint, issues, error, created_at
+FROM reconciliation_runs
+WHERE workspace_id = $1
+ORDER BY created_at DESC, id DESC
+LIMIT $2::int
+`
+
+type ListReconciliationRunsParams struct {
+	WorkspaceID string
+	Limit       int32
+}
+
+type ListReconciliationRunsRow struct {
+	ID               string
+	Status           string
+	DecisionsChecked int32
+	CountersChecked  int32
+	IssueCount       int32
+	Truncated        bool
+	LookbackHours    int32
+	DurationMs       int64
+	Fingerprint      string
+	Issues           json.RawMessage
+	Error            string
+	CreatedAt        time.Time
+}
+
+func (q *Queries) ListReconciliationRuns(ctx context.Context, arg ListReconciliationRunsParams) ([]ListReconciliationRunsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listReconciliationRuns, arg.WorkspaceID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListReconciliationRunsRow{}
+	for rows.Next() {
+		var i ListReconciliationRunsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.DecisionsChecked,
+			&i.CountersChecked,
+			&i.IssueCount,
+			&i.Truncated,
+			&i.LookbackHours,
+			&i.DurationMs,
+			&i.Fingerprint,
+			&i.Issues,
+			&i.Error,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markReconciliationNotified = `-- name: MarkReconciliationNotified :exec
+UPDATE reconciliation_schedules
+SET last_notified_fingerprint = $1, updated_at = $2::timestamptz
+WHERE workspace_id = $3 AND last_fingerprint = $1
+`
+
+type MarkReconciliationNotifiedParams struct {
+	Fingerprint string
+	UpdatedAt   time.Time
+	WorkspaceID string
+}
+
+func (q *Queries) MarkReconciliationNotified(ctx context.Context, arg MarkReconciliationNotifiedParams) error {
+	_, err := q.db.ExecContext(ctx, markReconciliationNotified, arg.Fingerprint, arg.UpdatedAt, arg.WorkspaceID)
+	return err
+}
+
 const saveQuotaCounterRepairRun = `-- name: SaveQuotaCounterRepairRun :exec
 INSERT INTO quota_counter_repair_runs (
 	id, workspace_id, subject, meter_name, period, period_start, period_end,
@@ -469,6 +645,53 @@ func (q *Queries) SaveQuotaCounterRepairRun(ctx context.Context, arg SaveQuotaCo
 		arg.BeforeSnapshot,
 		arg.AfterSnapshot,
 		arg.CounterUpdatedAt,
+		arg.CreatedAt,
+	)
+	return err
+}
+
+const saveReconciliationRun = `-- name: SaveReconciliationRun :exec
+INSERT INTO reconciliation_runs (
+	id, workspace_id, status, decisions_checked, counters_checked, issue_count,
+	truncated, lookback_hours, duration_ms, fingerprint, issues, error, created_at
+) VALUES (
+	$1, $2, $3,
+	$4, $5, $6,
+	$7, $8, $9,
+	$10, $11, $12, $13
+)
+`
+
+type SaveReconciliationRunParams struct {
+	ID               string
+	WorkspaceID      string
+	Status           string
+	DecisionsChecked int32
+	CountersChecked  int32
+	IssueCount       int32
+	Truncated        bool
+	LookbackHours    int32
+	DurationMs       int64
+	Fingerprint      string
+	Issues           json.RawMessage
+	Error            string
+	CreatedAt        time.Time
+}
+
+func (q *Queries) SaveReconciliationRun(ctx context.Context, arg SaveReconciliationRunParams) error {
+	_, err := q.db.ExecContext(ctx, saveReconciliationRun,
+		arg.ID,
+		arg.WorkspaceID,
+		arg.Status,
+		arg.DecisionsChecked,
+		arg.CountersChecked,
+		arg.IssueCount,
+		arg.Truncated,
+		arg.LookbackHours,
+		arg.DurationMs,
+		arg.Fingerprint,
+		arg.Issues,
+		arg.Error,
 		arg.CreatedAt,
 	)
 	return err

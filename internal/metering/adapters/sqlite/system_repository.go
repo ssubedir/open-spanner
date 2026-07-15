@@ -22,6 +22,67 @@ func NewSystemRepository(store *Store) *SystemRepository {
 	return &SystemRepository{queries: sqlitedb.New(store)}
 }
 
+func (r *SystemRepository) ClaimReconciliationSchedule(ctx context.Context, now, lockedUntil time.Time) (appsystem.ReconciliationClaim, bool, error) {
+	formattedNow := formatTime(now)
+	if err := queriesFor(ctx, r.queries).EnsureReconciliationSchedules(ctx, formattedNow); err != nil {
+		return appsystem.ReconciliationClaim{}, false, err
+	}
+	row, err := queriesFor(ctx, r.queries).ClaimReconciliationSchedule(ctx, sqlitedb.ClaimReconciliationScheduleParams{Now: formattedNow, LockedUntil: sql.NullString{String: formatTime(lockedUntil), Valid: true}})
+	if errors.Is(err, sql.ErrNoRows) {
+		return appsystem.ReconciliationClaim{}, false, nil
+	}
+	if err != nil {
+		return appsystem.ReconciliationClaim{}, false, err
+	}
+	return appsystem.ReconciliationClaim{WorkspaceID: row.WorkspaceID, LastFingerprint: row.LastFingerprint, LastNotifiedFingerprint: row.LastNotifiedFingerprint}, true, nil
+}
+
+func (r *SystemRepository) SaveReconciliationRun(ctx context.Context, workspaceID string, run appsystem.ReconciliationRun) error {
+	issues, err := json.Marshal(run.Issues)
+	if err != nil {
+		return err
+	}
+	return queriesFor(ctx, r.queries).SaveReconciliationRun(ctx, sqlitedb.SaveReconciliationRunParams{
+		ID: run.ID, WorkspaceID: workspaceID, Status: run.Status, DecisionsChecked: int64(run.DecisionsChecked),
+		CountersChecked: int64(run.CountersChecked), IssueCount: int64(run.IssueCount), Truncated: boolInt64(run.Truncated),
+		LookbackHours: int64(run.LookbackHours), DurationMs: run.Duration.Milliseconds(), Fingerprint: run.Fingerprint,
+		Issues: string(issues), Error: run.Error, CreatedAt: formatTime(run.CreatedAt),
+	})
+}
+
+func (r *SystemRepository) CompleteReconciliationSchedule(ctx context.Context, workspaceID, fingerprint string, nextRunAt time.Time) error {
+	return queriesFor(ctx, r.queries).CompleteReconciliationSchedule(ctx, sqlitedb.CompleteReconciliationScheduleParams{WorkspaceID: workspaceID, Fingerprint: fingerprint, NextRunAt: formatTime(nextRunAt), UpdatedAt: formatTime(time.Now().UTC())})
+}
+
+func (r *SystemRepository) FailReconciliationSchedule(ctx context.Context, workspaceID string, nextRunAt time.Time) error {
+	return queriesFor(ctx, r.queries).FailReconciliationSchedule(ctx, sqlitedb.FailReconciliationScheduleParams{WorkspaceID: workspaceID, NextRunAt: formatTime(nextRunAt), UpdatedAt: formatTime(time.Now().UTC())})
+}
+
+func (r *SystemRepository) MarkReconciliationNotified(ctx context.Context, workspaceID, fingerprint string) error {
+	return queriesFor(ctx, r.queries).MarkReconciliationNotified(ctx, sqlitedb.MarkReconciliationNotifiedParams{WorkspaceID: workspaceID, Fingerprint: fingerprint, UpdatedAt: formatTime(time.Now().UTC())})
+}
+
+func (r *SystemRepository) ListReconciliationRuns(ctx context.Context, limit int) ([]appsystem.ReconciliationRun, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := queriesFor(ctx, r.queries).ListReconciliationRuns(ctx, sqlitedb.ListReconciliationRunsParams{WorkspaceID: workspaceID, Limit: int64(limit)})
+	if err != nil {
+		return nil, err
+	}
+	runs := make([]appsystem.ReconciliationRun, 0, len(rows))
+	for _, row := range rows {
+		var issues []appsystem.ReconciliationIssue
+		createdAt, parseErr := parseEntitlementTime(row.CreatedAt)
+		if err := errors.Join(json.Unmarshal([]byte(row.Issues), &issues), parseErr); err != nil {
+			return nil, err
+		}
+		runs = append(runs, appsystem.ReconciliationRun{ID: row.ID, Status: row.Status, DecisionsChecked: int(row.DecisionsChecked), CountersChecked: int(row.CountersChecked), IssueCount: int(row.IssueCount), Truncated: row.Truncated != 0, LookbackHours: int(row.LookbackHours), Duration: time.Duration(row.DurationMs) * time.Millisecond, Fingerprint: row.Fingerprint, Issues: issues, Error: row.Error, CreatedAt: createdAt})
+	}
+	return runs, nil
+}
+
 func (r *SystemRepository) FindStats(ctx context.Context) (appsystem.StatsResult, error) {
 	workspaceID, err := appauth.RequireWorkspaceID(ctx)
 	if err != nil {

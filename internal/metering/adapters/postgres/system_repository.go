@@ -22,6 +22,65 @@ func NewSystemRepository(store *Store) *SystemRepository {
 	return &SystemRepository{queries: postgresdb.New(store)}
 }
 
+func (r *SystemRepository) ClaimReconciliationSchedule(ctx context.Context, now, lockedUntil time.Time) (appsystem.ReconciliationClaim, bool, error) {
+	if err := queriesFor(ctx, r.queries).EnsureReconciliationSchedules(ctx, now); err != nil {
+		return appsystem.ReconciliationClaim{}, false, err
+	}
+	row, err := queriesFor(ctx, r.queries).ClaimReconciliationSchedule(ctx, postgresdb.ClaimReconciliationScheduleParams{Now: now, LockedUntil: lockedUntil})
+	if errors.Is(err, sql.ErrNoRows) {
+		return appsystem.ReconciliationClaim{}, false, nil
+	}
+	if err != nil {
+		return appsystem.ReconciliationClaim{}, false, err
+	}
+	return appsystem.ReconciliationClaim{WorkspaceID: row.WorkspaceID, LastFingerprint: row.LastFingerprint, LastNotifiedFingerprint: row.LastNotifiedFingerprint}, true, nil
+}
+
+func (r *SystemRepository) SaveReconciliationRun(ctx context.Context, workspaceID string, run appsystem.ReconciliationRun) error {
+	issues, err := json.Marshal(run.Issues)
+	if err != nil {
+		return err
+	}
+	return queriesFor(ctx, r.queries).SaveReconciliationRun(ctx, postgresdb.SaveReconciliationRunParams{
+		ID: run.ID, WorkspaceID: workspaceID, Status: run.Status, DecisionsChecked: int32(run.DecisionsChecked),
+		CountersChecked: int32(run.CountersChecked), IssueCount: int32(run.IssueCount), Truncated: run.Truncated,
+		LookbackHours: int32(run.LookbackHours), DurationMs: run.Duration.Milliseconds(), Fingerprint: run.Fingerprint,
+		Issues: issues, Error: run.Error, CreatedAt: run.CreatedAt,
+	})
+}
+
+func (r *SystemRepository) CompleteReconciliationSchedule(ctx context.Context, workspaceID, fingerprint string, nextRunAt time.Time) error {
+	return queriesFor(ctx, r.queries).CompleteReconciliationSchedule(ctx, postgresdb.CompleteReconciliationScheduleParams{WorkspaceID: workspaceID, Fingerprint: fingerprint, NextRunAt: nextRunAt, UpdatedAt: time.Now().UTC()})
+}
+
+func (r *SystemRepository) FailReconciliationSchedule(ctx context.Context, workspaceID string, nextRunAt time.Time) error {
+	return queriesFor(ctx, r.queries).FailReconciliationSchedule(ctx, postgresdb.FailReconciliationScheduleParams{WorkspaceID: workspaceID, NextRunAt: nextRunAt, UpdatedAt: time.Now().UTC()})
+}
+
+func (r *SystemRepository) MarkReconciliationNotified(ctx context.Context, workspaceID, fingerprint string) error {
+	return queriesFor(ctx, r.queries).MarkReconciliationNotified(ctx, postgresdb.MarkReconciliationNotifiedParams{WorkspaceID: workspaceID, Fingerprint: fingerprint, UpdatedAt: time.Now().UTC()})
+}
+
+func (r *SystemRepository) ListReconciliationRuns(ctx context.Context, limit int) ([]appsystem.ReconciliationRun, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := queriesFor(ctx, r.queries).ListReconciliationRuns(ctx, postgresdb.ListReconciliationRunsParams{WorkspaceID: workspaceID, Limit: int32(limit)})
+	if err != nil {
+		return nil, err
+	}
+	runs := make([]appsystem.ReconciliationRun, 0, len(rows))
+	for _, row := range rows {
+		var issues []appsystem.ReconciliationIssue
+		if err := json.Unmarshal(row.Issues, &issues); err != nil {
+			return nil, err
+		}
+		runs = append(runs, appsystem.ReconciliationRun{ID: row.ID, Status: row.Status, DecisionsChecked: int(row.DecisionsChecked), CountersChecked: int(row.CountersChecked), IssueCount: int(row.IssueCount), Truncated: row.Truncated, LookbackHours: int(row.LookbackHours), Duration: time.Duration(row.DurationMs) * time.Millisecond, Fingerprint: row.Fingerprint, Issues: issues, Error: row.Error, CreatedAt: row.CreatedAt})
+	}
+	return runs, nil
+}
+
 func (r *SystemRepository) FindStats(ctx context.Context) (appsystem.StatsResult, error) {
 	workspaceID, err := appauth.RequireWorkspaceID(ctx)
 	if err != nil {

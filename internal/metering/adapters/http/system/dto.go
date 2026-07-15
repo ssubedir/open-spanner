@@ -2,13 +2,14 @@ package system
 
 // StatsResponse is operational system stats.
 type StatsResponse struct {
-	Meters               int                           `json:"meters"`
-	UsageEvents          int                           `json:"usage_events"`
-	PruneRuns            int                           `json:"prune_runs"`
-	LastPruneRun         *LastPruneRunResponse         `json:"last_prune_run"`
-	ConsumptionDecisions int                           `json:"consumption_decisions"`
-	DecisionPruneRuns    int                           `json:"decision_prune_runs"`
-	LastDecisionPruneRun *LastDecisionPruneRunResponse `json:"last_decision_prune_run"`
+	Meters                int                           `json:"meters"`
+	UsageEvents           int                           `json:"usage_events"`
+	PruneRuns             int                           `json:"prune_runs"`
+	LastPruneRun          *LastPruneRunResponse         `json:"last_prune_run"`
+	ConsumptionDecisions  int                           `json:"consumption_decisions"`
+	DecisionPruneRuns     int                           `json:"decision_prune_runs"`
+	LastDecisionPruneRun  *LastDecisionPruneRunResponse `json:"last_decision_prune_run"`
+	LastReconciliationRun *ReconciliationRunResponse    `json:"last_reconciliation_run"`
 }
 
 type LastDecisionPruneRunResponse struct {
@@ -50,6 +51,25 @@ type ReconciliationIssueResponse struct {
 	Expected       string `json:"expected"`
 	Actual         string `json:"actual"`
 	Message        string `json:"message"`
+}
+
+type ReconciliationRunResponse struct {
+	ID               string                        `json:"id"`
+	Status           string                        `json:"status"`
+	DecisionsChecked int                           `json:"decisions_checked"`
+	CountersChecked  int                           `json:"counters_checked"`
+	IssueCount       int                           `json:"issue_count"`
+	Truncated        bool                          `json:"truncated"`
+	LookbackHours    int                           `json:"lookback_hours"`
+	DurationMS       int64                         `json:"duration_ms"`
+	Fingerprint      string                        `json:"fingerprint,omitempty"`
+	Issues           []ReconciliationIssueResponse `json:"issues"`
+	Error            string                        `json:"error,omitempty"`
+	CreatedAt        string                        `json:"created_at"`
+}
+
+type ReconciliationRunListResponse struct {
+	Items []ReconciliationRunResponse `json:"items"`
 }
 
 // CounterRepairRequest previews or applies one targeted quota counter repair.

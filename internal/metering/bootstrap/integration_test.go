@@ -30,6 +30,7 @@ import (
 	alertworker "github.com/ssubedir/open-spanner/internal/metering/workers/alert"
 	entitlementworker "github.com/ssubedir/open-spanner/internal/metering/workers/entitlement"
 	exportworker "github.com/ssubedir/open-spanner/internal/metering/workers/export"
+	reconciliationworker "github.com/ssubedir/open-spanner/internal/metering/workers/reconciliation"
 )
 
 func TestIntegrationAuthGuardsSDKAndDashboardRoutes(t *testing.T) {
@@ -551,6 +552,42 @@ func runIntegrationAtomicConsumption(t *testing.T, cfg config.Config, namespace 
 	if reconciliation.Status != "healthy" || reconciliation.DecisionsChecked == 0 || reconciliation.CountersChecked == 0 || len(reconciliation.Issues) != 0 || reconciliation.Truncated {
 		t.Fatalf("quota reconciliation = %#v body=%s", reconciliation, reconciliationRes.Body.String())
 	}
+	monitor := reconciliationworker.NewWorker(app.SystemService, reconciliationworker.Options{
+		LockTTL: time.Minute, ScheduleInterval: 15 * time.Minute, RetryAfter: time.Minute,
+		Limit: 100, LookbackHours: 24, Logger: func(string, ...any) {},
+	})
+	processed := false
+	for range 100 {
+		var err error
+		processed, err = monitor.ProcessOnce(ctx)
+		if err != nil {
+			t.Fatalf("scheduled reconciliation err=%v", err)
+		}
+		if !processed {
+			break
+		}
+	}
+	if processed {
+		t.Fatal("scheduled reconciliation did not drain due workspaces")
+	}
+	runsRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/system/reconciliation/runs?limit=10", nil, identity.Headers, nil)
+	if runsRes.Code != http.StatusOK {
+		t.Fatalf("scheduled reconciliation runs status = %d: %s", runsRes.Code, runsRes.Body.String())
+	}
+	var scheduledRuns struct {
+		Items []struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		} `json:"items"`
+	}
+	decodeJSON(t, runsRes, &scheduledRuns)
+	if len(scheduledRuns.Items) != 1 || scheduledRuns.Items[0].ID == "" || scheduledRuns.Items[0].Status != "healthy" {
+		t.Fatalf("scheduled reconciliation runs = %#v", scheduledRuns)
+	}
+	processed, err = monitor.ProcessOnce(ctx)
+	if err != nil || processed {
+		t.Fatalf("duplicate scheduled reconciliation processed=%v err=%v", processed, err)
+	}
 	previewRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/system/reconciliation/repairs", map[string]any{
 		"subject": hardSubject, "meter": meterName, "period": "month", "period_start": acceptedPeriodStart, "dry_run": true,
 	}, identity.Headers, nil)
@@ -640,9 +677,12 @@ func runIntegrationAtomicConsumption(t *testing.T, cfg config.Config, namespace 
 			Deleted int  `json:"deleted"`
 			DryRun  bool `json:"dry_run"`
 		} `json:"last_decision_prune_run"`
+		LastReconciliationRun *struct {
+			Status string `json:"status"`
+		} `json:"last_reconciliation_run"`
 	}
 	decodeJSON(t, statsRes, &stats)
-	if stats.ConsumptionDecisions != 0 || stats.DecisionPruneRuns != 2 || stats.LastDecisionPruneRun == nil || stats.LastDecisionPruneRun.DryRun || stats.LastDecisionPruneRun.Deleted != pruned.Deleted {
+	if stats.ConsumptionDecisions != 0 || stats.DecisionPruneRuns != 2 || stats.LastDecisionPruneRun == nil || stats.LastDecisionPruneRun.DryRun || stats.LastDecisionPruneRun.Deleted != pruned.Deleted || stats.LastReconciliationRun == nil || stats.LastReconciliationRun.Status != "healthy" {
 		t.Fatalf("decision retention stats = %#v last=%#v pruned=%#v body=%s", stats, stats.LastDecisionPruneRun, pruned, statsRes.Body.String())
 	}
 }

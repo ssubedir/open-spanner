@@ -13,6 +13,7 @@ import (
 	"github.com/ssubedir/open-spanner/internal/config"
 	grpcadapter "github.com/ssubedir/open-spanner/internal/metering/adapters/grpc"
 	"github.com/ssubedir/open-spanner/internal/metering/bootstrap"
+	"github.com/ssubedir/open-spanner/internal/metering/workers/reconciliation"
 	"github.com/ssubedir/open-spanner/internal/metering/workers/retention"
 	serverhttp "github.com/ssubedir/open-spanner/internal/server/http"
 	"github.com/ssubedir/open-spanner/internal/ui"
@@ -64,9 +65,23 @@ func main() {
 			Start(context.Background())
 	}
 
+	stopReconciliation := func() {}
+	if cfg.ReconciliationEnabled {
+		var notifier reconciliation.Notifier
+		if cfg.ReconciliationWebhookURL != "" {
+			notifier = reconciliation.NewWebhookNotifier(cfg.ReconciliationWebhookURL, cfg.ReconciliationWebhookSecret, nil)
+		}
+		stopReconciliation = reconciliation.NewWorker(app.SystemService, reconciliation.Options{
+			PollInterval: cfg.ReconciliationPollInterval, ScheduleInterval: cfg.ReconciliationSchedule,
+			LockTTL: cfg.ReconciliationLockTTL, Timeout: cfg.ReconciliationTimeout, RetryAfter: cfg.ReconciliationRetryAfter,
+			Limit: cfg.ReconciliationLimit, LookbackHours: cfg.ReconciliationLookbackHours, Notifier: notifier, Logger: log.Printf,
+		}).Start(context.Background())
+	}
+
 	cleanup := func() error {
 		grpcServer.GracefulStop()
 		stopRetention()
+		stopReconciliation()
 		return app.Cleanup()
 	}
 

@@ -38,6 +38,9 @@ func TestLoadDefaultsToSQLite(t *testing.T) {
 	if cfg.AlertWorkerTimeout != time.Minute {
 		t.Fatalf("alert worker timeout = %s, want 1m", cfg.AlertWorkerTimeout)
 	}
+	if cfg.ReconciliationEnabled || cfg.ReconciliationPollInterval != 5*time.Second || cfg.ReconciliationSchedule != 15*time.Minute || cfg.ReconciliationLimit != 100 || cfg.ReconciliationLookbackHours != 24 {
+		t.Fatalf("reconciliation defaults = %#v", cfg)
+	}
 	if cfg.OAuth.GitHub.ClientID != "" || cfg.OAuth.GitHub.ClientSecret != "" || !cfg.OAuth.GitHub.Enabled || cfg.OAuth.GitHub.RedirectURL != "" {
 		t.Fatalf("github oauth config = %#v, want empty defaults", cfg.OAuth.GitHub)
 	}
@@ -156,6 +159,16 @@ func clearEnv(t *testing.T) {
 		"OPEN_SPANNER_ALERT_WORKER_RETRY_AFTER",
 		"OPEN_SPANNER_ALERT_WORKER_MAX_ATTEMPTS",
 		"OPEN_SPANNER_ALERT_WORKER_BATCH_SIZE",
+		"OPEN_SPANNER_RECONCILIATION_ENABLED",
+		"OPEN_SPANNER_RECONCILIATION_POLL_INTERVAL",
+		"OPEN_SPANNER_RECONCILIATION_SCHEDULE",
+		"OPEN_SPANNER_RECONCILIATION_LOCK_TTL",
+		"OPEN_SPANNER_RECONCILIATION_TIMEOUT",
+		"OPEN_SPANNER_RECONCILIATION_RETRY_AFTER",
+		"OPEN_SPANNER_RECONCILIATION_LIMIT",
+		"OPEN_SPANNER_RECONCILIATION_LOOKBACK_HOURS",
+		"OPEN_SPANNER_RECONCILIATION_WEBHOOK_URL",
+		"OPEN_SPANNER_RECONCILIATION_WEBHOOK_SECRET",
 	} {
 		t.Setenv(key, "")
 	}
