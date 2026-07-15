@@ -2467,7 +2467,7 @@ func newTestRouter() http.Handler {
 	subjectService := appsubject.NewService(usageRepo)
 	entitlementService := appentitlement.NewService(sqlite.NewEntitlementRepository(store), meterRepo, usageRepo, store)
 	usageService := appusage.NewService(meterRepo, usageRepo, store)
-	systemService := appsystem.NewService(sqlite.NewSystemRepository(store))
+	systemService := appsystem.NewService(sqlite.NewSystemRepository(store), store)
 
 	router := chi.NewRouter()
 	router.Use(func(next http.Handler) http.Handler {
@@ -2505,7 +2505,7 @@ func newProtectedTestRouter() http.Handler {
 	subjectService := appsubject.NewService(usageRepo)
 	entitlementService := appentitlement.NewService(sqlite.NewEntitlementRepository(store), meterRepo, usageRepo, store)
 	usageService := appusage.NewService(meterRepo, usageRepo, store)
-	systemService := appsystem.NewService(sqlite.NewSystemRepository(store))
+	systemService := appsystem.NewService(sqlite.NewSystemRepository(store), store)
 	authHandler := httpauth.NewHandler(authService)
 
 	router := chi.NewRouter()

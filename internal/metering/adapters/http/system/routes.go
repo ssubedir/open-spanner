@@ -11,6 +11,8 @@ func (h *Handler) RegisterRoutes(router chi.Router, authorizer access.Authorizer
 
 	routes.Get("/system/stats", h.Stats, access.SystemRead(systemResource))
 	routes.Get("/system/reconciliation", h.Reconcile, access.SystemRead(systemResource))
+	routes.Get("/system/reconciliation/repairs", h.ListCounterRepairs, access.SystemRead(systemResource))
+	routes.Post("/system/reconciliation/repairs", h.RepairCounter, access.SystemWrite(systemResource))
 }
 
 var systemResource = access.Static(access.System())

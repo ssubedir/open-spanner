@@ -51,3 +51,45 @@ type ReconciliationIssueResponse struct {
 	Actual         string `json:"actual"`
 	Message        string `json:"message"`
 }
+
+// CounterRepairRequest previews or applies one targeted quota counter repair.
+type CounterRepairRequest struct {
+	Subject           string `json:"subject"`
+	Meter             string `json:"meter"`
+	Period            string `json:"period"`
+	PeriodStart       string `json:"period_start"`
+	DryRun            *bool  `json:"dry_run"`
+	ExpectedUpdatedAt string `json:"expected_updated_at,omitempty"`
+}
+
+// CounterSnapshotResponse is the derivable state of one quota counter.
+type CounterSnapshotResponse struct {
+	EventCount     int64   `json:"event_count"`
+	QuantitySum    float64 `json:"quantity_sum"`
+	QuantityMin    float64 `json:"quantity_min"`
+	QuantityMax    float64 `json:"quantity_max"`
+	FirstQuantity  float64 `json:"first_quantity"`
+	FirstEventTime string  `json:"first_event_time,omitempty"`
+	LastQuantity   float64 `json:"last_quantity"`
+	LastEventTime  string  `json:"last_event_time,omitempty"`
+}
+
+// CounterRepairResponse is an audited repair preview or application.
+type CounterRepairResponse struct {
+	ID               string                  `json:"id"`
+	Subject          string                  `json:"subject"`
+	Meter            string                  `json:"meter"`
+	Period           string                  `json:"period"`
+	PeriodStart      string                  `json:"period_start"`
+	PeriodEnd        string                  `json:"period_end"`
+	DryRun           bool                    `json:"dry_run"`
+	Applied          bool                    `json:"applied"`
+	Before           CounterSnapshotResponse `json:"before"`
+	After            CounterSnapshotResponse `json:"after"`
+	CounterUpdatedAt string                  `json:"counter_updated_at"`
+	CreatedAt        string                  `json:"created_at"`
+}
+
+type CounterRepairListResponse struct {
+	Items []CounterRepairResponse `json:"items"`
+}

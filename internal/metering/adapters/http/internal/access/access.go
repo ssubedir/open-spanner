@@ -134,6 +134,10 @@ func SystemRead(extractor ResourceExtractor) Policy {
 	return need(appauth.ActionSystemRead, extractor)
 }
 
+func SystemWrite(extractor ResourceExtractor) Policy {
+	return need(appauth.ActionSystemWrite, extractor)
+}
+
 func (r Router) Route(pattern string, fn func(Router)) {
 	r.router.Route(pattern, func(router chi.Router) {
 		fn(NewRouter(router, r.authorizer))

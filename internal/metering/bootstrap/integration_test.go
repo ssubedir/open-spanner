@@ -389,6 +389,7 @@ func runIntegrationAtomicConsumption(t *testing.T, cfg config.Config, namespace 
 	hardResults := runConcurrent(hardSubject, "hard-consume-"+suffix+"-", 20)
 	hardAccepted, hardRejected := 0, 0
 	acceptedKey := ""
+	acceptedPeriodStart := ""
 	rejectedKey := ""
 	var rejectedDecision consumeTestResponse
 	for _, result := range hardResults {
@@ -400,6 +401,7 @@ func runIntegrationAtomicConsumption(t *testing.T, cfg config.Config, namespace 
 			}
 			if acceptedKey == "" && result.value.Event != nil {
 				acceptedKey = result.value.Event.IdempotencyKey
+				acceptedPeriodStart = result.value.Quota.From
 			}
 		case http.StatusTooManyRequests:
 			hardRejected++
@@ -419,6 +421,9 @@ func runIntegrationAtomicConsumption(t *testing.T, cfg config.Config, namespace 
 	}
 	if acceptedKey == "" {
 		t.Fatal("hard consumption returned no accepted idempotency key")
+	}
+	if acceptedPeriodStart == "" {
+		t.Fatal("hard consumption returned no quota period start")
 	}
 	if rejectedKey == "" {
 		t.Fatal("hard consumption returned no rejected idempotency key")
@@ -545,6 +550,49 @@ func runIntegrationAtomicConsumption(t *testing.T, cfg config.Config, namespace 
 	decodeJSON(t, reconciliationRes, &reconciliation)
 	if reconciliation.Status != "healthy" || reconciliation.DecisionsChecked == 0 || reconciliation.CountersChecked == 0 || len(reconciliation.Issues) != 0 || reconciliation.Truncated {
 		t.Fatalf("quota reconciliation = %#v body=%s", reconciliation, reconciliationRes.Body.String())
+	}
+	previewRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/system/reconciliation/repairs", map[string]any{
+		"subject": hardSubject, "meter": meterName, "period": "month", "period_start": acceptedPeriodStart, "dry_run": true,
+	}, identity.Headers, nil)
+	if previewRes.Code != http.StatusOK {
+		t.Fatalf("quota repair preview status = %d: %s", previewRes.Code, previewRes.Body.String())
+	}
+	var preview struct {
+		ID               string `json:"id"`
+		DryRun           bool   `json:"dry_run"`
+		Applied          bool   `json:"applied"`
+		CounterUpdatedAt string `json:"counter_updated_at"`
+	}
+	decodeJSON(t, previewRes, &preview)
+	if preview.ID == "" || !preview.DryRun || preview.Applied || preview.CounterUpdatedAt == "" {
+		t.Fatalf("quota repair preview = %#v", preview)
+	}
+	applyRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/system/reconciliation/repairs", map[string]any{
+		"subject": hardSubject, "meter": meterName, "period": "month", "period_start": acceptedPeriodStart,
+		"dry_run": false, "expected_updated_at": preview.CounterUpdatedAt,
+	}, identity.Headers, nil)
+	if applyRes.Code != http.StatusOK {
+		t.Fatalf("quota repair apply status = %d: %s", applyRes.Code, applyRes.Body.String())
+	}
+	var applied struct {
+		ID      string `json:"id"`
+		Applied bool   `json:"applied"`
+		DryRun  bool   `json:"dry_run"`
+	}
+	decodeJSON(t, applyRes, &applied)
+	if applied.ID == "" || !applied.Applied || applied.DryRun {
+		t.Fatalf("quota repair apply = %#v", applied)
+	}
+	repairRunsRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/system/reconciliation/repairs?limit=10", nil, identity.Headers, nil)
+	if repairRunsRes.Code != http.StatusOK {
+		t.Fatalf("quota repair runs status = %d: %s", repairRunsRes.Code, repairRunsRes.Body.String())
+	}
+	var repairRuns struct {
+		Items []any `json:"items"`
+	}
+	decodeJSON(t, repairRunsRes, &repairRuns)
+	if len(repairRuns.Items) != 2 {
+		t.Fatalf("quota repair runs = %#v", repairRuns)
 	}
 	otherIdentity := createTestDashboardIdentity(t, router, "consume-other+"+suffix+"@example.com")
 	isolatedRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/entitlements/decisions/"+url.PathEscape(acceptedKey), nil, otherIdentity.Headers, nil)
@@ -3136,6 +3184,7 @@ func fullAccessAPIKeyPayload(name string) map[string]any {
 			"plans:write",
 			"plans:read",
 			"system:read",
+			"system:write",
 		},
 	}
 }
@@ -3359,6 +3408,8 @@ type consumeTestResponse struct {
 		Limit         float64 `json:"limit"`
 		Enforcement   string  `json:"enforcement"`
 		FailurePolicy string  `json:"failure_policy"`
+		Period        string  `json:"period"`
+		From          string  `json:"from"`
 	} `json:"quota"`
 }
 

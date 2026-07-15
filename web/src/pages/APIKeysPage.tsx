@@ -29,6 +29,7 @@ const apiKeyScopes = [
   { value: 'plans:read', label: 'Read plans', group: 'Plans', description: 'Check plan limits and remaining quota for backend decisions.' },
   { value: 'plans:write', label: 'Write plans', group: 'Plans', description: 'Manage plans and subject assignments.' },
   { value: 'system:read', label: 'Read system', group: 'System', description: 'Read operational stats for the workspace.' },
+  { value: 'system:write', label: 'Repair system', group: 'System', description: 'Apply audited quota counter repairs.' },
 ]
 
 const defaultAPIKeyScopes = new Set(['usage:write', 'usage:read', 'meters:read', 'meters:write', 'plans:read'])

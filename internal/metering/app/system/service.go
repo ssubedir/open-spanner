@@ -6,16 +6,20 @@ import (
 	"math"
 	"time"
 
+	apptransaction "github.com/ssubedir/open-spanner/internal/metering/app/transaction"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
 )
 
 type Service interface {
 	Stats(ctx context.Context) (StatsResult, error)
 	Reconcile(ctx context.Context, query ReconciliationQuery) (ReconciliationResult, error)
+	RepairCounter(ctx context.Context, cmd RepairCounterCommand) (CounterRepairResult, error)
+	ListCounterRepairRuns(ctx context.Context, limit int) ([]CounterRepairResult, error)
 }
 
 type service struct {
-	repo Repository
+	repo       Repository
+	transactor apptransaction.Transactor
 }
 
 type Repository interface {
@@ -24,6 +28,11 @@ type Repository interface {
 	ListActiveEntitlementCounters(ctx context.Context, now time.Time, limit int) ([]CounterReconciliationRow, error)
 	ListCounterReconciliationEvents(ctx context.Context, counter CounterReconciliationRow) ([]ReconciliationEvent, error)
 	ListCounterReconciliationAssignments(ctx context.Context, counter CounterReconciliationRow) ([]ReconciliationAssignment, error)
+	GetEntitlementCounterForRepair(ctx context.Context, target CounterRepairTarget) (CounterReconciliationRow, error)
+	UpdateEntitlementCounterForRepair(ctx context.Context, counter CounterReconciliationRow, expectedUpdatedAt time.Time, replacement CounterSnapshot, updatedAt time.Time) (bool, error)
+	SaveQuotaCounterRepairRun(ctx context.Context, run CounterRepairResult) error
+	ListQuotaCounterRepairRuns(ctx context.Context, limit int) ([]CounterRepairResult, error)
+	FindLatestMeterPruneCutoff(ctx context.Context, meterName string) (time.Time, error)
 }
 
 const (
@@ -73,22 +82,28 @@ type DecisionReconciliationRow struct {
 }
 
 type CounterReconciliationRow struct {
-	Subject     string
-	MeterName   string
-	Period      string
-	PeriodStart time.Time
-	PeriodEnd   time.Time
-	EventCount  int64
-	QuantitySum float64
-	QuantityMin float64
-	QuantityMax float64
-	UpdatedAt   time.Time
+	Subject            string
+	MeterName          string
+	Period             string
+	PeriodStart        time.Time
+	PeriodEnd          time.Time
+	EventCount         int64
+	QuantitySum        float64
+	QuantityMin        float64
+	QuantityMax        float64
+	UpdatedAt          time.Time
+	EventRetentionDays int
+	FirstQuantity      float64
+	FirstEventTime     time.Time
+	LastQuantity       float64
+	LastEventTime      time.Time
 }
 
 type ReconciliationEvent struct {
-	ID        string
-	Quantity  float64
-	EventTime time.Time
+	ID         string
+	Quantity   float64
+	EventTime  time.Time
+	ReceivedAt time.Time
 }
 
 type ReconciliationAssignment struct {
@@ -123,8 +138,11 @@ type LastPruneRunResult struct {
 	CreatedAt time.Time
 }
 
-func NewService(repo Repository) Service {
-	return &service{repo: repo}
+func NewService(repo Repository, transactor apptransaction.Transactor) Service {
+	if repo == nil || transactor == nil {
+		panic("system service requires repository and transactor")
+	}
+	return &service{repo: repo, transactor: transactor}
 }
 
 func (s *service) Stats(ctx context.Context) (StatsResult, error) {
@@ -170,8 +188,20 @@ func (s *service) Reconcile(ctx context.Context, query ReconciliationQuery) (Rec
 		result.Truncated = true
 		counters = counters[:limit]
 	}
-	result.CountersChecked = len(counters)
+	pruneCutoffs := make(map[string]time.Time)
 	for _, counter := range counters {
+		pruneCutoff, ok := pruneCutoffs[counter.MeterName]
+		if !ok {
+			pruneCutoff, err = s.repo.FindLatestMeterPruneCutoff(ctx, counter.MeterName)
+			if err != nil {
+				return ReconciliationResult{}, err
+			}
+			pruneCutoffs[counter.MeterName] = pruneCutoff
+		}
+		if !counterSourceComplete(counter, now, pruneCutoff) {
+			continue
+		}
+		result.CountersChecked++
 		issues, err := s.reconcileCounter(ctx, counter)
 		if err != nil {
 			return ReconciliationResult{}, err
@@ -207,24 +237,9 @@ func decisionIssues(row DecisionReconciliationRow) []ReconciliationIssue {
 }
 
 func (s *service) reconcileCounter(ctx context.Context, counter CounterReconciliationRow) ([]ReconciliationIssue, error) {
-	events, err := s.repo.ListCounterReconciliationEvents(ctx, counter)
+	matched, err := s.matchedCounterEvents(ctx, counter)
 	if err != nil {
 		return nil, err
-	}
-	assignments, err := s.repo.ListCounterReconciliationAssignments(ctx, counter)
-	if err != nil {
-		return nil, err
-	}
-	matched := make([]ReconciliationEvent, 0, len(events))
-	for _, event := range events {
-		assignment, ok := effectiveAssignment(assignments, event.EventTime)
-		if !ok {
-			continue
-		}
-		from, _ := counterWindow(event.EventTime, assignment.PeriodAnchorAt, counter.Period)
-		if from.Equal(counter.PeriodStart) {
-			matched = append(matched, event)
-		}
 	}
 	expectedCount := int64(len(matched))
 	expectedSum, expectedMin, expectedMax := counterAggregates(matched)
@@ -246,6 +261,35 @@ func (s *service) reconcileCounter(ctx context.Context, counter CounterReconcili
 		issues = append(issues, counterValueIssue(base, "counter_quantity_max_mismatch", expectedMax, counter.QuantityMax, "maximum"))
 	}
 	return issues, nil
+}
+
+func (s *service) matchedCounterEvents(ctx context.Context, counter CounterReconciliationRow) ([]ReconciliationEvent, error) {
+	events, err := s.repo.ListCounterReconciliationEvents(ctx, counter)
+	if err != nil {
+		return nil, err
+	}
+	assignments, err := s.repo.ListCounterReconciliationAssignments(ctx, counter)
+	if err != nil {
+		return nil, err
+	}
+	matched := make([]ReconciliationEvent, 0, len(events))
+	for _, event := range events {
+		assignment, ok := effectiveAssignment(assignments, event.EventTime)
+		if !ok {
+			continue
+		}
+		from, _ := counterWindow(event.EventTime, assignment.PeriodAnchorAt, counter.Period)
+		if from.Equal(counter.PeriodStart) {
+			matched = append(matched, event)
+		}
+	}
+	return matched, nil
+}
+
+func counterSourceComplete(counter CounterReconciliationRow, now, pruneCutoff time.Time) bool {
+	retentionComplete := counter.EventRetentionDays > 0 && !counter.PeriodStart.Before(now.AddDate(0, 0, -counter.EventRetentionDays))
+	pruneComplete := pruneCutoff.IsZero() || !counter.PeriodStart.Before(pruneCutoff)
+	return retentionComplete && pruneComplete
 }
 
 func effectiveAssignment(assignments []ReconciliationAssignment, at time.Time) (ReconciliationAssignment, bool) {

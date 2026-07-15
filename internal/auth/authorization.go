@@ -34,6 +34,7 @@ const (
 	ActionPlansRead    Action = "plans:read"
 	ActionPlansWrite   Action = "plans:write"
 	ActionSystemRead   Action = "system:read"
+	ActionSystemWrite  Action = "system:write"
 )
 
 const (
@@ -65,6 +66,7 @@ var allowedAPIKeyScopes = map[string]struct{}{
 	string(ActionPlansRead):    {},
 	string(ActionPlansWrite):   {},
 	string(ActionSystemRead):   {},
+	string(ActionSystemWrite):  {},
 	"usage:*":                  {},
 	"meters:*":                 {},
 	"alerts:*":                 {},
@@ -138,6 +140,7 @@ m = (p.sub == "*" || p.sub == r.sub) && (p.obj == "*" || p.obj == r.obj) && (p.a
 		{string(PrincipalKindAPIKey), ResourcePlan, string(ActionPlansRead)},
 		{string(PrincipalKindAPIKey), ResourcePlan, string(ActionPlansWrite)},
 		{string(PrincipalKindAPIKey), ResourceSystem, string(ActionSystemRead)},
+		{string(PrincipalKindAPIKey), ResourceSystem, string(ActionSystemWrite)},
 	} {
 		if _, err := enforcer.AddPolicy(policy); err != nil {
 			return nil, err

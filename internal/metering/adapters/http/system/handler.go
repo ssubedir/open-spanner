@@ -45,12 +45,87 @@ func (h *Handler) Reconcile(w http.ResponseWriter, r *http.Request) {
 	respond.JSON(w, http.StatusOK, reconciliationResponseFromResult(result))
 }
 
+// RepairCounter previews or applies a targeted, audited quota counter repair.
+//
+// @Summary Repair a quota counter
+// @Description Set dry_run=true to preview. Applying requires expected_updated_at from the preview and fails if the counter changed.
+// @ID repairQuotaCounter
+// @Tags system
+// @Accept json
+// @Produce json
+// @Param request body CounterRepairRequest true "Repair target and concurrency guard"
+// @Success 200 {object} CounterRepairResponse
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 404 {object} respond.ErrorResponse
+// @Failure 409 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/system/reconciliation/repairs [post]
+func (h *Handler) RepairCounter(w http.ResponseWriter, r *http.Request) {
+	var body CounterRepairRequest
+	if err := request.DecodeJSON(r.Body, &body); err != nil {
+		respond.Error(w, http.StatusBadRequest, request.Code(err), request.Message(err))
+		return
+	}
+	if body.DryRun == nil {
+		respond.Error(w, http.StatusBadRequest, "invalid_dry_run", "dry_run is required")
+		return
+	}
+	periodStart, err := request.RequiredTime("period_start", body.PeriodStart)
+	if err != nil {
+		respond.Error(w, http.StatusBadRequest, request.Code(err), request.Message(err))
+		return
+	}
+	expectedUpdatedAt, err := request.OptionalTime("expected_updated_at", body.ExpectedUpdatedAt)
+	if err != nil {
+		respond.Error(w, http.StatusBadRequest, request.Code(err), request.Message(err))
+		return
+	}
+	result, err := h.service.RepairCounter(r.Context(), appsystem.RepairCounterCommand{
+		CounterRepairTarget: appsystem.CounterRepairTarget{Subject: body.Subject, MeterName: body.Meter, Period: body.Period, PeriodStart: periodStart},
+		DryRun:              *body.DryRun, ExpectedUpdatedAt: expectedUpdatedAt,
+	})
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	respond.JSON(w, http.StatusOK, counterRepairResponse(result))
+}
+
+// ListCounterRepairs lists durable quota counter repair previews and applications.
+//
+// @Summary List quota counter repairs
+// @ID listQuotaCounterRepairs
+// @Tags system
+// @Produce json
+// @Param limit query int false "Maximum audit records" default(50) maximum(200)
+// @Success 200 {object} CounterRepairListResponse
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/system/reconciliation/repairs [get]
+func (h *Handler) ListCounterRepairs(w http.ResponseWriter, r *http.Request) {
+	limit, err := request.ParseLimit(r.URL.Query().Get("limit"))
+	if err != nil {
+		respond.Error(w, http.StatusBadRequest, request.Code(err), request.Message(err))
+		return
+	}
+	runs, err := h.service.ListCounterRepairRuns(r.Context(), limit)
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	items := make([]CounterRepairResponse, 0, len(runs))
+	for _, run := range runs {
+		items = append(items, counterRepairResponse(run))
+	}
+	respond.JSON(w, http.StatusOK, CounterRepairListResponse{Items: items})
+}
+
 func reconciliationResponseFromResult(result appsystem.ReconciliationResult) ReconciliationResponse {
 	issues := make([]ReconciliationIssueResponse, 0, len(result.Issues))
 	for _, issue := range result.Issues {
 		periodStart := ""
 		if !issue.PeriodStart.IsZero() {
-			periodStart = issue.PeriodStart.Format(time.RFC3339)
+			periodStart = issue.PeriodStart.Format(time.RFC3339Nano)
 		}
 		issues = append(issues, ReconciliationIssueResponse{
 			Kind: issue.Kind, Severity: issue.Severity, Subject: issue.Subject, Meter: issue.MeterName,
@@ -61,6 +136,29 @@ func reconciliationResponseFromResult(result appsystem.ReconciliationResult) Rec
 	return ReconciliationResponse{
 		Status: result.Status, DecisionsChecked: result.DecisionChecked, CountersChecked: result.CountersChecked,
 		Issues: issues, Truncated: result.Truncated, LookbackHours: result.LookbackHours, CheckedAt: result.CheckedAt.Format(time.RFC3339),
+	}
+}
+
+func counterRepairResponse(result appsystem.CounterRepairResult) CounterRepairResponse {
+	return CounterRepairResponse{
+		ID: result.ID, Subject: result.Subject, Meter: result.MeterName, Period: result.Period,
+		PeriodStart: result.PeriodStart.Format(time.RFC3339Nano), PeriodEnd: result.PeriodEnd.Format(time.RFC3339Nano),
+		DryRun: result.DryRun, Applied: result.Applied, Before: counterSnapshotResponse(result.Before), After: counterSnapshotResponse(result.After),
+		CounterUpdatedAt: result.CounterUpdatedAt.Format(time.RFC3339Nano), CreatedAt: result.CreatedAt.Format(time.RFC3339Nano),
+	}
+}
+
+func counterSnapshotResponse(snapshot appsystem.CounterSnapshot) CounterSnapshotResponse {
+	first, last := "", ""
+	if !snapshot.FirstEventTime.IsZero() {
+		first = snapshot.FirstEventTime.Format(time.RFC3339Nano)
+	}
+	if !snapshot.LastEventTime.IsZero() {
+		last = snapshot.LastEventTime.Format(time.RFC3339Nano)
+	}
+	return CounterSnapshotResponse{
+		EventCount: snapshot.EventCount, QuantitySum: snapshot.QuantitySum, QuantityMin: snapshot.QuantityMin, QuantityMax: snapshot.QuantityMax,
+		FirstQuantity: snapshot.FirstQuantity, FirstEventTime: first, LastQuantity: snapshot.LastQuantity, LastEventTime: last,
 	}
 }
 

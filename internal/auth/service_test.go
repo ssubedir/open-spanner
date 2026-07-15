@@ -292,6 +292,13 @@ func TestCasbinAuthorizerEnforcesScopesAndMeters(t *testing.T) {
 	if err := authorizer.Can(ctx, principal, ActionUsageWrite, Resource{Type: ResourceUsage}); !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("empty meter restriction error = %v, want ErrForbidden", err)
 	}
+	systemReader := Principal{Kind: PrincipalKindAPIKey, ID: "key_system_read", Scopes: []string{string(ActionSystemRead)}}
+	if err := authorizer.Can(ctx, systemReader, ActionSystemRead, Resource{Type: ResourceSystem}); err != nil {
+		t.Fatalf("system read error = %v", err)
+	}
+	if err := authorizer.Can(ctx, systemReader, ActionSystemWrite, Resource{Type: ResourceSystem}); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("system write with read-only key error = %v, want ErrForbidden", err)
+	}
 
 	session := Principal{Kind: PrincipalKindSession, ID: "user_123"}
 	if err := authorizer.Can(ctx, session, ActionAlertsWrite, Resource{Type: ResourceAlert, Meter: "other_meter"}); err != nil {

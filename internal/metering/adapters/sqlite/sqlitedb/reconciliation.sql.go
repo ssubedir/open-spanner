@@ -10,14 +10,119 @@ import (
 	"database/sql"
 )
 
-const listActiveEntitlementCounters = `-- name: ListActiveEntitlementCounters :many
-SELECT subject, meter_name, period, period_start, period_end,
-	event_count, quantity_sum, quantity_min, quantity_max, updated_at
-FROM entitlement_usage_counters
+const deleteEntitlementCounterForRepair = `-- name: DeleteEntitlementCounterForRepair :execrows
+DELETE FROM entitlement_usage_counters
 WHERE workspace_id = ?1
-	AND julianday(period_start) <= julianday(?2)
-	AND julianday(period_end) > julianday(?2)
-ORDER BY updated_at DESC, subject, meter_name, period
+	AND subject = ?2
+	AND meter_name = ?3
+	AND period = ?4
+	AND period_start = ?5
+	AND updated_at = ?6
+`
+
+type DeleteEntitlementCounterForRepairParams struct {
+	WorkspaceID       string
+	Subject           string
+	MeterName         string
+	Period            string
+	PeriodStart       string
+	ExpectedUpdatedAt string
+}
+
+func (q *Queries) DeleteEntitlementCounterForRepair(ctx context.Context, arg DeleteEntitlementCounterForRepairParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteEntitlementCounterForRepair,
+		arg.WorkspaceID,
+		arg.Subject,
+		arg.MeterName,
+		arg.Period,
+		arg.PeriodStart,
+		arg.ExpectedUpdatedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const getEntitlementCounterForRepair = `-- name: GetEntitlementCounterForRepair :one
+SELECT c.subject, c.meter_name, c.period, c.period_start, c.period_end,
+	c.event_count, c.quantity_sum, c.quantity_min, c.quantity_max,
+	c.first_quantity, c.first_event_time, c.last_quantity, c.last_event_time, c.updated_at,
+	m.event_retention_days
+FROM entitlement_usage_counters c
+JOIN meters m ON m.workspace_id = c.workspace_id AND m.name = c.meter_name
+WHERE c.workspace_id = ?1
+	AND c.subject = ?2
+	AND c.meter_name = ?3
+	AND c.period = ?4
+	AND c.period_start = ?5
+`
+
+type GetEntitlementCounterForRepairParams struct {
+	WorkspaceID string
+	Subject     string
+	MeterName   string
+	Period      string
+	PeriodStart string
+}
+
+type GetEntitlementCounterForRepairRow struct {
+	Subject            string
+	MeterName          string
+	Period             string
+	PeriodStart        string
+	PeriodEnd          string
+	EventCount         int64
+	QuantitySum        float64
+	QuantityMin        float64
+	QuantityMax        float64
+	FirstQuantity      float64
+	FirstEventTime     string
+	LastQuantity       float64
+	LastEventTime      string
+	UpdatedAt          string
+	EventRetentionDays int64
+}
+
+func (q *Queries) GetEntitlementCounterForRepair(ctx context.Context, arg GetEntitlementCounterForRepairParams) (GetEntitlementCounterForRepairRow, error) {
+	row := q.db.QueryRowContext(ctx, getEntitlementCounterForRepair,
+		arg.WorkspaceID,
+		arg.Subject,
+		arg.MeterName,
+		arg.Period,
+		arg.PeriodStart,
+	)
+	var i GetEntitlementCounterForRepairRow
+	err := row.Scan(
+		&i.Subject,
+		&i.MeterName,
+		&i.Period,
+		&i.PeriodStart,
+		&i.PeriodEnd,
+		&i.EventCount,
+		&i.QuantitySum,
+		&i.QuantityMin,
+		&i.QuantityMax,
+		&i.FirstQuantity,
+		&i.FirstEventTime,
+		&i.LastQuantity,
+		&i.LastEventTime,
+		&i.UpdatedAt,
+		&i.EventRetentionDays,
+	)
+	return i, err
+}
+
+const listActiveEntitlementCounters = `-- name: ListActiveEntitlementCounters :many
+SELECT c.subject, c.meter_name, c.period, c.period_start, c.period_end,
+	c.event_count, c.quantity_sum, c.quantity_min, c.quantity_max, c.updated_at,
+	m.event_retention_days
+FROM entitlement_usage_counters c
+JOIN meters m ON m.workspace_id = c.workspace_id AND m.name = c.meter_name
+WHERE c.workspace_id = ?1
+	AND julianday(c.period_start) <= julianday(?2)
+	AND julianday(c.period_end) > julianday(?2)
+ORDER BY c.updated_at DESC, c.subject, c.meter_name, c.period
 LIMIT ?3
 `
 
@@ -28,16 +133,17 @@ type ListActiveEntitlementCountersParams struct {
 }
 
 type ListActiveEntitlementCountersRow struct {
-	Subject     string
-	MeterName   string
-	Period      string
-	PeriodStart string
-	PeriodEnd   string
-	EventCount  int64
-	QuantitySum float64
-	QuantityMin float64
-	QuantityMax float64
-	UpdatedAt   string
+	Subject            string
+	MeterName          string
+	Period             string
+	PeriodStart        string
+	PeriodEnd          string
+	EventCount         int64
+	QuantitySum        float64
+	QuantityMin        float64
+	QuantityMax        float64
+	UpdatedAt          string
+	EventRetentionDays int64
 }
 
 func (q *Queries) ListActiveEntitlementCounters(ctx context.Context, arg ListActiveEntitlementCountersParams) ([]ListActiveEntitlementCountersRow, error) {
@@ -60,6 +166,7 @@ func (q *Queries) ListActiveEntitlementCounters(ctx context.Context, arg ListAct
 			&i.QuantityMin,
 			&i.QuantityMax,
 			&i.UpdatedAt,
+			&i.EventRetentionDays,
 		); err != nil {
 			return nil, err
 		}
@@ -132,14 +239,14 @@ func (q *Queries) ListCounterReconciliationAssignments(ctx context.Context, arg 
 }
 
 const listCounterReconciliationEvents = `-- name: ListCounterReconciliationEvents :many
-SELECT id, quantity, event_time
+SELECT id, quantity, event_time, received_at
 FROM usage_events
 WHERE workspace_id = ?1
 	AND subject = ?2
 	AND meter_name = ?3
 	AND julianday(event_time) >= julianday(?4)
 	AND julianday(event_time) < julianday(?5)
-ORDER BY event_time, id
+ORDER BY received_at, id
 `
 
 type ListCounterReconciliationEventsParams struct {
@@ -151,9 +258,10 @@ type ListCounterReconciliationEventsParams struct {
 }
 
 type ListCounterReconciliationEventsRow struct {
-	ID        string
-	Quantity  float64
-	EventTime string
+	ID         string
+	Quantity   float64
+	EventTime  string
+	ReceivedAt string
 }
 
 func (q *Queries) ListCounterReconciliationEvents(ctx context.Context, arg ListCounterReconciliationEventsParams) ([]ListCounterReconciliationEventsRow, error) {
@@ -171,7 +279,12 @@ func (q *Queries) ListCounterReconciliationEvents(ctx context.Context, arg ListC
 	items := []ListCounterReconciliationEventsRow{}
 	for rows.Next() {
 		var i ListCounterReconciliationEventsRow
-		if err := rows.Scan(&i.ID, &i.Quantity, &i.EventTime); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.Quantity,
+			&i.EventTime,
+			&i.ReceivedAt,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -244,4 +357,173 @@ func (q *Queries) ListDecisionReconciliationRows(ctx context.Context, arg ListDe
 		return nil, err
 	}
 	return items, nil
+}
+
+const listQuotaCounterRepairRuns = `-- name: ListQuotaCounterRepairRuns :many
+SELECT id, subject, meter_name, period, period_start, period_end, dry_run, applied,
+	before_snapshot, after_snapshot, counter_updated_at, created_at
+FROM quota_counter_repair_runs
+WHERE workspace_id = ?1
+ORDER BY created_at DESC, id DESC
+LIMIT ?2
+`
+
+type ListQuotaCounterRepairRunsParams struct {
+	WorkspaceID string
+	Limit       int64
+}
+
+type ListQuotaCounterRepairRunsRow struct {
+	ID               string
+	Subject          string
+	MeterName        string
+	Period           string
+	PeriodStart      string
+	PeriodEnd        string
+	DryRun           int64
+	Applied          int64
+	BeforeSnapshot   string
+	AfterSnapshot    string
+	CounterUpdatedAt string
+	CreatedAt        string
+}
+
+func (q *Queries) ListQuotaCounterRepairRuns(ctx context.Context, arg ListQuotaCounterRepairRunsParams) ([]ListQuotaCounterRepairRunsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listQuotaCounterRepairRuns, arg.WorkspaceID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListQuotaCounterRepairRunsRow{}
+	for rows.Next() {
+		var i ListQuotaCounterRepairRunsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Subject,
+			&i.MeterName,
+			&i.Period,
+			&i.PeriodStart,
+			&i.PeriodEnd,
+			&i.DryRun,
+			&i.Applied,
+			&i.BeforeSnapshot,
+			&i.AfterSnapshot,
+			&i.CounterUpdatedAt,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const saveQuotaCounterRepairRun = `-- name: SaveQuotaCounterRepairRun :exec
+INSERT INTO quota_counter_repair_runs (
+	id, workspace_id, subject, meter_name, period, period_start, period_end,
+	dry_run, applied, before_snapshot, after_snapshot, counter_updated_at, created_at
+) VALUES (
+	?1, ?2, ?3, ?4,
+	?5, ?6, ?7, ?8,
+	?9, ?10, ?11,
+	?12, ?13
+)
+`
+
+type SaveQuotaCounterRepairRunParams struct {
+	ID               string
+	WorkspaceID      string
+	Subject          string
+	MeterName        string
+	Period           string
+	PeriodStart      string
+	PeriodEnd        string
+	DryRun           int64
+	Applied          int64
+	BeforeSnapshot   string
+	AfterSnapshot    string
+	CounterUpdatedAt string
+	CreatedAt        string
+}
+
+func (q *Queries) SaveQuotaCounterRepairRun(ctx context.Context, arg SaveQuotaCounterRepairRunParams) error {
+	_, err := q.db.ExecContext(ctx, saveQuotaCounterRepairRun,
+		arg.ID,
+		arg.WorkspaceID,
+		arg.Subject,
+		arg.MeterName,
+		arg.Period,
+		arg.PeriodStart,
+		arg.PeriodEnd,
+		arg.DryRun,
+		arg.Applied,
+		arg.BeforeSnapshot,
+		arg.AfterSnapshot,
+		arg.CounterUpdatedAt,
+		arg.CreatedAt,
+	)
+	return err
+}
+
+const updateEntitlementCounterForRepair = `-- name: UpdateEntitlementCounterForRepair :execrows
+UPDATE entitlement_usage_counters SET
+	event_count = ?1, quantity_sum = ?2,
+	quantity_min = ?3, quantity_max = ?4,
+	first_quantity = ?5, first_event_time = ?6,
+	last_quantity = ?7, last_event_time = ?8,
+	updated_at = ?9
+WHERE workspace_id = ?10
+	AND subject = ?11
+	AND meter_name = ?12
+	AND period = ?13
+	AND period_start = ?14
+	AND updated_at = ?15
+`
+
+type UpdateEntitlementCounterForRepairParams struct {
+	EventCount        int64
+	QuantitySum       float64
+	QuantityMin       float64
+	QuantityMax       float64
+	FirstQuantity     float64
+	FirstEventTime    string
+	LastQuantity      float64
+	LastEventTime     string
+	UpdatedAt         string
+	WorkspaceID       string
+	Subject           string
+	MeterName         string
+	Period            string
+	PeriodStart       string
+	ExpectedUpdatedAt string
+}
+
+func (q *Queries) UpdateEntitlementCounterForRepair(ctx context.Context, arg UpdateEntitlementCounterForRepairParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateEntitlementCounterForRepair,
+		arg.EventCount,
+		arg.QuantitySum,
+		arg.QuantityMin,
+		arg.QuantityMax,
+		arg.FirstQuantity,
+		arg.FirstEventTime,
+		arg.LastQuantity,
+		arg.LastEventTime,
+		arg.UpdatedAt,
+		arg.WorkspaceID,
+		arg.Subject,
+		arg.MeterName,
+		arg.Period,
+		arg.PeriodStart,
+		arg.ExpectedUpdatedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

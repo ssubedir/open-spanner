@@ -956,6 +956,74 @@ definitions:
       usage_events:
         type: integer
     type: object
+  internal_metering_adapters_http_system.CounterRepairListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_system.CounterRepairResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_system.CounterRepairRequest:
+    properties:
+      dry_run:
+        type: boolean
+      expected_updated_at:
+        type: string
+      meter:
+        type: string
+      period:
+        type: string
+      period_start:
+        type: string
+      subject:
+        type: string
+    type: object
+  internal_metering_adapters_http_system.CounterRepairResponse:
+    properties:
+      after:
+        $ref: '#/definitions/internal_metering_adapters_http_system.CounterSnapshotResponse'
+      applied:
+        type: boolean
+      before:
+        $ref: '#/definitions/internal_metering_adapters_http_system.CounterSnapshotResponse'
+      counter_updated_at:
+        type: string
+      created_at:
+        type: string
+      dry_run:
+        type: boolean
+      id:
+        type: string
+      meter:
+        type: string
+      period:
+        type: string
+      period_end:
+        type: string
+      period_start:
+        type: string
+      subject:
+        type: string
+    type: object
+  internal_metering_adapters_http_system.CounterSnapshotResponse:
+    properties:
+      event_count:
+        type: integer
+      first_event_time:
+        type: string
+      first_quantity:
+        type: number
+      last_event_time:
+        type: string
+      last_quantity:
+        type: number
+      quantity_max:
+        type: number
+      quantity_min:
+        type: number
+      quantity_sum:
+        type: number
+    type: object
   internal_metering_adapters_http_system.LastDecisionPruneRunResponse:
     properties:
       before:
@@ -3201,6 +3269,73 @@ paths:
           schema:
             $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
       summary: Reconcile quota records
+      tags:
+      - system
+  /v1/system/reconciliation/repairs:
+    get:
+      operationId: listQuotaCounterRepairs
+      parameters:
+      - default: 50
+        description: Maximum audit records
+        in: query
+        maximum: 200
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_system.CounterRepairListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List quota counter repairs
+      tags:
+      - system
+    post:
+      consumes:
+      - application/json
+      description: Set dry_run=true to preview. Applying requires expected_updated_at
+        from the preview and fails if the counter changed.
+      operationId: repairQuotaCounter
+      parameters:
+      - description: Repair target and concurrency guard
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_system.CounterRepairRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_system.CounterRepairResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Repair a quota counter
       tags:
       - system
   /v1/system/stats:

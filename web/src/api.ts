@@ -67,6 +67,32 @@ export type ReconciliationResult = {
 	checked_at: string
 }
 
+export type CounterSnapshot = {
+	event_count: number
+	quantity_sum: number
+	quantity_min: number
+	quantity_max: number
+	first_quantity: number
+	first_event_time?: string
+	last_quantity: number
+	last_event_time?: string
+}
+
+export type CounterRepair = {
+	id: string
+	subject: string
+	meter: string
+	period: string
+	period_start: string
+	period_end: string
+	dry_run: boolean
+	applied: boolean
+	before: CounterSnapshot
+	after: CounterSnapshot
+	counter_updated_at: string
+	created_at: string
+}
+
 export type SubjectStats = {
   subject: string
   usage_events: number
@@ -948,6 +974,14 @@ export async function getSystemStats() {
 
 export async function reconcileQuotaRecords(limit = 100, lookbackHours = 24) {
 	return request<ReconciliationResult>(`/v1/system/reconciliation?limit=${limit}&lookback_hours=${lookbackHours}`)
+}
+
+export async function repairQuotaCounter(input: { subject: string; meter: string; period: string; period_start: string; dry_run: boolean; expected_updated_at?: string }) {
+	return request<CounterRepair>('/v1/system/reconciliation/repairs', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export async function listQuotaCounterRepairs(limit = 50) {
+	return request<{ items: CounterRepair[] }>(`/v1/system/reconciliation/repairs?limit=${limit}`)
 }
 
 export async function listConsumptionDecisions(query: { subject?: string; meter?: string; outcome?: string; evaluation_failed?: boolean; enforcement?: string; state?: string; limit?: number; cursor?: string } = {}) {

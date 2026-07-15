@@ -3317,6 +3317,130 @@
                 }
             }
         },
+        "/v1/system/reconciliation/repairs": {
+            "get": {
+                "tags": [
+                    "system"
+                ],
+                "summary": "List quota counter repairs",
+                "operationId": "listQuotaCounterRepairs",
+                "parameters": [
+                    {
+                        "description": "Maximum audit records",
+                        "name": "limit",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 200,
+                            "default": 50
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/internal_metering_adapters_http_system.CounterRepairListResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Set dry_run=true to preview. Applying requires expected_updated_at from the preview and fails if the counter changed.",
+                "tags": [
+                    "system"
+                ],
+                "summary": "Repair a quota counter",
+                "operationId": "repairQuotaCounter",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/internal_metering_adapters_http_system.CounterRepairRequest"
+                            }
+                        }
+                    },
+                    "description": "Repair target and concurrency guard",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/internal_metering_adapters_http_system.CounterRepairResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/system/stats": {
             "get": {
                 "tags": [
@@ -5957,6 +6081,110 @@
                     },
                     "usage_events": {
                         "type": "integer"
+                    }
+                }
+            },
+            "internal_metering_adapters_http_system.CounterRepairListResponse": {
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/internal_metering_adapters_http_system.CounterRepairResponse"
+                        }
+                    }
+                }
+            },
+            "internal_metering_adapters_http_system.CounterRepairRequest": {
+                "type": "object",
+                "properties": {
+                    "dry_run": {
+                        "type": "boolean"
+                    },
+                    "expected_updated_at": {
+                        "type": "string"
+                    },
+                    "meter": {
+                        "type": "string"
+                    },
+                    "period": {
+                        "type": "string"
+                    },
+                    "period_start": {
+                        "type": "string"
+                    },
+                    "subject": {
+                        "type": "string"
+                    }
+                }
+            },
+            "internal_metering_adapters_http_system.CounterRepairResponse": {
+                "type": "object",
+                "properties": {
+                    "after": {
+                        "$ref": "#/components/schemas/internal_metering_adapters_http_system.CounterSnapshotResponse"
+                    },
+                    "applied": {
+                        "type": "boolean"
+                    },
+                    "before": {
+                        "$ref": "#/components/schemas/internal_metering_adapters_http_system.CounterSnapshotResponse"
+                    },
+                    "counter_updated_at": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "dry_run": {
+                        "type": "boolean"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "meter": {
+                        "type": "string"
+                    },
+                    "period": {
+                        "type": "string"
+                    },
+                    "period_end": {
+                        "type": "string"
+                    },
+                    "period_start": {
+                        "type": "string"
+                    },
+                    "subject": {
+                        "type": "string"
+                    }
+                }
+            },
+            "internal_metering_adapters_http_system.CounterSnapshotResponse": {
+                "type": "object",
+                "properties": {
+                    "event_count": {
+                        "type": "integer"
+                    },
+                    "first_event_time": {
+                        "type": "string"
+                    },
+                    "first_quantity": {
+                        "type": "number"
+                    },
+                    "last_event_time": {
+                        "type": "string"
+                    },
+                    "last_quantity": {
+                        "type": "number"
+                    },
+                    "quantity_max": {
+                        "type": "number"
+                    },
+                    "quantity_min": {
+                        "type": "number"
+                    },
+                    "quantity_sum": {
+                        "type": "number"
                     }
                 }
             },
