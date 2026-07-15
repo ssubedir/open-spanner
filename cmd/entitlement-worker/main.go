@@ -10,6 +10,7 @@ import (
 	"github.com/ssubedir/open-spanner/internal/config"
 	"github.com/ssubedir/open-spanner/internal/metering/bootstrap"
 	entitlementworker "github.com/ssubedir/open-spanner/internal/metering/workers/entitlement"
+	"github.com/ssubedir/open-spanner/internal/metering/workers/heartbeat"
 )
 
 func main() {
@@ -43,6 +44,7 @@ func main() {
 		cfg.EntitlementWorkerBatchSize,
 		log.Printf,
 	)
+	heartbeat.Start(ctx, app.SystemService, "entitlement", log.Printf)
 	stopWorker := worker.Start(ctx)
 
 	<-ctx.Done()

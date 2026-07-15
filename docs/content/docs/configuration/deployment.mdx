@@ -113,6 +113,8 @@ Use these endpoints from your orchestrator:
 
 The Docker Compose app stack uses `/ready` for the API container health check.
 
+The authenticated `GET /v1/system/stats` response and Overview dashboard also report durable heartbeats for export, alert, entitlement, retention, and reconciliation workers. A worker is `healthy` when its heartbeat is less than 30 seconds old, `stale` after that threshold, `disabled` when its feature is turned off, and `not_started` when no heartbeat has been recorded. Use this view for operator diagnosis; external monitoring can poll the same API.
+
 ## Secrets
 
 Treat these as production secrets:

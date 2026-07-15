@@ -275,6 +275,14 @@ func runIntegrationAPIKeyRotation(t *testing.T, cfg config.Config, namespace str
 
 	suffix := namespace + "-rotation-" + strconv.FormatInt(time.Now().UTC().UnixNano(), 36)
 	identity := createTestDashboardIdentity(t, router, "rotation-"+suffix+"@example.com")
+	heartbeatAt := time.Now().UTC()
+	if err := app.SystemService.RecordWorkerHeartbeat(context.Background(), "export", heartbeatAt.Add(-time.Minute), heartbeatAt); err != nil {
+		t.Fatalf("record worker heartbeat: %v", err)
+	}
+	health := requestJSON(t, router, http.MethodGet, "/v1/system/stats", nil, identity.Cookies)
+	if health.Code != http.StatusOK || !strings.Contains(health.Body.String(), `"name":"export","status":"healthy"`) {
+		t.Fatalf("worker health status=%d body=%s", health.Code, health.Body.String())
+	}
 	created := requestJSON(t, router, http.MethodPost, "/v1/auth/api-keys", fullAccessAPIKeyPayload("rotating-"+suffix), identity.Cookies)
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create rotating key status=%d body=%s", created.Code, created.Body.String())

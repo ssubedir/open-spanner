@@ -178,6 +178,12 @@ type EntitlementUsageCounter struct {
 	UpdatedAt      string
 }
 
+type SystemWorkerHeartbeat struct {
+	WorkerName      string
+	StartedAt       time.Time
+	LastHeartbeatAt time.Time
+}
+
 type UsageExportJob struct {
 	ID           string
 	WorkspaceID  string

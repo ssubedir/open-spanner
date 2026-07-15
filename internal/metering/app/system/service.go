@@ -12,6 +12,7 @@ import (
 
 type Service interface {
 	Stats(ctx context.Context) (StatsResult, error)
+	RecordWorkerHeartbeat(ctx context.Context, workerName string, startedAt, heartbeatAt time.Time) error
 	Reconcile(ctx context.Context, query ReconciliationQuery) (ReconciliationResult, error)
 	RepairCounter(ctx context.Context, cmd RepairCounterCommand) (CounterRepairResult, error)
 	ListCounterRepairRuns(ctx context.Context, limit int) ([]CounterRepairResult, error)
@@ -28,9 +29,10 @@ type Service interface {
 }
 
 type service struct {
-	repo       Repository
-	transactor apptransaction.Transactor
-	staleAfter time.Duration
+	repo          Repository
+	transactor    apptransaction.Transactor
+	staleAfter    time.Duration
+	workerEnabled map[string]bool
 }
 
 type Repository interface {
@@ -60,6 +62,8 @@ type Repository interface {
 	RequeueReconciliationNotification(ctx context.Context, id string, nextAttemptAt time.Time) (bool, error)
 	SaveReconciliationNotificationAttempt(ctx context.Context, attempt ReconciliationNotificationAttempt) error
 	ListReconciliationNotificationAttempts(ctx context.Context, notificationID string) ([]ReconciliationNotificationAttempt, error)
+	UpsertWorkerHeartbeat(ctx context.Context, heartbeat WorkerHeartbeat) error
+	ListWorkerHeartbeats(ctx context.Context) ([]WorkerHeartbeat, error)
 }
 
 const (
@@ -150,6 +154,20 @@ type StatsResult struct {
 	LastDecisionPruneRun  LastDecisionPruneRunResult
 	LastReconciliationRun ReconciliationRun
 	ReconciliationHealth  ReconciliationHealth
+	WorkerHealth          []WorkerHealth
+}
+
+type WorkerHeartbeat struct {
+	Name            string
+	StartedAt       time.Time
+	LastHeartbeatAt time.Time
+}
+
+type WorkerHealth struct {
+	Name            string
+	Status          string
+	StartedAt       time.Time
+	LastHeartbeatAt time.Time
 }
 
 type LastDecisionPruneRunResult struct {
@@ -169,6 +187,7 @@ type LastPruneRunResult struct {
 
 type ServiceOptions struct {
 	ReconciliationStaleAfter time.Duration
+	WorkerEnabled            map[string]bool
 }
 
 func NewService(repo Repository, transactor apptransaction.Transactor, options ...ServiceOptions) Service {
@@ -179,7 +198,11 @@ func NewService(repo Repository, transactor apptransaction.Transactor, options .
 	if len(options) > 0 && options[0].ReconciliationStaleAfter > 0 {
 		staleAfter = options[0].ReconciliationStaleAfter
 	}
-	return &service{repo: repo, transactor: transactor, staleAfter: staleAfter}
+	workerEnabled := map[string]bool{}
+	if len(options) > 0 && options[0].WorkerEnabled != nil {
+		workerEnabled = options[0].WorkerEnabled
+	}
+	return &service{repo: repo, transactor: transactor, staleAfter: staleAfter, workerEnabled: workerEnabled}
 }
 
 func (s *service) Stats(ctx context.Context) (StatsResult, error) {
@@ -203,7 +226,46 @@ func (s *service) Stats(ctx context.Context) (StatsResult, error) {
 		return StatsResult{}, err
 	}
 	stats.ReconciliationHealth = reconciliationHealth(schedule, exists, stats.LastReconciliationRun, counts, time.Now().UTC(), s.staleAfter)
+	heartbeats, err := s.repo.ListWorkerHeartbeats(ctx)
+	if err != nil {
+		return StatsResult{}, err
+	}
+	stats.WorkerHealth = workerHealth(s.workerEnabled, heartbeats, time.Now().UTC(), 30*time.Second)
 	return stats, nil
+}
+
+func (s *service) RecordWorkerHeartbeat(ctx context.Context, workerName string, startedAt, heartbeatAt time.Time) error {
+	if workerName == "" {
+		return fmt.Errorf("%w: worker name is required", domain.ErrInvalidInput)
+	}
+	return s.repo.UpsertWorkerHeartbeat(ctx, WorkerHeartbeat{Name: workerName, StartedAt: startedAt.UTC(), LastHeartbeatAt: heartbeatAt.UTC()})
+}
+
+func workerHealth(enabled map[string]bool, heartbeats []WorkerHeartbeat, now time.Time, staleAfter time.Duration) []WorkerHealth {
+	byName := map[string]WorkerHeartbeat{}
+	for _, heartbeat := range heartbeats {
+		byName[heartbeat.Name] = heartbeat
+	}
+	names := []string{"export", "alert", "entitlement", "retention", "reconciliation"}
+	result := make([]WorkerHealth, 0, len(names))
+	for _, name := range names {
+		item := WorkerHealth{Name: name, Status: "not_started"}
+		if active, configured := enabled[name]; configured && !active {
+			item.Status = "disabled"
+			result = append(result, item)
+			continue
+		}
+		if heartbeat, ok := byName[name]; ok {
+			item.StartedAt = heartbeat.StartedAt
+			item.LastHeartbeatAt = heartbeat.LastHeartbeatAt
+			item.Status = "healthy"
+			if now.Sub(heartbeat.LastHeartbeatAt) > staleAfter {
+				item.Status = "stale"
+			}
+		}
+		result = append(result, item)
+	}
+	return result
 }
 
 func (s *service) Reconcile(ctx context.Context, query ReconciliationQuery) (ReconciliationResult, error) {

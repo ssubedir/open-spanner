@@ -85,6 +85,18 @@ export function OverviewPage() {
         />
       </section>
 
+      <Card className="mb-4 min-w-0">
+        <CardHeader className="!px-4 !py-3"><div><CardTitle>Operations Health</CardTitle><CardDescription>Durable background-worker heartbeats. Refresh the overview to update.</CardDescription></div></CardHeader>
+        <CardContent>
+          <DataTable emptyLabel="Worker health is unavailable" headers={['Worker', 'Status', 'Last heartbeat', 'Started']} rows={(stats?.worker_health ?? []).map((worker) => [
+            <strong className="capitalize">{worker.name}</strong>,
+            <Badge variant={worker.status === 'healthy' ? 'success' : worker.status === 'stale' ? 'warning' : 'muted'}>{worker.status.replace('_', ' ')}</Badge>,
+            worker.last_heartbeat_at ? formatDate(worker.last_heartbeat_at) : <span className="muted">Never</span>,
+            worker.started_at ? formatDate(worker.started_at) : <span className="muted">—</span>,
+          ])} />
+        </CardContent>
+      </Card>
+
       <section className="mb-4 grid gap-3 xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.65fr)]">
         <Card className="min-w-0">
           <CardHeader className="!px-4 !py-3">

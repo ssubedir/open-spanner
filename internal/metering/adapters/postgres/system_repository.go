@@ -22,6 +22,22 @@ func NewSystemRepository(store *Store) *SystemRepository {
 	return &SystemRepository{queries: postgresdb.New(store)}
 }
 
+func (r *SystemRepository) UpsertWorkerHeartbeat(ctx context.Context, heartbeat appsystem.WorkerHeartbeat) error {
+	return queriesFor(ctx, r.queries).UpsertWorkerHeartbeat(ctx, postgresdb.UpsertWorkerHeartbeatParams{WorkerName: heartbeat.Name, StartedAt: heartbeat.StartedAt, LastHeartbeatAt: heartbeat.LastHeartbeatAt})
+}
+
+func (r *SystemRepository) ListWorkerHeartbeats(ctx context.Context) ([]appsystem.WorkerHeartbeat, error) {
+	rows, err := queriesFor(ctx, r.queries).ListWorkerHeartbeats(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]appsystem.WorkerHeartbeat, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, appsystem.WorkerHeartbeat{Name: row.WorkerName, StartedAt: row.StartedAt, LastHeartbeatAt: row.LastHeartbeatAt})
+	}
+	return items, nil
+}
+
 func (r *SystemRepository) ClaimReconciliationSchedule(ctx context.Context, now, lockedUntil time.Time) (appsystem.ReconciliationClaim, bool, error) {
 	if err := queriesFor(ctx, r.queries).EnsureReconciliationSchedules(ctx, now); err != nil {
 		return appsystem.ReconciliationClaim{}, false, err

@@ -235,3 +235,12 @@ FROM quota_counter_repair_runs
 WHERE workspace_id = sqlc.arg('workspace_id')::text
 ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg('limit')::int;
+-- name: UpsertWorkerHeartbeat :exec
+INSERT INTO system_worker_heartbeats (worker_name, started_at, last_heartbeat_at)
+VALUES ($1, $2, $3)
+ON CONFLICT(worker_name) DO UPDATE SET started_at = EXCLUDED.started_at, last_heartbeat_at = EXCLUDED.last_heartbeat_at;
+
+-- name: ListWorkerHeartbeats :many
+SELECT worker_name, started_at, last_heartbeat_at
+FROM system_worker_heartbeats
+ORDER BY worker_name ASC;

@@ -10,12 +10,21 @@ import (
 )
 
 type reconciliationRepository struct {
+	heartbeats  []WorkerHeartbeat
 	decisions   []DecisionReconciliationRow
 	counters    []CounterReconciliationRow
 	events      []ReconciliationEvent
 	assignments []ReconciliationAssignment
 	repairRuns  []CounterRepairResult
 	pruneCutoff time.Time
+}
+
+func (r *reconciliationRepository) UpsertWorkerHeartbeat(_ context.Context, heartbeat WorkerHeartbeat) error {
+	r.heartbeats = append(r.heartbeats, heartbeat)
+	return nil
+}
+func (r *reconciliationRepository) ListWorkerHeartbeats(context.Context) ([]WorkerHeartbeat, error) {
+	return r.heartbeats, nil
 }
 
 func (r *reconciliationRepository) ClaimReconciliationSchedule(context.Context, time.Time, time.Time) (ReconciliationClaim, bool, error) {

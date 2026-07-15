@@ -11,6 +11,7 @@ import (
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/fileexport"
 	"github.com/ssubedir/open-spanner/internal/metering/bootstrap"
 	exportworker "github.com/ssubedir/open-spanner/internal/metering/workers/export"
+	"github.com/ssubedir/open-spanner/internal/metering/workers/heartbeat"
 )
 
 func main() {
@@ -44,6 +45,7 @@ func main() {
 		cfg.ExportWorkerMaxAttempts,
 		log.Printf,
 	)
+	heartbeat.Start(ctx, app.SystemService, "export", log.Printf)
 	stopWorker := worker.Start(ctx)
 
 	<-ctx.Done()

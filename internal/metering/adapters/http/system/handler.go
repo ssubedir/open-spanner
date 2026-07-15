@@ -299,6 +299,17 @@ func statsResponseFromResult(stats appsystem.StatsResult) StatsResponse {
 		response := reconciliationRunResponse(stats.LastReconciliationRun)
 		lastReconciliationRun = &response
 	}
+	workerHealth := make([]WorkerHealthResponse, 0, len(stats.WorkerHealth))
+	for _, worker := range stats.WorkerHealth {
+		item := WorkerHealthResponse{Name: worker.Name, Status: worker.Status}
+		if !worker.StartedAt.IsZero() {
+			item.StartedAt = worker.StartedAt.Format(time.RFC3339Nano)
+		}
+		if !worker.LastHeartbeatAt.IsZero() {
+			item.LastHeartbeatAt = worker.LastHeartbeatAt.Format(time.RFC3339Nano)
+		}
+		workerHealth = append(workerHealth, item)
+	}
 
 	return StatsResponse{
 		Meters:                stats.Meters,
@@ -310,6 +321,7 @@ func statsResponseFromResult(stats appsystem.StatsResult) StatsResponse {
 		LastDecisionPruneRun:  lastDecisionPruneRun,
 		LastReconciliationRun: lastReconciliationRun,
 		ReconciliationHealth:  reconciliationHealthResponse(stats.ReconciliationHealth),
+		WorkerHealth:          workerHealth,
 	}
 }
 

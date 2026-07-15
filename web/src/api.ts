@@ -26,6 +26,12 @@ export type SystemStats = {
 		pending_notifications: number
 		dead_letter_notifications: number
 	}
+	worker_health: Array<{
+		name: string
+		status: 'healthy' | 'stale' | 'disabled' | 'not_started'
+		started_at?: string
+		last_heartbeat_at?: string
+	}>
 }
 
 export type ConsumptionDecision = {

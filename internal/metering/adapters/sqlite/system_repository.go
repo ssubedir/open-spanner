@@ -22,6 +22,30 @@ func NewSystemRepository(store *Store) *SystemRepository {
 	return &SystemRepository{queries: sqlitedb.New(store)}
 }
 
+func (r *SystemRepository) UpsertWorkerHeartbeat(ctx context.Context, heartbeat appsystem.WorkerHeartbeat) error {
+	return queriesFor(ctx, r.queries).UpsertWorkerHeartbeat(ctx, sqlitedb.UpsertWorkerHeartbeatParams{WorkerName: heartbeat.Name, StartedAt: formatTime(heartbeat.StartedAt), LastHeartbeatAt: formatTime(heartbeat.LastHeartbeatAt)})
+}
+
+func (r *SystemRepository) ListWorkerHeartbeats(ctx context.Context) ([]appsystem.WorkerHeartbeat, error) {
+	rows, err := queriesFor(ctx, r.queries).ListWorkerHeartbeats(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]appsystem.WorkerHeartbeat, 0, len(rows))
+	for _, row := range rows {
+		started, err := time.Parse(time.RFC3339Nano, row.StartedAt)
+		if err != nil {
+			return nil, err
+		}
+		last, err := time.Parse(time.RFC3339Nano, row.LastHeartbeatAt)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, appsystem.WorkerHeartbeat{Name: row.WorkerName, StartedAt: started, LastHeartbeatAt: last})
+	}
+	return items, nil
+}
+
 func (r *SystemRepository) ClaimReconciliationSchedule(ctx context.Context, now, lockedUntil time.Time) (appsystem.ReconciliationClaim, bool, error) {
 	formattedNow := formatTime(now)
 	if err := queriesFor(ctx, r.queries).EnsureReconciliationSchedules(ctx, formattedNow); err != nil {

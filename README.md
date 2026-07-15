@@ -31,7 +31,7 @@ Open Spanner sits between your product and downstream systems such as billing, f
 | REST API | Meter management, usage writes, usage queries, entitlement checks, exports, and operational endpoints. |
 | Official SDKs | Typed backend clients for meters, usage, direct exports, entitlement checks, and entitlement progress reads in Go, TypeScript, Python, and C#. |
 | gRPC streaming | High-throughput usage ingestion from trusted backend services. |
-| Workers | Queued CSV exports, alert threshold evaluation, and async entitlement state updates. |
+| Workers | Queued CSV exports, alert threshold evaluation, async entitlement state updates, and durable operational heartbeats. |
 | Storage | SQLite for local/single-node use, Postgres for production deployments. |
 
 Read the hosted docs at [ssubedir.github.io/open-spanner/docs](https://ssubedir.github.io/open-spanner/docs).

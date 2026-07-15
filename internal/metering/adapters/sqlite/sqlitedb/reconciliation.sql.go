@@ -806,6 +806,35 @@ func (q *Queries) ListReconciliationRuns(ctx context.Context, arg ListReconcilia
 	return items, nil
 }
 
+const listWorkerHeartbeats = `-- name: ListWorkerHeartbeats :many
+SELECT worker_name, started_at, last_heartbeat_at
+FROM system_worker_heartbeats
+ORDER BY worker_name ASC
+`
+
+func (q *Queries) ListWorkerHeartbeats(ctx context.Context) ([]SystemWorkerHeartbeat, error) {
+	rows, err := q.db.QueryContext(ctx, listWorkerHeartbeats)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SystemWorkerHeartbeat{}
+	for rows.Next() {
+		var i SystemWorkerHeartbeat
+		if err := rows.Scan(&i.WorkerName, &i.StartedAt, &i.LastHeartbeatAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markReconciliationNotified = `-- name: MarkReconciliationNotified :exec
 UPDATE reconciliation_schedules
 SET last_notified_fingerprint = ?1, updated_at = ?2
@@ -1077,4 +1106,21 @@ func (q *Queries) UpdateEntitlementCounterForRepair(ctx context.Context, arg Upd
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const upsertWorkerHeartbeat = `-- name: UpsertWorkerHeartbeat :exec
+INSERT INTO system_worker_heartbeats (worker_name, started_at, last_heartbeat_at)
+VALUES (?, ?, ?)
+ON CONFLICT(worker_name) DO UPDATE SET started_at = excluded.started_at, last_heartbeat_at = excluded.last_heartbeat_at
+`
+
+type UpsertWorkerHeartbeatParams struct {
+	WorkerName      string
+	StartedAt       string
+	LastHeartbeatAt string
+}
+
+func (q *Queries) UpsertWorkerHeartbeat(ctx context.Context, arg UpsertWorkerHeartbeatParams) error {
+	_, err := q.db.ExecContext(ctx, upsertWorkerHeartbeat, arg.WorkerName, arg.StartedAt, arg.LastHeartbeatAt)
+	return err
 }

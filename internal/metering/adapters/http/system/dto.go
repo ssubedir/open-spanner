@@ -11,6 +11,14 @@ type StatsResponse struct {
 	LastDecisionPruneRun  *LastDecisionPruneRunResponse `json:"last_decision_prune_run"`
 	LastReconciliationRun *ReconciliationRunResponse    `json:"last_reconciliation_run"`
 	ReconciliationHealth  ReconciliationHealthResponse  `json:"reconciliation_health"`
+	WorkerHealth          []WorkerHealthResponse        `json:"worker_health"`
+}
+
+type WorkerHealthResponse struct {
+	Name            string `json:"name"`
+	Status          string `json:"status"`
+	StartedAt       string `json:"started_at,omitempty"`
+	LastHeartbeatAt string `json:"last_heartbeat_at,omitempty"`
 }
 
 type LastDecisionPruneRunResponse struct {

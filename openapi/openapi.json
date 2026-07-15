@@ -6814,6 +6814,29 @@
                     },
                     "usage_events": {
                         "type": "integer"
+                    },
+                    "worker_health": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/internal_metering_adapters_http_system.WorkerHealthResponse"
+                        }
+                    }
+                }
+            },
+            "internal_metering_adapters_http_system.WorkerHealthResponse": {
+                "type": "object",
+                "properties": {
+                    "last_heartbeat_at": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "started_at": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
                     }
                 }
             },

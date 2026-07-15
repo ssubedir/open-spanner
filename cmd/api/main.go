@@ -13,6 +13,7 @@ import (
 	"github.com/ssubedir/open-spanner/internal/config"
 	grpcadapter "github.com/ssubedir/open-spanner/internal/metering/adapters/grpc"
 	"github.com/ssubedir/open-spanner/internal/metering/bootstrap"
+	"github.com/ssubedir/open-spanner/internal/metering/workers/heartbeat"
 	"github.com/ssubedir/open-spanner/internal/metering/workers/reconciliation"
 	"github.com/ssubedir/open-spanner/internal/metering/workers/retention"
 	serverhttp "github.com/ssubedir/open-spanner/internal/server/http"
@@ -59,6 +60,7 @@ func main() {
 
 	stopRetention := func() {}
 	if cfg.RetentionPruneEnabled {
+		heartbeat.Start(context.Background(), app.SystemService, "retention", log.Printf)
 		log.Printf("retention prune worker enabled: interval=%s timeout=%s", cfg.RetentionPruneInterval, cfg.RetentionPruneTimeout)
 		stopRetention = retention.NewWorker(app.UsageService, cfg.RetentionPruneInterval, cfg.RetentionPruneTimeout, log.Printf).
 			WithDecisionPruner(app.ConsumptionService, cfg.ConsumptionDecisionRetention).
@@ -67,6 +69,7 @@ func main() {
 
 	stopReconciliation := func() {}
 	if cfg.ReconciliationEnabled {
+		heartbeat.Start(context.Background(), app.SystemService, "reconciliation", log.Printf)
 		var notifier reconciliation.Notifier
 		if cfg.ReconciliationWebhookURL != "" {
 			notifier = reconciliation.NewWebhookNotifier(cfg.ReconciliationWebhookURL, cfg.ReconciliationWebhookSecret, nil)
