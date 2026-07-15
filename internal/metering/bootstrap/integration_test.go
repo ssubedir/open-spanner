@@ -531,6 +531,21 @@ func runIntegrationAtomicConsumption(t *testing.T, cfg config.Config, namespace 
 	if strings.Contains(detailRes.Body.String(), "metadata") {
 		t.Fatalf("decision detail exposed metadata: %s", detailRes.Body.String())
 	}
+	reconciliationRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/system/reconciliation?limit=100&lookback_hours=24", nil, identity.Headers, nil)
+	if reconciliationRes.Code != http.StatusOK {
+		t.Fatalf("quota reconciliation status = %d: %s", reconciliationRes.Code, reconciliationRes.Body.String())
+	}
+	var reconciliation struct {
+		Status           string `json:"status"`
+		DecisionsChecked int    `json:"decisions_checked"`
+		CountersChecked  int    `json:"counters_checked"`
+		Issues           []any  `json:"issues"`
+		Truncated        bool   `json:"truncated"`
+	}
+	decodeJSON(t, reconciliationRes, &reconciliation)
+	if reconciliation.Status != "healthy" || reconciliation.DecisionsChecked == 0 || reconciliation.CountersChecked == 0 || len(reconciliation.Issues) != 0 || reconciliation.Truncated {
+		t.Fatalf("quota reconciliation = %#v body=%s", reconciliation, reconciliationRes.Body.String())
+	}
 	otherIdentity := createTestDashboardIdentity(t, router, "consume-other+"+suffix+"@example.com")
 	isolatedRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/entitlements/decisions/"+url.PathEscape(acceptedKey), nil, otherIdentity.Headers, nil)
 	if isolatedRes.Code != http.StatusNotFound {

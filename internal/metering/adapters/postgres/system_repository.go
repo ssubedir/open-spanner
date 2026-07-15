@@ -79,6 +79,98 @@ func (r *SystemRepository) FindStats(ctx context.Context) (appsystem.StatsResult
 	return result, nil
 }
 
+func (r *SystemRepository) ListDecisionReconciliationRows(ctx context.Context, since time.Time, limit int) ([]appsystem.DecisionReconciliationRow, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := queriesFor(ctx, r.queries).ListDecisionReconciliationRows(ctx, postgresdb.ListDecisionReconciliationRowsParams{WorkspaceID: workspaceID, Since: since, Limit: int32(limit)})
+	if err != nil {
+		return nil, err
+	}
+	result := make([]appsystem.DecisionReconciliationRow, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, appsystem.DecisionReconciliationRow{
+			IdempotencyKey: row.IdempotencyKey, Subject: row.Subject, MeterName: row.MeterName,
+			Accepted: row.Accepted, CreatedAt: row.CreatedAt, EventID: row.EventID.String,
+			EventSubject: row.EventSubject.String, EventMeterName: row.EventMeterName.String,
+		})
+	}
+	return result, nil
+}
+
+func (r *SystemRepository) ListActiveEntitlementCounters(ctx context.Context, now time.Time, limit int) ([]appsystem.CounterReconciliationRow, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := queriesFor(ctx, r.queries).ListActiveEntitlementCounters(ctx, postgresdb.ListActiveEntitlementCountersParams{WorkspaceID: workspaceID, Now: now, Limit: int32(limit)})
+	if err != nil {
+		return nil, err
+	}
+	result := make([]appsystem.CounterReconciliationRow, 0, len(rows))
+	for _, row := range rows {
+		start, startErr := parseEntitlementTime(row.PeriodStart)
+		end, endErr := parseEntitlementTime(row.PeriodEnd)
+		updated, updatedErr := parseEntitlementTime(row.UpdatedAt)
+		if err := errors.Join(startErr, endErr, updatedErr); err != nil {
+			return nil, err
+		}
+		result = append(result, appsystem.CounterReconciliationRow{
+			Subject: row.Subject, MeterName: row.MeterName, Period: row.Period, PeriodStart: start, PeriodEnd: end,
+			EventCount: row.EventCount, QuantitySum: row.QuantitySum, QuantityMin: row.QuantityMin, QuantityMax: row.QuantityMax, UpdatedAt: updated,
+		})
+	}
+	return result, nil
+}
+
+func (r *SystemRepository) ListCounterReconciliationEvents(ctx context.Context, counter appsystem.CounterReconciliationRow) ([]appsystem.ReconciliationEvent, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := queriesFor(ctx, r.queries).ListCounterReconciliationEvents(ctx, postgresdb.ListCounterReconciliationEventsParams{
+		WorkspaceID: workspaceID, Subject: counter.Subject, MeterName: counter.MeterName,
+		PeriodStart: counter.PeriodStart, PeriodEnd: counter.PeriodEnd,
+	})
+	if err != nil {
+		return nil, err
+	}
+	result := make([]appsystem.ReconciliationEvent, 0, len(rows))
+	for _, row := range rows {
+		eventTime, err := parseEntitlementTime(row.EventTime)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, appsystem.ReconciliationEvent{ID: row.ID, Quantity: row.Quantity, EventTime: eventTime})
+	}
+	return result, nil
+}
+
+func (r *SystemRepository) ListCounterReconciliationAssignments(ctx context.Context, counter appsystem.CounterReconciliationRow) ([]appsystem.ReconciliationAssignment, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := queriesFor(ctx, r.queries).ListCounterReconciliationAssignments(ctx, postgresdb.ListCounterReconciliationAssignmentsParams{
+		WorkspaceID: workspaceID, Subject: counter.Subject, WindowStart: counter.PeriodStart, WindowEnd: counter.PeriodEnd,
+	})
+	if err != nil {
+		return nil, err
+	}
+	result := make([]appsystem.ReconciliationAssignment, 0, len(rows))
+	for _, row := range rows {
+		assigned, assignedErr := parseEntitlementTime(row.AssignedAt)
+		anchor, anchorErr := parseEntitlementTime(row.PeriodAnchorAt)
+		unassigned, unassignedErr := parseNullableEntitlementTime(row.UnassignedAt)
+		if err := errors.Join(assignedErr, anchorErr, unassignedErr); err != nil {
+			return nil, err
+		}
+		result = append(result, appsystem.ReconciliationAssignment{ID: row.ID, AssignedAt: assigned, PeriodAnchorAt: anchor, UnassignedAt: unassigned})
+	}
+	return result, nil
+}
+
 func lastPruneRunFromDomain(run domainusage.PruneRun) appsystem.LastPruneRunResult {
 	return appsystem.LastPruneRunResult{
 		ID:        run.ID(),

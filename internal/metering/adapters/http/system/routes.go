@@ -10,6 +10,7 @@ func (h *Handler) RegisterRoutes(router chi.Router, authorizer access.Authorizer
 	routes := access.NewRouter(router, authorizer)
 
 	routes.Get("/system/stats", h.Stats, access.SystemRead(systemResource))
+	routes.Get("/system/reconciliation", h.Reconcile, access.SystemRead(systemResource))
 }
 
 var systemResource = access.Static(access.System())

@@ -44,6 +44,29 @@ export type ConsumptionDecision = {
 
 export type ConsumptionDecisionList = { items: ConsumptionDecision[]; next_cursor?: string }
 
+export type ReconciliationIssue = {
+	kind: string
+	severity: string
+	subject?: string
+	meter?: string
+	idempotency_key?: string
+	period?: string
+	period_start?: string
+	expected: string
+	actual: string
+	message: string
+}
+
+export type ReconciliationResult = {
+	status: 'healthy' | 'drift_detected'
+	decisions_checked: number
+	counters_checked: number
+	issues: ReconciliationIssue[]
+	truncated: boolean
+	lookback_hours: number
+	checked_at: string
+}
+
 export type SubjectStats = {
   subject: string
   usage_events: number
@@ -921,6 +944,10 @@ export async function listAlertEvents(limit = 25, cursor = '') {
 
 export async function getSystemStats() {
   return request<SystemStats>('/v1/system/stats')
+}
+
+export async function reconcileQuotaRecords(limit = 100, lookbackHours = 24) {
+	return request<ReconciliationResult>(`/v1/system/reconciliation?limit=${limit}&lookback_hours=${lookbackHours}`)
 }
 
 export async function listConsumptionDecisions(query: { subject?: string; meter?: string; outcome?: string; evaluation_failed?: boolean; enforcement?: string; state?: string; limit?: number; cursor?: string } = {}) {

@@ -26,3 +26,28 @@ type LastPruneRunResponse struct {
 	DryRun    bool   `json:"dry_run"`
 	CreatedAt string `json:"created_at"`
 }
+
+// ReconciliationResponse reports read-only quota consistency checks.
+type ReconciliationResponse struct {
+	Status           string                        `json:"status"`
+	DecisionsChecked int                           `json:"decisions_checked"`
+	CountersChecked  int                           `json:"counters_checked"`
+	Issues           []ReconciliationIssueResponse `json:"issues"`
+	Truncated        bool                          `json:"truncated"`
+	LookbackHours    int                           `json:"lookback_hours"`
+	CheckedAt        string                        `json:"checked_at"`
+}
+
+// ReconciliationIssueResponse describes one detected inconsistency.
+type ReconciliationIssueResponse struct {
+	Kind           string `json:"kind"`
+	Severity       string `json:"severity"`
+	Subject        string `json:"subject,omitempty"`
+	Meter          string `json:"meter,omitempty"`
+	IdempotencyKey string `json:"idempotency_key,omitempty"`
+	Period         string `json:"period,omitempty"`
+	PeriodStart    string `json:"period_start,omitempty"`
+	Expected       string `json:"expected"`
+	Actual         string `json:"actual"`
+	Message        string `json:"message"`
+}

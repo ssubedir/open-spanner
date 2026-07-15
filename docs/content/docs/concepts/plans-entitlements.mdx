@@ -138,6 +138,14 @@ Use `GET /v1/entitlements/decisions` to investigate durable consumption outcomes
 
 Audit responses include the quota snapshot and accepted event ID but intentionally omit event metadata. Access requires both `usage:read` and `plans:read`, and every lookup is isolated to the authenticated workspace. The dashboard exposes the same view under **Entitlements → Decisions**.
 
+## Quota Reconciliation
+
+Use `GET /v1/system/reconciliation` to run a bounded, read-only consistency scan. It checks recent accepted and rejected consumption decisions against usage events, then recalculates currently active entitlement counters from source usage and the assignment anchors that define their quota windows.
+
+The scan reports `healthy` or `drift_detected` with explicit issues such as a missing accepted event, an event recorded for a rejected decision, or a counter count or quantity mismatch. It never repairs or mutates data. The default decision lookback is 24 hours; `lookback_hours` supports up to 720 hours, and `limit` bounds both decisions and active counters to at most 500 each.
+
+Historical counters are intentionally excluded because raw-event retention may legitimately remove their source events. Run the scan from **Operations → Reconciliation** in the dashboard or with a key that has `system:read`.
+
 ## Progress And Status
 
 Entitlement checks answer one decision: can this subject consume this quantity right now?

@@ -15,6 +15,7 @@ import { Route as DashboardRouteRouteImport } from './routes/_dashboard/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DashboardUsageRouteRouteImport } from './routes/_dashboard/usage/route'
 import { Route as DashboardSubjectsRouteRouteImport } from './routes/_dashboard/subjects/route'
+import { Route as DashboardReconciliationRouteRouteImport } from './routes/_dashboard/reconciliation/route'
 import { Route as DashboardPlansRouteRouteImport } from './routes/_dashboard/plans/route'
 import { Route as DashboardOverviewRouteRouteImport } from './routes/_dashboard/overview/route'
 import { Route as DashboardMetersRouteRouteImport } from './routes/_dashboard/meters/route'
@@ -56,6 +57,12 @@ const DashboardSubjectsRouteRoute = DashboardSubjectsRouteRouteImport.update({
   path: '/subjects',
   getParentRoute: () => DashboardRouteRoute,
 } as any)
+const DashboardReconciliationRouteRoute =
+  DashboardReconciliationRouteRouteImport.update({
+    id: '/reconciliation',
+    path: '/reconciliation',
+    getParentRoute: () => DashboardRouteRoute,
+  } as any)
 const DashboardPlansRouteRoute = DashboardPlansRouteRouteImport.update({
   id: '/plans',
   path: '/plans',
@@ -124,6 +131,7 @@ export interface FileRoutesByFullPath {
   '/meters': typeof DashboardMetersRouteRoute
   '/overview': typeof DashboardOverviewRouteRoute
   '/plans': typeof DashboardPlansRouteRoute
+  '/reconciliation': typeof DashboardReconciliationRouteRoute
   '/subjects': typeof DashboardSubjectsRouteRoute
   '/usage': typeof DashboardUsageRouteRoute
   '/alerts/$ruleId': typeof DashboardAlertsRuleIdRoute
@@ -142,6 +150,7 @@ export interface FileRoutesByTo {
   '/meters': typeof DashboardMetersRouteRoute
   '/overview': typeof DashboardOverviewRouteRoute
   '/plans': typeof DashboardPlansRouteRoute
+  '/reconciliation': typeof DashboardReconciliationRouteRoute
   '/subjects': typeof DashboardSubjectsRouteRoute
   '/usage': typeof DashboardUsageRouteRoute
   '/alerts/$ruleId': typeof DashboardAlertsRuleIdRoute
@@ -162,6 +171,7 @@ export interface FileRoutesById {
   '/_dashboard/meters': typeof DashboardMetersRouteRoute
   '/_dashboard/overview': typeof DashboardOverviewRouteRoute
   '/_dashboard/plans': typeof DashboardPlansRouteRoute
+  '/_dashboard/reconciliation': typeof DashboardReconciliationRouteRoute
   '/_dashboard/subjects': typeof DashboardSubjectsRouteRoute
   '/_dashboard/usage': typeof DashboardUsageRouteRoute
   '/_dashboard/alerts_/$ruleId': typeof DashboardAlertsRuleIdRoute
@@ -182,6 +192,7 @@ export interface FileRouteTypes {
     | '/meters'
     | '/overview'
     | '/plans'
+    | '/reconciliation'
     | '/subjects'
     | '/usage'
     | '/alerts/$ruleId'
@@ -200,6 +211,7 @@ export interface FileRouteTypes {
     | '/meters'
     | '/overview'
     | '/plans'
+    | '/reconciliation'
     | '/subjects'
     | '/usage'
     | '/alerts/$ruleId'
@@ -219,6 +231,7 @@ export interface FileRouteTypes {
     | '/_dashboard/meters'
     | '/_dashboard/overview'
     | '/_dashboard/plans'
+    | '/_dashboard/reconciliation'
     | '/_dashboard/subjects'
     | '/_dashboard/usage'
     | '/_dashboard/alerts_/$ruleId'
@@ -276,6 +289,13 @@ declare module '@tanstack/react-router' {
       path: '/subjects'
       fullPath: '/subjects'
       preLoaderRoute: typeof DashboardSubjectsRouteRouteImport
+      parentRoute: typeof DashboardRouteRoute
+    }
+    '/_dashboard/reconciliation': {
+      id: '/_dashboard/reconciliation'
+      path: '/reconciliation'
+      fullPath: '/reconciliation'
+      preLoaderRoute: typeof DashboardReconciliationRouteRouteImport
       parentRoute: typeof DashboardRouteRoute
     }
     '/_dashboard/plans': {
@@ -366,6 +386,7 @@ interface DashboardRouteRouteChildren {
   DashboardMetersRouteRoute: typeof DashboardMetersRouteRoute
   DashboardOverviewRouteRoute: typeof DashboardOverviewRouteRoute
   DashboardPlansRouteRoute: typeof DashboardPlansRouteRoute
+  DashboardReconciliationRouteRoute: typeof DashboardReconciliationRouteRoute
   DashboardSubjectsRouteRoute: typeof DashboardSubjectsRouteRoute
   DashboardUsageRouteRoute: typeof DashboardUsageRouteRoute
   DashboardAlertsRuleIdRoute: typeof DashboardAlertsRuleIdRoute
@@ -382,6 +403,7 @@ const DashboardRouteRouteChildren: DashboardRouteRouteChildren = {
   DashboardMetersRouteRoute: DashboardMetersRouteRoute,
   DashboardOverviewRouteRoute: DashboardOverviewRouteRoute,
   DashboardPlansRouteRoute: DashboardPlansRouteRoute,
+  DashboardReconciliationRouteRoute: DashboardReconciliationRouteRoute,
   DashboardSubjectsRouteRoute: DashboardSubjectsRouteRoute,
   DashboardUsageRouteRoute: DashboardUsageRouteRoute,
   DashboardAlertsRuleIdRoute: DashboardAlertsRuleIdRoute,

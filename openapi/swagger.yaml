@@ -980,6 +980,48 @@ definitions:
       id:
         type: string
     type: object
+  internal_metering_adapters_http_system.ReconciliationIssueResponse:
+    properties:
+      actual:
+        type: string
+      expected:
+        type: string
+      idempotency_key:
+        type: string
+      kind:
+        type: string
+      message:
+        type: string
+      meter:
+        type: string
+      period:
+        type: string
+      period_start:
+        type: string
+      severity:
+        type: string
+      subject:
+        type: string
+    type: object
+  internal_metering_adapters_http_system.ReconciliationResponse:
+    properties:
+      checked_at:
+        type: string
+      counters_checked:
+        type: integer
+      decisions_checked:
+        type: integer
+      issues:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_system.ReconciliationIssueResponse'
+        type: array
+      lookback_hours:
+        type: integer
+      status:
+        type: string
+      truncated:
+        type: boolean
+    type: object
   internal_metering_adapters_http_system.StatsResponse:
     properties:
       consumption_decisions:
@@ -3125,6 +3167,42 @@ paths:
       summary: List subject usage events
       tags:
       - subjects
+  /v1/system/reconciliation:
+    get:
+      description: Checks recent consumption decisions and active quota counters against
+        source usage without modifying data.
+      operationId: reconcileQuotaRecords
+      parameters:
+      - default: 100
+        description: Maximum decisions and active counters to inspect
+        in: query
+        maximum: 500
+        name: limit
+        type: integer
+      - default: 24
+        description: Recent decision lookback in hours
+        in: query
+        maximum: 720
+        name: lookback_hours
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_system.ReconciliationResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Reconcile quota records
+      tags:
+      - system
   /v1/system/stats:
     get:
       operationId: getSystemStats

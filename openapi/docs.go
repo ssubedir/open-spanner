@@ -2621,6 +2621,57 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/system/reconciliation": {
+            "get": {
+                "description": "Checks recent consumption decisions and active quota counters against source usage without modifying data.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Reconcile quota records",
+                "operationId": "reconcileQuotaRecords",
+                "parameters": [
+                    {
+                        "maximum": 500,
+                        "type": "integer",
+                        "default": 100,
+                        "description": "Maximum decisions and active counters to inspect",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 720,
+                        "type": "integer",
+                        "default": 24,
+                        "description": "Recent decision lookback in hours",
+                        "name": "lookback_hours",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_system.ReconciliationResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/system/stats": {
             "get": {
                 "produces": [
@@ -5044,6 +5095,70 @@ const docTemplate = `{
                 },
                 "id": {
                     "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_system.ReconciliationIssueResponse": {
+            "type": "object",
+            "properties": {
+                "actual": {
+                    "type": "string"
+                },
+                "expected": {
+                    "type": "string"
+                },
+                "idempotency_key": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "meter": {
+                    "type": "string"
+                },
+                "period": {
+                    "type": "string"
+                },
+                "period_start": {
+                    "type": "string"
+                },
+                "severity": {
+                    "type": "string"
+                },
+                "subject": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_system.ReconciliationResponse": {
+            "type": "object",
+            "properties": {
+                "checked_at": {
+                    "type": "string"
+                },
+                "counters_checked": {
+                    "type": "integer"
+                },
+                "decisions_checked": {
+                    "type": "integer"
+                },
+                "issues": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_system.ReconciliationIssueResponse"
+                    }
+                },
+                "lookback_hours": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "truncated": {
+                    "type": "boolean"
                 }
             }
         },
