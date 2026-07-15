@@ -1,6 +1,6 @@
 import { Link, Outlet, useRouter } from '@tanstack/react-router'
 import { useSelector } from '@tanstack/react-store'
-import { BarChart3, BellRing, Boxes, FileArchive, Gauge, KeyRound, LayoutDashboard, LogOut, PackageCheck, Users } from 'lucide-react'
+import { BarChart3, BellRing, Boxes, FileArchive, Gauge, KeyRound, LayoutDashboard, LogOut, PackageCheck, ShieldCheck, Users } from 'lucide-react'
 
 import { appStore, appStoreActions } from '../app-store'
 import { Button } from '../components/ui/button'
@@ -26,6 +26,7 @@ const navGroups = [
     items: [
       { description: 'Quota packages', icon: PackageCheck, label: 'Plans', to: '/plans' },
       { description: 'Usage analysis', icon: BarChart3, label: 'Usage', to: '/usage' },
+      { description: 'Quota decision audit', icon: ShieldCheck, label: 'Decisions', to: '/decisions' },
     ],
     label: 'Entitlements',
   },

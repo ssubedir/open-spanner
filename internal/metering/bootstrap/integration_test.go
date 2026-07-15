@@ -480,6 +480,63 @@ func runIntegrationAtomicConsumption(t *testing.T, cfg config.Config, namespace 
 		t.Fatal("advisory consumption never reported exceeded quota")
 	}
 
+	auditPageRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/entitlements/decisions?limit=5", nil, identity.Headers, nil)
+	if auditPageRes.Code != http.StatusOK {
+		t.Fatalf("decision audit page status = %d: %s", auditPageRes.Code, auditPageRes.Body.String())
+	}
+	var auditPage struct {
+		Items []struct {
+			IdempotencyKey string `json:"idempotency_key"`
+			Accepted       bool   `json:"accepted"`
+			EventID        string `json:"event_id"`
+			Quota          struct {
+				Subject string `json:"subject"`
+				Meter   string `json:"meter"`
+			} `json:"quota"`
+		} `json:"items"`
+		NextCursor string `json:"next_cursor"`
+	}
+	decodeJSON(t, auditPageRes, &auditPage)
+	if len(auditPage.Items) != 5 || auditPage.NextCursor == "" {
+		t.Fatalf("decision audit page = %#v", auditPage)
+	}
+	for _, item := range auditPage.Items {
+		if item.IdempotencyKey == "" || item.Quota.Meter != meterName || item.Quota.Subject == "" {
+			t.Fatalf("unsafe or incomplete decision audit item = %#v", item)
+		}
+	}
+	rejectedAuditRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/entitlements/decisions?outcome=rejected&subject="+url.QueryEscape(hardSubject)+"&meter="+url.QueryEscape(meterName), nil, identity.Headers, nil)
+	if rejectedAuditRes.Code != http.StatusOK {
+		t.Fatalf("rejected decision audit status = %d: %s", rejectedAuditRes.Code, rejectedAuditRes.Body.String())
+	}
+	var rejectedAudit struct {
+		Items []struct {
+			Accepted bool   `json:"accepted"`
+			EventID  string `json:"event_id"`
+		} `json:"items"`
+	}
+	decodeJSON(t, rejectedAuditRes, &rejectedAudit)
+	if len(rejectedAudit.Items) != 11 {
+		t.Fatalf("rejected decision audit count = %d, want 11", len(rejectedAudit.Items))
+	}
+	for _, item := range rejectedAudit.Items {
+		if item.Accepted || item.EventID != "" {
+			t.Fatalf("rejected audit item = %#v", item)
+		}
+	}
+	detailRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/entitlements/decisions/"+url.PathEscape(acceptedKey), nil, identity.Headers, nil)
+	if detailRes.Code != http.StatusOK {
+		t.Fatalf("decision detail status = %d: %s", detailRes.Code, detailRes.Body.String())
+	}
+	if strings.Contains(detailRes.Body.String(), "metadata") {
+		t.Fatalf("decision detail exposed metadata: %s", detailRes.Body.String())
+	}
+	otherIdentity := createTestDashboardIdentity(t, router, "consume-other+"+suffix+"@example.com")
+	isolatedRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/entitlements/decisions/"+url.PathEscape(acceptedKey), nil, otherIdentity.Headers, nil)
+	if isolatedRes.Code != http.StatusNotFound {
+		t.Fatalf("cross-workspace decision detail status = %d, want 404: %s", isolatedRes.Code, isolatedRes.Body.String())
+	}
+
 	assertStored := func(subject string, want int) {
 		t.Helper()
 		res := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/usageevents?meter="+url.QueryEscape(meterName)+"&subject="+url.QueryEscape(subject), nil, identity.Headers, nil)

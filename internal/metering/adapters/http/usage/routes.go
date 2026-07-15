@@ -17,6 +17,8 @@ func (h *Handler) RegisterRoutes(router chi.Router, authorizer access.Authorizer
 	h.registerUsageEventRoutes(routes)
 	h.registerExportRoutes(routes)
 	routes.Post("/entitlements/consume", h.Consume, access.UsageWrite(consumeUsageResource), access.PlansRead(consumePlanResource))
+	routes.Get("/entitlements/decisions", h.ListConsumptionDecisions, access.UsageRead(decisionQueryUsageResource), access.PlansRead(decisionQueryPlanResource))
+	routes.Get("/entitlements/decisions/{idempotency_key}", h.GetConsumptionDecision, access.UsageRead(h.decisionUsageResource), access.PlansRead(h.decisionPlanResource))
 	routes.Get("/usageingestions", h.ListIngestions, access.UsageRead(allUsageResource))
 }
 
@@ -171,6 +173,30 @@ func eventListQueryExportResource(r *http.Request) ([]access.Resource, error) {
 		return nil, err
 	}
 	return access.Resources(access.Export(query.MeterName)), nil
+}
+
+func decisionQueryUsageResource(r *http.Request) ([]access.Resource, error) {
+	return access.Resources(access.Usage(r.URL.Query().Get("meter"), r.URL.Query().Get("subject"))), nil
+}
+
+func decisionQueryPlanResource(r *http.Request) ([]access.Resource, error) {
+	return access.Resources(access.Plan(r.URL.Query().Get("meter"))), nil
+}
+
+func (h *Handler) decisionUsageResource(r *http.Request) ([]access.Resource, error) {
+	decision, err := h.consumption.GetDecision(r.Context(), chi.URLParam(r, "idempotency_key"))
+	if err != nil {
+		return nil, err
+	}
+	return access.Resources(access.Usage(decision.Result.Quota.MeterName, decision.Result.Quota.Subject)), nil
+}
+
+func (h *Handler) decisionPlanResource(r *http.Request) ([]access.Resource, error) {
+	decision, err := h.consumption.GetDecision(r.Context(), chi.URLParam(r, "idempotency_key"))
+	if err != nil {
+		return nil, err
+	}
+	return access.Resources(access.Plan(decision.Result.Quota.MeterName)), nil
 }
 
 func (h *Handler) exportJobResource(r *http.Request) ([]access.Resource, error) {

@@ -10,9 +10,11 @@ import (
 
 	"github.com/google/uuid"
 	appentitlement "github.com/ssubedir/open-spanner/internal/metering/app/entitlement"
+	"github.com/ssubedir/open-spanner/internal/metering/app/page"
 	apptransaction "github.com/ssubedir/open-spanner/internal/metering/app/transaction"
 	appusage "github.com/ssubedir/open-spanner/internal/metering/app/usage"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
+	domainconsumption "github.com/ssubedir/open-spanner/internal/metering/domain/consumption"
 )
 
 var (
@@ -22,6 +24,8 @@ var (
 type Service interface {
 	Consume(ctx context.Context, cmd Command) (Result, error)
 	PruneDecisions(ctx context.Context, cmd PruneCommand) (PruneResult, error)
+	GetDecision(ctx context.Context, idempotencyKey string) (DecisionResult, error)
+	ListDecisions(ctx context.Context, query DecisionListQuery) (DecisionListResult, error)
 }
 
 type Command struct {
@@ -42,8 +46,9 @@ type Result struct {
 }
 
 type Repository interface {
-	Find(ctx context.Context, idempotencyKey string) ([]byte, error)
-	Save(ctx context.Context, idempotencyKey string, snapshot []byte) (stored []byte, created bool, err error)
+	Find(ctx context.Context, idempotencyKey string) (domainconsumption.Decision, error)
+	Save(ctx context.Context, idempotencyKey string, snapshot []byte) (stored domainconsumption.Decision, created bool, err error)
+	List(ctx context.Context, query domainconsumption.Query) ([]domainconsumption.Decision, error)
 	CountExpired(ctx context.Context, before time.Time) (int, error)
 	PruneExpired(ctx context.Context, before time.Time) (int, error)
 	SavePruneRun(ctx context.Context, id string, before time.Time, dryRun bool, deleted int, createdAt time.Time) error
@@ -76,6 +81,28 @@ type PruneResult struct {
 	Deleted   int
 	DryRun    bool
 	CreatedAt time.Time
+}
+
+type DecisionResult struct {
+	IdempotencyKey string
+	Result         Result
+	CreatedAt      time.Time
+}
+
+type DecisionListQuery struct {
+	Subject          string
+	MeterName        string
+	Outcome          string
+	EvaluationFailed *bool
+	Enforcement      string
+	State            string
+	Limit            int
+	Cursor           string
+}
+
+type DecisionListResult struct {
+	Items      []DecisionResult
+	NextCursor string
 }
 
 func NewService(repo Repository, usage UsageService, entitlements EntitlementService, transactor apptransaction.Transactor) Service {
@@ -188,29 +215,101 @@ func (s *service) persist(ctx context.Context, idempotencyKey string, result *Re
 	if err != nil {
 		return err
 	}
-	storedSnapshot, created, err := s.repo.Save(ctx, idempotencyKey, snapshot)
+	stored, created, err := s.repo.Save(ctx, idempotencyKey, snapshot)
 	if err != nil {
 		return err
 	}
-	var stored Result
-	if err := json.Unmarshal(storedSnapshot, &stored); err != nil {
+	var storedResult Result
+	if err := json.Unmarshal(stored.Snapshot, &storedResult); err != nil {
 		return err
 	}
-	stored.Replayed = !created
-	*result = stored
+	storedResult.Replayed = !created
+	*result = storedResult
 	return nil
 }
 
 func (s *service) find(ctx context.Context, idempotencyKey string) (Result, error) {
-	snapshot, err := s.repo.Find(ctx, idempotencyKey)
+	stored, err := s.repo.Find(ctx, idempotencyKey)
 	if err != nil {
 		return Result{}, err
 	}
 	var result Result
-	if err := json.Unmarshal(snapshot, &result); err != nil {
+	if err := json.Unmarshal(stored.Snapshot, &result); err != nil {
 		return Result{}, err
 	}
 	return result, nil
+}
+
+func (s *service) GetDecision(ctx context.Context, idempotencyKey string) (DecisionResult, error) {
+	key := strings.TrimSpace(idempotencyKey)
+	if key == "" {
+		return DecisionResult{}, fmt.Errorf("%w: idempotency key is required", domain.ErrInvalidInput)
+	}
+	stored, err := s.repo.Find(ctx, key)
+	if err != nil {
+		return DecisionResult{}, err
+	}
+	return decisionResult(stored)
+}
+
+func (s *service) ListDecisions(ctx context.Context, query DecisionListQuery) (DecisionListResult, error) {
+	cursor, err := page.Decode(query.Cursor)
+	if err != nil {
+		return DecisionListResult{}, err
+	}
+	limit := query.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	var accepted *bool
+	switch strings.ToLower(strings.TrimSpace(query.Outcome)) {
+	case "", "all":
+	case "accepted":
+		v := true
+		accepted = &v
+	case "rejected":
+		v := false
+		accepted = &v
+	default:
+		return DecisionListResult{}, fmt.Errorf("%w: outcome must be accepted or rejected", domain.ErrInvalidInput)
+	}
+	stored, err := s.repo.List(ctx, domainconsumption.Query{
+		Subject: strings.TrimSpace(query.Subject), MeterName: strings.TrimSpace(query.MeterName), Accepted: accepted,
+		EvaluationFailed: query.EvaluationFailed, Enforcement: strings.TrimSpace(query.Enforcement), State: strings.TrimSpace(query.State),
+		CursorCreatedAt: cursor.Time, CursorID: cursor.ID, Limit: limit + 1,
+	})
+	if err != nil {
+		return DecisionListResult{}, err
+	}
+	next := ""
+	if len(stored) > limit {
+		last := stored[limit-1]
+		next, err = page.Encode(page.Cursor{Time: last.CreatedAt, ID: last.IdempotencyKey})
+		if err != nil {
+			return DecisionListResult{}, err
+		}
+		stored = stored[:limit]
+	}
+	items := make([]DecisionResult, 0, len(stored))
+	for _, decision := range stored {
+		item, err := decisionResult(decision)
+		if err != nil {
+			return DecisionListResult{}, err
+		}
+		items = append(items, item)
+	}
+	return DecisionListResult{Items: items, NextCursor: next}, nil
+}
+
+func decisionResult(stored domainconsumption.Decision) (DecisionResult, error) {
+	var result Result
+	if err := json.Unmarshal(stored.Snapshot, &result); err != nil {
+		return DecisionResult{}, err
+	}
+	return DecisionResult{IdempotencyKey: stored.IdempotencyKey, Result: result, CreatedAt: stored.CreatedAt}, nil
 }
 
 func (s *service) PruneDecisions(ctx context.Context, cmd PruneCommand) (PruneResult, error) {

@@ -19,6 +19,31 @@ export type SystemStats = {
 	}
 }
 
+export type ConsumptionDecision = {
+	idempotency_key: string
+	accepted: boolean
+	evaluation_failed: boolean
+	event_id?: string
+	created_at: string
+	quota: {
+		allowed: boolean
+		state: string
+		subject: string
+		meter: string
+		quantity: number
+		current: number
+		projected: number
+		limit: number
+		remaining: number
+		overage: number
+		enforcement: string
+		failure_policy: string
+		message: string
+	}
+}
+
+export type ConsumptionDecisionList = { items: ConsumptionDecision[]; next_cursor?: string }
+
 export type SubjectStats = {
   subject: string
   usage_events: number
@@ -896,6 +921,15 @@ export async function listAlertEvents(limit = 25, cursor = '') {
 
 export async function getSystemStats() {
   return request<SystemStats>('/v1/system/stats')
+}
+
+export async function listConsumptionDecisions(query: { subject?: string; meter?: string; outcome?: string; evaluation_failed?: boolean; enforcement?: string; state?: string; limit?: number; cursor?: string } = {}) {
+	const params = new URLSearchParams()
+	for (const [key, value] of Object.entries(query)) {
+		if (value !== undefined && value !== '') params.set(key, String(value))
+	}
+	const suffix = params.size ? `?${params.toString()}` : ''
+	return request<ConsumptionDecisionList>(`/v1/entitlements/decisions${suffix}`)
 }
 
 export async function listSubjects(limit = 8, cursor = '') {

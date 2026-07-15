@@ -61,6 +61,21 @@ type ConsumeQuotaResponse struct {
 	Message           string  `json:"message"`
 }
 
+// ConsumptionDecisionResponse is a metadata-safe audit record for one atomic consumption decision.
+type ConsumptionDecisionResponse struct {
+	IdempotencyKey   string               `json:"idempotency_key"`
+	Accepted         bool                 `json:"accepted"`
+	EvaluationFailed bool                 `json:"evaluation_failed"`
+	EventID          string               `json:"event_id,omitempty"`
+	CreatedAt        string               `json:"created_at"`
+	Quota            ConsumeQuotaResponse `json:"quota"`
+}
+
+type ConsumptionDecisionListResponse struct {
+	Items      []ConsumptionDecisionResponse `json:"items"`
+	NextCursor string                        `json:"next_cursor,omitempty"`
+}
+
 // FilterRequest is an advanced usage search filter.
 type FilterRequest struct {
 	Type  string          `json:"type"`

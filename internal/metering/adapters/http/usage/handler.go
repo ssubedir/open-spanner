@@ -173,6 +173,74 @@ func (h *Handler) Consume(w http.ResponseWriter, r *http.Request) {
 	respond.JSON(w, http.StatusCreated, consumeResponse(result))
 }
 
+// ListConsumptionDecisions lists durable quota decisions without event metadata.
+// @Summary List consumption decisions
+// @ID listConsumptionDecisions
+// @Tags entitlements
+// @Produce json
+// @Param subject query string false "Subject"
+// @Param meter query string false "Meter"
+// @Param outcome query string false "accepted or rejected"
+// @Param evaluation_failed query bool false "Evaluation failure outcome"
+// @Param enforcement query string false "advisory or hard"
+// @Param state query string false "Quota state"
+// @Param limit query int false "Page size"
+// @Param cursor query string false "Pagination cursor"
+// @Success 200 {object} ConsumptionDecisionListResponse
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/entitlements/decisions [get]
+func (h *Handler) ListConsumptionDecisions(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	limit, err := request.ParseLimit(query.Get("limit"))
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+	var evaluationFailed *bool
+	if raw := query.Get("evaluation_failed"); raw != "" {
+		value, err := request.ParseOptionalBool("evaluation_failed", raw)
+		if err != nil {
+			respond.ValidationError(w, err)
+			return
+		}
+		evaluationFailed = &value
+	}
+	result, err := h.consumption.ListDecisions(r.Context(), appconsumption.DecisionListQuery{
+		Subject: query.Get("subject"), MeterName: query.Get("meter"), Outcome: query.Get("outcome"),
+		EvaluationFailed: evaluationFailed, Enforcement: query.Get("enforcement"), State: query.Get("state"),
+		Limit: limit, Cursor: query.Get("cursor"),
+	})
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	items := make([]ConsumptionDecisionResponse, 0, len(result.Items))
+	for _, item := range result.Items {
+		items = append(items, consumptionDecisionResponse(item))
+	}
+	respond.JSON(w, http.StatusOK, ConsumptionDecisionListResponse{Items: items, NextCursor: result.NextCursor})
+}
+
+// GetConsumptionDecision returns one durable quota decision without event metadata.
+// @Summary Get consumption decision
+// @ID getConsumptionDecision
+// @Tags entitlements
+// @Produce json
+// @Param idempotency_key path string true "Idempotency key"
+// @Success 200 {object} ConsumptionDecisionResponse
+// @Failure 404 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/entitlements/decisions/{idempotency_key} [get]
+func (h *Handler) GetConsumptionDecision(w http.ResponseWriter, r *http.Request) {
+	result, err := h.consumption.GetDecision(r.Context(), chi.URLParam(r, "idempotency_key"))
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	respond.JSON(w, http.StatusOK, consumptionDecisionResponse(result))
+}
+
 // CreateBulk creates usage events in bulk.
 //
 // @Summary Create usage in bulk
@@ -1166,6 +1234,19 @@ func consumeResponse(result appconsumption.Result) ConsumeResponse {
 			PeriodResetAt: optionalResponseTime(quota.PeriodResetAt), RetryAfterSeconds: quota.RetryAfterSeconds,
 			Enforcement: string(quota.Enforcement), FailurePolicy: string(quota.FailurePolicy), Message: quota.Message,
 		},
+	}
+}
+
+func consumptionDecisionResponse(decision appconsumption.DecisionResult) ConsumptionDecisionResponse {
+	response := consumeResponse(decision.Result)
+	eventID := ""
+	if response.Event != nil {
+		eventID = response.Event.ID
+	}
+	return ConsumptionDecisionResponse{
+		IdempotencyKey: decision.IdempotencyKey, Accepted: decision.Result.Accepted,
+		EvaluationFailed: decision.Result.EvaluationFailed, EventID: eventID,
+		CreatedAt: decision.CreatedAt.Format(time.RFC3339), Quota: response.Quota,
 	}
 }
 

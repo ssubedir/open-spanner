@@ -1,0 +1,10 @@
+DROP INDEX idx_consumption_decisions_workspace_meter;
+DROP INDEX idx_consumption_decisions_workspace_subject;
+DROP INDEX idx_consumption_decisions_workspace_audit;
+ALTER TABLE consumption_decisions
+	DROP COLUMN state,
+	DROP COLUMN enforcement,
+	DROP COLUMN evaluation_failed,
+	DROP COLUMN accepted,
+	DROP COLUMN meter_name,
+	DROP COLUMN subject;

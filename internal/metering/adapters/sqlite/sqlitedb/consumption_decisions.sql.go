@@ -49,7 +49,7 @@ func (q *Queries) CountExpiredConsumptionDecisions(ctx context.Context, arg Coun
 }
 
 const findConsumptionDecision = `-- name: FindConsumptionDecision :one
-SELECT response
+SELECT response, created_at
 FROM consumption_decisions
 WHERE workspace_id = ?1
 	AND idempotency_key = ?2
@@ -60,11 +60,16 @@ type FindConsumptionDecisionParams struct {
 	IdempotencyKey string
 }
 
-func (q *Queries) FindConsumptionDecision(ctx context.Context, arg FindConsumptionDecisionParams) (string, error) {
+type FindConsumptionDecisionRow struct {
+	Response  string
+	CreatedAt string
+}
+
+func (q *Queries) FindConsumptionDecision(ctx context.Context, arg FindConsumptionDecisionParams) (FindConsumptionDecisionRow, error) {
 	row := q.db.QueryRowContext(ctx, findConsumptionDecision, arg.WorkspaceID, arg.IdempotencyKey)
-	var response string
-	err := row.Scan(&response)
-	return response, err
+	var i FindConsumptionDecisionRow
+	err := row.Scan(&i.Response, &i.CreatedAt)
+	return i, err
 }
 
 const findLatestConsumptionDecisionPruneRun = `-- name: FindLatestConsumptionDecisionPruneRun :one
@@ -95,6 +100,91 @@ func (q *Queries) FindLatestConsumptionDecisionPruneRun(ctx context.Context, wor
 	return i, err
 }
 
+const listConsumptionDecisions = `-- name: ListConsumptionDecisions :many
+SELECT idempotency_key, response, subject, meter_name, accepted, evaluation_failed, enforcement, state, created_at
+FROM consumption_decisions
+WHERE workspace_id = ?1
+	AND (?2 = '' OR subject = ?2)
+	AND (?3 = '' OR meter_name = ?3)
+	AND (?4 IS NULL OR accepted = ?4)
+	AND (?5 IS NULL OR evaluation_failed = ?5)
+	AND (?6 = '' OR enforcement = ?6)
+	AND (?7 = '' OR state = ?7)
+	AND (?8 IS NULL OR created_at < ?8
+		OR (created_at = ?8 AND idempotency_key < ?9))
+ORDER BY created_at DESC, idempotency_key DESC
+LIMIT ?10
+`
+
+type ListConsumptionDecisionsParams struct {
+	WorkspaceID      string
+	Subject          interface{}
+	MeterName        interface{}
+	Accepted         interface{}
+	EvaluationFailed interface{}
+	Enforcement      interface{}
+	State            interface{}
+	CursorCreatedAt  interface{}
+	CursorID         string
+	Limit            int64
+}
+
+type ListConsumptionDecisionsRow struct {
+	IdempotencyKey   string
+	Response         string
+	Subject          string
+	MeterName        string
+	Accepted         int64
+	EvaluationFailed int64
+	Enforcement      string
+	State            string
+	CreatedAt        string
+}
+
+func (q *Queries) ListConsumptionDecisions(ctx context.Context, arg ListConsumptionDecisionsParams) ([]ListConsumptionDecisionsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listConsumptionDecisions,
+		arg.WorkspaceID,
+		arg.Subject,
+		arg.MeterName,
+		arg.Accepted,
+		arg.EvaluationFailed,
+		arg.Enforcement,
+		arg.State,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListConsumptionDecisionsRow{}
+	for rows.Next() {
+		var i ListConsumptionDecisionsRow
+		if err := rows.Scan(
+			&i.IdempotencyKey,
+			&i.Response,
+			&i.Subject,
+			&i.MeterName,
+			&i.Accepted,
+			&i.EvaluationFailed,
+			&i.Enforcement,
+			&i.State,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const pruneExpiredConsumptionDecisions = `-- name: PruneExpiredConsumptionDecisions :execrows
 DELETE FROM consumption_decisions
 WHERE workspace_id = ?1 AND created_at < ?2
@@ -114,16 +204,22 @@ func (q *Queries) PruneExpiredConsumptionDecisions(ctx context.Context, arg Prun
 }
 
 const saveConsumptionDecision = `-- name: SaveConsumptionDecision :execrows
-INSERT INTO consumption_decisions (workspace_id, idempotency_key, response, created_at)
-VALUES (?1, ?2, ?3, ?4)
+INSERT INTO consumption_decisions (workspace_id, idempotency_key, response, subject, meter_name, accepted, evaluation_failed, enforcement, state, created_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
 ON CONFLICT DO NOTHING
 `
 
 type SaveConsumptionDecisionParams struct {
-	WorkspaceID    string
-	IdempotencyKey string
-	Response       string
-	CreatedAt      string
+	WorkspaceID      string
+	IdempotencyKey   string
+	Response         string
+	Subject          string
+	MeterName        string
+	Accepted         int64
+	EvaluationFailed int64
+	Enforcement      string
+	State            string
+	CreatedAt        string
 }
 
 func (q *Queries) SaveConsumptionDecision(ctx context.Context, arg SaveConsumptionDecisionParams) (int64, error) {
@@ -131,6 +227,12 @@ func (q *Queries) SaveConsumptionDecision(ctx context.Context, arg SaveConsumpti
 		arg.WorkspaceID,
 		arg.IdempotencyKey,
 		arg.Response,
+		arg.Subject,
+		arg.MeterName,
+		arg.Accepted,
+		arg.EvaluationFailed,
+		arg.Enforcement,
+		arg.State,
 		arg.CreatedAt,
 	)
 	if err != nil {

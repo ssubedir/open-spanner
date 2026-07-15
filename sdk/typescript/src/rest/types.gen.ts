@@ -331,6 +331,26 @@ export type EntitlementConsumeQuota = {
 };
 
 /**
+ * ConsumptionDecision
+ */
+export type ConsumptionDecision = {
+    accepted?: boolean;
+    created_at?: string;
+    evaluation_failed?: boolean;
+    event_id?: string;
+    idempotency_key?: string;
+    quota?: EntitlementConsumeQuota;
+};
+
+/**
+ * ConsumptionDecisionListResponse
+ */
+export type ConsumptionDecisionListResponse = {
+    items?: Array<ConsumptionDecision>;
+    next_cursor?: string;
+};
+
+/**
  * UsageDimensionValueListResponse
  */
 export type UsageDimensionValueListResponse = {
@@ -507,6 +527,102 @@ export type ConsumeEntitlementResponses = {
 };
 
 export type ConsumeEntitlementResponse = ConsumeEntitlementResponses[keyof ConsumeEntitlementResponses];
+
+export type ListConsumptionDecisionsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Subject
+         */
+        subject?: string;
+        /**
+         * Meter
+         */
+        meter?: string;
+        /**
+         * accepted or rejected
+         */
+        outcome?: string;
+        /**
+         * Evaluation failure outcome
+         */
+        evaluation_failed?: boolean;
+        /**
+         * advisory or hard
+         */
+        enforcement?: string;
+        /**
+         * Quota state
+         */
+        state?: string;
+        /**
+         * Page size
+         */
+        limit?: number;
+        /**
+         * Pagination cursor
+         */
+        cursor?: string;
+    };
+    url: '/v1/entitlements/decisions';
+};
+
+export type ListConsumptionDecisionsErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorResponse;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorResponse;
+};
+
+export type ListConsumptionDecisionsError = ListConsumptionDecisionsErrors[keyof ListConsumptionDecisionsErrors];
+
+export type ListConsumptionDecisionsResponses = {
+    /**
+     * OK
+     */
+    200: ConsumptionDecisionListResponse;
+};
+
+export type ListConsumptionDecisionsResponse = ListConsumptionDecisionsResponses[keyof ListConsumptionDecisionsResponses];
+
+export type GetConsumptionDecisionData = {
+    body?: never;
+    path: {
+        /**
+         * Idempotency key
+         */
+        idempotency_key: string;
+    };
+    query?: never;
+    url: '/v1/entitlements/decisions/{idempotency_key}';
+};
+
+export type GetConsumptionDecisionErrors = {
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorResponse;
+};
+
+export type GetConsumptionDecisionError = GetConsumptionDecisionErrors[keyof GetConsumptionDecisionErrors];
+
+export type GetConsumptionDecisionResponses = {
+    /**
+     * OK
+     */
+    200: ConsumptionDecision;
+};
+
+export type GetConsumptionDecisionResponse = GetConsumptionDecisionResponses[keyof GetConsumptionDecisionResponses];
 
 export type ListEntitlementStatesData = {
     body?: never;

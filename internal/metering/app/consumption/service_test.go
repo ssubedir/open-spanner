@@ -10,11 +10,12 @@ import (
 	appentitlement "github.com/ssubedir/open-spanner/internal/metering/app/entitlement"
 	appusage "github.com/ssubedir/open-spanner/internal/metering/app/usage"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
+	domainconsumption "github.com/ssubedir/open-spanner/internal/metering/domain/consumption"
 )
 
 type memoryRepository struct {
 	mu      sync.Mutex
-	results map[string][]byte
+	results map[string]domainconsumption.Decision
 }
 
 func (r *memoryRepository) CountExpired(context.Context, time.Time) (int, error) {
@@ -24,31 +25,45 @@ func (r *memoryRepository) PruneExpired(context.Context, time.Time) (int, error)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	count := len(r.results)
-	r.results = map[string][]byte{}
+	r.results = map[string]domainconsumption.Decision{}
 	return count, nil
 }
 func (r *memoryRepository) SavePruneRun(context.Context, string, time.Time, bool, int, time.Time) error {
 	return nil
 }
 
-func (r *memoryRepository) Find(_ context.Context, key string) ([]byte, error) {
+func (r *memoryRepository) Find(_ context.Context, key string) (domainconsumption.Decision, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	result, ok := r.results[key]
 	if !ok {
-		return nil, domain.ErrNotFound
+		return domainconsumption.Decision{}, domain.ErrNotFound
 	}
 	return result, nil
 }
 
-func (r *memoryRepository) Save(_ context.Context, key string, result []byte) ([]byte, bool, error) {
+func (r *memoryRepository) Save(_ context.Context, key string, result []byte) (domainconsumption.Decision, bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if existing, ok := r.results[key]; ok {
 		return existing, false, nil
 	}
-	r.results[key] = result
-	return result, true, nil
+	stored, err := domainconsumption.FromSnapshot(key, result, time.Now().UTC())
+	if err != nil {
+		return domainconsumption.Decision{}, false, err
+	}
+	r.results[key] = stored
+	return stored, true, nil
+}
+
+func (r *memoryRepository) List(_ context.Context, _ domainconsumption.Query) ([]domainconsumption.Decision, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	items := make([]domainconsumption.Decision, 0, len(r.results))
+	for _, item := range r.results {
+		items = append(items, item)
+	}
+	return items, nil
 }
 
 type usageStub struct {
@@ -100,7 +115,7 @@ func (directTransactor) WithinTransaction(ctx context.Context, fn func(context.C
 }
 
 func newTestService(assessment appentitlement.ConsumptionAssessment, assessmentErr error) (*service, *memoryRepository, *usageStub, *entitlementStub) {
-	repo := &memoryRepository{results: map[string][]byte{}}
+	repo := &memoryRepository{results: map[string]domainconsumption.Decision{}}
 	usage := &usageStub{events: map[string]appusage.Result{}}
 	entitlements := &entitlementStub{assessment: assessment, err: assessmentErr}
 	return NewService(repo, usage, entitlements, directTransactor{}).(*service), repo, usage, entitlements

@@ -132,6 +132,12 @@ Every consume outcome is stored by workspace and idempotency key, including acce
 
 The ordinary `POST /v1/usages` and gRPC ingestion paths remain recording-only and do not enforce hard limits. Use the consume endpoint for actions that require an atomic quota gate; use ordinary ingestion for facts that must always be recorded.
 
+## Decision Audit
+
+Use `GET /v1/entitlements/decisions` to investigate durable consumption outcomes. Filter by `subject`, `meter`, `outcome`, `evaluation_failed`, `enforcement`, or `state`, and follow `next_cursor` for additional pages. `GET /v1/entitlements/decisions/{idempotency_key}` returns one decision.
+
+Audit responses include the quota snapshot and accepted event ID but intentionally omit event metadata. Access requires both `usage:read` and `plans:read`, and every lookup is isolated to the authenticated workspace. The dashboard exposes the same view under **Entitlements → Decisions**.
+
 ## Progress And Status
 
 Entitlement checks answer one decision: can this subject consume this quantity right now?

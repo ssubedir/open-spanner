@@ -83,7 +83,8 @@ def sync_detailed(
     """Atomically consume quota
 
      Evaluates projected quota under a subject lock. Advisory limits always accept usage; hard limits
-    reject usage that would exceed quota.
+    reject usage that would exceed quota. Accepted and rejected decisions are stored by idempotency key
+    and replayed without reevaluation.
 
     Args:
         body (EntitlementConsumeRequest):
@@ -115,7 +116,8 @@ def sync(
     """Atomically consume quota
 
      Evaluates projected quota under a subject lock. Advisory limits always accept usage; hard limits
-    reject usage that would exceed quota.
+    reject usage that would exceed quota. Accepted and rejected decisions are stored by idempotency key
+    and replayed without reevaluation.
 
     Args:
         body (EntitlementConsumeRequest):
@@ -142,7 +144,8 @@ async def asyncio_detailed(
     """Atomically consume quota
 
      Evaluates projected quota under a subject lock. Advisory limits always accept usage; hard limits
-    reject usage that would exceed quota.
+    reject usage that would exceed quota. Accepted and rejected decisions are stored by idempotency key
+    and replayed without reevaluation.
 
     Args:
         body (EntitlementConsumeRequest):
@@ -172,7 +175,8 @@ async def asyncio(
     """Atomically consume quota
 
      Evaluates projected quota under a subject lock. Advisory limits always accept usage; hard limits
-    reject usage that would exceed quota.
+    reject usage that would exceed quota. Accepted and rejected decisions are stored by idempotency key
+    and replayed without reevaluation.
 
     Args:
         body (EntitlementConsumeRequest):

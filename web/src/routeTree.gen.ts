@@ -19,6 +19,7 @@ import { Route as DashboardPlansRouteRouteImport } from './routes/_dashboard/pla
 import { Route as DashboardOverviewRouteRouteImport } from './routes/_dashboard/overview/route'
 import { Route as DashboardMetersRouteRouteImport } from './routes/_dashboard/meters/route'
 import { Route as DashboardExportsRouteRouteImport } from './routes/_dashboard/exports/route'
+import { Route as DashboardDecisionsRouteRouteImport } from './routes/_dashboard/decisions/route'
 import { Route as DashboardApiKeysRouteRouteImport } from './routes/_dashboard/api-keys/route'
 import { Route as DashboardAlertsRouteRouteImport } from './routes/_dashboard/alerts/route'
 import { Route as DashboardSubjectsSubjectRouteImport } from './routes/_dashboard/subjects_.$subject'
@@ -75,6 +76,11 @@ const DashboardExportsRouteRoute = DashboardExportsRouteRouteImport.update({
   path: '/exports',
   getParentRoute: () => DashboardRouteRoute,
 } as any)
+const DashboardDecisionsRouteRoute = DashboardDecisionsRouteRouteImport.update({
+  id: '/decisions',
+  path: '/decisions',
+  getParentRoute: () => DashboardRouteRoute,
+} as any)
 const DashboardApiKeysRouteRoute = DashboardApiKeysRouteRouteImport.update({
   id: '/api-keys',
   path: '/api-keys',
@@ -113,6 +119,7 @@ export interface FileRoutesByFullPath {
   '/register': typeof RegisterRouteRoute
   '/alerts': typeof DashboardAlertsRouteRoute
   '/api-keys': typeof DashboardApiKeysRouteRoute
+  '/decisions': typeof DashboardDecisionsRouteRoute
   '/exports': typeof DashboardExportsRouteRoute
   '/meters': typeof DashboardMetersRouteRoute
   '/overview': typeof DashboardOverviewRouteRoute
@@ -130,6 +137,7 @@ export interface FileRoutesByTo {
   '/register': typeof RegisterRouteRoute
   '/alerts': typeof DashboardAlertsRouteRoute
   '/api-keys': typeof DashboardApiKeysRouteRoute
+  '/decisions': typeof DashboardDecisionsRouteRoute
   '/exports': typeof DashboardExportsRouteRoute
   '/meters': typeof DashboardMetersRouteRoute
   '/overview': typeof DashboardOverviewRouteRoute
@@ -149,6 +157,7 @@ export interface FileRoutesById {
   '/register': typeof RegisterRouteRoute
   '/_dashboard/alerts': typeof DashboardAlertsRouteRoute
   '/_dashboard/api-keys': typeof DashboardApiKeysRouteRoute
+  '/_dashboard/decisions': typeof DashboardDecisionsRouteRoute
   '/_dashboard/exports': typeof DashboardExportsRouteRoute
   '/_dashboard/meters': typeof DashboardMetersRouteRoute
   '/_dashboard/overview': typeof DashboardOverviewRouteRoute
@@ -168,6 +177,7 @@ export interface FileRouteTypes {
     | '/register'
     | '/alerts'
     | '/api-keys'
+    | '/decisions'
     | '/exports'
     | '/meters'
     | '/overview'
@@ -185,6 +195,7 @@ export interface FileRouteTypes {
     | '/register'
     | '/alerts'
     | '/api-keys'
+    | '/decisions'
     | '/exports'
     | '/meters'
     | '/overview'
@@ -203,6 +214,7 @@ export interface FileRouteTypes {
     | '/register'
     | '/_dashboard/alerts'
     | '/_dashboard/api-keys'
+    | '/_dashboard/decisions'
     | '/_dashboard/exports'
     | '/_dashboard/meters'
     | '/_dashboard/overview'
@@ -294,6 +306,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardExportsRouteRouteImport
       parentRoute: typeof DashboardRouteRoute
     }
+    '/_dashboard/decisions': {
+      id: '/_dashboard/decisions'
+      path: '/decisions'
+      fullPath: '/decisions'
+      preLoaderRoute: typeof DashboardDecisionsRouteRouteImport
+      parentRoute: typeof DashboardRouteRoute
+    }
     '/_dashboard/api-keys': {
       id: '/_dashboard/api-keys'
       path: '/api-keys'
@@ -342,6 +361,7 @@ declare module '@tanstack/react-router' {
 interface DashboardRouteRouteChildren {
   DashboardAlertsRouteRoute: typeof DashboardAlertsRouteRoute
   DashboardApiKeysRouteRoute: typeof DashboardApiKeysRouteRoute
+  DashboardDecisionsRouteRoute: typeof DashboardDecisionsRouteRoute
   DashboardExportsRouteRoute: typeof DashboardExportsRouteRoute
   DashboardMetersRouteRoute: typeof DashboardMetersRouteRoute
   DashboardOverviewRouteRoute: typeof DashboardOverviewRouteRoute
@@ -357,6 +377,7 @@ interface DashboardRouteRouteChildren {
 const DashboardRouteRouteChildren: DashboardRouteRouteChildren = {
   DashboardAlertsRouteRoute: DashboardAlertsRouteRoute,
   DashboardApiKeysRouteRoute: DashboardApiKeysRouteRoute,
+  DashboardDecisionsRouteRoute: DashboardDecisionsRouteRoute,
   DashboardExportsRouteRoute: DashboardExportsRouteRoute,
   DashboardMetersRouteRoute: DashboardMetersRouteRoute,
   DashboardOverviewRouteRoute: DashboardOverviewRouteRoute,

@@ -4,6 +4,7 @@ using Microsoft.Kiota.Abstractions.Extensions;
 using Microsoft.Kiota.Abstractions;
 using OpenSpanner.V1.Entitlements.Check;
 using OpenSpanner.V1.Entitlements.Consume;
+using OpenSpanner.V1.Entitlements.Decisions;
 using OpenSpanner.V1.Entitlements.States;
 using System.Collections.Generic;
 using System.IO;
@@ -26,6 +27,11 @@ namespace OpenSpanner.V1.Entitlements
         public global::OpenSpanner.V1.Entitlements.Consume.ConsumeRequestBuilder Consume
         {
             get => new global::OpenSpanner.V1.Entitlements.Consume.ConsumeRequestBuilder(PathParameters, RequestAdapter);
+        }
+        /// <summary>The decisions property</summary>
+        public global::OpenSpanner.V1.Entitlements.Decisions.DecisionsRequestBuilder Decisions
+        {
+            get => new global::OpenSpanner.V1.Entitlements.Decisions.DecisionsRequestBuilder(PathParameters, RequestAdapter);
         }
         /// <summary>The states property</summary>
         public global::OpenSpanner.V1.Entitlements.States.StatesRequestBuilder States

@@ -1138,6 +1138,30 @@ definitions:
       replayed:
         type: boolean
     type: object
+  internal_metering_adapters_http_usage.ConsumptionDecisionListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_usage.ConsumptionDecisionResponse'
+        type: array
+      next_cursor:
+        type: string
+    type: object
+  internal_metering_adapters_http_usage.ConsumptionDecisionResponse:
+    properties:
+      accepted:
+        type: boolean
+      created_at:
+        type: string
+      evaluation_failed:
+        type: boolean
+      event_id:
+        type: string
+      idempotency_key:
+        type: string
+      quota:
+        $ref: '#/definitions/internal_metering_adapters_http_usage.ConsumeQuotaResponse'
+    type: object
   internal_metering_adapters_http_usage.CreateRequest:
     properties:
       idempotency_key:
@@ -2113,6 +2137,87 @@ paths:
       tags:
       - entitlements
       - usages
+  /v1/entitlements/decisions:
+    get:
+      operationId: listConsumptionDecisions
+      parameters:
+      - description: Subject
+        in: query
+        name: subject
+        type: string
+      - description: Meter
+        in: query
+        name: meter
+        type: string
+      - description: accepted or rejected
+        in: query
+        name: outcome
+        type: string
+      - description: Evaluation failure outcome
+        in: query
+        name: evaluation_failed
+        type: boolean
+      - description: advisory or hard
+        in: query
+        name: enforcement
+        type: string
+      - description: Quota state
+        in: query
+        name: state
+        type: string
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      - description: Pagination cursor
+        in: query
+        name: cursor
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_usage.ConsumptionDecisionListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List consumption decisions
+      tags:
+      - entitlements
+  /v1/entitlements/decisions/{idempotency_key}:
+    get:
+      operationId: getConsumptionDecision
+      parameters:
+      - description: Idempotency key
+        in: path
+        name: idempotency_key
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_usage.ConsumptionDecisionResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Get consumption decision
+      tags:
+      - entitlements
   /v1/entitlements/events:
     get:
       operationId: listEntitlementEvents

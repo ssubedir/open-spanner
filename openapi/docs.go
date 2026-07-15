@@ -1124,6 +1124,129 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/entitlements/decisions": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "entitlements"
+                ],
+                "summary": "List consumption decisions",
+                "operationId": "listConsumptionDecisions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Subject",
+                        "name": "subject",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Meter",
+                        "name": "meter",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "accepted or rejected",
+                        "name": "outcome",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Evaluation failure outcome",
+                        "name": "evaluation_failed",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "advisory or hard",
+                        "name": "enforcement",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Quota state",
+                        "name": "state",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Pagination cursor",
+                        "name": "cursor",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_usage.ConsumptionDecisionListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/entitlements/decisions/{idempotency_key}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "entitlements"
+                ],
+                "summary": "Get consumption decision",
+                "operationId": "getConsumptionDecision",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Idempotency key",
+                        "name": "idempotency_key",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_usage.ConsumptionDecisionResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/entitlements/events": {
             "get": {
                 "produces": [
@@ -5162,6 +5285,43 @@ const docTemplate = `{
                 },
                 "replayed": {
                     "type": "boolean"
+                }
+            }
+        },
+        "internal_metering_adapters_http_usage.ConsumptionDecisionListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_usage.ConsumptionDecisionResponse"
+                    }
+                },
+                "next_cursor": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_usage.ConsumptionDecisionResponse": {
+            "type": "object",
+            "properties": {
+                "accepted": {
+                    "type": "boolean"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "evaluation_failed": {
+                    "type": "boolean"
+                },
+                "event_id": {
+                    "type": "string"
+                },
+                "idempotency_key": {
+                    "type": "string"
+                },
+                "quota": {
+                    "$ref": "#/definitions/internal_metering_adapters_http_usage.ConsumeQuotaResponse"
                 }
             }
         },

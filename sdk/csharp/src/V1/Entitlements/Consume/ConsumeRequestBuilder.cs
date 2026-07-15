@@ -34,7 +34,7 @@ namespace OpenSpanner.V1.Entitlements.Consume
         {
         }
         /// <summary>
-        /// Evaluates projected quota under a subject lock. Advisory limits always accept usage; hard limits reject usage that would exceed quota.
+        /// Evaluates projected quota under a subject lock. Advisory limits always accept usage; hard limits reject usage that would exceed quota. Accepted and rejected decisions are stored by idempotency key and replayed without reevaluation.
         /// </summary>
         /// <returns>A <see cref="global::OpenSpanner.Models.EntitlementConsumeResponse"/></returns>
         /// <param name="body">The request body</param>
@@ -65,7 +65,7 @@ namespace OpenSpanner.V1.Entitlements.Consume
             return await RequestAdapter.SendAsync<global::OpenSpanner.Models.EntitlementConsumeResponse>(requestInfo, global::OpenSpanner.Models.EntitlementConsumeResponse.CreateFromDiscriminatorValue, errorMapping, cancellationToken).ConfigureAwait(false);
         }
         /// <summary>
-        /// Evaluates projected quota under a subject lock. Advisory limits always accept usage; hard limits reject usage that would exceed quota.
+        /// Evaluates projected quota under a subject lock. Advisory limits always accept usage; hard limits reject usage that would exceed quota. Accepted and rejected decisions are stored by idempotency key and replayed without reevaluation.
         /// </summary>
         /// <returns>A <see cref="RequestInformation"/></returns>
         /// <param name="body">The request body</param>

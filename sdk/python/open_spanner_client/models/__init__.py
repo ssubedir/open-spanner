@@ -1,5 +1,7 @@
 """Contains all the data models used in inputs/outputs"""
 
+from .consumption_decision import ConsumptionDecision
+from .consumption_decision_list_response import ConsumptionDecisionListResponse
 from .entitlement_check_request import EntitlementCheckRequest
 from .entitlement_check_response import EntitlementCheckResponse
 from .entitlement_consume_quota import EntitlementConsumeQuota
@@ -37,6 +39,8 @@ from .usage_event import UsageEvent
 from .usage_event_metadata import UsageEventMetadata
 
 __all__ = (
+    "ConsumptionDecision",
+    "ConsumptionDecisionListResponse",
     "EntitlementCheckRequest",
     "EntitlementCheckResponse",
     "EntitlementConsumeQuota",
