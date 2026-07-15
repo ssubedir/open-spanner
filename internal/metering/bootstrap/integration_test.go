@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -2004,6 +2005,7 @@ func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handl
 	t.Helper()
 
 	webhookRequests := make(chan alertWebhookRequest, 1)
+	var webhookAttempts atomic.Int32
 	webhookServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("webhook method = %s, want POST", r.Method)
@@ -2020,6 +2022,10 @@ func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handl
 		if err := json.Unmarshal(body, &payload); err != nil {
 			t.Errorf("decode webhook payload: %v", err)
 			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if webhookAttempts.Add(1) == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
 		webhookRequests <- alertWebhookRequest{
@@ -2222,6 +2228,9 @@ func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handl
 	if !delivered {
 		t.Fatal("alert webhook was not delivered")
 	}
+	if webhookAttempts.Load() != 2 {
+		t.Fatalf("webhook attempts = %d, want one retry after the initial failure", webhookAttempts.Load())
+	}
 	if payload.Event.Type != "triggered" || payload.Event.Value != 12 || payload.Event.GroupKey != "subject" || payload.Event.GroupValue != alertSubject || payload.Rule.Meter != meterName || payload.Rule.GroupBy != "subject" || payload.Rule.DestinationID != destination.ID || payload.Rule.DestinationName != destination.Name || payload.State.Status != "alerting" || payload.State.GroupValue != alertSubject {
 		t.Fatalf("webhook payload = %#v, want triggered value 12 for grouped subject %s", payload, alertSubject)
 	}
@@ -2256,6 +2265,10 @@ func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handl
 	}
 	if alertEvents.Items[0].Delivery == nil || alertEvents.Items[0].Delivery.Status != "delivered" || alertEvents.Items[0].Delivery.StatusCode != http.StatusNoContent || alertEvents.Items[0].Delivery.TriggerType != "webhook" {
 		t.Fatalf("alert event delivery = %#v, want delivered webhook with status %d", alertEvents.Items[0].Delivery, http.StatusNoContent)
+	}
+	deliveryJobs := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/alerts/delivery-jobs?limit=10", nil, authHeaders, nil)
+	if deliveryJobs.Code != http.StatusOK || !strings.Contains(deliveryJobs.Body.String(), `"status":"delivered"`) || !strings.Contains(deliveryJobs.Body.String(), `"attempts":2`) {
+		t.Fatalf("alert delivery jobs status=%d body=%s, want delivered job with two attempts", deliveryJobs.Code, deliveryJobs.Body.String())
 	}
 }
 

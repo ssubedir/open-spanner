@@ -128,6 +128,59 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 INSERT INTO alert_deliveries (id, event_id, trigger_type, status, status_code, error, duration_ms, attempted_at, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 
+-- name: SaveAlertDeliveryJob :exec
+INSERT INTO alert_delivery_jobs (
+	public_id, workspace_id, event_id, destination_id, payload, status, attempts, next_attempt_at, created_at, updated_at
+) VALUES (
+	sqlc.arg('public_id'), sqlc.arg('workspace_id'), sqlc.arg('event_id'), sqlc.arg('destination_id'), sqlc.arg('payload'), 'pending', 0,
+	sqlc.arg('now'), sqlc.arg('now'), sqlc.arg('now')
+)
+ON CONFLICT(event_id) DO NOTHING;
+
+-- name: ClaimAlertDeliveryJob :one
+UPDATE alert_delivery_jobs
+SET status = 'running', attempts = alert_delivery_jobs.attempts + 1, locked_until = sqlc.arg('locked_until'), updated_at = sqlc.arg('now')
+WHERE id = (
+	SELECT candidate.id FROM alert_delivery_jobs candidate
+	WHERE candidate.next_attempt_at <= sqlc.arg('now')
+		AND (candidate.status = 'pending' OR (candidate.status = 'running' AND candidate.locked_until < sqlc.arg('now')))
+		AND candidate.attempts < sqlc.arg('max_attempts')
+	ORDER BY candidate.next_attempt_at, candidate.id
+	LIMIT 1
+)
+RETURNING public_id, workspace_id, event_id, destination_id, payload, attempts, created_at;
+
+-- name: FindAlertEventByID :one
+SELECT e.id, e.rule_id, e.group_key, e.group_value, e.type, e.value, e.message, e.created_at
+FROM alert_events e
+JOIN alert_rules r ON r.id = e.rule_id
+WHERE e.id = sqlc.arg('event_id') AND r.workspace_id = sqlc.arg('workspace_id');
+
+-- name: CompleteAlertDeliveryJob :execrows
+UPDATE alert_delivery_jobs
+SET status = 'delivered', locked_until = NULL, last_error = '', delivered_at = sqlc.arg('now'), updated_at = sqlc.arg('now')
+WHERE public_id = sqlc.arg('public_id') AND workspace_id = sqlc.arg('workspace_id') AND status = 'running';
+
+-- name: RetryAlertDeliveryJob :execrows
+UPDATE alert_delivery_jobs
+SET status = CASE WHEN attempts >= sqlc.arg('max_attempts') THEN 'dead_letter' ELSE 'pending' END,
+	next_attempt_at = sqlc.arg('next_attempt_at'), locked_until = NULL,
+	last_error = sqlc.arg('last_error'), updated_at = sqlc.arg('now')
+WHERE public_id = sqlc.arg('public_id') AND workspace_id = sqlc.arg('workspace_id') AND status = 'running';
+
+-- name: RequeueAlertDeliveryJob :execrows
+UPDATE alert_delivery_jobs
+SET status = 'pending', attempts = 0, next_attempt_at = sqlc.arg('now'), locked_until = NULL,
+	last_error = '', delivered_at = NULL, updated_at = sqlc.arg('now')
+WHERE public_id = sqlc.arg('public_id') AND workspace_id = sqlc.arg('workspace_id') AND status = 'dead_letter';
+
+-- name: ListAlertDeliveryJobs :many
+SELECT public_id, event_id, destination_id, status, attempts, next_attempt_at, last_error, created_at, updated_at, delivered_at
+FROM alert_delivery_jobs
+WHERE workspace_id = sqlc.arg('workspace_id')
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg('limit');
+
 -- name: ListAlertEvents :many
 SELECT
 	alert_events.id,

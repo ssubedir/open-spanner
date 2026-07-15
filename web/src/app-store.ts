@@ -32,6 +32,7 @@ import {
   listEntitlementPeriodSnapshots,
   listEntitlementStates,
   listAlertEvents,
+	listAlertDeliveryJobs,
   listAlertDestinations,
   listAlertRules,
   listAPIKeys,
@@ -56,12 +57,14 @@ import {
   rotateAPIKey as rotateAPIKeyRequest,
   retryUsageExportJob,
   retryWorkerDeadLetter as retryWorkerDeadLetterRequest,
+	retryAlertDeliveryJob as retryAlertDeliveryJobRequest,
   updatePlan as updatePlanRequest,
   updateAlertDestination as updateAlertDestinationRequest,
   updateAlertRule,
   updateMeter as updateMeterRequest,
   updateSavedUsageQuery,
   type AlertDestination,
+	type AlertDeliveryJob,
   type AlertDestinationRequest,
   type AlertDestinationUpdateRequest,
   type AlertEvent,
@@ -227,6 +230,7 @@ type AppState = {
     status: LoadState
   }
   overview: {
+	alertDeliveryJobs: AlertDeliveryJob[]
     deadLetters: WorkerDeadLetter[]
     error: string
     ingestions: IngestionRun[]
@@ -378,6 +382,7 @@ export const appStore = createStore<AppState>({
     status: 'idle',
   },
   overview: {
+	alertDeliveryJobs: [],
     deadLetters: [],
     error: '',
     ingestions: [],
@@ -535,7 +540,8 @@ function initialUserDataState(): UserDataState {
       status: 'idle',
     },
     overview: {
-      deadLetters: [],
+	  alertDeliveryJobs: [],
+	  deadLetters: [],
       error: '',
       ingestions: [],
       pinnedUsageQueries: [],
@@ -1217,16 +1223,18 @@ export const appStoreActions = {
     const generation = currentUserDataGeneration()
     setOverviewState({ error: '', status: 'loading' })
     try {
-      const [nextStats, nextSubjects, nextIngestions, nextDeadLetters] = await Promise.all([
+      const [nextStats, nextSubjects, nextIngestions, nextDeadLetters, nextAlertDeliveryJobs] = await Promise.all([
         getSystemStats(),
         listSubjects(),
         listIngestions(),
         listWorkerDeadLetters(),
+		listAlertDeliveryJobs(),
       ])
       if (!isCurrentUserDataGeneration(generation)) {
         return
       }
       setOverviewState({
+		alertDeliveryJobs: nextAlertDeliveryJobs.items,
         deadLetters: nextDeadLetters.items,
         ingestions: nextIngestions.items,
         stats: nextStats,
@@ -1272,6 +1280,17 @@ export const appStoreActions = {
       throw err
     }
   },
+	async retryAlertDeliveryJob(id: string) {
+		setOverviewState({ error: '' })
+		try {
+			await retryAlertDeliveryJobRequest(id)
+			const [nextStats, jobs] = await Promise.all([getSystemStats(), listAlertDeliveryJobs()])
+			setOverviewState({ alertDeliveryJobs: jobs.items, stats: nextStats })
+		} catch (err) {
+			setOverviewState({ error: errorMessage(err, 'Unable to retry alert delivery') })
+			throw err
+		}
+	},
   async loadSubjects(preferredSubject = '') {
     const generation = currentUserDataGeneration()
     setSubjectsState({ error: '', loadingMore: false, status: 'loading' })

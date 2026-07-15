@@ -54,6 +54,19 @@ export type WorkerDeadLetter = {
 	requeued_at?: string
 }
 
+export type AlertDeliveryJob = {
+	id: string
+	event_id: string
+	destination_id: string
+	status: 'pending' | 'running' | 'delivered' | 'dead_letter'
+	attempts: number
+	next_attempt_at: string
+	last_error?: string
+	created_at: string
+	updated_at: string
+	delivered_at?: string
+}
+
 export type ConsumptionDecision = {
 	idempotency_key: string
 	accepted: boolean
@@ -1059,6 +1072,14 @@ export async function listAlertEvents(limit = 25, cursor = '') {
     params.set('cursor', cursor)
   }
   return request<AlertEventList>(`/v1/alerts/events?${params.toString()}`)
+}
+
+export async function listAlertDeliveryJobs(limit = 50) {
+	return request<{ items: AlertDeliveryJob[] }>(`/v1/alerts/delivery-jobs?limit=${limit}`)
+}
+
+export async function retryAlertDeliveryJob(id: string) {
+	return request<void>(`/v1/alerts/delivery-jobs/${encodeURIComponent(id)}/retry`, { method: 'POST' })
 }
 
 export async function getSystemStats() {

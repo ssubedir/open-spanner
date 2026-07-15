@@ -12,6 +12,36 @@ definitions:
       error:
         $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorBody'
     type: object
+  internal_metering_adapters_http_alert.DeliveryJobListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_alert.DeliveryJobResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_alert.DeliveryJobResponse:
+    properties:
+      attempts:
+        type: integer
+      created_at:
+        type: string
+      delivered_at:
+        type: string
+      destination_id:
+        type: string
+      event_id:
+        type: string
+      id:
+        type: string
+      last_error:
+        type: string
+      next_attempt_at:
+        type: string
+      status:
+        type: string
+      updated_at:
+        type: string
+    type: object
   internal_metering_adapters_http_alert.DeliveryResponse:
     properties:
       attempted_at:
@@ -1909,6 +1939,39 @@ paths:
           schema:
             $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
       summary: Evaluate alert rule
+      tags:
+      - alerts
+  /v1/alerts/delivery-jobs:
+    get:
+      operationId: listAlertDeliveryJobs
+      parameters:
+      - description: Result limit
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_alert.DeliveryJobListResponse'
+      summary: List alert delivery jobs
+      tags:
+      - alerts
+  /v1/alerts/delivery-jobs/{id}/retry:
+    post:
+      operationId: retryAlertDeliveryJob
+      parameters:
+      - description: Delivery job ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      summary: Retry alert delivery job
       tags:
       - alerts
   /v1/alerts/destinations:

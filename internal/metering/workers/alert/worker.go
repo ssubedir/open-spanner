@@ -6,7 +6,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -27,7 +26,9 @@ type Service interface {
 	CompleteEvaluationJob(ctx context.Context, cmd appalert.CompleteCommand) error
 	FailEvaluationJob(ctx context.Context, cmd appalert.FailCommand) error
 	DeadLetterEvaluationJob(ctx context.Context, cmd appalert.DeadLetterCommand) error
-	RecordDelivery(ctx context.Context, cmd appalert.DeliveryCommand) (appalert.DeliveryResult, error)
+	ClaimDeliveryJob(ctx context.Context, cmd appalert.ClaimCommand) (appalert.DeliveryJobResult, bool, error)
+	CompleteDeliveryJob(ctx context.Context, cmd appalert.DeliveryJobCompleteCommand) error
+	FailDeliveryJob(ctx context.Context, cmd appalert.DeliveryJobFailCommand) error
 }
 
 type Logger func(format string, args ...any)
@@ -122,8 +123,11 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 		LockTTL:     w.lockTTL,
 		MaxAttempts: w.maxAttempts,
 	})
-	if err != nil || !ok {
-		return ok, err
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		return w.processDeliveryOnce(ctx)
 	}
 
 	startedAt := time.Now()
@@ -138,26 +142,6 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 	result, err := w.service.Evaluate(jobCtx, appalert.EvaluateCommand{RuleID: job.RuleID})
 	duration := time.Since(startedAt).Round(time.Millisecond)
 	if err == nil {
-		for _, event := range resultEvents(result) {
-			attempt, attempted := deliverWebhookTrigger(jobCtx, result, event)
-			if !attempted {
-				continue
-			}
-			if _, recordErr := w.service.RecordDelivery(baseCtx, appalert.DeliveryCommand{
-				EventID:     event.ID,
-				TriggerType: string(appalert.TriggerWebhook),
-				Status:      string(attempt.status),
-				StatusCode:  attempt.statusCode,
-				Error:       attempt.message,
-				Duration:    attempt.duration,
-				AttemptedAt: attempt.attemptedAt,
-			}); recordErr != nil {
-				w.logger("alert trigger delivery record failed: rule_id=%s event_id=%s error=%v", job.RuleID, event.ID, recordErr)
-			}
-			if attempt.status == appalert.DeliveryFailed {
-				w.logger("alert trigger delivery failed: rule_id=%s event_id=%s error=%s", job.RuleID, event.ID, attempt.message)
-			}
-		}
 		if err := w.service.CompleteEvaluationJob(baseCtx, appalert.CompleteCommand{RuleID: job.RuleID}); err != nil && !errors.Is(err, domain.ErrNotFound) {
 			return true, err
 		}
@@ -189,6 +173,44 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
+func (w *Worker) processDeliveryOnce(ctx context.Context) (bool, error) {
+	job, ok, err := w.service.ClaimDeliveryJob(ctx, appalert.ClaimCommand{LockTTL: w.lockTTL, MaxAttempts: w.maxAttempts})
+	if err != nil || !ok {
+		return ok, err
+	}
+	baseCtx := appauth.WithWorkspaceID(ctx, job.WorkspaceID)
+	jobCtx := baseCtx
+	cancel := func() {}
+	if w.timeout > 0 {
+		jobCtx, cancel = context.WithTimeout(baseCtx, w.timeout)
+	}
+	defer cancel()
+	attempt := deliverWebhookJob(jobCtx, job)
+	delivery := appalert.DeliveryCommand{EventID: job.EventID, TriggerType: string(appalert.TriggerWebhook), Status: string(attempt.status), StatusCode: attempt.statusCode, Error: attempt.message, Duration: attempt.duration, AttemptedAt: attempt.attemptedAt}
+	if attempt.status == appalert.DeliveryDelivered {
+		if err := w.service.CompleteDeliveryJob(baseCtx, appalert.DeliveryJobCompleteCommand{ID: job.ID, Delivery: delivery}); err != nil && !errors.Is(err, domain.ErrNotFound) {
+			return true, err
+		}
+		w.logger("alert delivery completed: delivery_id=%s event_id=%s attempts=%d", job.ID, job.EventID, job.Attempts)
+		return true, nil
+	}
+	if ctx.Err() != nil && errors.Is(ctx.Err(), context.Canceled) {
+		return true, nil
+	}
+	failCtx, failCancel := context.WithTimeout(appauth.WithWorkspaceID(context.Background(), job.WorkspaceID), 10*time.Second)
+	defer failCancel()
+	err = w.service.FailDeliveryJob(failCtx, appalert.DeliveryJobFailCommand{ID: job.ID, Attempts: job.Attempts, MaxAttempts: w.maxAttempts, RetryAfter: w.retryAfter, Delivery: delivery})
+	if err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return true, err
+	}
+	if job.Attempts >= w.maxAttempts {
+		w.logger("alert delivery failed permanently: delivery_id=%s event_id=%s attempts=%d error=%s", job.ID, job.EventID, job.Attempts, attempt.message)
+	} else {
+		w.logger("alert delivery failed and requeued: delivery_id=%s event_id=%s attempts=%d error=%s", job.ID, job.EventID, job.Attempts, attempt.message)
+	}
+	return true, nil
+}
+
 type deliveryAttempt struct {
 	status      appalert.DeliveryStatus
 	statusCode  int
@@ -197,73 +219,28 @@ type deliveryAttempt struct {
 	attemptedAt time.Time
 }
 
-func deliverWebhookTrigger(ctx context.Context, result appalert.EvaluationResult, event appalert.EventResult) (deliveryAttempt, bool) {
+func deliverWebhookJob(ctx context.Context, job appalert.DeliveryJobResult) deliveryAttempt {
 	attemptedAt := time.Now().UTC()
-	target, targetErr := webhookDeliveryTarget(result.Rule)
+	target, targetErr := webhookDeliveryTarget(job.Destination)
 	if targetErr != "" {
 		return deliveryAttempt{
 			status:      appalert.DeliveryFailed,
 			message:     targetErr,
 			attemptedAt: attemptedAt,
-		}, true
+		}
 	}
-
-	state := stateForEvent(result, event)
-	payload := webhookPayload{
-		Rule: webhookRulePayload{
-			ID:                        result.Rule.ID,
-			Name:                      result.Rule.Name,
-			Meter:                     result.Rule.MeterName,
-			Enabled:                   result.Rule.Enabled,
-			Subject:                   result.Rule.Subject,
-			Metadata:                  result.Rule.Metadata,
-			WindowSeconds:             result.Rule.WindowSeconds,
-			Comparator:                result.Rule.Comparator,
-			Threshold:                 result.Rule.Threshold,
-			EvaluationIntervalSeconds: result.Rule.EvaluationInterval,
-			GroupBy:                   result.Rule.GroupBy,
-			DestinationID:             result.Rule.DestinationID,
-			DestinationName:           destinationName(result.Rule),
-		},
-		State: webhookStatePayload{
-			Status:      state.Status,
-			GroupKey:    state.GroupKey,
-			GroupValue:  state.GroupValue,
-			Value:       state.Value,
-			Message:     state.Message,
-			EvaluatedAt: state.EvaluatedAt.Format(time.RFC3339),
-			UpdatedAt:   state.UpdatedAt.Format(time.RFC3339),
-		},
-		Event: webhookEventPayload{
-			ID:         event.ID,
-			RuleID:     event.RuleID,
-			GroupKey:   event.GroupKey,
-			GroupValue: event.GroupValue,
-			Type:       event.Type,
-			Value:      event.Value,
-			Message:    event.Message,
-			CreatedAt:  event.CreatedAt.Format(time.RFC3339),
-		},
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return deliveryAttempt{
-			status:      appalert.DeliveryFailed,
-			message:     err.Error(),
-			attemptedAt: attemptedAt,
-		}, true
-	}
+	body := job.Payload
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.url, bytes.NewReader(body))
 	if err != nil {
 		return deliveryAttempt{
 			status:      appalert.DeliveryFailed,
 			message:     err.Error(),
 			attemptedAt: attemptedAt,
-		}, true
+		}
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "open-spanner-alert-worker")
+	req.Header.Set("X-Open-Spanner-Delivery-ID", job.ID)
 	if target.secret != "" {
 		signWebhookRequest(req, target.secret, attemptedAt, body)
 	}
@@ -278,7 +255,7 @@ func deliverWebhookTrigger(ctx context.Context, result appalert.EvaluationResult
 			message:     err.Error(),
 			duration:    duration,
 			attemptedAt: attemptedAt,
-		}, true
+		}
 	}
 	defer res.Body.Close()
 	if res.StatusCode < http.StatusOK || res.StatusCode >= http.StatusMultipleChoices {
@@ -288,14 +265,14 @@ func deliverWebhookTrigger(ctx context.Context, result appalert.EvaluationResult
 			message:     fmt.Sprintf("webhook returned status %d", res.StatusCode),
 			duration:    duration,
 			attemptedAt: attemptedAt,
-		}, true
+		}
 	}
 	return deliveryAttempt{
 		status:      appalert.DeliveryDelivered,
 		statusCode:  res.StatusCode,
 		duration:    duration,
 		attemptedAt: attemptedAt,
-	}, true
+	}
 }
 
 type webhookDeliveryTargetValue struct {
@@ -303,24 +280,17 @@ type webhookDeliveryTargetValue struct {
 	secret string
 }
 
-func webhookDeliveryTarget(rule appalert.RuleResult) (webhookDeliveryTargetValue, string) {
-	if rule.Destination == nil {
+func webhookDeliveryTarget(destination *appalert.DestinationResult) (webhookDeliveryTargetValue, string) {
+	if destination == nil {
 		return webhookDeliveryTargetValue{}, "alert destination is not configured"
 	}
-	if !rule.Destination.Enabled {
+	if !destination.Enabled {
 		return webhookDeliveryTargetValue{}, "alert destination is disabled"
 	}
-	if rule.Destination.WebhookURL == "" {
+	if destination.WebhookURL == "" {
 		return webhookDeliveryTargetValue{}, "alert destination webhook url is not configured"
 	}
-	return webhookDeliveryTargetValue{url: rule.Destination.WebhookURL, secret: rule.Destination.WebhookSecret}, ""
-}
-
-func destinationName(rule appalert.RuleResult) string {
-	if rule.Destination == nil {
-		return ""
-	}
-	return rule.Destination.Name
+	return webhookDeliveryTargetValue{url: destination.WebhookURL, secret: destination.WebhookSecret}, ""
 }
 
 func signWebhookRequest(req *http.Request, secret string, timestamp time.Time, body []byte) {
@@ -331,69 +301,4 @@ func signWebhookRequest(req *http.Request, secret string, timestamp time.Time, b
 	mac.Write(body)
 	req.Header.Set(appalert.WebhookTimestampHeader, timestampValue)
 	req.Header.Set(appalert.WebhookSignatureHeader, appalert.WebhookSignatureVersion+"="+hex.EncodeToString(mac.Sum(nil)))
-}
-
-func resultEvents(result appalert.EvaluationResult) []appalert.EventResult {
-	if len(result.Events) > 0 {
-		return result.Events
-	}
-	if result.Event == nil {
-		return nil
-	}
-	return []appalert.EventResult{*result.Event}
-}
-
-func stateForEvent(result appalert.EvaluationResult, event appalert.EventResult) appalert.StateResult {
-	for _, state := range result.Rule.States {
-		if state.GroupKey == event.GroupKey && state.GroupValue == event.GroupValue {
-			return state
-		}
-	}
-	if result.State.GroupKey == event.GroupKey && result.State.GroupValue == event.GroupValue {
-		return result.State
-	}
-	return result.State
-}
-
-type webhookPayload struct {
-	Event webhookEventPayload `json:"event"`
-	Rule  webhookRulePayload  `json:"rule"`
-	State webhookStatePayload `json:"state"`
-}
-
-type webhookRulePayload struct {
-	ID                        string            `json:"id"`
-	Name                      string            `json:"name"`
-	Meter                     string            `json:"meter"`
-	Enabled                   bool              `json:"enabled"`
-	Subject                   string            `json:"subject,omitempty"`
-	Metadata                  map[string]string `json:"metadata,omitempty"`
-	WindowSeconds             int               `json:"window_seconds"`
-	Comparator                string            `json:"comparator"`
-	Threshold                 float64           `json:"threshold"`
-	EvaluationIntervalSeconds int               `json:"evaluation_interval_seconds"`
-	GroupBy                   string            `json:"group_by,omitempty"`
-	DestinationID             string            `json:"destination_id,omitempty"`
-	DestinationName           string            `json:"destination_name,omitempty"`
-}
-
-type webhookStatePayload struct {
-	Status      string  `json:"status"`
-	GroupKey    string  `json:"group_key,omitempty"`
-	GroupValue  string  `json:"group_value,omitempty"`
-	Value       float64 `json:"value"`
-	Message     string  `json:"message"`
-	EvaluatedAt string  `json:"evaluated_at"`
-	UpdatedAt   string  `json:"updated_at"`
-}
-
-type webhookEventPayload struct {
-	ID         string  `json:"id"`
-	RuleID     string  `json:"rule_id"`
-	GroupKey   string  `json:"group_key,omitempty"`
-	GroupValue string  `json:"group_value,omitempty"`
-	Type       string  `json:"type"`
-	Value      float64 `json:"value"`
-	Message    string  `json:"message"`
-	CreatedAt  string  `json:"created_at"`
 }

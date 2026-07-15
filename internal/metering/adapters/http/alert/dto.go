@@ -116,6 +116,23 @@ type DeliveryResponse struct {
 	CreatedAt   string `json:"created_at"`
 }
 
+type DeliveryJobResponse struct {
+	ID            string `json:"id"`
+	EventID       string `json:"event_id"`
+	DestinationID string `json:"destination_id"`
+	Status        string `json:"status"`
+	Attempts      int    `json:"attempts"`
+	NextAttemptAt string `json:"next_attempt_at"`
+	LastError     string `json:"last_error,omitempty"`
+	CreatedAt     string `json:"created_at"`
+	UpdatedAt     string `json:"updated_at"`
+	DeliveredAt   string `json:"delivered_at,omitempty"`
+}
+
+type DeliveryJobListResponse struct {
+	Items []DeliveryJobResponse `json:"items"`
+}
+
 type RuleListResponse struct {
 	Items []RuleResponse `json:"items"`
 }

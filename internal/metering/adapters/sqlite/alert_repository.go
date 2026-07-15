@@ -270,6 +270,109 @@ func (r *AlertRepository) SaveDelivery(ctx context.Context, delivery appalert.De
 	return delivery, nil
 }
 
+func (r *AlertRepository) SaveDeliveryJob(ctx context.Context, job appalert.DeliveryJob) error {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return err
+	}
+	return queriesFor(ctx, r.queries).SaveAlertDeliveryJob(ctx, sqlitedb.SaveAlertDeliveryJobParams{PublicID: job.ID, WorkspaceID: workspaceID, EventID: job.EventID, DestinationID: job.DestinationID, Payload: string(job.Payload), Now: formatTime(job.CreatedAt)})
+}
+
+func (r *AlertRepository) ClaimDeliveryJob(ctx context.Context, now, lockedUntil time.Time, maxAttempts int) (appalert.DeliveryJob, error) {
+	row, err := queriesFor(ctx, r.queries).ClaimAlertDeliveryJob(ctx, sqlitedb.ClaimAlertDeliveryJobParams{LockedUntil: alertTimeValue(lockedUntil), Now: formatTime(now), MaxAttempts: int64(maxAttempts)})
+	if errors.Is(err, sql.ErrNoRows) {
+		return appalert.DeliveryJob{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return appalert.DeliveryJob{}, err
+	}
+	createdAt, err := time.Parse(time.RFC3339Nano, row.CreatedAt)
+	if err != nil {
+		return appalert.DeliveryJob{}, err
+	}
+	return appalert.DeliveryJob{ID: row.PublicID, WorkspaceID: row.WorkspaceID, EventID: row.EventID, DestinationID: row.DestinationID, Payload: []byte(row.Payload), Status: "running", Attempts: int(row.Attempts), CreatedAt: createdAt, UpdatedAt: now}, nil
+}
+
+func (r *AlertRepository) CompleteDeliveryJob(ctx context.Context, id string, now time.Time) error {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return err
+	}
+	rows, err := queriesFor(ctx, r.queries).CompleteAlertDeliveryJob(ctx, sqlitedb.CompleteAlertDeliveryJobParams{Now: alertTimeValue(now), PublicID: id, WorkspaceID: workspaceID})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (r *AlertRepository) RetryDeliveryJob(ctx context.Context, id string, next time.Time, maxAttempts int, lastError string, now time.Time) error {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return err
+	}
+	rows, err := queriesFor(ctx, r.queries).RetryAlertDeliveryJob(ctx, sqlitedb.RetryAlertDeliveryJobParams{MaxAttempts: int64(maxAttempts), NextAttemptAt: formatTime(next), LastError: lastError, Now: formatTime(now), PublicID: id, WorkspaceID: workspaceID})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (r *AlertRepository) RequeueDeliveryJob(ctx context.Context, id string, now time.Time) error {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return err
+	}
+	rows, err := queriesFor(ctx, r.queries).RequeueAlertDeliveryJob(ctx, sqlitedb.RequeueAlertDeliveryJobParams{Now: formatTime(now), PublicID: id, WorkspaceID: workspaceID})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (r *AlertRepository) ListDeliveryJobs(ctx context.Context, limit int) ([]appalert.DeliveryJob, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := queriesFor(ctx, r.queries).ListAlertDeliveryJobs(ctx, sqlitedb.ListAlertDeliveryJobsParams{WorkspaceID: workspaceID, Limit: int64(limit)})
+	if err != nil {
+		return nil, err
+	}
+	jobs := make([]appalert.DeliveryJob, 0, len(rows))
+	for _, row := range rows {
+		next, err := time.Parse(time.RFC3339Nano, row.NextAttemptAt)
+		if err != nil {
+			return nil, err
+		}
+		created, err := time.Parse(time.RFC3339Nano, row.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
+		updated, err := time.Parse(time.RFC3339Nano, row.UpdatedAt)
+		if err != nil {
+			return nil, err
+		}
+		delivered := time.Time{}
+		if row.DeliveredAt.Valid {
+			delivered, err = time.Parse(time.RFC3339Nano, row.DeliveredAt.String)
+			if err != nil {
+				return nil, err
+			}
+		}
+		jobs = append(jobs, appalert.DeliveryJob{ID: row.PublicID, EventID: row.EventID, DestinationID: row.DestinationID, Status: row.Status, Attempts: int(row.Attempts), NextAttemptAt: next, LastError: row.LastError, CreatedAt: created, UpdatedAt: updated, DeliveredAt: delivered})
+	}
+	return jobs, nil
+}
+
 func (r *AlertRepository) FindEvents(ctx context.Context, query appalert.EventQuery) ([]appalert.Event, error) {
 	workspaceID, err := appauth.RequireWorkspaceID(ctx)
 	if err != nil {

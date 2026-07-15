@@ -971,13 +971,19 @@ SELECT 'export' AS worker_name,
 FROM usage_export_jobs e
 UNION ALL
 SELECT 'alert',
-	COALESCE(SUM(CASE WHEN a.locked_until IS NULL OR a.locked_until < ?1 THEN 1 ELSE 0 END), 0),
-	COALESCE(SUM(CASE WHEN a.locked_until >= ?1 THEN 1 ELSE 0 END), 0),
-	(SELECT COUNT(*) FROM system_worker_dead_letters WHERE worker_name = 'alert' AND status = 'dead_letter'),
-	COALESCE(MIN(CASE WHEN a.locked_until IS NULL OR a.locked_until < ?1 THEN a.created_at END), ''),
-	COALESCE((SELECT MAX(evaluated_at) FROM alert_states), ''),
-	COALESCE((SELECT MAX(created_at) FROM system_worker_dead_letters WHERE worker_name = 'alert' AND status = 'dead_letter'), '')
-FROM alert_evaluation_jobs a
+	(SELECT COUNT(*) FROM alert_evaluation_jobs WHERE locked_until IS NULL OR locked_until < ?1)
+		+ (SELECT COUNT(*) FROM alert_delivery_jobs WHERE status = 'pending' OR (status = 'running' AND (locked_until IS NULL OR locked_until < ?1))),
+	(SELECT COUNT(*) FROM alert_evaluation_jobs WHERE locked_until >= ?1)
+		+ (SELECT COUNT(*) FROM alert_delivery_jobs WHERE status = 'running' AND locked_until >= ?1),
+	(SELECT COUNT(*) FROM system_worker_dead_letters WHERE worker_name = 'alert' AND status = 'dead_letter')
+		+ (SELECT COUNT(*) FROM alert_delivery_jobs WHERE status = 'dead_letter'),
+	COALESCE((SELECT MIN(pending_at) FROM (
+		SELECT created_at AS pending_at FROM alert_evaluation_jobs WHERE locked_until IS NULL OR locked_until < ?1
+		UNION ALL
+		SELECT created_at FROM alert_delivery_jobs WHERE status = 'pending' OR (status = 'running' AND (locked_until IS NULL OR locked_until < ?1))
+	)), ''),
+	MAX(COALESCE((SELECT MAX(evaluated_at) FROM alert_states), ''), COALESCE((SELECT MAX(delivered_at) FROM alert_delivery_jobs), '')),
+	MAX(COALESCE((SELECT MAX(created_at) FROM system_worker_dead_letters WHERE worker_name = 'alert' AND status = 'dead_letter'), ''), COALESCE((SELECT MAX(updated_at) FROM alert_delivery_jobs WHERE status = 'dead_letter'), ''))
 UNION ALL
 SELECT 'entitlement',
 	COALESCE(SUM(CASE WHEN e.locked_until IS NULL OR e.locked_until < ?1 THEN 1 ELSE 0 END), 0),

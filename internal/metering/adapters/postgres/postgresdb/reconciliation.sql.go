@@ -988,13 +988,19 @@ SELECT 'export'::text AS worker_name,
 FROM usage_export_jobs
 UNION ALL
 SELECT 'alert',
-	COUNT(*) FILTER (WHERE locked_until IS NULL OR locked_until::timestamptz < $1::timestamptz),
-	COUNT(*) FILTER (WHERE locked_until::timestamptz >= $1::timestamptz),
-	(SELECT COUNT(*) FROM system_worker_dead_letters WHERE worker_name = 'alert' AND status = 'dead_letter'),
-	COALESCE(MIN(created_at) FILTER (WHERE locked_until IS NULL OR locked_until::timestamptz < $1::timestamptz), ''),
-	COALESCE((SELECT MAX(evaluated_at) FROM alert_states), ''),
-	COALESCE((SELECT MAX(created_at)::text FROM system_worker_dead_letters WHERE worker_name = 'alert' AND status = 'dead_letter'), '')
-FROM alert_evaluation_jobs
+	(SELECT COUNT(*) FROM alert_evaluation_jobs WHERE locked_until IS NULL OR locked_until::timestamptz < $1::timestamptz)
+		+ (SELECT COUNT(*) FROM alert_delivery_jobs WHERE status = 'pending' OR (status = 'running' AND (locked_until IS NULL OR locked_until < $1::timestamptz))),
+	(SELECT COUNT(*) FROM alert_evaluation_jobs WHERE locked_until::timestamptz >= $1::timestamptz)
+		+ (SELECT COUNT(*) FROM alert_delivery_jobs WHERE status = 'running' AND locked_until >= $1::timestamptz),
+	(SELECT COUNT(*) FROM system_worker_dead_letters WHERE worker_name = 'alert' AND status = 'dead_letter')
+		+ (SELECT COUNT(*) FROM alert_delivery_jobs WHERE status = 'dead_letter'),
+	COALESCE((SELECT MIN(pending_at) FROM (
+		SELECT created_at AS pending_at FROM alert_evaluation_jobs WHERE locked_until IS NULL OR locked_until::timestamptz < $1::timestamptz
+		UNION ALL
+		SELECT created_at::text FROM alert_delivery_jobs WHERE status = 'pending' OR (status = 'running' AND (locked_until IS NULL OR locked_until < $1::timestamptz))
+	) pending), ''),
+	GREATEST(COALESCE((SELECT MAX(evaluated_at) FROM alert_states), ''), COALESCE((SELECT MAX(delivered_at)::text FROM alert_delivery_jobs), '')),
+	GREATEST(COALESCE((SELECT MAX(created_at)::text FROM system_worker_dead_letters WHERE worker_name = 'alert' AND status = 'dead_letter'), ''), COALESCE((SELECT MAX(updated_at)::text FROM alert_delivery_jobs WHERE status = 'dead_letter'), ''))
 UNION ALL
 SELECT 'entitlement',
 	COUNT(*) FILTER (WHERE locked_until IS NULL OR locked_until::timestamptz < $1::timestamptz),

@@ -14,7 +14,7 @@ import { formatDate, formatNumber } from '../lib/format'
 import { useInitialLoad } from '../lib/hooks'
 
 export function OverviewPage() {
-  const { deadLetters, error, ingestions, pinnedUsageQueries, stats, status, subjects } = useSelector(appStore, (state) => state.overview)
+  const { alertDeliveryJobs, deadLetters, error, ingestions, pinnedUsageQueries, stats, status, subjects } = useSelector(appStore, (state) => state.overview)
   const router = useRouter()
   const load = useCallback(() => appStoreActions.loadOverview(), [])
 
@@ -100,6 +100,21 @@ export function OverviewPage() {
           ])} />
         </CardContent>
       </Card>
+
+	  <Card className="mb-4 min-w-0">
+		<CardHeader className="!px-4 !py-3"><div><CardTitle>Alert Delivery Outbox</CardTitle><CardDescription>Webhook notifications are retried with backoff and remain inspectable after terminal failure.</CardDescription></div></CardHeader>
+		<CardContent>
+		  <DataTable emptyLabel="No alert deliveries have been queued" headers={['Time', 'Event', 'Status', 'Attempts', 'Next attempt', 'Error', '']} rows={alertDeliveryJobs.map((item) => [
+			formatDate(item.created_at),
+			<span className="font-mono text-xs">{item.event_id}</span>,
+			<Badge variant={item.status === 'delivered' ? 'success' : item.status === 'dead_letter' ? 'warning' : 'muted'}>{item.status.replace('_', ' ')}</Badge>,
+			formatNumber(item.attempts),
+			item.status === 'pending' ? formatDate(item.next_attempt_at) : <span className="muted">—</span>,
+			<span className="max-w-[360px] truncate" title={item.last_error}>{item.last_error || '—'}</span>,
+			item.status === 'dead_letter' ? <Button onClick={() => void appStoreActions.retryAlertDeliveryJob(item.id)} size="sm" type="button" variant="outline">Retry</Button> : <span className="muted">{item.delivered_at ? formatDate(item.delivered_at) : ''}</span>,
+		  ])} />
+		</CardContent>
+	  </Card>
 
       <Card className="mb-4 min-w-0">
         <CardHeader className="!px-4 !py-3"><div><CardTitle>Worker Failure Audit</CardTitle><CardDescription>Terminal alert and entitlement failures remain here after retry for operational review.</CardDescription></div></CardHeader>

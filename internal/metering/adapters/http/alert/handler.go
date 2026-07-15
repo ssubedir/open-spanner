@@ -401,6 +401,51 @@ func (h *Handler) ListEvents(w http.ResponseWriter, r *http.Request) {
 	respond.JSON(w, http.StatusOK, EventListResponse{Items: res, NextCursor: events.NextCursor})
 }
 
+// ListDeliveryJobs lists durable alert deliveries.
+// @Summary List alert delivery jobs
+// @ID listAlertDeliveryJobs
+// @Tags alerts
+// @Produce json
+// @Param limit query int false "Result limit"
+// @Success 200 {object} DeliveryJobListResponse
+// @Router /v1/alerts/delivery-jobs [get]
+func (h *Handler) ListDeliveryJobs(w http.ResponseWriter, r *http.Request) {
+	limit, err := request.ParseLimit(r.URL.Query().Get("limit"))
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+	result, err := h.service.ListDeliveryJobs(r.Context(), limit)
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	items := make([]DeliveryJobResponse, 0, len(result.Items))
+	for _, job := range result.Items {
+		items = append(items, deliveryJobResponse(job))
+	}
+	respond.JSON(w, http.StatusOK, DeliveryJobListResponse{Items: items})
+}
+
+// RetryDeliveryJob retries a terminal alert delivery.
+// @Summary Retry alert delivery job
+// @ID retryAlertDeliveryJob
+// @Tags alerts
+// @Param id path string true "Delivery job ID"
+// @Success 204
+// @Router /v1/alerts/delivery-jobs/{id}/retry [post]
+func (h *Handler) RetryDeliveryJob(w http.ResponseWriter, r *http.Request) {
+	if err := h.service.RequeueDeliveryJob(r.Context(), chi.URLParam(r, "id")); err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func deliveryJobResponse(job appalert.DeliveryJobResult) DeliveryJobResponse {
+	return DeliveryJobResponse{ID: job.ID, EventID: job.EventID, DestinationID: job.DestinationID, Status: job.Status, Attempts: job.Attempts, NextAttemptAt: formatTime(job.NextAttemptAt), LastError: job.LastError, CreatedAt: formatTime(job.CreatedAt), UpdatedAt: formatTime(job.UpdatedAt), DeliveredAt: formatTime(job.DeliveredAt)}
+}
+
 func ruleResponse(rule appalert.RuleResult) RuleResponse {
 	response := RuleResponse{
 		ID:                        rule.ID,

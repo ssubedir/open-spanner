@@ -148,6 +148,57 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/alerts/delivery-jobs": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "alerts"
+                ],
+                "summary": "List alert delivery jobs",
+                "operationId": "listAlertDeliveryJobs",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Result limit",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_alert.DeliveryJobListResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/alerts/delivery-jobs/{id}/retry": {
+            "post": {
+                "tags": [
+                    "alerts"
+                ],
+                "summary": "Retry alert delivery job",
+                "operationId": "retryAlertDeliveryJob",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Delivery job ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
         "/v1/alerts/destinations": {
             "get": {
                 "produces": [
@@ -4026,6 +4077,52 @@ const docTemplate = `{
             "properties": {
                 "error": {
                     "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorBody"
+                }
+            }
+        },
+        "internal_metering_adapters_http_alert.DeliveryJobListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_alert.DeliveryJobResponse"
+                    }
+                }
+            }
+        },
+        "internal_metering_adapters_http_alert.DeliveryJobResponse": {
+            "type": "object",
+            "properties": {
+                "attempts": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "delivered_at": {
+                    "type": "string"
+                },
+                "destination_id": {
+                    "type": "string"
+                },
+                "event_id": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "next_attempt_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
                 }
             }
         },
