@@ -238,8 +238,8 @@ function WorkspaceHealthCard({ latestIngestion, recentAccepted, recentFailures, 
         <OverviewStatusItem
           icon={<Clock />}
           label="Retention"
-          value={stats?.last_prune_run ? formatDate(stats.last_prune_run.created_at) : 'No cleanup runs yet'}
-          variant={stats?.last_prune_run ? 'success' : 'muted'}
+          value={stats?.last_decision_prune_run ? `${formatDate(stats.last_decision_prune_run.created_at)} · ${formatNumber(stats.consumption_decisions)} decisions` : stats?.last_prune_run ? formatDate(stats.last_prune_run.created_at) : 'No cleanup runs yet'}
+          variant={stats?.last_decision_prune_run || stats?.last_prune_run ? 'success' : 'muted'}
         />
         <OverviewStatusItem
           icon={<FileArchive />}

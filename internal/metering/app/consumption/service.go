@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	appentitlement "github.com/ssubedir/open-spanner/internal/metering/app/entitlement"
 	apptransaction "github.com/ssubedir/open-spanner/internal/metering/app/transaction"
 	appusage "github.com/ssubedir/open-spanner/internal/metering/app/usage"
@@ -20,6 +21,7 @@ var (
 
 type Service interface {
 	Consume(ctx context.Context, cmd Command) (Result, error)
+	PruneDecisions(ctx context.Context, cmd PruneCommand) (PruneResult, error)
 }
 
 type Command struct {
@@ -42,6 +44,9 @@ type Result struct {
 type Repository interface {
 	Find(ctx context.Context, idempotencyKey string) ([]byte, error)
 	Save(ctx context.Context, idempotencyKey string, snapshot []byte) (stored []byte, created bool, err error)
+	CountExpired(ctx context.Context, before time.Time) (int, error)
+	PruneExpired(ctx context.Context, before time.Time) (int, error)
+	SavePruneRun(ctx context.Context, id string, before time.Time, dryRun bool, deleted int, createdAt time.Time) error
 }
 
 type UsageService interface {
@@ -58,6 +63,19 @@ type service struct {
 	usage        UsageService
 	entitlements EntitlementService
 	transactor   apptransaction.Transactor
+}
+
+type PruneCommand struct {
+	Before time.Time
+	DryRun bool
+}
+
+type PruneResult struct {
+	ID        string
+	Before    time.Time
+	Deleted   int
+	DryRun    bool
+	CreatedAt time.Time
 }
 
 func NewService(repo Repository, usage UsageService, entitlements EntitlementService, transactor apptransaction.Transactor) Service {
@@ -193,4 +211,25 @@ func (s *service) find(ctx context.Context, idempotencyKey string) (Result, erro
 		return Result{}, err
 	}
 	return result, nil
+}
+
+func (s *service) PruneDecisions(ctx context.Context, cmd PruneCommand) (PruneResult, error) {
+	before := cmd.Before.UTC()
+	if before.IsZero() {
+		return PruneResult{}, fmt.Errorf("%w: decision prune cutoff is required", domain.ErrInvalidInput)
+	}
+	result := PruneResult{ID: uuid.Must(uuid.NewV7()).String(), Before: before, DryRun: cmd.DryRun, CreatedAt: time.Now().UTC()}
+	err := s.transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
+		var err error
+		if cmd.DryRun {
+			result.Deleted, err = s.repo.CountExpired(txCtx, before)
+		} else {
+			result.Deleted, err = s.repo.PruneExpired(txCtx, before)
+		}
+		if err != nil {
+			return err
+		}
+		return s.repo.SavePruneRun(txCtx, result.ID, before, cmd.DryRun, result.Deleted, result.CreatedAt)
+	})
+	return result, err
 }

@@ -38,6 +38,7 @@ type Config struct {
 	RetentionPruneEnabled        bool
 	RetentionPruneInterval       time.Duration
 	RetentionPruneTimeout        time.Duration
+	ConsumptionDecisionRetention time.Duration
 }
 
 type OAuthConfig struct {
@@ -75,6 +76,10 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	retentionTimeout, err := envDuration("OPEN_SPANNER_RETENTION_PRUNE_TIMEOUT", 30*time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	decisionRetention, err := envDuration("OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION", 30*24*time.Hour)
 	if err != nil {
 		return Config{}, err
 	}
@@ -183,6 +188,7 @@ func Load() (Config, error) {
 		RetentionPruneEnabled:        retentionEnabled,
 		RetentionPruneInterval:       retentionInterval,
 		RetentionPruneTimeout:        retentionTimeout,
+		ConsumptionDecisionRetention: decisionRetention,
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -295,6 +301,9 @@ func (cfg Config) Validate() error {
 	}
 	if cfg.RetentionPruneTimeout <= 0 {
 		return fmt.Errorf("OPEN_SPANNER_RETENTION_PRUNE_TIMEOUT must be greater than zero")
+	}
+	if cfg.ConsumptionDecisionRetention <= 0 {
+		return fmt.Errorf("OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION must be greater than zero")
 	}
 
 	return nil

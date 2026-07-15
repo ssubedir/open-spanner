@@ -4887,6 +4887,26 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_metering_adapters_http_system.LastDecisionPruneRunResponse": {
+            "type": "object",
+            "properties": {
+                "before": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "deleted": {
+                    "type": "integer"
+                },
+                "dry_run": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_metering_adapters_http_system.LastPruneRunResponse": {
             "type": "object",
             "properties": {
@@ -4907,6 +4927,15 @@ const docTemplate = `{
         "internal_metering_adapters_http_system.StatsResponse": {
             "type": "object",
             "properties": {
+                "consumption_decisions": {
+                    "type": "integer"
+                },
+                "decision_prune_runs": {
+                    "type": "integer"
+                },
+                "last_decision_prune_run": {
+                    "$ref": "#/definitions/internal_metering_adapters_http_system.LastDecisionPruneRunResponse"
+                },
                 "last_prune_run": {
                     "$ref": "#/definitions/internal_metering_adapters_http_system.LastPruneRunResponse"
                 },

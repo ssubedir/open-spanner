@@ -11,6 +11,7 @@ services:
       OPEN_SPANNER_POSTGRES_DSN: postgres://open_spanner:${OPEN_SPANNER_POSTGRES_PASSWORD:-open_spanner}@postgres:5432/open_spanner?sslmode=disable
       OPEN_SPANNER_EXPORT_STORAGE_PATH: /data/exports
       OPEN_SPANNER_RETENTION_PRUNE_ENABLED: ${OPEN_SPANNER_RETENTION_PRUNE_ENABLED:-false}
+      OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION: ${OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION:-720h}
     depends_on:
       postgres:
         condition: service_healthy

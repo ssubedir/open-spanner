@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"time"
 
 	appauth "github.com/ssubedir/open-spanner/internal/auth"
@@ -41,6 +43,22 @@ func (r *SystemRepository) FindStats(ctx context.Context) (appsystem.StatsResult
 		Meters:      int(stats.Meters),
 		UsageEvents: int(stats.UsageEvents),
 		PruneRuns:   int(stats.PruneRuns),
+	}
+	decisionCount, err := r.queries.CountConsumptionDecisions(ctx, workspaceID)
+	if err != nil {
+		return appsystem.StatsResult{}, err
+	}
+	decisionRunCount, err := r.queries.CountConsumptionDecisionPruneRuns(ctx, workspaceID)
+	if err != nil {
+		return appsystem.StatsResult{}, err
+	}
+	result.ConsumptionDecisions = int(decisionCount)
+	result.DecisionPruneRuns = int(decisionRunCount)
+	decisionRun, err := r.queries.FindLatestConsumptionDecisionPruneRun(ctx, workspaceID)
+	if err == nil {
+		result.LastDecisionPruneRun = appsystem.LastDecisionPruneRunResult{ID: decisionRun.ID, Before: decisionRun.Before, Deleted: int(decisionRun.Deleted), DryRun: decisionRun.DryRun, CreatedAt: decisionRun.CreatedAt}
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return appsystem.StatsResult{}, err
 	}
 
 	runs, err := queriesFor(ctx, r.queries).ListUsagePruneRuns(ctx, postgresdb.ListUsagePruneRunsParams{

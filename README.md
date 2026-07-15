@@ -324,6 +324,7 @@ Common runtime variables:
 | `OPEN_SPANNER_ALERT_WORKER_INTERVAL` | `5s` | Alert worker polling interval. |
 | `OPEN_SPANNER_ENTITLEMENT_WORKER_INTERVAL` | `5s` | Entitlement worker polling interval. |
 | `OPEN_SPANNER_RETENTION_PRUNE_ENABLED` | `false` | Enables automatic retention pruning. |
+| `OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION` | `720h` | Keeps consume idempotency decisions for 30 days before pruning. |
 
 See [Environment Variables](docs/content/docs/configuration/environment-variables.mdx) for the full list.
 

@@ -22,9 +22,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/config"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/fileexport"
 	appalert "github.com/ssubedir/open-spanner/internal/metering/app/alert"
+	appconsumption "github.com/ssubedir/open-spanner/internal/metering/app/consumption"
 	alertworker "github.com/ssubedir/open-spanner/internal/metering/workers/alert"
 	entitlementworker "github.com/ssubedir/open-spanner/internal/metering/workers/entitlement"
 	exportworker "github.com/ssubedir/open-spanner/internal/metering/workers/export"
@@ -492,6 +494,37 @@ func runIntegrationAtomicConsumption(t *testing.T, cfg config.Config, namespace 
 	}
 	assertStored(hardSubject, 10)
 	assertStored(advisorySubject, 5)
+
+	principal, err := app.AuthService.AuthenticateAPIKeyPrincipal(ctx, identity.APIKey)
+	if err != nil {
+		t.Fatalf("authenticate consumption prune context: %v", err)
+	}
+	pruneCtx := appauth.WithPrincipal(ctx, principal)
+	cutoff := time.Now().UTC().Add(time.Hour)
+	dryRun, err := app.ConsumptionService.PruneDecisions(pruneCtx, appconsumption.PruneCommand{Before: cutoff, DryRun: true})
+	if err != nil || dryRun.Deleted == 0 {
+		t.Fatalf("dry-run decision prune = %#v, %v", dryRun, err)
+	}
+	pruned, err := app.ConsumptionService.PruneDecisions(pruneCtx, appconsumption.PruneCommand{Before: cutoff})
+	if err != nil || pruned.Deleted != dryRun.Deleted {
+		t.Fatalf("decision prune = %#v, want deleted %d: %v", pruned, dryRun.Deleted, err)
+	}
+	statsRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/system/stats", nil, identity.Headers, nil)
+	if statsRes.Code != http.StatusOK {
+		t.Fatalf("system stats after decision prune status = %d: %s", statsRes.Code, statsRes.Body.String())
+	}
+	var stats struct {
+		ConsumptionDecisions int `json:"consumption_decisions"`
+		DecisionPruneRuns    int `json:"decision_prune_runs"`
+		LastDecisionPruneRun *struct {
+			Deleted int  `json:"deleted"`
+			DryRun  bool `json:"dry_run"`
+		} `json:"last_decision_prune_run"`
+	}
+	decodeJSON(t, statsRes, &stats)
+	if stats.ConsumptionDecisions != 0 || stats.DecisionPruneRuns != 2 || stats.LastDecisionPruneRun == nil || stats.LastDecisionPruneRun.DryRun || stats.LastDecisionPruneRun.Deleted != pruned.Deleted {
+		t.Fatalf("decision retention stats = %#v last=%#v pruned=%#v body=%s", stats, stats.LastDecisionPruneRun, pruned, statsRes.Body.String())
+	}
 }
 
 func runIntegrationConcurrentUsageIdempotency(t *testing.T, cfg config.Config, namespace string) {

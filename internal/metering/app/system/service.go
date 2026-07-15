@@ -18,10 +18,21 @@ type Repository interface {
 }
 
 type StatsResult struct {
-	Meters       int
-	UsageEvents  int
-	PruneRuns    int
-	LastPruneRun LastPruneRunResult
+	Meters               int
+	UsageEvents          int
+	PruneRuns            int
+	LastPruneRun         LastPruneRunResult
+	ConsumptionDecisions int
+	DecisionPruneRuns    int
+	LastDecisionPruneRun LastDecisionPruneRunResult
+}
+
+type LastDecisionPruneRunResult struct {
+	ID        string
+	Before    time.Time
+	Deleted   int
+	DryRun    bool
+	CreatedAt time.Time
 }
 
 type LastPruneRunResult struct {

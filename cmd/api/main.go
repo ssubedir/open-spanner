@@ -59,7 +59,9 @@ func main() {
 	stopRetention := func() {}
 	if cfg.RetentionPruneEnabled {
 		log.Printf("retention prune worker enabled: interval=%s timeout=%s", cfg.RetentionPruneInterval, cfg.RetentionPruneTimeout)
-		stopRetention = retention.NewWorker(app.UsageService, cfg.RetentionPruneInterval, cfg.RetentionPruneTimeout, log.Printf).Start(context.Background())
+		stopRetention = retention.NewWorker(app.UsageService, cfg.RetentionPruneInterval, cfg.RetentionPruneTimeout, log.Printf).
+			WithDecisionPruner(app.ConsumptionService, cfg.ConsumptionDecisionRetention).
+			Start(context.Background())
 	}
 
 	cleanup := func() error {

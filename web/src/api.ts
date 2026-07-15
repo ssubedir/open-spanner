@@ -8,6 +8,15 @@ export type SystemStats = {
     dry_run: boolean
     created_at: string
   }
+	consumption_decisions: number
+	decision_prune_runs: number
+	last_decision_prune_run: null | {
+		id: string
+		before: string
+		deleted: number
+		dry_run: boolean
+		created_at: string
+	}
 }
 
 export type SubjectStats = {

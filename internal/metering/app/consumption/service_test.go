@@ -17,6 +17,20 @@ type memoryRepository struct {
 	results map[string][]byte
 }
 
+func (r *memoryRepository) CountExpired(context.Context, time.Time) (int, error) {
+	return len(r.results), nil
+}
+func (r *memoryRepository) PruneExpired(context.Context, time.Time) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	count := len(r.results)
+	r.results = map[string][]byte{}
+	return count, nil
+}
+func (r *memoryRepository) SavePruneRun(context.Context, string, time.Time, bool, int, time.Time) error {
+	return nil
+}
+
 func (r *memoryRepository) Find(_ context.Context, key string) ([]byte, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -153,5 +167,29 @@ func TestFailClosedDecisionPersistsRejection(t *testing.T) {
 	}
 	if usage.creates != 0 || entitlements.calls != 1 {
 		t.Fatalf("fail-closed replay calls=%d creates=%d, want 1/0", entitlements.calls, usage.creates)
+	}
+}
+
+func TestPrunedRejectedDecisionCanBeEvaluatedAsNewAttempt(t *testing.T) {
+	assessment := appentitlement.ConsumptionAssessment{
+		Allowed: false, State: appentitlement.StateExceeded, Enforcement: appentitlement.EnforcementHard,
+		FailurePolicy: appentitlement.FailurePolicyFailOpen,
+	}
+	service, _, usage, entitlements := newTestService(assessment, nil)
+	ctx := context.Background()
+	if first, err := service.Consume(ctx, testCommand("expired-1")); err != nil || first.Accepted {
+		t.Fatalf("initial decision = %#v, %v", first, err)
+	}
+	pruned, err := service.PruneDecisions(ctx, PruneCommand{Before: time.Now().UTC().Add(time.Hour)})
+	if err != nil || pruned.Deleted != 1 || pruned.DryRun {
+		t.Fatalf("prune result = %#v, %v", pruned, err)
+	}
+	entitlements.assessment.Allowed = true
+	second, err := service.Consume(ctx, testCommand("expired-1"))
+	if err != nil || !second.Accepted || second.Replayed {
+		t.Fatalf("new decision = %#v, %v", second, err)
+	}
+	if entitlements.calls != 2 || usage.creates != 1 {
+		t.Fatalf("new attempt calls=%d creates=%d, want 2/1", entitlements.calls, usage.creates)
 	}
 }

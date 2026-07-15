@@ -29,6 +29,9 @@ func TestLoadDefaultsToSQLite(t *testing.T) {
 	if cfg.RetentionPruneTimeout != 30*time.Minute {
 		t.Fatalf("retention timeout = %s, want 30m", cfg.RetentionPruneTimeout)
 	}
+	if cfg.ConsumptionDecisionRetention != 30*24*time.Hour {
+		t.Fatalf("decision retention = %s, want 720h", cfg.ConsumptionDecisionRetention)
+	}
 	if cfg.AlertWorkerInterval != 5*time.Second {
 		t.Fatalf("alert worker interval = %s, want 5s", cfg.AlertWorkerInterval)
 	}
@@ -107,6 +110,16 @@ func TestLoadRejectsInvalidRetentionTimeout(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsInvalidConsumptionDecisionRetention(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION", "0s")
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION") {
+		t.Fatalf("load error = %v, want decision retention error", err)
+	}
+}
+
 func clearEnv(t *testing.T) {
 	t.Helper()
 
@@ -131,6 +144,7 @@ func clearEnv(t *testing.T) {
 		"OPEN_SPANNER_RETENTION_PRUNE_ENABLED",
 		"OPEN_SPANNER_RETENTION_PRUNE_INTERVAL",
 		"OPEN_SPANNER_RETENTION_PRUNE_TIMEOUT",
+		"OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION",
 		"OPEN_SPANNER_EXPORT_STORAGE_PATH",
 		"OPEN_SPANNER_EXPORT_WORKER_INTERVAL",
 		"OPEN_SPANNER_EXPORT_WORKER_LOCK_TTL",

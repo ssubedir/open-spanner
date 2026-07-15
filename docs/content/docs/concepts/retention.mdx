@@ -15,6 +15,9 @@ Retention pruning runs in the API process when enabled:
 OPEN_SPANNER_RETENTION_PRUNE_ENABLED=true
 OPEN_SPANNER_RETENTION_PRUNE_INTERVAL=1h
 OPEN_SPANNER_RETENTION_PRUNE_TIMEOUT=30m
+OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION=720h
 ```
+
+The same worker removes atomic-consumption decisions after `OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION` (30 days by default). During that window, an idempotency key always replays its original accepted or rejected response. After expiration and pruning, the same key is evaluated as a new attempt. Choose a window longer than the maximum client retry period.
 
 Choose retention based on billing, audit, and reporting needs.

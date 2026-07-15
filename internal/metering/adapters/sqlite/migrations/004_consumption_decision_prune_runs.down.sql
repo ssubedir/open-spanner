@@ -1,0 +1,1 @@
+DROP TABLE consumption_decision_prune_runs;

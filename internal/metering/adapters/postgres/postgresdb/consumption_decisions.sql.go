@@ -11,6 +11,45 @@ import (
 	"time"
 )
 
+const countConsumptionDecisionPruneRuns = `-- name: CountConsumptionDecisionPruneRuns :one
+SELECT COUNT(*) FROM consumption_decision_prune_runs WHERE workspace_id = $1
+`
+
+func (q *Queries) CountConsumptionDecisionPruneRuns(ctx context.Context, workspaceID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countConsumptionDecisionPruneRuns, workspaceID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countConsumptionDecisions = `-- name: CountConsumptionDecisions :one
+SELECT COUNT(*) FROM consumption_decisions WHERE workspace_id = $1
+`
+
+func (q *Queries) CountConsumptionDecisions(ctx context.Context, workspaceID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countConsumptionDecisions, workspaceID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countExpiredConsumptionDecisions = `-- name: CountExpiredConsumptionDecisions :one
+SELECT COUNT(*) FROM consumption_decisions
+WHERE workspace_id = $1 AND created_at < $2
+`
+
+type CountExpiredConsumptionDecisionsParams struct {
+	WorkspaceID string
+	Before      time.Time
+}
+
+func (q *Queries) CountExpiredConsumptionDecisions(ctx context.Context, arg CountExpiredConsumptionDecisionsParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countExpiredConsumptionDecisions, arg.WorkspaceID, arg.Before)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const findConsumptionDecision = `-- name: FindConsumptionDecision :one
 SELECT response
 FROM consumption_decisions
@@ -28,6 +67,52 @@ func (q *Queries) FindConsumptionDecision(ctx context.Context, arg FindConsumpti
 	var response json.RawMessage
 	err := row.Scan(&response)
 	return response, err
+}
+
+const findLatestConsumptionDecisionPruneRun = `-- name: FindLatestConsumptionDecisionPruneRun :one
+SELECT id, before, dry_run, deleted, created_at
+FROM consumption_decision_prune_runs
+WHERE workspace_id = $1
+ORDER BY created_at DESC, id DESC LIMIT 1
+`
+
+type FindLatestConsumptionDecisionPruneRunRow struct {
+	ID        string
+	Before    time.Time
+	DryRun    bool
+	Deleted   int64
+	CreatedAt time.Time
+}
+
+func (q *Queries) FindLatestConsumptionDecisionPruneRun(ctx context.Context, workspaceID string) (FindLatestConsumptionDecisionPruneRunRow, error) {
+	row := q.db.QueryRowContext(ctx, findLatestConsumptionDecisionPruneRun, workspaceID)
+	var i FindLatestConsumptionDecisionPruneRunRow
+	err := row.Scan(
+		&i.ID,
+		&i.Before,
+		&i.DryRun,
+		&i.Deleted,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const pruneExpiredConsumptionDecisions = `-- name: PruneExpiredConsumptionDecisions :execrows
+DELETE FROM consumption_decisions
+WHERE workspace_id = $1 AND created_at < $2
+`
+
+type PruneExpiredConsumptionDecisionsParams struct {
+	WorkspaceID string
+	Before      time.Time
+}
+
+func (q *Queries) PruneExpiredConsumptionDecisions(ctx context.Context, arg PruneExpiredConsumptionDecisionsParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, pruneExpiredConsumptionDecisions, arg.WorkspaceID, arg.Before)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const saveConsumptionDecision = `-- name: SaveConsumptionDecision :execrows
@@ -54,4 +139,30 @@ func (q *Queries) SaveConsumptionDecision(ctx context.Context, arg SaveConsumpti
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const saveConsumptionDecisionPruneRun = `-- name: SaveConsumptionDecisionPruneRun :exec
+INSERT INTO consumption_decision_prune_runs (id, workspace_id, before, dry_run, deleted, created_at)
+VALUES ($1, $2, $3, $4, $5, $6)
+`
+
+type SaveConsumptionDecisionPruneRunParams struct {
+	ID          string
+	WorkspaceID string
+	Before      time.Time
+	DryRun      bool
+	Deleted     int64
+	CreatedAt   time.Time
+}
+
+func (q *Queries) SaveConsumptionDecisionPruneRun(ctx context.Context, arg SaveConsumptionDecisionPruneRunParams) error {
+	_, err := q.db.ExecContext(ctx, saveConsumptionDecisionPruneRun,
+		arg.ID,
+		arg.WorkspaceID,
+		arg.Before,
+		arg.DryRun,
+		arg.Deleted,
+		arg.CreatedAt,
+	)
+	return err
 }

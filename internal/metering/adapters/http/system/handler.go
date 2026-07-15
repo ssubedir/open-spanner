@@ -45,11 +45,22 @@ func statsResponseFromResult(stats appsystem.StatsResult) StatsResponse {
 			CreatedAt: stats.LastPruneRun.CreatedAt.Format(time.RFC3339),
 		}
 	}
+	var lastDecisionPruneRun *LastDecisionPruneRunResponse
+	if stats.LastDecisionPruneRun.ID != "" {
+		lastDecisionPruneRun = &LastDecisionPruneRunResponse{
+			ID: stats.LastDecisionPruneRun.ID, Before: stats.LastDecisionPruneRun.Before.Format(time.RFC3339),
+			Deleted: stats.LastDecisionPruneRun.Deleted, DryRun: stats.LastDecisionPruneRun.DryRun,
+			CreatedAt: stats.LastDecisionPruneRun.CreatedAt.Format(time.RFC3339),
+		}
+	}
 
 	return StatsResponse{
-		Meters:       stats.Meters,
-		UsageEvents:  stats.UsageEvents,
-		PruneRuns:    stats.PruneRuns,
-		LastPruneRun: lastPruneRun,
+		Meters:               stats.Meters,
+		UsageEvents:          stats.UsageEvents,
+		PruneRuns:            stats.PruneRuns,
+		LastPruneRun:         lastPruneRun,
+		ConsumptionDecisions: stats.ConsumptionDecisions,
+		DecisionPruneRuns:    stats.DecisionPruneRuns,
+		LastDecisionPruneRun: lastDecisionPruneRun,
 	}
 }

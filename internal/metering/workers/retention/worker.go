@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	appconsumption "github.com/ssubedir/open-spanner/internal/metering/app/consumption"
 	appusage "github.com/ssubedir/open-spanner/internal/metering/app/usage"
 )
 
@@ -13,13 +14,25 @@ type Pruner interface {
 	PruneEvents(ctx context.Context, cmd appusage.PruneCommand) (appusage.PruneResult, error)
 }
 
+type DecisionPruner interface {
+	PruneDecisions(ctx context.Context, cmd appconsumption.PruneCommand) (appconsumption.PruneResult, error)
+}
+
 type Logger func(format string, args ...any)
 
 type Worker struct {
-	pruner   Pruner
-	interval time.Duration
-	timeout  time.Duration
-	logger   Logger
+	pruner            Pruner
+	interval          time.Duration
+	timeout           time.Duration
+	logger            Logger
+	decisionPruner    DecisionPruner
+	decisionRetention time.Duration
+}
+
+func (w *Worker) WithDecisionPruner(pruner DecisionPruner, retention time.Duration) *Worker {
+	w.decisionPruner = pruner
+	w.decisionRetention = retention
+	return w
 }
 
 func NewWorker(pruner Pruner, interval time.Duration, timeout time.Duration, logger Logger) *Worker {
@@ -64,9 +77,10 @@ func (w *Worker) run(ctx context.Context) {
 	defer w.logger("retention prune worker stopped")
 
 	type pruneResult struct {
-		result   appusage.PruneResult
-		duration time.Duration
-		err      error
+		result    appusage.PruneResult
+		decisions appconsumption.PruneResult
+		duration  time.Duration
+		err       error
 	}
 
 	finished := make(chan pruneResult, 1)
@@ -88,10 +102,15 @@ func (w *Worker) run(ctx context.Context) {
 
 			startedAt := time.Now()
 			result, err := w.pruner.PruneEvents(runCtx, appusage.PruneCommand{})
+			var decisions appconsumption.PruneResult
+			if err == nil && w.decisionPruner != nil && w.decisionRetention > 0 {
+				decisions, err = w.decisionPruner.PruneDecisions(runCtx, appconsumption.PruneCommand{Before: time.Now().UTC().Add(-w.decisionRetention)})
+			}
 			finished <- pruneResult{
-				result:   result,
-				duration: time.Since(startedAt),
-				err:      err,
+				result:    result,
+				decisions: decisions,
+				duration:  time.Since(startedAt),
+				err:       err,
 			}
 		}()
 	}
@@ -108,7 +127,7 @@ func (w *Worker) run(ctx context.Context) {
 				w.logger("retention prune failed: duration=%s error=%v", result.duration.Round(time.Millisecond), result.err)
 				continue
 			}
-			w.logger("retention prune completed: duration=%s deleted=%d run_id=%s", result.duration.Round(time.Millisecond), result.result.Deleted, result.result.ID)
+			w.logger("retention prune completed: duration=%s events_deleted=%d decisions_deleted=%d run_id=%s decision_run_id=%s", result.duration.Round(time.Millisecond), result.result.Deleted, result.decisions.Deleted, result.result.ID, result.decisions.ID)
 		case <-ticker.C:
 			if running {
 				w.logger("retention prune skipped: previous run still active")
