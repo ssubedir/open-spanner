@@ -56,6 +56,7 @@ type repositorySet struct {
 	usage       domainusage.Repository
 	alert       appalert.Repository
 	entitlement appentitlement.Repository
+	consumption appconsumption.Repository
 	system      appsystem.Repository
 	transactor  apptransaction.Transactor
 	ready       func(context.Context) error
@@ -93,7 +94,7 @@ func NewApp(ctx context.Context, cfg config.Config) (*App, error) {
 	usageService := appusage.NewService(repos.meter, repos.usage, repos.transactor)
 	alertService := appalert.NewService(repos.alert, repos.meter, repos.usage, repos.transactor)
 	entitlementService := appentitlement.NewService(repos.entitlement, repos.meter, repos.usage, repos.transactor)
-	consumptionService := appconsumption.NewService(usageService, entitlementService, repos.transactor)
+	consumptionService := appconsumption.NewService(repos.consumption, usageService, entitlementService, repos.transactor)
 	systemService := appsystem.NewService(repos.system)
 
 	return &App{
@@ -161,6 +162,7 @@ func repositories(ctx context.Context, cfg config.Config) (repositorySet, error)
 			usage:       postgres.NewUsageRepository(store),
 			alert:       postgres.NewAlertRepository(store),
 			entitlement: postgres.NewEntitlementRepository(store),
+			consumption: postgres.NewConsumptionRepository(store),
 			system:      postgres.NewSystemRepository(store),
 			transactor:  store,
 			ready:       readiness(store),
@@ -179,6 +181,7 @@ func repositories(ctx context.Context, cfg config.Config) (repositorySet, error)
 			usage:       sqlite.NewUsageRepository(store),
 			alert:       sqlite.NewAlertRepository(store),
 			entitlement: sqlite.NewEntitlementRepository(store),
+			consumption: sqlite.NewConsumptionRepository(store),
 			system:      sqlite.NewSystemRepository(store),
 			transactor:  store,
 			ready:       readiness(store),

@@ -2056,7 +2056,9 @@ paths:
       consumes:
       - application/json
       description: Evaluates projected quota under a subject lock. Advisory limits
-        always accept usage; hard limits reject usage that would exceed quota.
+        always accept usage; hard limits reject usage that would exceed quota. Accepted
+        and rejected decisions are stored by idempotency key and replayed without
+        reevaluation.
       operationId: consumeEntitlement
       parameters:
       - description: Consumption event

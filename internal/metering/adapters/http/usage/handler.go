@@ -117,7 +117,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 // Consume atomically evaluates a plan limit and records accepted usage.
 //
 // @Summary Atomically consume quota
-// @Description Evaluates projected quota under a subject lock. Advisory limits always accept usage; hard limits reject usage that would exceed quota.
+// @Description Evaluates projected quota under a subject lock. Advisory limits always accept usage; hard limits reject usage that would exceed quota. Accepted and rejected decisions are stored by idempotency key and replayed without reevaluation.
 // @ID consumeEntitlement
 // @Tags entitlements,usages
 // @Accept json

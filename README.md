@@ -39,7 +39,7 @@ Read the hosted docs at [ssubedir.github.io/open-spanner/docs](https://ssubedir.
 ## Features
 
 - Meter definitions with units, aggregation mode, retention policy, and typed dimensions.
-- Idempotent single and bulk usage ingestion.
+- Idempotent single and bulk usage ingestion, plus durable replay of accepted and rejected quota decisions.
 - gRPC stream ingestion for backend service-to-service usage pipelines.
 - Bucketed usage queries with filters, breakdowns, dimensions, and pagination.
 - Plans, subject assignments, quota counters, entitlement checks, and atomic quota consumption with advisory or hard enforcement.

@@ -96,7 +96,7 @@
     },
     "/v1/entitlements/consume": {
       "post": {
-        "description": "Evaluates projected quota under a subject lock. Advisory limits always accept usage; hard limits reject usage that would exceed quota.",
+        "description": "Evaluates projected quota under a subject lock. Advisory limits always accept usage; hard limits reject usage that would exceed quota. Accepted and rejected decisions are stored by idempotency key and replayed without reevaluation.",
         "consumes": [
           "application/json"
         ],

@@ -126,7 +126,9 @@ curl -X POST http://localhost:18081/v1/entitlements/consume \
   }'
 ```
 
-An accepted request returns `201`. A hard-limit rejection returns `429` and includes the current, projected, remaining, reset, enforcement, and failure-policy fields. Retrying an accepted idempotency key returns the original event without consuming quota twice.
+An accepted request returns `201`. A hard-limit rejection returns `429` and includes the current, projected, remaining, reset, enforcement, and failure-policy fields.
+
+Every consume outcome is stored by workspace and idempotency key, including accepted usage, hard-limit rejection, fail-open acceptance, and fail-closed rejection. A retry returns that original event and quota snapshot with `replayed: true`; it does not reevaluate against newer quota state or consume quota twice. Use a new idempotency key when the product action is a genuinely new attempt, such as a retry after the quota period resets.
 
 The ordinary `POST /v1/usages` and gRPC ingestion paths remain recording-only and do not enforce hard limits. Use the consume endpoint for actions that require an atomic quota gate; use ordinary ingestion for facts that must always be recorded.
 

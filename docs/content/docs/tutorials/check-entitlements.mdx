@@ -32,6 +32,8 @@ curl -X POST "$BASE_URL/v1/entitlements/consume" \
 
 The response contains `accepted`, `replayed`, the recorded `event` when accepted, and a `quota` decision. Hard limits return HTTP `429` without recording the event when the projected value exceeds the limit. Advisory limits return HTTP `201` and report the warning or exceeded state.
 
+Open Spanner stores both accepted and rejected decisions. Reusing an idempotency key returns the original decision and quota snapshot, even if quota has since reset or the retry sends a different quantity. This makes network retries deterministic. Generate a new key only for a new product action.
+
 Use `failure_policy: fail_open` when preserving usage facts is more important than enforcing quota during an evaluation failure. Use `fail_closed` when the product action must be rejected unless quota can be verified. Defaults are `advisory` and `fail_open`.
 
 ## Check Then Record

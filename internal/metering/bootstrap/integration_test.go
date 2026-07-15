@@ -337,9 +337,10 @@ func runIntegrationAtomicConsumption(t *testing.T, cfg config.Config, namespace 
 	type consumeResult struct {
 		status int
 		body   string
+		key    string
 		value  consumeTestResponse
 	}
-	runConcurrent := func(subject, keyPrefix string, count int) []consumeResult {
+	runConcurrent := func(subject, keyPrefix string, count int, sharedKey ...bool) []consumeResult {
 		t.Helper()
 		results := make(chan consumeResult, count)
 		start := make(chan struct{})
@@ -349,8 +350,12 @@ func runIntegrationAtomicConsumption(t *testing.T, cfg config.Config, namespace 
 			go func() {
 				ready.Done()
 				<-start
+				key := keyPrefix + strconv.Itoa(index)
+				if len(sharedKey) > 0 && sharedKey[0] {
+					key = keyPrefix
+				}
 				payload, marshalErr := json.Marshal(map[string]any{
-					"idempotency_key": keyPrefix + strconv.Itoa(index),
+					"idempotency_key": key,
 					"subject":         subject, "meter": meterName, "quantity": 1, "metadata": map[string]any{},
 				})
 				if marshalErr != nil {
@@ -367,7 +372,7 @@ func runIntegrationAtomicConsumption(t *testing.T, cfg config.Config, namespace 
 				body := res.Body.String()
 				var value consumeTestResponse
 				_ = json.Unmarshal([]byte(body), &value)
-				results <- consumeResult{status: res.Code, body: body, value: value}
+				results <- consumeResult{status: res.Code, body: body, key: key, value: value}
 			}()
 		}
 		ready.Wait()
@@ -382,6 +387,8 @@ func runIntegrationAtomicConsumption(t *testing.T, cfg config.Config, namespace 
 	hardResults := runConcurrent(hardSubject, "hard-consume-"+suffix+"-", 20)
 	hardAccepted, hardRejected := 0, 0
 	acceptedKey := ""
+	rejectedKey := ""
+	var rejectedDecision consumeTestResponse
 	for _, result := range hardResults {
 		switch result.status {
 		case http.StatusCreated:
@@ -397,6 +404,10 @@ func runIntegrationAtomicConsumption(t *testing.T, cfg config.Config, namespace 
 			if result.value.Accepted || result.value.Quota.State != "exceeded" {
 				t.Errorf("hard rejected response = %s", result.body)
 			}
+			if rejectedKey == "" {
+				rejectedKey = result.key
+				rejectedDecision = result.value
+			}
 		default:
 			t.Errorf("hard consume status = %d, want 201 or 429: %s", result.status, result.body)
 		}
@@ -406,6 +417,9 @@ func runIntegrationAtomicConsumption(t *testing.T, cfg config.Config, namespace 
 	}
 	if acceptedKey == "" {
 		t.Fatal("hard consumption returned no accepted idempotency key")
+	}
+	if rejectedKey == "" {
+		t.Fatal("hard consumption returned no rejected idempotency key")
 	}
 	replayRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/entitlements/consume", map[string]any{
 		"idempotency_key": acceptedKey, "subject": hardSubject, "meter": meterName, "quantity": 1,
@@ -417,6 +431,37 @@ func runIntegrationAtomicConsumption(t *testing.T, cfg config.Config, namespace 
 	decodeJSON(t, replayRes, &replay)
 	if !replay.Accepted || !replay.Replayed || replay.Event == nil || replay.Event.IdempotencyKey != acceptedKey {
 		t.Fatalf("hard replay response = %#v", replay)
+	}
+	rejectedReplayRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/entitlements/consume", map[string]any{
+		"idempotency_key": rejectedKey, "subject": hardSubject, "meter": meterName, "quantity": 99,
+	}, identity.Headers, nil)
+	if rejectedReplayRes.Code != http.StatusTooManyRequests {
+		t.Fatalf("hard rejected replay status = %d, want %d: %s", rejectedReplayRes.Code, http.StatusTooManyRequests, rejectedReplayRes.Body.String())
+	}
+	var rejectedReplay consumeTestResponse
+	decodeJSON(t, rejectedReplayRes, &rejectedReplay)
+	if rejectedReplay.Accepted || !rejectedReplay.Replayed || rejectedReplay.Event != nil {
+		t.Fatalf("hard rejected replay response = %#v", rejectedReplay)
+	}
+	if rejectedReplay.Quota.Current != rejectedDecision.Quota.Current ||
+		rejectedReplay.Quota.Projected != rejectedDecision.Quota.Projected ||
+		rejectedReplay.Quota.Limit != rejectedDecision.Quota.Limit {
+		t.Fatalf("hard rejected replay quota = %#v, want original %#v", rejectedReplay.Quota, rejectedDecision.Quota)
+	}
+	sharedRejected := runConcurrent(hardSubject, "hard-shared-rejection-"+suffix, 8, true)
+	sharedOriginals, sharedReplays := 0, 0
+	for _, result := range sharedRejected {
+		if result.status != http.StatusTooManyRequests || result.value.Accepted {
+			t.Fatalf("shared rejected decision status = %d: %s", result.status, result.body)
+		}
+		if result.value.Replayed {
+			sharedReplays++
+		} else {
+			sharedOriginals++
+		}
+	}
+	if sharedOriginals != 1 || sharedReplays != 7 {
+		t.Fatalf("shared rejected originals/replays = %d/%d, want 1/7", sharedOriginals, sharedReplays)
 	}
 
 	advisoryResults := runConcurrent(advisorySubject, "advisory-consume-"+suffix+"-", 5)
