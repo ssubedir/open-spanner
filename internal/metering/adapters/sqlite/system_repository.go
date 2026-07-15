@@ -34,7 +34,7 @@ func (r *SystemRepository) ClaimReconciliationSchedule(ctx context.Context, now,
 	if err != nil {
 		return appsystem.ReconciliationClaim{}, false, err
 	}
-	return appsystem.ReconciliationClaim{WorkspaceID: row.WorkspaceID, LastFingerprint: row.LastFingerprint, LastNotifiedFingerprint: row.LastNotifiedFingerprint}, true, nil
+	return appsystem.ReconciliationClaim{WorkspaceID: row.WorkspaceID, LastFingerprint: row.LastFingerprint, LastNotifiedFingerprint: row.LastNotifiedFingerprint, LastFailureFingerprint: row.LastFailureFingerprint}, true, nil
 }
 
 func (r *SystemRepository) SaveReconciliationRun(ctx context.Context, workspaceID string, run appsystem.ReconciliationRun) error {
@@ -54,8 +54,128 @@ func (r *SystemRepository) CompleteReconciliationSchedule(ctx context.Context, w
 	return queriesFor(ctx, r.queries).CompleteReconciliationSchedule(ctx, sqlitedb.CompleteReconciliationScheduleParams{WorkspaceID: workspaceID, Fingerprint: fingerprint, NextRunAt: formatTime(nextRunAt), UpdatedAt: formatTime(time.Now().UTC())})
 }
 
-func (r *SystemRepository) FailReconciliationSchedule(ctx context.Context, workspaceID string, nextRunAt time.Time) error {
-	return queriesFor(ctx, r.queries).FailReconciliationSchedule(ctx, sqlitedb.FailReconciliationScheduleParams{WorkspaceID: workspaceID, NextRunAt: formatTime(nextRunAt), UpdatedAt: formatTime(time.Now().UTC())})
+func (r *SystemRepository) FailReconciliationSchedule(ctx context.Context, workspaceID, failureFingerprint string, nextRunAt time.Time) error {
+	return queriesFor(ctx, r.queries).FailReconciliationSchedule(ctx, sqlitedb.FailReconciliationScheduleParams{WorkspaceID: workspaceID, FailureFingerprint: failureFingerprint, NextRunAt: formatTime(nextRunAt), UpdatedAt: formatTime(time.Now().UTC())})
+}
+
+func (r *SystemRepository) GetReconciliationSchedule(ctx context.Context) (appsystem.ReconciliationSchedule, bool, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return appsystem.ReconciliationSchedule{}, false, err
+	}
+	row, err := queriesFor(ctx, r.queries).GetReconciliationSchedule(ctx, workspaceID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return appsystem.ReconciliationSchedule{}, false, nil
+	}
+	if err != nil {
+		return appsystem.ReconciliationSchedule{}, false, err
+	}
+	next, e1 := parseEntitlementTime(row.NextRunAt)
+	locked, e2 := parseNullableEntitlementTime(row.LockedUntil)
+	updated, e3 := parseEntitlementTime(row.UpdatedAt)
+	if err := errors.Join(e1, e2, e3); err != nil {
+		return appsystem.ReconciliationSchedule{}, false, err
+	}
+	return appsystem.ReconciliationSchedule{NextRunAt: next, LockedUntil: locked, UpdatedAt: updated}, true, nil
+}
+
+func (r *SystemRepository) SaveReconciliationNotification(ctx context.Context, notification appsystem.ReconciliationNotification) error {
+	payload, err := json.Marshal(notification.Run)
+	if err != nil {
+		return err
+	}
+	return queriesFor(ctx, r.queries).SaveReconciliationNotification(ctx, sqlitedb.SaveReconciliationNotificationParams{ID: notification.ID, WorkspaceID: notification.WorkspaceID, EventType: notification.EventType, Fingerprint: notification.Fingerprint, Payload: string(payload), NextAttemptAt: formatTime(notification.NextAttemptAt), CreatedAt: formatTime(notification.CreatedAt)})
+}
+
+func (r *SystemRepository) ClaimReconciliationNotification(ctx context.Context, now, lockedUntil time.Time) (appsystem.ReconciliationNotification, bool, error) {
+	row, err := queriesFor(ctx, r.queries).ClaimReconciliationNotification(ctx, sqlitedb.ClaimReconciliationNotificationParams{Now: formatTime(now), LockedUntil: sql.NullString{String: formatTime(lockedUntil), Valid: true}})
+	if errors.Is(err, sql.ErrNoRows) {
+		return appsystem.ReconciliationNotification{}, false, nil
+	}
+	if err != nil {
+		return appsystem.ReconciliationNotification{}, false, err
+	}
+	var run appsystem.ReconciliationRun
+	next, e1 := parseEntitlementTime(row.NextAttemptAt)
+	created, e2 := parseEntitlementTime(row.CreatedAt)
+	delivered, e3 := parseNullableEntitlementTime(row.DeliveredAt)
+	if err := errors.Join(json.Unmarshal([]byte(row.Payload), &run), e1, e2, e3); err != nil {
+		return appsystem.ReconciliationNotification{}, false, err
+	}
+	return appsystem.ReconciliationNotification{ID: row.ID, WorkspaceID: row.WorkspaceID, EventType: row.EventType, Fingerprint: row.Fingerprint, Run: run, Status: row.Status, Attempts: int(row.Attempts), TotalAttempts: int(row.Count), NextAttemptAt: next, LastError: row.LastError, CreatedAt: created, DeliveredAt: delivered}, true, nil
+}
+
+func (r *SystemRepository) CompleteReconciliationNotification(ctx context.Context, notification appsystem.ReconciliationNotification) error {
+	return queriesFor(ctx, r.queries).CompleteReconciliationNotification(ctx, sqlitedb.CompleteReconciliationNotificationParams{ID: notification.ID, DeliveredAt: sql.NullString{String: formatTime(time.Now().UTC()), Valid: true}})
+}
+
+func (r *SystemRepository) RetryReconciliationNotification(ctx context.Context, notification appsystem.ReconciliationNotification, nextAttemptAt time.Time, maxAttempts int, deliveryErr error) error {
+	return queriesFor(ctx, r.queries).RetryReconciliationNotification(ctx, sqlitedb.RetryReconciliationNotificationParams{ID: notification.ID, MaxAttempts: int64(maxAttempts), NextAttemptAt: formatTime(nextAttemptAt), LastError: deliveryErr.Error()})
+}
+
+func (r *SystemRepository) ListReconciliationNotifications(ctx context.Context, limit int) ([]appsystem.ReconciliationNotification, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := queriesFor(ctx, r.queries).ListReconciliationNotifications(ctx, sqlitedb.ListReconciliationNotificationsParams{WorkspaceID: workspaceID, Limit: int64(limit)})
+	if err != nil {
+		return nil, err
+	}
+	result := make([]appsystem.ReconciliationNotification, 0, len(rows))
+	for _, row := range rows {
+		var run appsystem.ReconciliationRun
+		next, e1 := parseEntitlementTime(row.NextAttemptAt)
+		locked, e2 := parseNullableEntitlementTime(row.LockedUntil)
+		created, e3 := parseEntitlementTime(row.CreatedAt)
+		delivered, e4 := parseNullableEntitlementTime(row.DeliveredAt)
+		if err := errors.Join(json.Unmarshal([]byte(row.Payload), &run), e1, e2, e3, e4); err != nil {
+			return nil, err
+		}
+		result = append(result, appsystem.ReconciliationNotification{ID: row.ID, WorkspaceID: workspaceID, EventType: row.EventType, Fingerprint: row.Fingerprint, Run: run, Status: row.Status, Attempts: int(row.Attempts), NextAttemptAt: next, LockedUntil: locked, LastError: row.LastError, CreatedAt: created, DeliveredAt: delivered})
+	}
+	return result, nil
+}
+
+func (r *SystemRepository) CountReconciliationNotifications(ctx context.Context) (appsystem.ReconciliationNotificationCounts, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return appsystem.ReconciliationNotificationCounts{}, err
+	}
+	row, err := queriesFor(ctx, r.queries).CountReconciliationNotificationStates(ctx, workspaceID)
+	if err != nil {
+		return appsystem.ReconciliationNotificationCounts{}, err
+	}
+	return appsystem.ReconciliationNotificationCounts{Pending: int(row.Pending.Float64), DeadLetter: int(row.DeadLetter.Float64)}, nil
+}
+
+func (r *SystemRepository) RequeueReconciliationNotification(ctx context.Context, id string, nextAttemptAt time.Time) (bool, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return false, err
+	}
+	rows, err := queriesFor(ctx, r.queries).RequeueReconciliationNotification(ctx, sqlitedb.RequeueReconciliationNotificationParams{ID: id, WorkspaceID: workspaceID, NextAttemptAt: formatTime(nextAttemptAt)})
+	return rows == 1, err
+}
+
+func (r *SystemRepository) SaveReconciliationNotificationAttempt(ctx context.Context, attempt appsystem.ReconciliationNotificationAttempt) error {
+	return queriesFor(ctx, r.queries).SaveReconciliationNotificationAttempt(ctx, sqlitedb.SaveReconciliationNotificationAttemptParams{ID: attempt.ID, NotificationID: attempt.NotificationID, Attempt: int64(attempt.Attempt), Status: attempt.Status, Error: attempt.Error, CreatedAt: formatTime(attempt.CreatedAt)})
+}
+
+func (r *SystemRepository) ListReconciliationNotificationAttempts(ctx context.Context, notificationID string) ([]appsystem.ReconciliationNotificationAttempt, error) {
+	rows, err := queriesFor(ctx, r.queries).ListReconciliationNotificationAttempts(ctx, notificationID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]appsystem.ReconciliationNotificationAttempt, 0, len(rows))
+	for _, row := range rows {
+		createdAt, err := parseEntitlementTime(row.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, appsystem.ReconciliationNotificationAttempt{ID: row.ID, NotificationID: notificationID, Attempt: int(row.Attempt), Status: row.Status, Error: row.Error, CreatedAt: createdAt})
+	}
+	return result, nil
 }
 
 func (r *SystemRepository) MarkReconciliationNotified(ctx context.Context, workspaceID, fingerprint string) error {

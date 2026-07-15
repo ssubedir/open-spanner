@@ -33,7 +33,7 @@ func (r *SystemRepository) ClaimReconciliationSchedule(ctx context.Context, now,
 	if err != nil {
 		return appsystem.ReconciliationClaim{}, false, err
 	}
-	return appsystem.ReconciliationClaim{WorkspaceID: row.WorkspaceID, LastFingerprint: row.LastFingerprint, LastNotifiedFingerprint: row.LastNotifiedFingerprint}, true, nil
+	return appsystem.ReconciliationClaim{WorkspaceID: row.WorkspaceID, LastFingerprint: row.LastFingerprint, LastNotifiedFingerprint: row.LastNotifiedFingerprint, LastFailureFingerprint: row.LastFailureFingerprint}, true, nil
 }
 
 func (r *SystemRepository) SaveReconciliationRun(ctx context.Context, workspaceID string, run appsystem.ReconciliationRun) error {
@@ -53,8 +53,111 @@ func (r *SystemRepository) CompleteReconciliationSchedule(ctx context.Context, w
 	return queriesFor(ctx, r.queries).CompleteReconciliationSchedule(ctx, postgresdb.CompleteReconciliationScheduleParams{WorkspaceID: workspaceID, Fingerprint: fingerprint, NextRunAt: nextRunAt, UpdatedAt: time.Now().UTC()})
 }
 
-func (r *SystemRepository) FailReconciliationSchedule(ctx context.Context, workspaceID string, nextRunAt time.Time) error {
-	return queriesFor(ctx, r.queries).FailReconciliationSchedule(ctx, postgresdb.FailReconciliationScheduleParams{WorkspaceID: workspaceID, NextRunAt: nextRunAt, UpdatedAt: time.Now().UTC()})
+func (r *SystemRepository) FailReconciliationSchedule(ctx context.Context, workspaceID, failureFingerprint string, nextRunAt time.Time) error {
+	return queriesFor(ctx, r.queries).FailReconciliationSchedule(ctx, postgresdb.FailReconciliationScheduleParams{WorkspaceID: workspaceID, FailureFingerprint: failureFingerprint, NextRunAt: nextRunAt, UpdatedAt: time.Now().UTC()})
+}
+
+func (r *SystemRepository) GetReconciliationSchedule(ctx context.Context) (appsystem.ReconciliationSchedule, bool, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return appsystem.ReconciliationSchedule{}, false, err
+	}
+	row, err := queriesFor(ctx, r.queries).GetReconciliationSchedule(ctx, workspaceID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return appsystem.ReconciliationSchedule{}, false, nil
+	}
+	if err != nil {
+		return appsystem.ReconciliationSchedule{}, false, err
+	}
+	return appsystem.ReconciliationSchedule{NextRunAt: row.NextRunAt, LockedUntil: row.LockedUntil.Time, UpdatedAt: row.UpdatedAt}, true, nil
+}
+
+func (r *SystemRepository) SaveReconciliationNotification(ctx context.Context, notification appsystem.ReconciliationNotification) error {
+	payload, err := json.Marshal(notification.Run)
+	if err != nil {
+		return err
+	}
+	return queriesFor(ctx, r.queries).SaveReconciliationNotification(ctx, postgresdb.SaveReconciliationNotificationParams{ID: notification.ID, WorkspaceID: notification.WorkspaceID, EventType: notification.EventType, Fingerprint: notification.Fingerprint, Payload: payload, NextAttemptAt: notification.NextAttemptAt, CreatedAt: notification.CreatedAt})
+}
+
+func (r *SystemRepository) ClaimReconciliationNotification(ctx context.Context, now, lockedUntil time.Time) (appsystem.ReconciliationNotification, bool, error) {
+	row, err := queriesFor(ctx, r.queries).ClaimReconciliationNotification(ctx, postgresdb.ClaimReconciliationNotificationParams{Now: now, LockedUntil: lockedUntil})
+	if errors.Is(err, sql.ErrNoRows) {
+		return appsystem.ReconciliationNotification{}, false, nil
+	}
+	if err != nil {
+		return appsystem.ReconciliationNotification{}, false, err
+	}
+	var run appsystem.ReconciliationRun
+	if err := json.Unmarshal(row.Payload, &run); err != nil {
+		return appsystem.ReconciliationNotification{}, false, err
+	}
+	return appsystem.ReconciliationNotification{ID: row.ID, WorkspaceID: row.WorkspaceID, EventType: row.EventType, Fingerprint: row.Fingerprint, Run: run, Status: row.Status, Attempts: int(row.Attempts), TotalAttempts: int(row.TotalAttempts), NextAttemptAt: row.NextAttemptAt, LastError: row.LastError, CreatedAt: row.CreatedAt, DeliveredAt: row.DeliveredAt.Time}, true, nil
+}
+
+func (r *SystemRepository) CompleteReconciliationNotification(ctx context.Context, notification appsystem.ReconciliationNotification) error {
+	return queriesFor(ctx, r.queries).CompleteReconciliationNotification(ctx, postgresdb.CompleteReconciliationNotificationParams{ID: notification.ID, DeliveredAt: time.Now().UTC()})
+}
+
+func (r *SystemRepository) RetryReconciliationNotification(ctx context.Context, notification appsystem.ReconciliationNotification, nextAttemptAt time.Time, maxAttempts int, deliveryErr error) error {
+	return queriesFor(ctx, r.queries).RetryReconciliationNotification(ctx, postgresdb.RetryReconciliationNotificationParams{ID: notification.ID, MaxAttempts: int32(maxAttempts), NextAttemptAt: nextAttemptAt, LastError: deliveryErr.Error()})
+}
+
+func (r *SystemRepository) ListReconciliationNotifications(ctx context.Context, limit int) ([]appsystem.ReconciliationNotification, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := queriesFor(ctx, r.queries).ListReconciliationNotifications(ctx, postgresdb.ListReconciliationNotificationsParams{WorkspaceID: workspaceID, Limit: int32(limit)})
+	if err != nil {
+		return nil, err
+	}
+	result := make([]appsystem.ReconciliationNotification, 0, len(rows))
+	for _, row := range rows {
+		var run appsystem.ReconciliationRun
+		if err := json.Unmarshal(row.Payload, &run); err != nil {
+			return nil, err
+		}
+		result = append(result, appsystem.ReconciliationNotification{ID: row.ID, WorkspaceID: workspaceID, EventType: row.EventType, Fingerprint: row.Fingerprint, Run: run, Status: row.Status, Attempts: int(row.Attempts), NextAttemptAt: row.NextAttemptAt, LockedUntil: row.LockedUntil.Time, LastError: row.LastError, CreatedAt: row.CreatedAt, DeliveredAt: row.DeliveredAt.Time})
+	}
+	return result, nil
+}
+
+func (r *SystemRepository) CountReconciliationNotifications(ctx context.Context) (appsystem.ReconciliationNotificationCounts, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return appsystem.ReconciliationNotificationCounts{}, err
+	}
+	row, err := queriesFor(ctx, r.queries).CountReconciliationNotificationStates(ctx, workspaceID)
+	if err != nil {
+		return appsystem.ReconciliationNotificationCounts{}, err
+	}
+	return appsystem.ReconciliationNotificationCounts{Pending: int(row.Pending), DeadLetter: int(row.DeadLetter)}, nil
+}
+
+func (r *SystemRepository) RequeueReconciliationNotification(ctx context.Context, id string, nextAttemptAt time.Time) (bool, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return false, err
+	}
+	rows, err := queriesFor(ctx, r.queries).RequeueReconciliationNotification(ctx, postgresdb.RequeueReconciliationNotificationParams{ID: id, WorkspaceID: workspaceID, NextAttemptAt: nextAttemptAt})
+	return rows == 1, err
+}
+
+func (r *SystemRepository) SaveReconciliationNotificationAttempt(ctx context.Context, attempt appsystem.ReconciliationNotificationAttempt) error {
+	return queriesFor(ctx, r.queries).SaveReconciliationNotificationAttempt(ctx, postgresdb.SaveReconciliationNotificationAttemptParams{ID: attempt.ID, NotificationID: attempt.NotificationID, Attempt: int32(attempt.Attempt), Status: attempt.Status, Error: attempt.Error, CreatedAt: attempt.CreatedAt})
+}
+
+func (r *SystemRepository) ListReconciliationNotificationAttempts(ctx context.Context, notificationID string) ([]appsystem.ReconciliationNotificationAttempt, error) {
+	rows, err := queriesFor(ctx, r.queries).ListReconciliationNotificationAttempts(ctx, notificationID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]appsystem.ReconciliationNotificationAttempt, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, appsystem.ReconciliationNotificationAttempt{ID: row.ID, NotificationID: notificationID, Attempt: int(row.Attempt), Status: row.Status, Error: row.Error, CreatedAt: row.CreatedAt})
+	}
+	return result, nil
 }
 
 func (r *SystemRepository) MarkReconciliationNotified(ctx context.Context, workspaceID, fingerprint string) error {

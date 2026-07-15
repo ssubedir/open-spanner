@@ -2672,6 +2672,83 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/system/reconciliation/notifications": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "List reconciliation notifications",
+                "operationId": "listReconciliationNotifications",
+                "parameters": [
+                    {
+                        "maximum": 200,
+                        "type": "integer",
+                        "default": 50,
+                        "description": "Maximum notification records",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_system.ReconciliationNotificationListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/system/reconciliation/notifications/{id}/retry": {
+            "post": {
+                "tags": [
+                    "system"
+                ],
+                "summary": "Retry reconciliation notification",
+                "operationId": "retryReconciliationNotification",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Notification ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/system/reconciliation/repairs": {
             "get": {
                 "produces": [
@@ -5343,6 +5420,29 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_metering_adapters_http_system.ReconciliationHealthResponse": {
+            "type": "object",
+            "properties": {
+                "dead_letter_notifications": {
+                    "type": "integer"
+                },
+                "locked_until": {
+                    "type": "string"
+                },
+                "next_run_at": {
+                    "type": "string"
+                },
+                "pending_notifications": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_metering_adapters_http_system.ReconciliationIssueResponse": {
             "type": "object",
             "properties": {
@@ -5375,6 +5475,72 @@ const docTemplate = `{
                 },
                 "subject": {
                     "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_system.ReconciliationNotificationAttemptResponse": {
+            "type": "object",
+            "properties": {
+                "attempt": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_system.ReconciliationNotificationListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_system.ReconciliationNotificationResponse"
+                    }
+                }
+            }
+        },
+        "internal_metering_adapters_http_system.ReconciliationNotificationResponse": {
+            "type": "object",
+            "properties": {
+                "attempt_history": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_system.ReconciliationNotificationAttemptResponse"
+                    }
+                },
+                "attempts": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "delivered_at": {
+                    "type": "string"
+                },
+                "event_type": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "next_attempt_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "total_attempts": {
+                    "type": "integer"
                 }
             }
         },
@@ -5485,6 +5651,9 @@ const docTemplate = `{
                 },
                 "prune_runs": {
                     "type": "integer"
+                },
+                "reconciliation_health": {
+                    "$ref": "#/definitions/internal_metering_adapters_http_system.ReconciliationHealthResponse"
                 },
                 "usage_events": {
                     "type": "integer"

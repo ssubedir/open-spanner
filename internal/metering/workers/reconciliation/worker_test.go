@@ -10,14 +10,18 @@ import (
 )
 
 type fakeService struct {
-	claim       appsystem.ReconciliationClaim
-	hasClaim    bool
-	run         appsystem.ReconciliationRun
-	notify      bool
-	runErr      error
-	failed      bool
-	notified    bool
-	markedValue string
+	claim           appsystem.ReconciliationClaim
+	hasClaim        bool
+	run             appsystem.ReconciliationRun
+	notify          bool
+	runErr          error
+	failed          bool
+	notified        bool
+	markedValue     string
+	notification    appsystem.ReconciliationNotification
+	hasNotification bool
+	completed       bool
+	retried         bool
 }
 
 func (f *fakeService) ClaimScheduledReconciliation(context.Context, time.Time, time.Time) (appsystem.ReconciliationClaim, bool, error) {
@@ -30,8 +34,15 @@ func (f *fakeService) FailScheduledReconciliation(context.Context, appsystem.Rec
 	f.failed = true
 	return nil
 }
-func (f *fakeService) MarkReconciliationNotified(_ context.Context, _ string, fingerprint string) error {
-	f.notified, f.markedValue = true, fingerprint
+func (f *fakeService) ClaimReconciliationNotification(context.Context, time.Time, time.Time) (appsystem.ReconciliationNotification, bool, error) {
+	return f.notification, f.hasNotification, nil
+}
+func (f *fakeService) CompleteReconciliationNotification(context.Context, appsystem.ReconciliationNotification) error {
+	f.completed = true
+	return nil
+}
+func (f *fakeService) RetryReconciliationNotification(context.Context, appsystem.ReconciliationNotification, time.Time, int, error) error {
+	f.retried = true
 	return nil
 }
 
@@ -40,28 +51,37 @@ type fakeNotifier struct {
 	err   error
 }
 
-func (n *fakeNotifier) Notify(context.Context, string, appsystem.ReconciliationRun) error {
+func (n *fakeNotifier) Notify(context.Context, appsystem.ReconciliationNotification) error {
 	n.calls++
 	return n.err
 }
 
-func TestProcessOnceNotifiesAndMarksDrift(t *testing.T) {
-	service := &fakeService{claim: appsystem.ReconciliationClaim{WorkspaceID: "workspace"}, hasClaim: true, run: appsystem.ReconciliationRun{Status: "drift_detected", Fingerprint: "abc", IssueCount: 1}, notify: true}
+func TestProcessOnceDeliversPendingNotification(t *testing.T) {
+	service := &fakeService{notification: appsystem.ReconciliationNotification{ID: "notification", WorkspaceID: "workspace", EventType: "drift_detected"}, hasNotification: true}
 	notifier := &fakeNotifier{}
-	worker := NewWorker(service, Options{LockTTL: time.Minute, ScheduleInterval: time.Hour, RetryAfter: time.Minute, Limit: 100, LookbackHours: 24, Notifier: notifier, Logger: func(string, ...any) {}})
+	worker := NewWorker(service, Options{LockTTL: time.Minute, ScheduleInterval: time.Hour, RetryAfter: time.Minute, MaxAttempts: 5, Notifier: notifier, Logger: func(string, ...any) {}})
 	processed, err := worker.ProcessOnce(context.Background())
-	if err != nil || !processed || notifier.calls != 1 || !service.notified || service.markedValue != "abc" {
-		t.Fatalf("processed=%v err=%v calls=%d notified=%v fingerprint=%q", processed, err, notifier.calls, service.notified, service.markedValue)
+	if err != nil || !processed || notifier.calls != 1 || !service.completed {
+		t.Fatalf("processed=%v err=%v calls=%d completed=%v", processed, err, notifier.calls, service.completed)
 	}
 }
 
-func TestProcessOnceDoesNotMarkFailedNotification(t *testing.T) {
-	service := &fakeService{claim: appsystem.ReconciliationClaim{WorkspaceID: "workspace"}, hasClaim: true, run: appsystem.ReconciliationRun{Fingerprint: "abc"}, notify: true}
+func TestProcessOnceRetriesFailedNotification(t *testing.T) {
+	service := &fakeService{notification: appsystem.ReconciliationNotification{ID: "notification", WorkspaceID: "workspace", EventType: "drift_detected"}, hasNotification: true}
 	notifier := &fakeNotifier{err: errors.New("unavailable")}
-	worker := NewWorker(service, Options{LockTTL: time.Minute, ScheduleInterval: time.Hour, RetryAfter: time.Minute, Notifier: notifier, Logger: func(string, ...any) {}})
+	worker := NewWorker(service, Options{LockTTL: time.Minute, ScheduleInterval: time.Hour, RetryAfter: time.Minute, MaxAttempts: 5, Notifier: notifier, Logger: func(string, ...any) {}})
 	processed, err := worker.ProcessOnce(context.Background())
-	if !processed || err == nil || service.notified {
-		t.Fatalf("processed=%v err=%v notified=%v", processed, err, service.notified)
+	if !processed || err != nil || !service.retried || service.completed {
+		t.Fatalf("processed=%v err=%v retried=%v completed=%v", processed, err, service.retried, service.completed)
+	}
+}
+
+func TestDeliveryRetryDelayBacksOffAndCaps(t *testing.T) {
+	if got := deliveryRetryDelay(time.Minute, 3); got != 8*time.Minute {
+		t.Fatalf("delay = %s, want 8m", got)
+	}
+	if got := deliveryRetryDelay(time.Minute, 20); got != time.Hour {
+		t.Fatalf("capped delay = %s, want 1h", got)
 	}
 }
 

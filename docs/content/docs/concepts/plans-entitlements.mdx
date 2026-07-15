@@ -146,6 +146,10 @@ The scan reports `healthy` or `drift_detected` with explicit issues such as a mi
 
 Historical counters are intentionally excluded because raw-event retention may legitimately remove their source events. Run the scan from **Operations → Reconciliation** in the dashboard or with a key that has `system:read`.
 
+Scheduled monitoring is opt-in with `OPEN_SPANNER_RECONCILIATION_ENABLED=true`. Each workspace receives a durable schedule and immutable run history. New drift episodes and scan failures create durable webhook notifications in the same transaction as the run outcome, so a process crash cannot lose the alert. Delivery retries with exponential backoff before entering `dead_letter`; every attempt is retained as an immutable audit record, and operators can manually requeue a dead-letter notification from the dashboard or API.
+
+System stats expose reconciliation health as `not_started`, `healthy`, `drift_detected`, `failed`, `stale`, or `degraded`. `stale` means the next scheduled scan is overdue beyond `OPEN_SPANNER_RECONCILIATION_STALE_AFTER`; `degraded` means at least one notification needs operator attention in dead-letter state. Repeated identical scan failures are deduplicated until a successful scan resets the failure episode.
+
 Counter drift can be repaired with `POST /v1/system/reconciliation/repairs`. Repairs use a mandatory two-step workflow: send `dry_run: true` to record a preview, then send `dry_run: false` with the preview's `counter_updated_at` as `expected_updated_at`. The apply fails with a conflict if usage changed after the preview.
 
 Only currently active counters whose complete period is still covered by the meter's raw-event retention window are eligible. Each preview and successful application is stored as an immutable audit record, available from `GET /v1/system/reconciliation/repairs`. Repair applies require `system:write`; read-only scans and repair history require `system:read`. Decision/event inconsistencies are never repaired automatically.

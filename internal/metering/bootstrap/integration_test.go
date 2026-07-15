@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"math"
 	"net/http"
@@ -27,6 +28,7 @@ import (
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/fileexport"
 	appalert "github.com/ssubedir/open-spanner/internal/metering/app/alert"
 	appconsumption "github.com/ssubedir/open-spanner/internal/metering/app/consumption"
+	appsystem "github.com/ssubedir/open-spanner/internal/metering/app/system"
 	alertworker "github.com/ssubedir/open-spanner/internal/metering/workers/alert"
 	entitlementworker "github.com/ssubedir/open-spanner/internal/metering/workers/entitlement"
 	exportworker "github.com/ssubedir/open-spanner/internal/metering/workers/export"
@@ -588,6 +590,131 @@ func runIntegrationAtomicConsumption(t *testing.T, cfg config.Config, namespace 
 	if err != nil || processed {
 		t.Fatalf("duplicate scheduled reconciliation processed=%v err=%v", processed, err)
 	}
+	failure := errors.New("forced reconciliation failure")
+	future := time.Now().UTC().Add(time.Hour)
+	monitoringPrincipal, err := app.AuthService.AuthenticateAPIKeyPrincipal(ctx, identity.APIKey)
+	if err != nil {
+		t.Fatalf("authenticate reconciliation context: %v", err)
+	}
+	claimTarget := func(at time.Time) appsystem.ReconciliationClaim {
+		t.Helper()
+		for range 100 {
+			claim, ok, claimErr := app.SystemService.ClaimScheduledReconciliation(ctx, at, at.Add(time.Minute))
+			if claimErr != nil || !ok {
+				t.Fatalf("claim target reconciliation workspace ok=%v err=%v", ok, claimErr)
+			}
+			if claim.WorkspaceID == monitoringPrincipal.WorkspaceID {
+				return claim
+			}
+			if _, _, runErr := app.SystemService.RunScheduledReconciliation(ctx, claim, 2*time.Hour, appsystem.ReconciliationQuery{Limit: 100, LookbackHours: 24}); runErr != nil {
+				t.Fatalf("advance other reconciliation workspace: %v", runErr)
+			}
+		}
+		t.Fatal("target reconciliation workspace was not claimed")
+		return appsystem.ReconciliationClaim{}
+	}
+	failureClaim := claimTarget(future)
+	if err := app.SystemService.FailScheduledReconciliation(ctx, failureClaim, future.Add(2*time.Minute), failure); err != nil {
+		t.Fatalf("save forced reconciliation failure: %v", err)
+	}
+	monitoringCtx := appauth.WithPrincipal(ctx, monitoringPrincipal)
+	targetNotifications, err := app.SystemService.ListReconciliationNotifications(monitoringCtx, 10)
+	if err != nil || len(targetNotifications) != 1 {
+		t.Fatalf("target reconciliation notifications = %#v err=%v", targetNotifications, err)
+	}
+	targetNotificationID := targetNotifications[0].ID
+	var deliveredType string
+	var deliveredNotificationID string
+	webhook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Type           string `json:"type"`
+			NotificationID string `json:"notification_id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+		deliveredType = payload.Type
+		deliveredNotificationID = payload.NotificationID
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer webhook.Close()
+	deliveryWorker := reconciliationworker.NewWorker(app.SystemService, reconciliationworker.Options{LockTTL: time.Minute, RetryAfter: time.Second, MaxAttempts: 3, Notifier: reconciliationworker.NewWebhookNotifier(webhook.URL, "", webhook.Client()), Logger: func(string, ...any) {}})
+	delivered := false
+	for range 100 {
+		delivered, err = deliveryWorker.ProcessDeliveryOnce(ctx)
+		if err != nil || !delivered || deliveredNotificationID == targetNotificationID {
+			break
+		}
+	}
+	if err != nil || !delivered || deliveredNotificationID != targetNotificationID || deliveredType != "reconciliation.scan_failed" {
+		t.Fatalf("failure notification delivered=%v type=%q err=%v", delivered, deliveredType, err)
+	}
+
+	secondClaim := claimTarget(future.Add(3 * time.Minute))
+	if err := app.SystemService.FailScheduledReconciliation(ctx, secondClaim, future.Add(5*time.Minute), failure); err != nil {
+		t.Fatalf("save duplicate reconciliation failure: %v", err)
+	}
+	notificationRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/system/reconciliation/notifications?limit=10", nil, identity.Headers, nil)
+	if notificationRes.Code != http.StatusOK {
+		t.Fatalf("reconciliation notifications status = %d: %s", notificationRes.Code, notificationRes.Body.String())
+	}
+	var notifications struct {
+		Items []struct {
+			Status         string `json:"status"`
+			Attempts       int    `json:"attempts"`
+			TotalAttempts  int    `json:"total_attempts"`
+			AttemptHistory []struct {
+				Status string `json:"status"`
+			} `json:"attempt_history"`
+		} `json:"items"`
+	}
+	decodeJSON(t, notificationRes, &notifications)
+	if len(notifications.Items) != 1 || notifications.Items[0].Status != "delivered" || notifications.Items[0].Attempts != 1 || notifications.Items[0].TotalAttempts != 1 || len(notifications.Items[0].AttemptHistory) != 1 || notifications.Items[0].AttemptHistory[0].Status != "delivered" {
+		t.Fatalf("reconciliation notifications = %#v", notifications)
+	}
+
+	recoveryClaim := claimTarget(future.Add(6 * time.Minute))
+	if _, _, err := app.SystemService.RunScheduledReconciliation(ctx, recoveryClaim, 15*time.Minute, appsystem.ReconciliationQuery{Limit: 100, LookbackHours: 24}); err != nil {
+		t.Fatalf("run reconciliation recovery: %v", err)
+	}
+	recurrenceAt := future.Add(30 * time.Minute)
+	recurrenceClaim := claimTarget(recurrenceAt)
+	if err := app.SystemService.FailScheduledReconciliation(ctx, recurrenceClaim, recurrenceAt.Add(2*time.Minute), failure); err != nil {
+		t.Fatalf("save recurring reconciliation failure: %v", err)
+	}
+	deadLetter, ok, err := app.SystemService.ClaimReconciliationNotification(ctx, recurrenceAt.Add(time.Minute), recurrenceAt.Add(2*time.Minute))
+	if err != nil || !ok {
+		t.Fatalf("claim recurring notification ok=%v err=%v", ok, err)
+	}
+	if err := app.SystemService.RetryReconciliationNotification(ctx, deadLetter, recurrenceAt.Add(2*time.Minute), 1, errors.New("webhook unavailable")); err != nil {
+		t.Fatalf("dead-letter recurring notification: %v", err)
+	}
+	notificationRes = requestJSONWithHeaders(t, router, http.MethodGet, "/v1/system/reconciliation/notifications?limit=10", nil, identity.Headers, nil)
+	decodeJSON(t, notificationRes, &notifications)
+	if len(notifications.Items) != 2 || notifications.Items[0].Status != "dead_letter" || notifications.Items[0].Attempts != 1 {
+		t.Fatalf("reconciliation recurrence notifications = %#v", notifications)
+	}
+	requeueRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/system/reconciliation/notifications/"+url.PathEscape(deadLetter.ID)+"/retry", nil, identity.Headers, nil)
+	if requeueRes.Code != http.StatusNoContent {
+		t.Fatalf("requeue reconciliation notification status = %d: %s", requeueRes.Code, requeueRes.Body.String())
+	}
+	deliveredNotificationID = ""
+	for range 100 {
+		delivered, err = deliveryWorker.ProcessDeliveryOnce(ctx)
+		if err != nil || !delivered || deliveredNotificationID == deadLetter.ID {
+			break
+		}
+	}
+	if err != nil || !delivered || deliveredNotificationID != deadLetter.ID {
+		t.Fatalf("redeliver reconciliation notification delivered=%v err=%v", delivered, err)
+	}
+	notificationRes = requestJSONWithHeaders(t, router, http.MethodGet, "/v1/system/reconciliation/notifications?limit=10", nil, identity.Headers, nil)
+	decodeJSON(t, notificationRes, &notifications)
+	if len(notifications.Items) != 2 || notifications.Items[0].Status != "delivered" || notifications.Items[0].TotalAttempts != 2 || len(notifications.Items[0].AttemptHistory) != 2 || notifications.Items[0].AttemptHistory[0].Status != "failed" || notifications.Items[0].AttemptHistory[1].Status != "delivered" {
+		t.Fatalf("requeued reconciliation attempt history = %#v", notifications.Items[0])
+	}
+	finalRecoveryClaim := claimTarget(recurrenceAt.Add(3 * time.Minute))
+	if _, _, err := app.SystemService.RunScheduledReconciliation(ctx, finalRecoveryClaim, 15*time.Minute, appsystem.ReconciliationQuery{Limit: 100, LookbackHours: 24}); err != nil {
+		t.Fatalf("run final reconciliation recovery: %v", err)
+	}
 	previewRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/system/reconciliation/repairs", map[string]any{
 		"subject": hardSubject, "meter": meterName, "period": "month", "period_start": acceptedPeriodStart, "dry_run": true,
 	}, identity.Headers, nil)
@@ -680,9 +807,13 @@ func runIntegrationAtomicConsumption(t *testing.T, cfg config.Config, namespace 
 		LastReconciliationRun *struct {
 			Status string `json:"status"`
 		} `json:"last_reconciliation_run"`
+		ReconciliationHealth struct {
+			Status                  string `json:"status"`
+			DeadLetterNotifications int    `json:"dead_letter_notifications"`
+		} `json:"reconciliation_health"`
 	}
 	decodeJSON(t, statsRes, &stats)
-	if stats.ConsumptionDecisions != 0 || stats.DecisionPruneRuns != 2 || stats.LastDecisionPruneRun == nil || stats.LastDecisionPruneRun.DryRun || stats.LastDecisionPruneRun.Deleted != pruned.Deleted || stats.LastReconciliationRun == nil || stats.LastReconciliationRun.Status != "healthy" {
+	if stats.ConsumptionDecisions != 0 || stats.DecisionPruneRuns != 2 || stats.LastDecisionPruneRun == nil || stats.LastDecisionPruneRun.DryRun || stats.LastDecisionPruneRun.Deleted != pruned.Deleted || stats.LastReconciliationRun == nil || stats.LastReconciliationRun.Status != "healthy" || stats.ReconciliationHealth.Status != "healthy" || stats.ReconciliationHealth.DeadLetterNotifications != 0 {
 		t.Fatalf("decision retention stats = %#v last=%#v pruned=%#v body=%s", stats, stats.LastDecisionPruneRun, pruned, statsRes.Body.String())
 	}
 }

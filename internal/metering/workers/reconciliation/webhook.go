@@ -28,9 +28,11 @@ func NewWebhookNotifier(url, secret string, client *http.Client) *WebhookNotifie
 	return &WebhookNotifier{url: strings.TrimSpace(url), secret: secret, client: client}
 }
 
-func (n *WebhookNotifier) Notify(ctx context.Context, workspaceID string, run appsystem.ReconciliationRun) error {
+func (n *WebhookNotifier) Notify(ctx context.Context, notification appsystem.ReconciliationNotification) error {
+	run := notification.Run
 	payload, err := json.Marshal(struct {
 		Type             string                          `json:"type"`
+		NotificationID   string                          `json:"notification_id"`
 		WorkspaceID      string                          `json:"workspace_id"`
 		RunID            string                          `json:"run_id"`
 		Status           string                          `json:"status"`
@@ -40,8 +42,9 @@ func (n *WebhookNotifier) Notify(ctx context.Context, workspaceID string, run ap
 		DurationMS       int64                           `json:"duration_ms"`
 		Fingerprint      string                          `json:"fingerprint"`
 		Issues           []appsystem.ReconciliationIssue `json:"issues"`
+		Error            string                          `json:"error,omitempty"`
 		CreatedAt        time.Time                       `json:"created_at"`
-	}{Type: "reconciliation.drift_detected", WorkspaceID: workspaceID, RunID: run.ID, Status: run.Status, IssueCount: run.IssueCount, DecisionsChecked: run.DecisionsChecked, CountersChecked: run.CountersChecked, DurationMS: run.Duration.Milliseconds(), Fingerprint: run.Fingerprint, Issues: run.Issues, CreatedAt: run.CreatedAt})
+	}{Type: "reconciliation." + notification.EventType, NotificationID: notification.ID, WorkspaceID: notification.WorkspaceID, RunID: run.ID, Status: run.Status, IssueCount: run.IssueCount, DecisionsChecked: run.DecisionsChecked, CountersChecked: run.CountersChecked, DurationMS: run.Duration.Milliseconds(), Fingerprint: notification.Fingerprint, Issues: run.Issues, Error: run.Error, CreatedAt: run.CreatedAt})
 	if err != nil {
 		return err
 	}

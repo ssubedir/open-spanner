@@ -42,6 +42,18 @@ description: Runtime configuration for the Open Spanner service.
 | `OPEN_SPANNER_RETENTION_PRUNE_ENABLED` | `false` | Enable automatic retention pruning. |
 | `OPEN_SPANNER_RETENTION_PRUNE_INTERVAL` | `1h` | Background prune interval. |
 | `OPEN_SPANNER_RETENTION_PRUNE_TIMEOUT` | `30m` | Maximum duration for one background prune run. |
+| `OPEN_SPANNER_RECONCILIATION_ENABLED` | `false` | Enable scheduled read-only reconciliation monitoring. |
+| `OPEN_SPANNER_RECONCILIATION_POLL_INTERVAL` | `5s` | Schedule and notification polling interval. |
+| `OPEN_SPANNER_RECONCILIATION_SCHEDULE` | `15m` | Interval between scans for each workspace. |
+| `OPEN_SPANNER_RECONCILIATION_LOCK_TTL` | `5m` | Claim lease for scans and notification deliveries. |
+| `OPEN_SPANNER_RECONCILIATION_TIMEOUT` | `2m` | Maximum duration for one worker iteration. |
+| `OPEN_SPANNER_RECONCILIATION_RETRY_AFTER` | `1m` | Scan retry delay and initial webhook retry delay. |
+| `OPEN_SPANNER_RECONCILIATION_STALE_AFTER` | `30m` | Grace period before an overdue schedule is marked stale. |
+| `OPEN_SPANNER_RECONCILIATION_LIMIT` | `100` | Decisions and counters inspected per scheduled scan. |
+| `OPEN_SPANNER_RECONCILIATION_LOOKBACK_HOURS` | `24` | Decision history inspected by scheduled scans. |
+| `OPEN_SPANNER_RECONCILIATION_MAX_ATTEMPTS` | `5` | Webhook attempts before dead-letter state. |
+| `OPEN_SPANNER_RECONCILIATION_WEBHOOK_URL` | empty | Optional reconciliation notification endpoint. |
+| `OPEN_SPANNER_RECONCILIATION_WEBHOOK_SECRET` | empty | Optional HMAC-SHA256 webhook signing secret. |
 | `OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION` | `720h` | Retention window for accepted and rejected consume decisions. |
 
 ## Social Login

@@ -46,8 +46,10 @@ type Config struct {
 	ReconciliationLockTTL        time.Duration
 	ReconciliationTimeout        time.Duration
 	ReconciliationRetryAfter     time.Duration
+	ReconciliationStaleAfter     time.Duration
 	ReconciliationLimit          int
 	ReconciliationLookbackHours  int
+	ReconciliationMaxAttempts    int
 	ReconciliationWebhookURL     string
 	ReconciliationWebhookSecret  string
 }
@@ -118,11 +120,19 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	reconciliationStaleAfter, err := envDuration("OPEN_SPANNER_RECONCILIATION_STALE_AFTER", 30*time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
 	reconciliationLimit, err := envInt("OPEN_SPANNER_RECONCILIATION_LIMIT", 100)
 	if err != nil {
 		return Config{}, err
 	}
 	reconciliationLookback, err := envInt("OPEN_SPANNER_RECONCILIATION_LOOKBACK_HOURS", 24)
+	if err != nil {
+		return Config{}, err
+	}
+	reconciliationMaxAttempts, err := envInt("OPEN_SPANNER_RECONCILIATION_MAX_ATTEMPTS", 5)
 	if err != nil {
 		return Config{}, err
 	}
@@ -238,8 +248,10 @@ func Load() (Config, error) {
 		ReconciliationLockTTL:        reconciliationLockTTL,
 		ReconciliationTimeout:        reconciliationTimeout,
 		ReconciliationRetryAfter:     reconciliationRetryAfter,
+		ReconciliationStaleAfter:     reconciliationStaleAfter,
 		ReconciliationLimit:          reconciliationLimit,
 		ReconciliationLookbackHours:  reconciliationLookback,
+		ReconciliationMaxAttempts:    reconciliationMaxAttempts,
 		ReconciliationWebhookURL:     env("OPEN_SPANNER_RECONCILIATION_WEBHOOK_URL", ""),
 		ReconciliationWebhookSecret:  env("OPEN_SPANNER_RECONCILIATION_WEBHOOK_SECRET", ""),
 	}
@@ -358,7 +370,7 @@ func (cfg Config) Validate() error {
 	if cfg.ConsumptionDecisionRetention <= 0 {
 		return fmt.Errorf("OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION must be greater than zero")
 	}
-	if cfg.ReconciliationPollInterval <= 0 || cfg.ReconciliationSchedule <= 0 || cfg.ReconciliationLockTTL <= 0 || cfg.ReconciliationTimeout <= 0 || cfg.ReconciliationRetryAfter <= 0 {
+	if cfg.ReconciliationPollInterval <= 0 || cfg.ReconciliationSchedule <= 0 || cfg.ReconciliationLockTTL <= 0 || cfg.ReconciliationTimeout <= 0 || cfg.ReconciliationRetryAfter <= 0 || cfg.ReconciliationStaleAfter <= 0 {
 		return fmt.Errorf("reconciliation durations must be greater than zero")
 	}
 	if cfg.ReconciliationLimit < 1 || cfg.ReconciliationLimit > 500 {
@@ -366,6 +378,9 @@ func (cfg Config) Validate() error {
 	}
 	if cfg.ReconciliationLookbackHours < 1 || cfg.ReconciliationLookbackHours > 720 {
 		return fmt.Errorf("OPEN_SPANNER_RECONCILIATION_LOOKBACK_HOURS must be between 1 and 720")
+	}
+	if cfg.ReconciliationMaxAttempts < 1 {
+		return fmt.Errorf("OPEN_SPANNER_RECONCILIATION_MAX_ATTEMPTS must be greater than zero")
 	}
 	if cfg.ReconciliationWebhookURL != "" {
 		webhookURL, err := url.ParseRequestURI(cfg.ReconciliationWebhookURL)

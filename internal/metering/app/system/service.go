@@ -20,11 +20,17 @@ type Service interface {
 	FailScheduledReconciliation(ctx context.Context, claim ReconciliationClaim, retryAt time.Time, runErr error) error
 	MarkReconciliationNotified(ctx context.Context, workspaceID, fingerprint string) error
 	ListReconciliationRuns(ctx context.Context, limit int) ([]ReconciliationRun, error)
+	ClaimReconciliationNotification(ctx context.Context, now, lockedUntil time.Time) (ReconciliationNotification, bool, error)
+	CompleteReconciliationNotification(ctx context.Context, notification ReconciliationNotification) error
+	RetryReconciliationNotification(ctx context.Context, notification ReconciliationNotification, nextAttemptAt time.Time, maxAttempts int, deliveryErr error) error
+	ListReconciliationNotifications(ctx context.Context, limit int) ([]ReconciliationNotification, error)
+	RequeueReconciliationNotification(ctx context.Context, id string) error
 }
 
 type service struct {
 	repo       Repository
 	transactor apptransaction.Transactor
+	staleAfter time.Duration
 }
 
 type Repository interface {
@@ -41,9 +47,19 @@ type Repository interface {
 	ClaimReconciliationSchedule(ctx context.Context, now, lockedUntil time.Time) (ReconciliationClaim, bool, error)
 	SaveReconciliationRun(ctx context.Context, workspaceID string, run ReconciliationRun) error
 	CompleteReconciliationSchedule(ctx context.Context, workspaceID, fingerprint string, nextRunAt time.Time) error
-	FailReconciliationSchedule(ctx context.Context, workspaceID string, nextRunAt time.Time) error
+	FailReconciliationSchedule(ctx context.Context, workspaceID, failureFingerprint string, nextRunAt time.Time) error
 	MarkReconciliationNotified(ctx context.Context, workspaceID, fingerprint string) error
 	ListReconciliationRuns(ctx context.Context, limit int) ([]ReconciliationRun, error)
+	GetReconciliationSchedule(ctx context.Context) (ReconciliationSchedule, bool, error)
+	SaveReconciliationNotification(ctx context.Context, notification ReconciliationNotification) error
+	ClaimReconciliationNotification(ctx context.Context, now, lockedUntil time.Time) (ReconciliationNotification, bool, error)
+	CompleteReconciliationNotification(ctx context.Context, notification ReconciliationNotification) error
+	RetryReconciliationNotification(ctx context.Context, notification ReconciliationNotification, nextAttemptAt time.Time, maxAttempts int, deliveryErr error) error
+	ListReconciliationNotifications(ctx context.Context, limit int) ([]ReconciliationNotification, error)
+	CountReconciliationNotifications(ctx context.Context) (ReconciliationNotificationCounts, error)
+	RequeueReconciliationNotification(ctx context.Context, id string, nextAttemptAt time.Time) (bool, error)
+	SaveReconciliationNotificationAttempt(ctx context.Context, attempt ReconciliationNotificationAttempt) error
+	ListReconciliationNotificationAttempts(ctx context.Context, notificationID string) ([]ReconciliationNotificationAttempt, error)
 }
 
 const (
@@ -133,6 +149,7 @@ type StatsResult struct {
 	DecisionPruneRuns     int
 	LastDecisionPruneRun  LastDecisionPruneRunResult
 	LastReconciliationRun ReconciliationRun
+	ReconciliationHealth  ReconciliationHealth
 }
 
 type LastDecisionPruneRunResult struct {
@@ -150,11 +167,19 @@ type LastPruneRunResult struct {
 	CreatedAt time.Time
 }
 
-func NewService(repo Repository, transactor apptransaction.Transactor) Service {
+type ServiceOptions struct {
+	ReconciliationStaleAfter time.Duration
+}
+
+func NewService(repo Repository, transactor apptransaction.Transactor, options ...ServiceOptions) Service {
 	if repo == nil || transactor == nil {
 		panic("system service requires repository and transactor")
 	}
-	return &service{repo: repo, transactor: transactor}
+	staleAfter := 30 * time.Minute
+	if len(options) > 0 && options[0].ReconciliationStaleAfter > 0 {
+		staleAfter = options[0].ReconciliationStaleAfter
+	}
+	return &service{repo: repo, transactor: transactor, staleAfter: staleAfter}
 }
 
 func (s *service) Stats(ctx context.Context) (StatsResult, error) {
@@ -169,6 +194,15 @@ func (s *service) Stats(ctx context.Context) (StatsResult, error) {
 	if len(runs) > 0 {
 		stats.LastReconciliationRun = runs[0]
 	}
+	schedule, exists, err := s.repo.GetReconciliationSchedule(ctx)
+	if err != nil {
+		return StatsResult{}, err
+	}
+	counts, err := s.repo.CountReconciliationNotifications(ctx)
+	if err != nil {
+		return StatsResult{}, err
+	}
+	stats.ReconciliationHealth = reconciliationHealth(schedule, exists, stats.LastReconciliationRun, counts, time.Now().UTC(), s.staleAfter)
 	return stats, nil
 }
 

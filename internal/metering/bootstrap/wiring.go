@@ -95,7 +95,7 @@ func NewApp(ctx context.Context, cfg config.Config) (*App, error) {
 	alertService := appalert.NewService(repos.alert, repos.meter, repos.usage, repos.transactor)
 	entitlementService := appentitlement.NewService(repos.entitlement, repos.meter, repos.usage, repos.transactor)
 	consumptionService := appconsumption.NewService(repos.consumption, usageService, entitlementService, repos.transactor)
-	systemService := appsystem.NewService(repos.system, repos.transactor)
+	systemService := appsystem.NewService(repos.system, repos.transactor, appsystem.ServiceOptions{ReconciliationStaleAfter: cfg.ReconciliationStaleAfter})
 
 	return &App{
 		UsageService:       usageService,

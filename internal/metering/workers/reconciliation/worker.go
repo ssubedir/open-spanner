@@ -13,11 +13,13 @@ type Service interface {
 	ClaimScheduledReconciliation(context.Context, time.Time, time.Time) (appsystem.ReconciliationClaim, bool, error)
 	RunScheduledReconciliation(context.Context, appsystem.ReconciliationClaim, time.Duration, appsystem.ReconciliationQuery) (appsystem.ReconciliationRun, bool, error)
 	FailScheduledReconciliation(context.Context, appsystem.ReconciliationClaim, time.Time, error) error
-	MarkReconciliationNotified(context.Context, string, string) error
+	ClaimReconciliationNotification(context.Context, time.Time, time.Time) (appsystem.ReconciliationNotification, bool, error)
+	CompleteReconciliationNotification(context.Context, appsystem.ReconciliationNotification) error
+	RetryReconciliationNotification(context.Context, appsystem.ReconciliationNotification, time.Time, int, error) error
 }
 
 type Notifier interface {
-	Notify(context.Context, string, appsystem.ReconciliationRun) error
+	Notify(context.Context, appsystem.ReconciliationNotification) error
 }
 
 type Logger func(format string, args ...any)
@@ -30,6 +32,7 @@ type Options struct {
 	RetryAfter       time.Duration
 	Limit            int
 	LookbackHours    int
+	MaxAttempts      int
 	Notifier         Notifier
 	Logger           Logger
 }
@@ -47,10 +50,14 @@ func NewWorker(service Service, options Options) *Worker {
 }
 
 func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
+	delivered, err := w.ProcessDeliveryOnce(ctx)
+	if err != nil {
+		return delivered, err
+	}
 	now := time.Now().UTC()
 	claim, ok, err := w.service.ClaimScheduledReconciliation(ctx, now, now.Add(w.options.LockTTL))
 	if err != nil || !ok {
-		return ok, err
+		return delivered || ok, err
 	}
 	run, notify, err := w.service.RunScheduledReconciliation(ctx, claim, w.options.ScheduleInterval, appsystem.ReconciliationQuery{Limit: w.options.Limit, LookbackHours: w.options.LookbackHours})
 	if err != nil {
@@ -61,16 +68,46 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 		}
 		return true, err
 	}
-	if notify && w.options.Notifier != nil {
-		if err := w.options.Notifier.Notify(ctx, claim.WorkspaceID, run); err != nil {
-			return true, err
-		}
-		if err := w.service.MarkReconciliationNotified(ctx, claim.WorkspaceID, run.Fingerprint); err != nil {
-			return true, err
-		}
-	}
+	_ = notify
 	w.options.Logger("reconciliation completed: workspace=%s status=%s issues=%d duration=%s", claim.WorkspaceID, run.Status, run.IssueCount, run.Duration.Round(time.Millisecond))
 	return true, nil
+}
+
+func (w *Worker) ProcessDeliveryOnce(ctx context.Context) (bool, error) {
+	if w.options.Notifier == nil {
+		return false, nil
+	}
+	now := time.Now().UTC()
+	notification, ok, err := w.service.ClaimReconciliationNotification(ctx, now, now.Add(w.options.LockTTL))
+	if err != nil || !ok {
+		return ok, err
+	}
+	if err := w.options.Notifier.Notify(ctx, notification); err != nil {
+		delay := deliveryRetryDelay(w.options.RetryAfter, notification.Attempts)
+		if retryErr := w.service.RetryReconciliationNotification(ctx, notification, time.Now().UTC().Add(delay), w.options.MaxAttempts, err); retryErr != nil {
+			return true, retryErr
+		}
+		w.options.Logger("reconciliation notification failed: id=%s type=%s attempt=%d error=%v", notification.ID, notification.EventType, notification.Attempts+1, err)
+		return true, nil
+	}
+	if err := w.service.CompleteReconciliationNotification(ctx, notification); err != nil {
+		return true, err
+	}
+	w.options.Logger("reconciliation notification delivered: id=%s type=%s workspace=%s", notification.ID, notification.EventType, notification.WorkspaceID)
+	return true, nil
+}
+
+func deliveryRetryDelay(base time.Duration, attempts int) time.Duration {
+	if base <= 0 {
+		base = time.Minute
+	}
+	for range attempts {
+		if base >= time.Hour/2 {
+			return time.Hour
+		}
+		base *= 2
+	}
+	return base
 }
 
 func (w *Worker) Start(ctx context.Context) func() {

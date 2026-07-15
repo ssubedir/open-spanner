@@ -18,6 +18,14 @@ export type SystemStats = {
 		created_at: string
 	}
 	last_reconciliation_run: ReconciliationRun | null
+	reconciliation_health: {
+		status: 'not_started' | 'healthy' | 'drift_detected' | 'failed' | 'stale' | 'degraded'
+		next_run_at?: string
+		locked_until?: string
+		updated_at?: string
+		pending_notifications: number
+		dead_letter_notifications: number
+	}
 }
 
 export type ConsumptionDecision = {
@@ -81,6 +89,24 @@ export type ReconciliationRun = {
 	issues: ReconciliationIssue[]
 	error?: string
 	created_at: string
+}
+
+export type ReconciliationNotification = {
+	id: string
+	event_type: 'drift_detected' | 'scan_failed'
+	status: 'pending' | 'delivered' | 'dead_letter'
+	attempts: number
+	total_attempts: number
+	next_attempt_at: string
+	last_error?: string
+	created_at: string
+	delivered_at?: string
+	attempt_history: Array<{
+		attempt: number
+		status: 'delivered' | 'failed'
+		error?: string
+		created_at: string
+	}>
 }
 
 export type CounterSnapshot = {
@@ -1002,6 +1028,14 @@ export async function listQuotaCounterRepairs(limit = 50) {
 
 export async function listReconciliationRuns(limit = 50) {
 	return request<{ items: ReconciliationRun[] }>(`/v1/system/reconciliation/runs?limit=${limit}`)
+}
+
+export async function listReconciliationNotifications(limit = 50) {
+	return request<{ items: ReconciliationNotification[] }>(`/v1/system/reconciliation/notifications?limit=${limit}`)
+}
+
+export async function retryReconciliationNotification(id: string) {
+	return request<void>(`/v1/system/reconciliation/notifications/${encodeURIComponent(id)}/retry`, { method: 'POST' })
 }
 
 export async function listConsumptionDecisions(query: { subject?: string; meter?: string; outcome?: string; evaluation_failed?: boolean; enforcement?: string; state?: string; limit?: number; cursor?: string } = {}) {

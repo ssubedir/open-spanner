@@ -3317,6 +3317,104 @@
                 }
             }
         },
+        "/v1/system/reconciliation/notifications": {
+            "get": {
+                "tags": [
+                    "system"
+                ],
+                "summary": "List reconciliation notifications",
+                "operationId": "listReconciliationNotifications",
+                "parameters": [
+                    {
+                        "description": "Maximum notification records",
+                        "name": "limit",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 200,
+                            "default": 50
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/internal_metering_adapters_http_system.ReconciliationNotificationListResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/system/reconciliation/notifications/{id}/retry": {
+            "post": {
+                "tags": [
+                    "system"
+                ],
+                "summary": "Retry reconciliation notification",
+                "operationId": "retryReconciliationNotification",
+                "parameters": [
+                    {
+                        "description": "Notification ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/system/reconciliation/repairs": {
             "get": {
                 "tags": [
@@ -6278,6 +6376,29 @@
                     }
                 }
             },
+            "internal_metering_adapters_http_system.ReconciliationHealthResponse": {
+                "type": "object",
+                "properties": {
+                    "dead_letter_notifications": {
+                        "type": "integer"
+                    },
+                    "locked_until": {
+                        "type": "string"
+                    },
+                    "next_run_at": {
+                        "type": "string"
+                    },
+                    "pending_notifications": {
+                        "type": "integer"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "updated_at": {
+                        "type": "string"
+                    }
+                }
+            },
             "internal_metering_adapters_http_system.ReconciliationIssueResponse": {
                 "type": "object",
                 "properties": {
@@ -6310,6 +6431,72 @@
                     },
                     "subject": {
                         "type": "string"
+                    }
+                }
+            },
+            "internal_metering_adapters_http_system.ReconciliationNotificationAttemptResponse": {
+                "type": "object",
+                "properties": {
+                    "attempt": {
+                        "type": "integer"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "error": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    }
+                }
+            },
+            "internal_metering_adapters_http_system.ReconciliationNotificationListResponse": {
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/internal_metering_adapters_http_system.ReconciliationNotificationResponse"
+                        }
+                    }
+                }
+            },
+            "internal_metering_adapters_http_system.ReconciliationNotificationResponse": {
+                "type": "object",
+                "properties": {
+                    "attempt_history": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/internal_metering_adapters_http_system.ReconciliationNotificationAttemptResponse"
+                        }
+                    },
+                    "attempts": {
+                        "type": "integer"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "delivered_at": {
+                        "type": "string"
+                    },
+                    "event_type": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "last_error": {
+                        "type": "string"
+                    },
+                    "next_attempt_at": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "total_attempts": {
+                        "type": "integer"
                     }
                 }
             },
@@ -6420,6 +6607,9 @@
                     },
                     "prune_runs": {
                         "type": "integer"
+                    },
+                    "reconciliation_health": {
+                        "$ref": "#/components/schemas/internal_metering_adapters_http_system.ReconciliationHealthResponse"
                     },
                     "usage_events": {
                         "type": "integer"

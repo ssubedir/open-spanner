@@ -1048,6 +1048,21 @@ definitions:
       id:
         type: string
     type: object
+  internal_metering_adapters_http_system.ReconciliationHealthResponse:
+    properties:
+      dead_letter_notifications:
+        type: integer
+      locked_until:
+        type: string
+      next_run_at:
+        type: string
+      pending_notifications:
+        type: integer
+      status:
+        type: string
+      updated_at:
+        type: string
+    type: object
   internal_metering_adapters_http_system.ReconciliationIssueResponse:
     properties:
       actual:
@@ -1070,6 +1085,49 @@ definitions:
         type: string
       subject:
         type: string
+    type: object
+  internal_metering_adapters_http_system.ReconciliationNotificationAttemptResponse:
+    properties:
+      attempt:
+        type: integer
+      created_at:
+        type: string
+      error:
+        type: string
+      status:
+        type: string
+    type: object
+  internal_metering_adapters_http_system.ReconciliationNotificationListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_system.ReconciliationNotificationResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_system.ReconciliationNotificationResponse:
+    properties:
+      attempt_history:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_system.ReconciliationNotificationAttemptResponse'
+        type: array
+      attempts:
+        type: integer
+      created_at:
+        type: string
+      delivered_at:
+        type: string
+      event_type:
+        type: string
+      id:
+        type: string
+      last_error:
+        type: string
+      next_attempt_at:
+        type: string
+      status:
+        type: string
+      total_attempts:
+        type: integer
     type: object
   internal_metering_adapters_http_system.ReconciliationResponse:
     properties:
@@ -1142,6 +1200,8 @@ definitions:
         type: integer
       prune_runs:
         type: integer
+      reconciliation_health:
+        $ref: '#/definitions/internal_metering_adapters_http_system.ReconciliationHealthResponse'
       usage_events:
         type: integer
     type: object
@@ -3307,6 +3367,57 @@ paths:
           schema:
             $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
       summary: Reconcile quota records
+      tags:
+      - system
+  /v1/system/reconciliation/notifications:
+    get:
+      operationId: listReconciliationNotifications
+      parameters:
+      - default: 50
+        description: Maximum notification records
+        in: query
+        maximum: 200
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_system.ReconciliationNotificationListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List reconciliation notifications
+      tags:
+      - system
+  /v1/system/reconciliation/notifications/{id}/retry:
+    post:
+      operationId: retryReconciliationNotification
+      parameters:
+      - description: Notification ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Retry reconciliation notification
       tags:
       - system
   /v1/system/reconciliation/repairs:

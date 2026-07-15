@@ -10,6 +10,7 @@ type StatsResponse struct {
 	DecisionPruneRuns     int                           `json:"decision_prune_runs"`
 	LastDecisionPruneRun  *LastDecisionPruneRunResponse `json:"last_decision_prune_run"`
 	LastReconciliationRun *ReconciliationRunResponse    `json:"last_reconciliation_run"`
+	ReconciliationHealth  ReconciliationHealthResponse  `json:"reconciliation_health"`
 }
 
 type LastDecisionPruneRunResponse struct {
@@ -70,6 +71,39 @@ type ReconciliationRunResponse struct {
 
 type ReconciliationRunListResponse struct {
 	Items []ReconciliationRunResponse `json:"items"`
+}
+
+type ReconciliationHealthResponse struct {
+	Status                  string `json:"status"`
+	NextRunAt               string `json:"next_run_at,omitempty"`
+	LockedUntil             string `json:"locked_until,omitempty"`
+	UpdatedAt               string `json:"updated_at,omitempty"`
+	PendingNotifications    int    `json:"pending_notifications"`
+	DeadLetterNotifications int    `json:"dead_letter_notifications"`
+}
+
+type ReconciliationNotificationResponse struct {
+	ID             string                                      `json:"id"`
+	EventType      string                                      `json:"event_type"`
+	Status         string                                      `json:"status"`
+	Attempts       int                                         `json:"attempts"`
+	TotalAttempts  int                                         `json:"total_attempts"`
+	NextAttemptAt  string                                      `json:"next_attempt_at"`
+	LastError      string                                      `json:"last_error,omitempty"`
+	CreatedAt      string                                      `json:"created_at"`
+	DeliveredAt    string                                      `json:"delivered_at,omitempty"`
+	AttemptHistory []ReconciliationNotificationAttemptResponse `json:"attempt_history"`
+}
+
+type ReconciliationNotificationAttemptResponse struct {
+	Attempt   int    `json:"attempt"`
+	Status    string `json:"status"`
+	Error     string `json:"error,omitempty"`
+	CreatedAt string `json:"created_at"`
+}
+
+type ReconciliationNotificationListResponse struct {
+	Items []ReconciliationNotificationResponse `json:"items"`
 }
 
 // CounterRepairRequest previews or applies one targeted quota counter repair.

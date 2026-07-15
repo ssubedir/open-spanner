@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/http/internal/request"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/http/internal/respond"
 	appsystem "github.com/ssubedir/open-spanner/internal/metering/app/system"
@@ -149,6 +151,61 @@ func (h *Handler) ListReconciliationRuns(w http.ResponseWriter, r *http.Request)
 	respond.JSON(w, http.StatusOK, ReconciliationRunListResponse{Items: items})
 }
 
+// ListReconciliationNotifications lists durable reconciliation webhook deliveries.
+//
+// @Summary List reconciliation notifications
+// @ID listReconciliationNotifications
+// @Tags system
+// @Produce json
+// @Param limit query int false "Maximum notification records" default(50) maximum(200)
+// @Success 200 {object} ReconciliationNotificationListResponse
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/system/reconciliation/notifications [get]
+func (h *Handler) ListReconciliationNotifications(w http.ResponseWriter, r *http.Request) {
+	limit, err := request.ParseLimit(r.URL.Query().Get("limit"))
+	if err != nil {
+		respond.Error(w, http.StatusBadRequest, request.Code(err), request.Message(err))
+		return
+	}
+	notifications, err := h.service.ListReconciliationNotifications(r.Context(), limit)
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	items := make([]ReconciliationNotificationResponse, 0, len(notifications))
+	for _, notification := range notifications {
+		deliveredAt := ""
+		if !notification.DeliveredAt.IsZero() {
+			deliveredAt = notification.DeliveredAt.Format(time.RFC3339Nano)
+		}
+		attempts := make([]ReconciliationNotificationAttemptResponse, 0, len(notification.AttemptHistory))
+		for _, attempt := range notification.AttemptHistory {
+			attempts = append(attempts, ReconciliationNotificationAttemptResponse{Attempt: attempt.Attempt, Status: attempt.Status, Error: attempt.Error, CreatedAt: attempt.CreatedAt.Format(time.RFC3339Nano)})
+		}
+		items = append(items, ReconciliationNotificationResponse{ID: notification.ID, EventType: notification.EventType, Status: notification.Status, Attempts: notification.Attempts, TotalAttempts: notification.TotalAttempts, NextAttemptAt: notification.NextAttemptAt.Format(time.RFC3339Nano), LastError: notification.LastError, CreatedAt: notification.CreatedAt.Format(time.RFC3339Nano), DeliveredAt: deliveredAt, AttemptHistory: attempts})
+	}
+	respond.JSON(w, http.StatusOK, ReconciliationNotificationListResponse{Items: items})
+}
+
+// RequeueReconciliationNotification retries a dead-letter reconciliation notification.
+//
+// @Summary Retry reconciliation notification
+// @ID retryReconciliationNotification
+// @Tags system
+// @Param id path string true "Notification ID"
+// @Success 204
+// @Failure 404 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/system/reconciliation/notifications/{id}/retry [post]
+func (h *Handler) RequeueReconciliationNotification(w http.ResponseWriter, r *http.Request) {
+	if err := h.service.RequeueReconciliationNotification(r.Context(), chi.URLParam(r, "id")); err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func reconciliationResponseFromResult(result appsystem.ReconciliationResult) ReconciliationResponse {
 	issues := make([]ReconciliationIssueResponse, 0, len(result.Issues))
 	for _, issue := range result.Issues {
@@ -252,5 +309,20 @@ func statsResponseFromResult(stats appsystem.StatsResult) StatsResponse {
 		DecisionPruneRuns:     stats.DecisionPruneRuns,
 		LastDecisionPruneRun:  lastDecisionPruneRun,
 		LastReconciliationRun: lastReconciliationRun,
+		ReconciliationHealth:  reconciliationHealthResponse(stats.ReconciliationHealth),
 	}
+}
+
+func reconciliationHealthResponse(health appsystem.ReconciliationHealth) ReconciliationHealthResponse {
+	response := ReconciliationHealthResponse{Status: health.Status, PendingNotifications: health.PendingNotifications, DeadLetterNotifications: health.DeadLetterNotifications}
+	if !health.NextRunAt.IsZero() {
+		response.NextRunAt = health.NextRunAt.Format(time.RFC3339Nano)
+	}
+	if !health.LockedUntil.IsZero() {
+		response.LockedUntil = health.LockedUntil.Format(time.RFC3339Nano)
+	}
+	if !health.UpdatedAt.IsZero() {
+		response.UpdatedAt = health.UpdatedAt.Format(time.RFC3339Nano)
+	}
+	return response
 }

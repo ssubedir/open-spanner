@@ -10,6 +10,60 @@ import (
 	"database/sql"
 )
 
+const claimReconciliationNotification = `-- name: ClaimReconciliationNotification :one
+UPDATE reconciliation_notifications
+SET locked_until = ?1
+WHERE id = (
+	SELECT id FROM reconciliation_notifications
+	WHERE status = 'pending' AND julianday(next_attempt_at) <= julianday(?2)
+		AND (locked_until IS NULL OR julianday(locked_until) <= julianday(?2))
+	ORDER BY next_attempt_at, id LIMIT 1
+)
+RETURNING id, workspace_id, event_type, fingerprint, payload,
+	status, attempts, next_attempt_at, last_error, created_at, delivered_at,
+	(SELECT COUNT(*) FROM reconciliation_notification_attempts a WHERE a.notification_id = reconciliation_notifications.id) AS total_attempts
+`
+
+type ClaimReconciliationNotificationParams struct {
+	LockedUntil sql.NullString
+	Now         interface{}
+}
+
+type ClaimReconciliationNotificationRow struct {
+	ID            string
+	WorkspaceID   string
+	EventType     string
+	Fingerprint   string
+	Payload       string
+	Status        string
+	Attempts      int64
+	NextAttemptAt string
+	LastError     string
+	CreatedAt     string
+	DeliveredAt   sql.NullString
+	Count         int64
+}
+
+func (q *Queries) ClaimReconciliationNotification(ctx context.Context, arg ClaimReconciliationNotificationParams) (ClaimReconciliationNotificationRow, error) {
+	row := q.db.QueryRowContext(ctx, claimReconciliationNotification, arg.LockedUntil, arg.Now)
+	var i ClaimReconciliationNotificationRow
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.EventType,
+		&i.Fingerprint,
+		&i.Payload,
+		&i.Status,
+		&i.Attempts,
+		&i.NextAttemptAt,
+		&i.LastError,
+		&i.CreatedAt,
+		&i.DeliveredAt,
+		&i.Count,
+	)
+	return i, err
+}
+
 const claimReconciliationSchedule = `-- name: ClaimReconciliationSchedule :one
 UPDATE reconciliation_schedules
 SET locked_until = ?1, updated_at = ?2
@@ -19,7 +73,7 @@ WHERE workspace_id = (
 		AND (locked_until IS NULL OR julianday(locked_until) <= julianday(?2))
 	ORDER BY next_run_at, workspace_id LIMIT 1
 )
-RETURNING workspace_id, last_fingerprint, last_notified_fingerprint
+RETURNING workspace_id, last_fingerprint, last_notified_fingerprint, last_failure_fingerprint
 `
 
 type ClaimReconciliationScheduleParams struct {
@@ -31,13 +85,36 @@ type ClaimReconciliationScheduleRow struct {
 	WorkspaceID             string
 	LastFingerprint         string
 	LastNotifiedFingerprint string
+	LastFailureFingerprint  string
 }
 
 func (q *Queries) ClaimReconciliationSchedule(ctx context.Context, arg ClaimReconciliationScheduleParams) (ClaimReconciliationScheduleRow, error) {
 	row := q.db.QueryRowContext(ctx, claimReconciliationSchedule, arg.LockedUntil, arg.Now)
 	var i ClaimReconciliationScheduleRow
-	err := row.Scan(&i.WorkspaceID, &i.LastFingerprint, &i.LastNotifiedFingerprint)
+	err := row.Scan(
+		&i.WorkspaceID,
+		&i.LastFingerprint,
+		&i.LastNotifiedFingerprint,
+		&i.LastFailureFingerprint,
+	)
 	return i, err
+}
+
+const completeReconciliationNotification = `-- name: CompleteReconciliationNotification :exec
+UPDATE reconciliation_notifications
+SET status = 'delivered', attempts = attempts + 1, locked_until = NULL,
+	last_error = '', delivered_at = ?1
+WHERE id = ?2
+`
+
+type CompleteReconciliationNotificationParams struct {
+	DeliveredAt sql.NullString
+	ID          string
+}
+
+func (q *Queries) CompleteReconciliationNotification(ctx context.Context, arg CompleteReconciliationNotificationParams) error {
+	_, err := q.db.ExecContext(ctx, completeReconciliationNotification, arg.DeliveredAt, arg.ID)
+	return err
 }
 
 const completeReconciliationSchedule = `-- name: CompleteReconciliationSchedule :exec
@@ -45,6 +122,7 @@ UPDATE reconciliation_schedules
 SET next_run_at = ?1, locked_until = NULL,
 	last_fingerprint = ?2,
 	last_notified_fingerprint = CASE WHEN ?2 = '' THEN '' ELSE last_notified_fingerprint END,
+	last_failure_fingerprint = '',
 	updated_at = ?3
 WHERE workspace_id = ?4
 `
@@ -64,6 +142,26 @@ func (q *Queries) CompleteReconciliationSchedule(ctx context.Context, arg Comple
 		arg.WorkspaceID,
 	)
 	return err
+}
+
+const countReconciliationNotificationStates = `-- name: CountReconciliationNotificationStates :one
+SELECT
+	SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
+	SUM(CASE WHEN status = 'dead_letter' THEN 1 ELSE 0 END) AS dead_letter
+FROM reconciliation_notifications
+WHERE workspace_id = ?1
+`
+
+type CountReconciliationNotificationStatesRow struct {
+	Pending    sql.NullFloat64
+	DeadLetter sql.NullFloat64
+}
+
+func (q *Queries) CountReconciliationNotificationStates(ctx context.Context, workspaceID string) (CountReconciliationNotificationStatesRow, error) {
+	row := q.db.QueryRowContext(ctx, countReconciliationNotificationStates, workspaceID)
+	var i CountReconciliationNotificationStatesRow
+	err := row.Scan(&i.Pending, &i.DeadLetter)
+	return i, err
 }
 
 const deleteEntitlementCounterForRepair = `-- name: DeleteEntitlementCounterForRepair :execrows
@@ -115,18 +213,25 @@ func (q *Queries) EnsureReconciliationSchedules(ctx context.Context, now string)
 
 const failReconciliationSchedule = `-- name: FailReconciliationSchedule :exec
 UPDATE reconciliation_schedules
-SET next_run_at = ?1, locked_until = NULL, updated_at = ?2
-WHERE workspace_id = ?3
+SET next_run_at = ?1, locked_until = NULL,
+	last_failure_fingerprint = ?2, updated_at = ?3
+WHERE workspace_id = ?4
 `
 
 type FailReconciliationScheduleParams struct {
-	NextRunAt   string
-	UpdatedAt   string
-	WorkspaceID string
+	NextRunAt          string
+	FailureFingerprint string
+	UpdatedAt          string
+	WorkspaceID        string
 }
 
 func (q *Queries) FailReconciliationSchedule(ctx context.Context, arg FailReconciliationScheduleParams) error {
-	_, err := q.db.ExecContext(ctx, failReconciliationSchedule, arg.NextRunAt, arg.UpdatedAt, arg.WorkspaceID)
+	_, err := q.db.ExecContext(ctx, failReconciliationSchedule,
+		arg.NextRunAt,
+		arg.FailureFingerprint,
+		arg.UpdatedAt,
+		arg.WorkspaceID,
+	)
 	return err
 }
 
@@ -196,6 +301,25 @@ func (q *Queries) GetEntitlementCounterForRepair(ctx context.Context, arg GetEnt
 		&i.UpdatedAt,
 		&i.EventRetentionDays,
 	)
+	return i, err
+}
+
+const getReconciliationSchedule = `-- name: GetReconciliationSchedule :one
+SELECT next_run_at, locked_until, updated_at
+FROM reconciliation_schedules
+WHERE workspace_id = ?1
+`
+
+type GetReconciliationScheduleRow struct {
+	NextRunAt   string
+	LockedUntil sql.NullString
+	UpdatedAt   string
+}
+
+func (q *Queries) GetReconciliationSchedule(ctx context.Context, workspaceID string) (GetReconciliationScheduleRow, error) {
+	row := q.db.QueryRowContext(ctx, getReconciliationSchedule, workspaceID)
+	var i GetReconciliationScheduleRow
+	err := row.Scan(&i.NextRunAt, &i.LockedUntil, &i.UpdatedAt)
 	return i, err
 }
 
@@ -510,6 +634,113 @@ func (q *Queries) ListQuotaCounterRepairRuns(ctx context.Context, arg ListQuotaC
 	return items, nil
 }
 
+const listReconciliationNotificationAttempts = `-- name: ListReconciliationNotificationAttempts :many
+SELECT id, attempt, status, error, created_at
+FROM reconciliation_notification_attempts
+WHERE notification_id = ?1
+ORDER BY created_at, id
+`
+
+type ListReconciliationNotificationAttemptsRow struct {
+	ID        string
+	Attempt   int64
+	Status    string
+	Error     string
+	CreatedAt string
+}
+
+func (q *Queries) ListReconciliationNotificationAttempts(ctx context.Context, notificationID string) ([]ListReconciliationNotificationAttemptsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listReconciliationNotificationAttempts, notificationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListReconciliationNotificationAttemptsRow{}
+	for rows.Next() {
+		var i ListReconciliationNotificationAttemptsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Attempt,
+			&i.Status,
+			&i.Error,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listReconciliationNotifications = `-- name: ListReconciliationNotifications :many
+SELECT id, event_type, fingerprint, payload, status, attempts, next_attempt_at,
+	locked_until, last_error, created_at, delivered_at
+FROM reconciliation_notifications
+WHERE workspace_id = ?1
+ORDER BY created_at DESC, id DESC
+LIMIT ?2
+`
+
+type ListReconciliationNotificationsParams struct {
+	WorkspaceID string
+	Limit       int64
+}
+
+type ListReconciliationNotificationsRow struct {
+	ID            string
+	EventType     string
+	Fingerprint   string
+	Payload       string
+	Status        string
+	Attempts      int64
+	NextAttemptAt string
+	LockedUntil   sql.NullString
+	LastError     string
+	CreatedAt     string
+	DeliveredAt   sql.NullString
+}
+
+func (q *Queries) ListReconciliationNotifications(ctx context.Context, arg ListReconciliationNotificationsParams) ([]ListReconciliationNotificationsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listReconciliationNotifications, arg.WorkspaceID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListReconciliationNotificationsRow{}
+	for rows.Next() {
+		var i ListReconciliationNotificationsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventType,
+			&i.Fingerprint,
+			&i.Payload,
+			&i.Status,
+			&i.Attempts,
+			&i.NextAttemptAt,
+			&i.LockedUntil,
+			&i.LastError,
+			&i.CreatedAt,
+			&i.DeliveredAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listReconciliationRuns = `-- name: ListReconciliationRuns :many
 SELECT id, status, decisions_checked, counters_checked, issue_count, truncated,
 	lookback_hours, duration_ms, fingerprint, issues, error, created_at
@@ -592,6 +823,52 @@ func (q *Queries) MarkReconciliationNotified(ctx context.Context, arg MarkReconc
 	return err
 }
 
+const requeueReconciliationNotification = `-- name: RequeueReconciliationNotification :execrows
+UPDATE reconciliation_notifications
+SET status = 'pending', attempts = 0, next_attempt_at = ?1,
+	locked_until = NULL, last_error = '', delivered_at = NULL
+WHERE id = ?2 AND workspace_id = ?3 AND status = 'dead_letter'
+`
+
+type RequeueReconciliationNotificationParams struct {
+	NextAttemptAt string
+	ID            string
+	WorkspaceID   string
+}
+
+func (q *Queries) RequeueReconciliationNotification(ctx context.Context, arg RequeueReconciliationNotificationParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, requeueReconciliationNotification, arg.NextAttemptAt, arg.ID, arg.WorkspaceID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const retryReconciliationNotification = `-- name: RetryReconciliationNotification :exec
+UPDATE reconciliation_notifications
+SET status = CASE WHEN attempts + 1 >= ?1 THEN 'dead_letter' ELSE 'pending' END,
+	attempts = attempts + 1, next_attempt_at = ?2,
+	locked_until = NULL, last_error = ?3
+WHERE id = ?4
+`
+
+type RetryReconciliationNotificationParams struct {
+	MaxAttempts   int64
+	NextAttemptAt string
+	LastError     string
+	ID            string
+}
+
+func (q *Queries) RetryReconciliationNotification(ctx context.Context, arg RetryReconciliationNotificationParams) error {
+	_, err := q.db.ExecContext(ctx, retryReconciliationNotification,
+		arg.MaxAttempts,
+		arg.NextAttemptAt,
+		arg.LastError,
+		arg.ID,
+	)
+	return err
+}
+
 const saveQuotaCounterRepairRun = `-- name: SaveQuotaCounterRepairRun :exec
 INSERT INTO quota_counter_repair_runs (
 	id, workspace_id, subject, meter_name, period, period_start, period_end,
@@ -634,6 +911,65 @@ func (q *Queries) SaveQuotaCounterRepairRun(ctx context.Context, arg SaveQuotaCo
 		arg.BeforeSnapshot,
 		arg.AfterSnapshot,
 		arg.CounterUpdatedAt,
+		arg.CreatedAt,
+	)
+	return err
+}
+
+const saveReconciliationNotification = `-- name: SaveReconciliationNotification :exec
+INSERT INTO reconciliation_notifications (
+	id, workspace_id, event_type, fingerprint, payload, status,
+	attempts, next_attempt_at, created_at
+) VALUES (
+	?1, ?2, ?3, ?4,
+	?5, 'pending', 0, ?6, ?7
+)
+`
+
+type SaveReconciliationNotificationParams struct {
+	ID            string
+	WorkspaceID   string
+	EventType     string
+	Fingerprint   string
+	Payload       string
+	NextAttemptAt string
+	CreatedAt     string
+}
+
+func (q *Queries) SaveReconciliationNotification(ctx context.Context, arg SaveReconciliationNotificationParams) error {
+	_, err := q.db.ExecContext(ctx, saveReconciliationNotification,
+		arg.ID,
+		arg.WorkspaceID,
+		arg.EventType,
+		arg.Fingerprint,
+		arg.Payload,
+		arg.NextAttemptAt,
+		arg.CreatedAt,
+	)
+	return err
+}
+
+const saveReconciliationNotificationAttempt = `-- name: SaveReconciliationNotificationAttempt :exec
+INSERT INTO reconciliation_notification_attempts (id, notification_id, attempt, status, error, created_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+`
+
+type SaveReconciliationNotificationAttemptParams struct {
+	ID             string
+	NotificationID string
+	Attempt        int64
+	Status         string
+	Error          string
+	CreatedAt      string
+}
+
+func (q *Queries) SaveReconciliationNotificationAttempt(ctx context.Context, arg SaveReconciliationNotificationAttemptParams) error {
+	_, err := q.db.ExecContext(ctx, saveReconciliationNotificationAttempt,
+		arg.ID,
+		arg.NotificationID,
+		arg.Attempt,
+		arg.Status,
+		arg.Error,
 		arg.CreatedAt,
 	)
 	return err

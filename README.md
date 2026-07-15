@@ -327,7 +327,9 @@ Common runtime variables:
 | `OPEN_SPANNER_RECONCILIATION_ENABLED` | `false` | Enables scheduled, read-only quota reconciliation in the API process. |
 | `OPEN_SPANNER_RECONCILIATION_SCHEDULE` | `15m` | Interval between scans for each workspace. |
 | `OPEN_SPANNER_RECONCILIATION_LOOKBACK_HOURS` | `24` | Decision history included in each scheduled scan. |
-| `OPEN_SPANNER_RECONCILIATION_WEBHOOK_URL` | empty | Optional webhook notified when a new drift fingerprint appears. |
+| `OPEN_SPANNER_RECONCILIATION_STALE_AFTER` | `30m` | Marks monitoring stale after an overdue scan exceeds this grace period. |
+| `OPEN_SPANNER_RECONCILIATION_MAX_ATTEMPTS` | `5` | Webhook delivery attempts before a notification enters dead-letter state. |
+| `OPEN_SPANNER_RECONCILIATION_WEBHOOK_URL` | empty | Optional webhook for new drift episodes and scan failures. |
 | `OPEN_SPANNER_RECONCILIATION_WEBHOOK_SECRET` | empty | Optional HMAC-SHA256 signing secret for reconciliation webhooks. |
 | `OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION` | `720h` | Keeps consume idempotency decisions for 30 days before pruning. |
 

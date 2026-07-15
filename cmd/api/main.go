@@ -74,7 +74,7 @@ func main() {
 		stopReconciliation = reconciliation.NewWorker(app.SystemService, reconciliation.Options{
 			PollInterval: cfg.ReconciliationPollInterval, ScheduleInterval: cfg.ReconciliationSchedule,
 			LockTTL: cfg.ReconciliationLockTTL, Timeout: cfg.ReconciliationTimeout, RetryAfter: cfg.ReconciliationRetryAfter,
-			Limit: cfg.ReconciliationLimit, LookbackHours: cfg.ReconciliationLookbackHours, Notifier: notifier, Logger: log.Printf,
+			Limit: cfg.ReconciliationLimit, LookbackHours: cfg.ReconciliationLookbackHours, MaxAttempts: cfg.ReconciliationMaxAttempts, Notifier: notifier, Logger: log.Printf,
 		}).Start(context.Background())
 	}
 

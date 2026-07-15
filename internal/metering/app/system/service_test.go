@@ -27,8 +27,38 @@ func (r *reconciliationRepository) SaveReconciliationRun(context.Context, string
 func (r *reconciliationRepository) CompleteReconciliationSchedule(context.Context, string, string, time.Time) error {
 	return nil
 }
-func (r *reconciliationRepository) FailReconciliationSchedule(context.Context, string, time.Time) error {
+func (r *reconciliationRepository) FailReconciliationSchedule(context.Context, string, string, time.Time) error {
 	return nil
+}
+func (r *reconciliationRepository) GetReconciliationSchedule(context.Context) (ReconciliationSchedule, bool, error) {
+	return ReconciliationSchedule{}, false, nil
+}
+func (r *reconciliationRepository) SaveReconciliationNotification(context.Context, ReconciliationNotification) error {
+	return nil
+}
+func (r *reconciliationRepository) ClaimReconciliationNotification(context.Context, time.Time, time.Time) (ReconciliationNotification, bool, error) {
+	return ReconciliationNotification{}, false, nil
+}
+func (r *reconciliationRepository) CompleteReconciliationNotification(context.Context, ReconciliationNotification) error {
+	return nil
+}
+func (r *reconciliationRepository) RetryReconciliationNotification(context.Context, ReconciliationNotification, time.Time, int, error) error {
+	return nil
+}
+func (r *reconciliationRepository) ListReconciliationNotifications(context.Context, int) ([]ReconciliationNotification, error) {
+	return nil, nil
+}
+func (r *reconciliationRepository) CountReconciliationNotifications(context.Context) (ReconciliationNotificationCounts, error) {
+	return ReconciliationNotificationCounts{}, nil
+}
+func (r *reconciliationRepository) RequeueReconciliationNotification(context.Context, string, time.Time) (bool, error) {
+	return false, nil
+}
+func (r *reconciliationRepository) SaveReconciliationNotificationAttempt(context.Context, ReconciliationNotificationAttempt) error {
+	return nil
+}
+func (r *reconciliationRepository) ListReconciliationNotificationAttempts(context.Context, string) ([]ReconciliationNotificationAttempt, error) {
+	return nil, nil
 }
 func (r *reconciliationRepository) MarkReconciliationNotified(context.Context, string, string) error {
 	return nil
@@ -48,6 +78,26 @@ func TestReconciliationFingerprintIsStable(t *testing.T) {
 	second.IdempotencyKey = "changed"
 	if reconciliationFingerprint([]ReconciliationIssue{first, second}) == left {
 		t.Fatal("fingerprint did not change with issue identity")
+	}
+}
+
+func TestReconciliationHealthDetectsStaleSchedule(t *testing.T) {
+	now := time.Now().UTC()
+	health := reconciliationHealth(ReconciliationSchedule{NextRunAt: now.Add(-31 * time.Minute), UpdatedAt: now.Add(-time.Hour)}, true, ReconciliationRun{ID: "run", Status: "healthy"}, ReconciliationNotificationCounts{}, now, 30*time.Minute)
+	if health.Status != "stale" {
+		t.Fatalf("health = %#v, want stale", health)
+	}
+	health = reconciliationHealth(ReconciliationSchedule{NextRunAt: now.Add(-31 * time.Minute), LockedUntil: now.Add(time.Minute)}, true, ReconciliationRun{ID: "run", Status: "healthy"}, ReconciliationNotificationCounts{}, now, 30*time.Minute)
+	if health.Status != "healthy" {
+		t.Fatalf("locked health = %#v, want healthy", health)
+	}
+}
+
+func TestReconciliationHealthDetectsDeadLetters(t *testing.T) {
+	now := time.Now().UTC()
+	health := reconciliationHealth(ReconciliationSchedule{NextRunAt: now.Add(time.Minute)}, true, ReconciliationRun{ID: "run", Status: "healthy"}, ReconciliationNotificationCounts{DeadLetter: 1}, now, 30*time.Minute)
+	if health.Status != "degraded" || health.DeadLetterNotifications != 1 {
+		t.Fatalf("health = %#v, want degraded", health)
 	}
 }
 
