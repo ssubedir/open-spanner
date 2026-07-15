@@ -6,12 +6,23 @@ type StatsResponse struct {
 	UsageEvents           int                           `json:"usage_events"`
 	PruneRuns             int                           `json:"prune_runs"`
 	LastPruneRun          *LastPruneRunResponse         `json:"last_prune_run"`
+	ExportCleanupRuns     int                           `json:"export_cleanup_runs"`
+	LastExportCleanupRun  *LastExportCleanupRunResponse `json:"last_export_cleanup_run"`
 	ConsumptionDecisions  int                           `json:"consumption_decisions"`
 	DecisionPruneRuns     int                           `json:"decision_prune_runs"`
 	LastDecisionPruneRun  *LastDecisionPruneRunResponse `json:"last_decision_prune_run"`
 	LastReconciliationRun *ReconciliationRunResponse    `json:"last_reconciliation_run"`
 	ReconciliationHealth  ReconciliationHealthResponse  `json:"reconciliation_health"`
 	WorkerHealth          []WorkerHealthResponse        `json:"worker_health"`
+}
+
+type LastExportCleanupRunResponse struct {
+	ID             string `json:"id"`
+	ExpiredBefore  string `json:"expired_before"`
+	FilesDeleted   int    `json:"files_deleted"`
+	BytesReclaimed int64  `json:"bytes_reclaimed"`
+	Failures       int    `json:"failures"`
+	CreatedAt      string `json:"created_at"`
 }
 
 type WorkerHealthResponse struct {

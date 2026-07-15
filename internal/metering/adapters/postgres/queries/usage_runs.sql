@@ -74,13 +74,13 @@ INSERT INTO usage_export_jobs (
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14);
 
 -- name: FindUsageExportJob :one
-SELECT id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, claim_token, artifact_path, artifact_size, created_at, updated_at, completed_at
+SELECT id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, claim_token, artifact_path, artifact_size, created_at, updated_at, completed_at, expired_at
 FROM usage_export_jobs
 WHERE workspace_id = sqlc.arg('workspace_id')::text
 	AND id = sqlc.arg('id')::text;
 
 -- name: ListUsageExportJobs :many
-SELECT id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, claim_token, artifact_path, artifact_size, created_at, updated_at, completed_at
+SELECT id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, claim_token, artifact_path, artifact_size, created_at, updated_at, completed_at, expired_at
 FROM usage_export_jobs
 WHERE workspace_id = sqlc.arg('workspace_id')::text
 	AND (sqlc.narg('cursor_created_at')::text IS NULL
@@ -108,7 +108,7 @@ SET status = 'running',
 	error = '',
 	updated_at = sqlc.arg('now')::text
 WHERE id = (SELECT id FROM next_job)
-RETURNING id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, claim_token, artifact_path, artifact_size, created_at, updated_at, completed_at;
+RETURNING id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, claim_token, artifact_path, artifact_size, created_at, updated_at, completed_at, expired_at;
 
 -- name: RenewUsageExportJobLease :execrows
 UPDATE usage_export_jobs
@@ -133,7 +133,7 @@ WHERE id = sqlc.arg('id')::text
 	AND workspace_id = sqlc.arg('workspace_id')::text
 	AND status = 'running'
 	AND claim_token = sqlc.arg('claim_token')::uuid
-RETURNING id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, claim_token, artifact_path, artifact_size, created_at, updated_at, completed_at;
+RETURNING id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, claim_token, artifact_path, artifact_size, created_at, updated_at, completed_at, expired_at;
 
 -- name: FailUsageExportJob :one
 UPDATE usage_export_jobs
@@ -147,7 +147,7 @@ WHERE id = sqlc.arg('id')::text
 	AND workspace_id = sqlc.arg('workspace_id')::text
 	AND status = 'running'
 	AND claim_token = sqlc.arg('claim_token')::uuid
-RETURNING id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, claim_token, artifact_path, artifact_size, created_at, updated_at, completed_at;
+RETURNING id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, claim_token, artifact_path, artifact_size, created_at, updated_at, completed_at, expired_at;
 
 -- name: CancelUsageExportJob :one
 UPDATE usage_export_jobs
@@ -160,7 +160,7 @@ SET status = 'canceled',
 WHERE id = sqlc.arg('id')::text
 	AND workspace_id = sqlc.arg('workspace_id')::text
 	AND status IN ('queued', 'running')
-RETURNING id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, claim_token, artifact_path, artifact_size, created_at, updated_at, completed_at;
+RETURNING id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, claim_token, artifact_path, artifact_size, created_at, updated_at, completed_at, expired_at;
 
 -- name: RetryUsageExportJob :one
 UPDATE usage_export_jobs
@@ -176,4 +176,35 @@ SET status = 'queued',
 WHERE id = sqlc.arg('id')::text
 	AND workspace_id = sqlc.arg('workspace_id')::text
 	AND status IN ('failed', 'canceled')
-RETURNING id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, claim_token, artifact_path, artifact_size, created_at, updated_at, completed_at;
+RETURNING id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, claim_token, artifact_path, artifact_size, created_at, updated_at, completed_at, expired_at;
+
+-- name: ListExpiredUsageExportJobs :many
+SELECT id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, claim_token, artifact_path, artifact_size, created_at, updated_at, completed_at, expired_at
+FROM usage_export_jobs
+WHERE status = 'completed'
+	AND expired_at IS NULL
+	AND completed_at < sqlc.arg('expired_before')::text
+ORDER BY completed_at ASC, id ASC
+LIMIT sqlc.arg('limit')::int;
+
+-- name: ExpireUsageExportJob :execrows
+UPDATE usage_export_jobs
+SET expired_at = sqlc.arg('expired_at')::text, updated_at = sqlc.arg('expired_at')::text
+WHERE id = sqlc.arg('id')::text
+	AND workspace_id = sqlc.arg('workspace_id')::text
+	AND status = 'completed'
+	AND expired_at IS NULL;
+
+-- name: SaveUsageExportCleanupRun :exec
+INSERT INTO usage_export_cleanup_runs (public_id, workspace_id, expired_before, files_deleted, bytes_reclaimed, failures, created_at)
+VALUES (sqlc.arg('public_id')::uuid, sqlc.arg('workspace_id')::text, sqlc.arg('expired_before')::text, sqlc.arg('files_deleted')::int, sqlc.arg('bytes_reclaimed')::bigint, sqlc.arg('failures')::int, sqlc.arg('created_at')::text);
+
+-- name: CountUsageExportCleanupRuns :one
+SELECT COUNT(*) FROM usage_export_cleanup_runs WHERE workspace_id = sqlc.arg('workspace_id')::text;
+
+-- name: FindLatestUsageExportCleanupRun :one
+SELECT public_id, expired_before, files_deleted, bytes_reclaimed, failures, created_at
+FROM usage_export_cleanup_runs
+WHERE workspace_id = sqlc.arg('workspace_id')::text
+ORDER BY created_at DESC, id DESC
+LIMIT 1;

@@ -43,7 +43,7 @@ func main() {
 		cfg.ExportWorkerLockTTL,
 		cfg.ExportWorkerMaxAttempts,
 		log.Printf,
-	)
+	).WithCleanup(cfg.ExportRetention, cfg.ExportCleanupInterval, cfg.ExportCleanupBatchSize)
 	heartbeat.Start(ctx, app.SystemService, "export", log.Printf)
 	stopWorker := worker.Start(ctx)
 

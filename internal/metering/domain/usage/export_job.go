@@ -47,9 +47,10 @@ type ExportJob struct {
 	createdAt    time.Time
 	updatedAt    time.Time
 	completedAt  time.Time
+	expiredAt    time.Time
 }
 
-func NewExportJob(id string, workspaceID string, kind ExportJobKind, status ExportJobStatus, format ExportJobFormat, queryJSON string, errorMessage string, attempts int, lockedUntil time.Time, claimToken string, artifactPath string, artifactSize int64, createdAt time.Time, updatedAt time.Time, completedAt time.Time) (ExportJob, error) {
+func NewExportJob(id string, workspaceID string, kind ExportJobKind, status ExportJobStatus, format ExportJobFormat, queryJSON string, errorMessage string, attempts int, lockedUntil time.Time, claimToken string, artifactPath string, artifactSize int64, createdAt time.Time, updatedAt time.Time, completedAt time.Time, expiredAt time.Time) (ExportJob, error) {
 	id = strings.TrimSpace(id)
 	workspaceID = strings.TrimSpace(workspaceID)
 	queryJSON = strings.TrimSpace(queryJSON)
@@ -92,6 +93,9 @@ func NewExportJob(id string, workspaceID string, kind ExportJobKind, status Expo
 	if status == ExportJobCompleted && artifactPath == "" {
 		return ExportJob{}, fmt.Errorf("%w: export job artifact path is required", domain.ErrInvalidInput)
 	}
+	if !expiredAt.IsZero() && (status != ExportJobCompleted || completedAt.IsZero()) {
+		return ExportJob{}, fmt.Errorf("%w: only completed export jobs can expire", domain.ErrInvalidInput)
+	}
 	if attempts < 0 {
 		return ExportJob{}, fmt.Errorf("%w: export job attempts cannot be negative", domain.ErrInvalidInput)
 	}
@@ -115,6 +119,7 @@ func NewExportJob(id string, workspaceID string, kind ExportJobKind, status Expo
 		createdAt:    createdAt.UTC(),
 		updatedAt:    updatedAt.UTC(),
 		completedAt:  completedAt.UTC(),
+		expiredAt:    expiredAt.UTC(),
 	}, nil
 }
 
@@ -175,3 +180,5 @@ func (j ExportJob) UpdatedAt() time.Time {
 func (j ExportJob) CompletedAt() time.Time {
 	return j.completedAt
 }
+
+func (j ExportJob) ExpiredAt() time.Time { return j.expiredAt }

@@ -584,6 +584,10 @@ func (h *Handler) DownloadExportJob(w http.ResponseWriter, r *http.Request) {
 		respond.ServiceError(w, errors.Join(domain.ErrConflict, fmt.Errorf("export job is not ready for download")))
 		return
 	}
+	if !job.ExpiredAt.IsZero() {
+		respond.ServiceError(w, errors.Join(domain.ErrConflict, fmt.Errorf("export artifact has expired")))
+		return
+	}
 
 	file, info, err := h.exportStore.Open(job.ArtifactPath)
 	if err != nil {
@@ -1363,11 +1367,14 @@ func exportJobResponseFromResult(result appusage.ExportJobResult) ExportJobRespo
 		CreatedAt:    result.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:    result.UpdatedAt.Format(time.RFC3339),
 	}
-	if result.Status == string(domainusage.ExportJobCompleted) && result.ArtifactPath != "" {
+	if result.Status == string(domainusage.ExportJobCompleted) && result.ArtifactPath != "" && result.ExpiredAt.IsZero() {
 		res.DownloadURL = "/v1/exports/" + result.ID + "/download"
 	}
 	if !result.CompletedAt.IsZero() {
 		res.CompletedAt = result.CompletedAt.Format(time.RFC3339)
+	}
+	if !result.ExpiredAt.IsZero() {
+		res.ExpiredAt = result.ExpiredAt.Format(time.RFC3339)
 	}
 	return res
 }

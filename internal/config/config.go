@@ -24,6 +24,9 @@ type Config struct {
 	ExportWorkerInterval         time.Duration
 	ExportWorkerLockTTL          time.Duration
 	ExportWorkerMaxAttempts      int
+	ExportRetention              time.Duration
+	ExportCleanupInterval        time.Duration
+	ExportCleanupBatchSize       int
 	AlertWorkerInterval          time.Duration
 	AlertWorkerLockTTL           time.Duration
 	AlertWorkerTimeout           time.Duration
@@ -152,6 +155,18 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	exportRetention, err := envDuration("OPEN_SPANNER_EXPORT_RETENTION", 7*24*time.Hour)
+	if err != nil {
+		return Config{}, err
+	}
+	exportCleanupInterval, err := envDuration("OPEN_SPANNER_EXPORT_CLEANUP_INTERVAL", time.Hour)
+	if err != nil {
+		return Config{}, err
+	}
+	exportCleanupBatchSize, err := envInt("OPEN_SPANNER_EXPORT_CLEANUP_BATCH_SIZE", 1000)
+	if err != nil {
+		return Config{}, err
+	}
 	alertWorkerInterval, err := envDuration("OPEN_SPANNER_ALERT_WORKER_INTERVAL", 5*time.Second)
 	if err != nil {
 		return Config{}, err
@@ -226,6 +241,9 @@ func Load() (Config, error) {
 		ExportWorkerInterval:         exportWorkerInterval,
 		ExportWorkerLockTTL:          exportWorkerLockTTL,
 		ExportWorkerMaxAttempts:      exportWorkerMaxAttempts,
+		ExportRetention:              exportRetention,
+		ExportCleanupInterval:        exportCleanupInterval,
+		ExportCleanupBatchSize:       exportCleanupBatchSize,
 		AlertWorkerInterval:          alertWorkerInterval,
 		AlertWorkerLockTTL:           alertWorkerLockTTL,
 		AlertWorkerTimeout:           alertWorkerTimeout,
@@ -321,6 +339,15 @@ func (cfg Config) Validate() error {
 	}
 	if cfg.ExportWorkerMaxAttempts <= 0 {
 		return fmt.Errorf("OPEN_SPANNER_EXPORT_WORKER_MAX_ATTEMPTS must be greater than zero")
+	}
+	if cfg.ExportRetention <= 0 {
+		return fmt.Errorf("OPEN_SPANNER_EXPORT_RETENTION must be greater than zero")
+	}
+	if cfg.ExportCleanupInterval <= 0 {
+		return fmt.Errorf("OPEN_SPANNER_EXPORT_CLEANUP_INTERVAL must be greater than zero")
+	}
+	if cfg.ExportCleanupBatchSize <= 0 || cfg.ExportCleanupBatchSize > 1000 {
+		return fmt.Errorf("OPEN_SPANNER_EXPORT_CLEANUP_BATCH_SIZE must be between 1 and 1000")
 	}
 	if cfg.AlertWorkerInterval <= 0 {
 		return fmt.Errorf("OPEN_SPANNER_ALERT_WORKER_INTERVAL must be greater than zero")

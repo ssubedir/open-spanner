@@ -156,6 +156,8 @@ type StatsResult struct {
 	UsageEvents           int
 	PruneRuns             int
 	LastPruneRun          LastPruneRunResult
+	ExportCleanupRuns     int
+	LastExportCleanupRun  LastExportCleanupRunResult
 	ConsumptionDecisions  int
 	DecisionPruneRuns     int
 	LastDecisionPruneRun  LastDecisionPruneRunResult
@@ -206,6 +208,15 @@ type LastPruneRunResult struct {
 	Deleted   int
 	DryRun    bool
 	CreatedAt time.Time
+}
+
+type LastExportCleanupRunResult struct {
+	ID             string
+	ExpiredBefore  time.Time
+	FilesDeleted   int
+	BytesReclaimed int64
+	Failures       int
+	CreatedAt      time.Time
 }
 
 type ServiceOptions struct {

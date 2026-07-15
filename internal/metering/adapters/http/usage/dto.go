@@ -269,6 +269,7 @@ type ExportJobResponse struct {
 	CreatedAt    string        `json:"created_at"`
 	UpdatedAt    string        `json:"updated_at"`
 	CompletedAt  string        `json:"completed_at,omitempty"`
+	ExpiredAt    string        `json:"expired_at,omitempty"`
 }
 
 // ListItemResponse is a usage bucket.

@@ -27,6 +27,9 @@ description: Runtime configuration for the Open Spanner service.
 | `OPEN_SPANNER_EXPORT_WORKER_INTERVAL` | `5s` | How often the export worker checks for queued jobs. |
 | `OPEN_SPANNER_EXPORT_WORKER_LOCK_TTL` | `5m` | Lease duration for a claimed export job. |
 | `OPEN_SPANNER_EXPORT_WORKER_MAX_ATTEMPTS` | `3` | Maximum claim attempts before expired running jobs stop being retried. |
+| `OPEN_SPANNER_EXPORT_RETENTION` | `168h` | How long completed export artifacts remain downloadable. Job history is retained after expiration. |
+| `OPEN_SPANNER_EXPORT_CLEANUP_INTERVAL` | `1h` | How often the export worker cleans expired artifacts. |
+| `OPEN_SPANNER_EXPORT_CLEANUP_BATCH_SIZE` | `1000` | Maximum artifacts considered in one cleanup run. |
 | `OPEN_SPANNER_ALERT_WORKER_INTERVAL` | `5s` | How often the alert worker checks for queued alert evaluations. |
 | `OPEN_SPANNER_ALERT_WORKER_LOCK_TTL` | `5m` | Lease duration for a claimed alert evaluation job. |
 | `OPEN_SPANNER_ALERT_WORKER_TIMEOUT` | `1m` | Maximum processing time for one alert evaluation job. |
@@ -113,6 +116,9 @@ These variables are read by `docker-compose.app.yml` before the Open Spanner con
 | `OPEN_SPANNER_EXPORT_WORKER_INTERVAL` | `5s` | Passed through to the export worker container. |
 | `OPEN_SPANNER_EXPORT_WORKER_LOCK_TTL` | `5m` | Passed through to the export worker container. |
 | `OPEN_SPANNER_EXPORT_WORKER_MAX_ATTEMPTS` | `3` | Passed through to the export worker container. |
+| `OPEN_SPANNER_EXPORT_RETENTION` | `168h` | Passed through to the export worker container. |
+| `OPEN_SPANNER_EXPORT_CLEANUP_INTERVAL` | `1h` | Passed through to the export worker container. |
+| `OPEN_SPANNER_EXPORT_CLEANUP_BATCH_SIZE` | `1000` | Passed through to the export worker container. |
 | `OPEN_SPANNER_ALERT_WORKER_INTERVAL` | `5s` | Passed through to the alert worker container. |
 | `OPEN_SPANNER_ALERT_WORKER_LOCK_TTL` | `5m` | Passed through to the alert worker container. |
 | `OPEN_SPANNER_ALERT_WORKER_TIMEOUT` | `1m` | Passed through to the alert worker container. |

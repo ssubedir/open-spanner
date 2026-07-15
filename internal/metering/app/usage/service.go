@@ -32,6 +32,9 @@ type Service interface {
 	FailExportJob(ctx context.Context, cmd ExportJobFailCommand) (ExportJobResult, error)
 	CancelExportJob(ctx context.Context, cmd ExportJobCancelCommand) (ExportJobResult, error)
 	RetryExportJob(ctx context.Context, cmd ExportJobRetryCommand) (ExportJobResult, error)
+	ListExpiredExportJobs(ctx context.Context, expiredBefore time.Time, limit int) ([]ExportJobResult, error)
+	ExpireExportJob(ctx context.Context, id string) (bool, error)
+	RecordExportCleanupRun(ctx context.Context, cmd ExportCleanupRunCommand) (ExportCleanupRunResult, error)
 }
 
 type service struct {

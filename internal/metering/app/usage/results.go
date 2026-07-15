@@ -129,6 +129,17 @@ type ExportJobResult struct {
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	CompletedAt  time.Time
+	ExpiredAt    time.Time
+}
+
+type ExportCleanupRunResult struct {
+	ID             string
+	WorkspaceID    string
+	ExpiredBefore  time.Time
+	FilesDeleted   int
+	BytesReclaimed int64
+	Failures       int
+	CreatedAt      time.Time
 }
 
 func eventResultFromDomain(event domainusage.Event) Result {
@@ -218,7 +229,12 @@ func exportJobResultFromDomain(job domainusage.ExportJob) ExportJobResult {
 		CreatedAt:    job.CreatedAt(),
 		UpdatedAt:    job.UpdatedAt(),
 		CompletedAt:  job.CompletedAt(),
+		ExpiredAt:    job.ExpiredAt(),
 	}
+}
+
+func exportCleanupRunResultFromDomain(run domainusage.ExportCleanupRun) ExportCleanupRunResult {
+	return ExportCleanupRunResult{ID: run.ID(), WorkspaceID: run.WorkspaceID(), ExpiredBefore: run.ExpiredBefore(), FilesDeleted: run.FilesDeleted(), BytesReclaimed: run.BytesReclaimed(), Failures: run.Failures(), CreatedAt: run.CreatedAt()}
 }
 
 func pruneResultFromDomain(run domainusage.PruneRun) PruneResult {

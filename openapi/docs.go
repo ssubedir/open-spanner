@@ -5752,6 +5752,29 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_metering_adapters_http_system.LastExportCleanupRunResponse": {
+            "type": "object",
+            "properties": {
+                "bytes_reclaimed": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "expired_before": {
+                    "type": "string"
+                },
+                "failures": {
+                    "type": "integer"
+                },
+                "files_deleted": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_metering_adapters_http_system.LastPruneRunResponse": {
             "type": "object",
             "properties": {
@@ -5986,8 +6009,14 @@ const docTemplate = `{
                 "decision_prune_runs": {
                     "type": "integer"
                 },
+                "export_cleanup_runs": {
+                    "type": "integer"
+                },
                 "last_decision_prune_run": {
                     "$ref": "#/definitions/internal_metering_adapters_http_system.LastDecisionPruneRunResponse"
+                },
+                "last_export_cleanup_run": {
+                    "$ref": "#/definitions/internal_metering_adapters_http_system.LastExportCleanupRunResponse"
                 },
                 "last_prune_run": {
                     "$ref": "#/definitions/internal_metering_adapters_http_system.LastPruneRunResponse"
@@ -6485,6 +6514,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "error": {
+                    "type": "string"
+                },
+                "expired_at": {
                     "type": "string"
                 },
                 "format": {

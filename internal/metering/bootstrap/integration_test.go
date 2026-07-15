@@ -1497,6 +1497,22 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 		t.Fatalf("downloaded export csv = %q", csvBody)
 	}
 
+	cleanupWorker := exportworker.NewWorker(app.UsageService, fileexport.NewStore(cfg.ExportStoragePath), time.Millisecond, time.Minute, 3, t.Logf).WithCleanup(time.Nanosecond, time.Hour, 1000)
+	expired, err := cleanupWorker.CleanupOnce(ctx)
+	if err != nil || expired == 0 {
+		t.Fatalf("cleanup export artifacts expired=%d err=%v", expired, err)
+	}
+	expiredJobRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/exports/"+exportJob.ID, nil, authHeaders, nil)
+	var expiredJob usageExportJobResponse
+	decodeJSON(t, expiredJobRes, &expiredJob)
+	if expiredJob.ExpiredAt == "" || expiredJob.DownloadURL != "" || expiredJob.Status != "completed" {
+		t.Fatalf("expired export job = %#v", expiredJob)
+	}
+	expiredDownloadRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/exports/"+exportJob.ID+"/download", nil, authHeaders, nil)
+	if expiredDownloadRes.Code != http.StatusConflict {
+		t.Fatalf("expired export download status = %d, want %d: %s", expiredDownloadRes.Code, http.StatusConflict, expiredDownloadRes.Body.String())
+	}
+
 	runIntegrationHyphenatedDimensionFlow(t, router, authHeaders, suffix)
 	runIntegrationDottedDimensionParityFlow(t, router, authHeaders, suffix)
 	runIntegrationFirstAggregationFlow(t, router, authHeaders, suffix)
@@ -3861,6 +3877,7 @@ type usageExportJobResponse struct {
 	CreatedAt    string         `json:"created_at"`
 	UpdatedAt    string         `json:"updated_at"`
 	CompletedAt  string         `json:"completed_at"`
+	ExpiredAt    string         `json:"expired_at"`
 }
 
 type usageExportJobListTestResponse struct {

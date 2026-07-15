@@ -322,6 +322,8 @@ Common runtime variables:
 | `OPEN_SPANNER_POSTGRES_DSN` | | Postgres connection string. |
 | `OPEN_SPANNER_EXPORT_STORAGE_PATH` | `open-spanner-exports` | Shared path for generated export files. |
 | `OPEN_SPANNER_EXPORT_WORKER_INTERVAL` | `5s` | Export worker polling interval. |
+| `OPEN_SPANNER_EXPORT_RETENTION` | `168h` | Time completed export artifacts remain downloadable. |
+| `OPEN_SPANNER_EXPORT_CLEANUP_INTERVAL` | `1h` | Export artifact cleanup interval. |
 | `OPEN_SPANNER_ALERT_WORKER_INTERVAL` | `5s` | Alert worker polling interval. |
 | `OPEN_SPANNER_ENTITLEMENT_WORKER_INTERVAL` | `5s` | Entitlement worker polling interval. |
 | `OPEN_SPANNER_RETENTION_PRUNE_ENABLED` | `false` | Enables automatic retention pruning. |

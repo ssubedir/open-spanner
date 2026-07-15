@@ -17,6 +17,7 @@ sql:
       - internal/metering/adapters/postgres/migrations/011_worker_dead_letters.up.sql
       - internal/metering/adapters/postgres/migrations/012_alert_delivery_outbox.up.sql
       - internal/metering/adapters/postgres/migrations/013_export_job_leases.up.sql
+      - internal/metering/adapters/postgres/migrations/014_export_artifact_retention.up.sql
     queries: internal/metering/adapters/postgres/queries
     gen:
       go:
@@ -42,6 +43,7 @@ sql:
       - internal/metering/adapters/sqlite/migrations/011_worker_dead_letters.up.sql
       - internal/metering/adapters/sqlite/migrations/012_alert_delivery_outbox.up.sql
       - internal/metering/adapters/sqlite/migrations/013_export_job_leases.up.sql
+      - internal/metering/adapters/sqlite/migrations/014_export_artifact_retention.up.sql
     queries: internal/metering/adapters/sqlite/queries
     gen:
       go:

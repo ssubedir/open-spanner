@@ -82,6 +82,7 @@ export function ExportJobSummary({ job }: { job: UsageExportJob }) {
         <span>{job.query.group_by?.length ? `${job.query.group_by.length} groups` : 'no groups'}</span>
         <span>{formatDate(job.created_at)}</span>
         {job.artifact_size ? <span>{formatBytes(job.artifact_size)}</span> : null}
+		{job.expired_at ? <span>expired {formatDate(job.expired_at)}</span> : null}
       </div>
       {job.error ? <p className="export-job-error">{job.error}</p> : null}
     </div>
@@ -99,7 +100,7 @@ export function ExportJobActions({
 }) {
   return (
     <div className="export-job-actions">
-      {job.status === 'completed' ? (
+      {job.status === 'completed' && !job.expired_at ? (
         <Button
           disabled={downloadingID === job.id}
           onClick={() => void appStoreActions.downloadUsageExport(job)}
@@ -111,6 +112,7 @@ export function ExportJobActions({
           Download
         </Button>
       ) : null}
+	  {job.expired_at ? <Badge variant="muted">Expired</Badge> : null}
       {job.status === 'queued' || job.status === 'running' ? (
         <Button
           disabled={mutatingID === job.id}

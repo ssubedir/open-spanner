@@ -55,6 +55,14 @@ type ExportJobRetryCommand struct {
 	ID string
 }
 
+type ExportCleanupRunCommand struct {
+	WorkspaceID    string
+	ExpiredBefore  time.Time
+	FilesDeleted   int
+	BytesReclaimed int64
+	Failures       int
+}
+
 func (s *service) CreateExportJob(ctx context.Context, cmd ExportJobCreateCommand) (ExportJobResult, error) {
 	kind := domainusage.ExportJobKind(cmd.Kind)
 	if kind == "" {
@@ -85,6 +93,7 @@ func (s *service) CreateExportJob(ctx context.Context, cmd ExportJobCreateComman
 		0,
 		now,
 		now,
+		timeZero(),
 		timeZero(),
 	)
 	if err != nil {
@@ -211,6 +220,40 @@ func (s *service) RetryExportJob(ctx context.Context, cmd ExportJobRetryCommand)
 		return ExportJobResult{}, err
 	}
 	return exportJobResultFromDomain(job), nil
+}
+
+func (s *service) ListExpiredExportJobs(ctx context.Context, expiredBefore time.Time, limit int) ([]ExportJobResult, error) {
+	if expiredBefore.IsZero() || limit <= 0 || limit > 1000 {
+		return nil, domain.ErrInvalidInput
+	}
+	jobs, err := s.usageRepo.FindExpiredExportJobs(ctx, expiredBefore, limit)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]ExportJobResult, 0, len(jobs))
+	for _, job := range jobs {
+		results = append(results, exportJobResultFromDomain(job))
+	}
+	return results, nil
+}
+
+func (s *service) ExpireExportJob(ctx context.Context, id string) (bool, error) {
+	if strings.TrimSpace(id) == "" {
+		return false, domain.ErrInvalidInput
+	}
+	return s.usageRepo.ExpireExportJob(ctx, id, s.now())
+}
+
+func (s *service) RecordExportCleanupRun(ctx context.Context, cmd ExportCleanupRunCommand) (ExportCleanupRunResult, error) {
+	run, err := domainusage.NewExportCleanupRun(newID(), cmd.WorkspaceID, cmd.ExpiredBefore, cmd.FilesDeleted, cmd.BytesReclaimed, cmd.Failures, s.now())
+	if err != nil {
+		return ExportCleanupRunResult{}, err
+	}
+	run, err = s.usageRepo.SaveExportCleanupRun(ctx, run)
+	if err != nil {
+		return ExportCleanupRunResult{}, err
+	}
+	return exportCleanupRunResultFromDomain(run), nil
 }
 
 func timeZero() time.Time {

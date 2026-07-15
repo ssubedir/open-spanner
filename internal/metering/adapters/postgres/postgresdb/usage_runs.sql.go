@@ -23,7 +23,7 @@ SET status = 'canceled',
 WHERE id = $2::text
 	AND workspace_id = $3::text
 	AND status IN ('queued', 'running')
-RETURNING id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, claim_token, artifact_path, artifact_size, created_at, updated_at, completed_at
+RETURNING id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, claim_token, artifact_path, artifact_size, created_at, updated_at, completed_at, expired_at
 `
 
 type CancelUsageExportJobParams struct {
@@ -48,6 +48,7 @@ type CancelUsageExportJobRow struct {
 	CreatedAt    string
 	UpdatedAt    string
 	CompletedAt  sql.NullString
+	ExpiredAt    sql.NullString
 }
 
 func (q *Queries) CancelUsageExportJob(ctx context.Context, arg CancelUsageExportJobParams) (CancelUsageExportJobRow, error) {
@@ -69,6 +70,7 @@ func (q *Queries) CancelUsageExportJob(ctx context.Context, arg CancelUsageExpor
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CompletedAt,
+		&i.ExpiredAt,
 	)
 	return i, err
 }
@@ -92,7 +94,7 @@ SET status = 'running',
 	error = '',
 	updated_at = $3::text
 WHERE id = (SELECT id FROM next_job)
-RETURNING id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, claim_token, artifact_path, artifact_size, created_at, updated_at, completed_at
+RETURNING id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, claim_token, artifact_path, artifact_size, created_at, updated_at, completed_at, expired_at
 `
 
 type ClaimUsageExportJobParams struct {
@@ -118,6 +120,7 @@ type ClaimUsageExportJobRow struct {
 	CreatedAt    string
 	UpdatedAt    string
 	CompletedAt  sql.NullString
+	ExpiredAt    sql.NullString
 }
 
 func (q *Queries) ClaimUsageExportJob(ctx context.Context, arg ClaimUsageExportJobParams) (ClaimUsageExportJobRow, error) {
@@ -144,6 +147,7 @@ func (q *Queries) ClaimUsageExportJob(ctx context.Context, arg ClaimUsageExportJ
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CompletedAt,
+		&i.ExpiredAt,
 	)
 	return i, err
 }
@@ -162,7 +166,7 @@ WHERE id = $4::text
 	AND workspace_id = $5::text
 	AND status = 'running'
 	AND claim_token = $6::uuid
-RETURNING id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, claim_token, artifact_path, artifact_size, created_at, updated_at, completed_at
+RETURNING id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, claim_token, artifact_path, artifact_size, created_at, updated_at, completed_at, expired_at
 `
 
 type CompleteUsageExportJobParams struct {
@@ -190,6 +194,7 @@ type CompleteUsageExportJobRow struct {
 	CreatedAt    string
 	UpdatedAt    string
 	CompletedAt  sql.NullString
+	ExpiredAt    sql.NullString
 }
 
 func (q *Queries) CompleteUsageExportJob(ctx context.Context, arg CompleteUsageExportJobParams) (CompleteUsageExportJobRow, error) {
@@ -218,6 +223,7 @@ func (q *Queries) CompleteUsageExportJob(ctx context.Context, arg CompleteUsageE
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CompletedAt,
+		&i.ExpiredAt,
 	)
 	return i, err
 }
@@ -243,6 +249,17 @@ func (q *Queries) CountPrunableUsageEvents(ctx context.Context, arg CountPrunabl
 	return count, err
 }
 
+const countUsageExportCleanupRuns = `-- name: CountUsageExportCleanupRuns :one
+SELECT COUNT(*) FROM usage_export_cleanup_runs WHERE workspace_id = $1::text
+`
+
+func (q *Queries) CountUsageExportCleanupRuns(ctx context.Context, workspaceID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countUsageExportCleanupRuns, workspaceID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countUsagePruneRuns = `-- name: CountUsagePruneRuns :one
 SELECT COUNT(*)
 FROM usage_prune_runs
@@ -254,6 +271,29 @@ func (q *Queries) CountUsagePruneRuns(ctx context.Context, workspaceID string) (
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const expireUsageExportJob = `-- name: ExpireUsageExportJob :execrows
+UPDATE usage_export_jobs
+SET expired_at = $1::text, updated_at = $1::text
+WHERE id = $2::text
+	AND workspace_id = $3::text
+	AND status = 'completed'
+	AND expired_at IS NULL
+`
+
+type ExpireUsageExportJobParams struct {
+	ExpiredAt   string
+	ID          string
+	WorkspaceID string
+}
+
+func (q *Queries) ExpireUsageExportJob(ctx context.Context, arg ExpireUsageExportJobParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, expireUsageExportJob, arg.ExpiredAt, arg.ID, arg.WorkspaceID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const failUsageExportJob = `-- name: FailUsageExportJob :one
@@ -268,7 +308,7 @@ WHERE id = $3::text
 	AND workspace_id = $4::text
 	AND status = 'running'
 	AND claim_token = $5::uuid
-RETURNING id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, claim_token, artifact_path, artifact_size, created_at, updated_at, completed_at
+RETURNING id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, claim_token, artifact_path, artifact_size, created_at, updated_at, completed_at, expired_at
 `
 
 type FailUsageExportJobParams struct {
@@ -295,6 +335,7 @@ type FailUsageExportJobRow struct {
 	CreatedAt    string
 	UpdatedAt    string
 	CompletedAt  sql.NullString
+	ExpiredAt    sql.NullString
 }
 
 func (q *Queries) FailUsageExportJob(ctx context.Context, arg FailUsageExportJobParams) (FailUsageExportJobRow, error) {
@@ -322,12 +363,44 @@ func (q *Queries) FailUsageExportJob(ctx context.Context, arg FailUsageExportJob
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CompletedAt,
+		&i.ExpiredAt,
+	)
+	return i, err
+}
+
+const findLatestUsageExportCleanupRun = `-- name: FindLatestUsageExportCleanupRun :one
+SELECT public_id, expired_before, files_deleted, bytes_reclaimed, failures, created_at
+FROM usage_export_cleanup_runs
+WHERE workspace_id = $1::text
+ORDER BY created_at DESC, id DESC
+LIMIT 1
+`
+
+type FindLatestUsageExportCleanupRunRow struct {
+	PublicID       uuid.UUID
+	ExpiredBefore  string
+	FilesDeleted   int32
+	BytesReclaimed int64
+	Failures       int32
+	CreatedAt      string
+}
+
+func (q *Queries) FindLatestUsageExportCleanupRun(ctx context.Context, workspaceID string) (FindLatestUsageExportCleanupRunRow, error) {
+	row := q.db.QueryRowContext(ctx, findLatestUsageExportCleanupRun, workspaceID)
+	var i FindLatestUsageExportCleanupRunRow
+	err := row.Scan(
+		&i.PublicID,
+		&i.ExpiredBefore,
+		&i.FilesDeleted,
+		&i.BytesReclaimed,
+		&i.Failures,
+		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const findUsageExportJob = `-- name: FindUsageExportJob :one
-SELECT id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, claim_token, artifact_path, artifact_size, created_at, updated_at, completed_at
+SELECT id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, claim_token, artifact_path, artifact_size, created_at, updated_at, completed_at, expired_at
 FROM usage_export_jobs
 WHERE workspace_id = $1::text
 	AND id = $2::text
@@ -354,6 +427,7 @@ type FindUsageExportJobRow struct {
 	CreatedAt    string
 	UpdatedAt    string
 	CompletedAt  sql.NullString
+	ExpiredAt    sql.NullString
 }
 
 func (q *Queries) FindUsageExportJob(ctx context.Context, arg FindUsageExportJobParams) (FindUsageExportJobRow, error) {
@@ -375,12 +449,87 @@ func (q *Queries) FindUsageExportJob(ctx context.Context, arg FindUsageExportJob
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CompletedAt,
+		&i.ExpiredAt,
 	)
 	return i, err
 }
 
+const listExpiredUsageExportJobs = `-- name: ListExpiredUsageExportJobs :many
+SELECT id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, claim_token, artifact_path, artifact_size, created_at, updated_at, completed_at, expired_at
+FROM usage_export_jobs
+WHERE status = 'completed'
+	AND expired_at IS NULL
+	AND completed_at < $1::text
+ORDER BY completed_at ASC, id ASC
+LIMIT $2::int
+`
+
+type ListExpiredUsageExportJobsParams struct {
+	ExpiredBefore string
+	Limit         int32
+}
+
+type ListExpiredUsageExportJobsRow struct {
+	ID           string
+	WorkspaceID  string
+	Kind         string
+	Status       string
+	Format       string
+	QueryJson    string
+	Error        string
+	Attempts     int32
+	LockedUntil  sql.NullString
+	ClaimToken   uuid.NullUUID
+	ArtifactPath string
+	ArtifactSize int64
+	CreatedAt    string
+	UpdatedAt    string
+	CompletedAt  sql.NullString
+	ExpiredAt    sql.NullString
+}
+
+func (q *Queries) ListExpiredUsageExportJobs(ctx context.Context, arg ListExpiredUsageExportJobsParams) ([]ListExpiredUsageExportJobsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listExpiredUsageExportJobs, arg.ExpiredBefore, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListExpiredUsageExportJobsRow{}
+	for rows.Next() {
+		var i ListExpiredUsageExportJobsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.Kind,
+			&i.Status,
+			&i.Format,
+			&i.QueryJson,
+			&i.Error,
+			&i.Attempts,
+			&i.LockedUntil,
+			&i.ClaimToken,
+			&i.ArtifactPath,
+			&i.ArtifactSize,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CompletedAt,
+			&i.ExpiredAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUsageExportJobs = `-- name: ListUsageExportJobs :many
-SELECT id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, claim_token, artifact_path, artifact_size, created_at, updated_at, completed_at
+SELECT id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, claim_token, artifact_path, artifact_size, created_at, updated_at, completed_at, expired_at
 FROM usage_export_jobs
 WHERE workspace_id = $1::text
 	AND ($2::text IS NULL
@@ -413,6 +562,7 @@ type ListUsageExportJobsRow struct {
 	CreatedAt    string
 	UpdatedAt    string
 	CompletedAt  sql.NullString
+	ExpiredAt    sql.NullString
 }
 
 func (q *Queries) ListUsageExportJobs(ctx context.Context, arg ListUsageExportJobsParams) ([]ListUsageExportJobsRow, error) {
@@ -445,6 +595,7 @@ func (q *Queries) ListUsageExportJobs(ctx context.Context, arg ListUsageExportJo
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CompletedAt,
+			&i.ExpiredAt,
 		); err != nil {
 			return nil, err
 		}
@@ -661,7 +812,7 @@ SET status = 'queued',
 WHERE id = $2::text
 	AND workspace_id = $3::text
 	AND status IN ('failed', 'canceled')
-RETURNING id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, claim_token, artifact_path, artifact_size, created_at, updated_at, completed_at
+RETURNING id, workspace_id, kind, status, format, query_json, error, attempts, locked_until, claim_token, artifact_path, artifact_size, created_at, updated_at, completed_at, expired_at
 `
 
 type RetryUsageExportJobParams struct {
@@ -686,6 +837,7 @@ type RetryUsageExportJobRow struct {
 	CreatedAt    string
 	UpdatedAt    string
 	CompletedAt  sql.NullString
+	ExpiredAt    sql.NullString
 }
 
 func (q *Queries) RetryUsageExportJob(ctx context.Context, arg RetryUsageExportJobParams) (RetryUsageExportJobRow, error) {
@@ -707,8 +859,37 @@ func (q *Queries) RetryUsageExportJob(ctx context.Context, arg RetryUsageExportJ
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CompletedAt,
+		&i.ExpiredAt,
 	)
 	return i, err
+}
+
+const saveUsageExportCleanupRun = `-- name: SaveUsageExportCleanupRun :exec
+INSERT INTO usage_export_cleanup_runs (public_id, workspace_id, expired_before, files_deleted, bytes_reclaimed, failures, created_at)
+VALUES ($1::uuid, $2::text, $3::text, $4::int, $5::bigint, $6::int, $7::text)
+`
+
+type SaveUsageExportCleanupRunParams struct {
+	PublicID       uuid.UUID
+	WorkspaceID    string
+	ExpiredBefore  string
+	FilesDeleted   int32
+	BytesReclaimed int64
+	Failures       int32
+	CreatedAt      string
+}
+
+func (q *Queries) SaveUsageExportCleanupRun(ctx context.Context, arg SaveUsageExportCleanupRunParams) error {
+	_, err := q.db.ExecContext(ctx, saveUsageExportCleanupRun,
+		arg.PublicID,
+		arg.WorkspaceID,
+		arg.ExpiredBefore,
+		arg.FilesDeleted,
+		arg.BytesReclaimed,
+		arg.Failures,
+		arg.CreatedAt,
+	)
+	return err
 }
 
 const saveUsageExportJob = `-- name: SaveUsageExportJob :exec

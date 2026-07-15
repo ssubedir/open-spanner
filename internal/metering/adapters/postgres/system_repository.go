@@ -382,6 +382,22 @@ func (r *SystemRepository) FindStats(ctx context.Context) (appsystem.StatsResult
 		}
 		result.LastPruneRun = lastPruneRunFromDomain(run)
 	}
+	cleanupCount, err := queriesFor(ctx, r.queries).CountUsageExportCleanupRuns(ctx, workspaceID)
+	if err != nil {
+		return appsystem.StatsResult{}, err
+	}
+	result.ExportCleanupRuns = int(cleanupCount)
+	cleanup, err := queriesFor(ctx, r.queries).FindLatestUsageExportCleanupRun(ctx, workspaceID)
+	if err == nil {
+		expiredBefore, beforeErr := time.Parse(time.RFC3339Nano, cleanup.ExpiredBefore)
+		createdAt, createdErr := time.Parse(time.RFC3339Nano, cleanup.CreatedAt)
+		if beforeErr != nil || createdErr != nil {
+			return appsystem.StatsResult{}, errors.Join(beforeErr, createdErr)
+		}
+		result.LastExportCleanupRun = appsystem.LastExportCleanupRunResult{ID: cleanup.PublicID.String(), ExpiredBefore: expiredBefore, FilesDeleted: int(cleanup.FilesDeleted), BytesReclaimed: cleanup.BytesReclaimed, Failures: int(cleanup.Failures), CreatedAt: createdAt}
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return appsystem.StatsResult{}, err
+	}
 
 	return result, nil
 }

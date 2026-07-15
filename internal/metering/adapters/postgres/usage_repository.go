@@ -721,7 +721,7 @@ func (r *UsageRepository) FindExportJob(ctx context.Context, id string) (domainu
 		return domainusage.ExportJob{}, err
 	}
 
-	return exportJobFromFields(row.ID, row.WorkspaceID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, exportClaimToken(row.ClaimToken), row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
+	return exportJobFromFields(row.ID, row.WorkspaceID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, exportClaimToken(row.ClaimToken), row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt, row.ExpiredAt)
 }
 
 func (r *UsageRepository) FindExportJobs(ctx context.Context, query domainusage.RunQuery) ([]domainusage.ExportJob, error) {
@@ -742,13 +742,57 @@ func (r *UsageRepository) FindExportJobs(ctx context.Context, query domainusage.
 
 	jobs := make([]domainusage.ExportJob, 0, len(rows))
 	for _, row := range rows {
-		job, err := exportJobFromFields(row.ID, row.WorkspaceID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, exportClaimToken(row.ClaimToken), row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
+		job, err := exportJobFromFields(row.ID, row.WorkspaceID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, exportClaimToken(row.ClaimToken), row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt, row.ExpiredAt)
 		if err != nil {
 			return nil, err
 		}
 		jobs = append(jobs, job)
 	}
 	return jobs, nil
+}
+
+func (r *UsageRepository) FindExpiredExportJobs(ctx context.Context, expiredBefore time.Time, limit int) ([]domainusage.ExportJob, error) {
+	rows, err := queriesFor(ctx, r.queries).ListExpiredUsageExportJobs(ctx, postgresdb.ListExpiredUsageExportJobsParams{ExpiredBefore: formatTime(expiredBefore), Limit: int32(limit)})
+	if err != nil {
+		return nil, err
+	}
+	jobs := make([]domainusage.ExportJob, 0, len(rows))
+	for _, row := range rows {
+		job, err := exportJobFromFields(row.ID, row.WorkspaceID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, exportClaimToken(row.ClaimToken), row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt, row.ExpiredAt)
+		if err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, job)
+	}
+	return jobs, nil
+}
+
+func (r *UsageRepository) ExpireExportJob(ctx context.Context, id string, expiredAt time.Time) (bool, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return false, err
+	}
+	rows, err := queriesFor(ctx, r.queries).ExpireUsageExportJob(ctx, postgresdb.ExpireUsageExportJobParams{ExpiredAt: formatTime(expiredAt), ID: id, WorkspaceID: workspaceID})
+	return rows > 0, err
+}
+
+func (r *UsageRepository) SaveExportCleanupRun(ctx context.Context, run domainusage.ExportCleanupRun) (domainusage.ExportCleanupRun, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return domainusage.ExportCleanupRun{}, err
+	}
+	if workspaceID != run.WorkspaceID() {
+		return domainusage.ExportCleanupRun{}, domain.ErrInvalidInput
+	}
+	publicID, err := uuid.Parse(run.ID())
+	if err != nil {
+		return domainusage.ExportCleanupRun{}, err
+	}
+	err = queriesFor(ctx, r.queries).SaveUsageExportCleanupRun(ctx, postgresdb.SaveUsageExportCleanupRunParams{PublicID: publicID, WorkspaceID: workspaceID, ExpiredBefore: formatTime(run.ExpiredBefore()), FilesDeleted: int32(run.FilesDeleted()), BytesReclaimed: run.BytesReclaimed(), Failures: int32(run.Failures()), CreatedAt: formatTime(run.CreatedAt())})
+	if err != nil {
+		return domainusage.ExportCleanupRun{}, err
+	}
+	return run, nil
 }
 
 func (r *UsageRepository) ClaimExportJob(ctx context.Context, now time.Time, lockedUntil time.Time, claimToken string, maxAttempts int) (domainusage.ExportJob, error) {
@@ -769,7 +813,7 @@ func (r *UsageRepository) ClaimExportJob(ctx context.Context, now time.Time, loc
 		return domainusage.ExportJob{}, err
 	}
 
-	return exportJobFromFields(row.ID, row.WorkspaceID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, exportClaimToken(row.ClaimToken), row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
+	return exportJobFromFields(row.ID, row.WorkspaceID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, exportClaimToken(row.ClaimToken), row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt, row.ExpiredAt)
 }
 
 func (r *UsageRepository) RenewExportJobLease(ctx context.Context, id string, claimToken string, lockedUntil time.Time, now time.Time) error {
@@ -815,7 +859,7 @@ func (r *UsageRepository) CompleteExportJob(ctx context.Context, id string, clai
 		return domainusage.ExportJob{}, err
 	}
 
-	return exportJobFromFields(row.ID, row.WorkspaceID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, exportClaimToken(row.ClaimToken), row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
+	return exportJobFromFields(row.ID, row.WorkspaceID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, exportClaimToken(row.ClaimToken), row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt, row.ExpiredAt)
 }
 
 func (r *UsageRepository) FailExportJob(ctx context.Context, id string, claimToken string, errorMessage string, failedAt time.Time) (domainusage.ExportJob, error) {
@@ -841,7 +885,7 @@ func (r *UsageRepository) FailExportJob(ctx context.Context, id string, claimTok
 		return domainusage.ExportJob{}, err
 	}
 
-	return exportJobFromFields(row.ID, row.WorkspaceID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, exportClaimToken(row.ClaimToken), row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
+	return exportJobFromFields(row.ID, row.WorkspaceID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, exportClaimToken(row.ClaimToken), row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt, row.ExpiredAt)
 }
 
 func (r *UsageRepository) CancelExportJob(ctx context.Context, id string, canceledAt time.Time) (domainusage.ExportJob, error) {
@@ -861,7 +905,7 @@ func (r *UsageRepository) CancelExportJob(ctx context.Context, id string, cancel
 		return domainusage.ExportJob{}, err
 	}
 
-	return exportJobFromFields(row.ID, row.WorkspaceID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, exportClaimToken(row.ClaimToken), row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
+	return exportJobFromFields(row.ID, row.WorkspaceID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, exportClaimToken(row.ClaimToken), row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt, row.ExpiredAt)
 }
 
 func (r *UsageRepository) RetryExportJob(ctx context.Context, id string, retriedAt time.Time) (domainusage.ExportJob, error) {
@@ -881,7 +925,7 @@ func (r *UsageRepository) RetryExportJob(ctx context.Context, id string, retried
 		return domainusage.ExportJob{}, err
 	}
 
-	return exportJobFromFields(row.ID, row.WorkspaceID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, exportClaimToken(row.ClaimToken), row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt)
+	return exportJobFromFields(row.ID, row.WorkspaceID, row.Kind, row.Status, row.Format, row.QueryJson, row.Error, int(row.Attempts), row.LockedUntil, exportClaimToken(row.ClaimToken), row.ArtifactPath, row.ArtifactSize, row.CreatedAt, row.UpdatedAt, row.CompletedAt, row.ExpiredAt)
 }
 
 func (r *UsageRepository) findByIdempotencyKey(ctx context.Context, key string) (domainusage.Event, error) {
@@ -991,7 +1035,7 @@ func ingestionRunFromFields(id string, kind string, accepted int32, duplicates i
 	return domainusage.NewIngestionRun(id, domainusage.IngestionKind(kind), int(accepted), int(duplicates), int(failed), createdAt)
 }
 
-func exportJobFromFields(id string, workspaceID string, kind string, status string, format string, queryJSON string, errorMessage string, attempts int, lockedUntilText sql.NullString, claimToken string, artifactPath string, artifactSize int64, createdAtText string, updatedAtText string, completedAtText sql.NullString) (domainusage.ExportJob, error) {
+func exportJobFromFields(id string, workspaceID string, kind string, status string, format string, queryJSON string, errorMessage string, attempts int, lockedUntilText sql.NullString, claimToken string, artifactPath string, artifactSize int64, createdAtText string, updatedAtText string, completedAtText sql.NullString, expiredAtText sql.NullString) (domainusage.ExportJob, error) {
 	createdAt, err := time.Parse(time.RFC3339Nano, createdAtText)
 	if err != nil {
 		return domainusage.ExportJob{}, err
@@ -1014,6 +1058,13 @@ func exportJobFromFields(id string, workspaceID string, kind string, status stri
 			return domainusage.ExportJob{}, err
 		}
 	}
+	expiredAt := time.Time{}
+	if expiredAtText.Valid {
+		expiredAt, err = time.Parse(time.RFC3339Nano, expiredAtText.String)
+		if err != nil {
+			return domainusage.ExportJob{}, err
+		}
+	}
 
 	return domainusage.NewExportJob(
 		id,
@@ -1031,6 +1082,7 @@ func exportJobFromFields(id string, workspaceID string, kind string, status stri
 		createdAt,
 		updatedAt,
 		completedAt,
+		expiredAt,
 	)
 }
 

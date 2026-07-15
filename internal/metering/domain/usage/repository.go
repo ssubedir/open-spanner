@@ -31,4 +31,7 @@ type Repository interface {
 	FailExportJob(ctx context.Context, id string, claimToken string, errorMessage string, failedAt time.Time) (ExportJob, error)
 	CancelExportJob(ctx context.Context, id string, canceledAt time.Time) (ExportJob, error)
 	RetryExportJob(ctx context.Context, id string, retriedAt time.Time) (ExportJob, error)
+	FindExpiredExportJobs(ctx context.Context, expiredBefore time.Time, limit int) ([]ExportJob, error)
+	ExpireExportJob(ctx context.Context, id string, expiredAt time.Time) (bool, error)
+	SaveExportCleanupRun(ctx context.Context, run ExportCleanupRun) (ExportCleanupRun, error)
 }

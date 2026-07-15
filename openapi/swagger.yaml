@@ -1104,6 +1104,21 @@ definitions:
       id:
         type: string
     type: object
+  internal_metering_adapters_http_system.LastExportCleanupRunResponse:
+    properties:
+      bytes_reclaimed:
+        type: integer
+      created_at:
+        type: string
+      expired_before:
+        type: string
+      failures:
+        type: integer
+      files_deleted:
+        type: integer
+      id:
+        type: string
+    type: object
   internal_metering_adapters_http_system.LastPruneRunResponse:
     properties:
       created_at:
@@ -1257,8 +1272,12 @@ definitions:
         type: integer
       decision_prune_runs:
         type: integer
+      export_cleanup_runs:
+        type: integer
       last_decision_prune_run:
         $ref: '#/definitions/internal_metering_adapters_http_system.LastDecisionPruneRunResponse'
+      last_export_cleanup_run:
+        $ref: '#/definitions/internal_metering_adapters_http_system.LastExportCleanupRunResponse'
       last_prune_run:
         $ref: '#/definitions/internal_metering_adapters_http_system.LastPruneRunResponse'
       last_reconciliation_run:
@@ -1584,6 +1603,8 @@ definitions:
       download_url:
         type: string
       error:
+        type: string
+      expired_at:
         type: string
       format:
         type: string

@@ -2,6 +2,8 @@ package export
 
 import (
 	"context"
+	"io"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -106,3 +108,61 @@ func TestWorkerStopsWhenLeaseIsLost(t *testing.T) {
 }
 
 var _ Service = (*leaseTestService)(nil)
+
+type cleanupTestService struct {
+	leaseTestService
+	jobs []appusage.ExportJobResult
+	mark bool
+	runs []appusage.ExportCleanupRunCommand
+}
+
+func (s *cleanupTestService) ListExpiredExportJobs(context.Context, time.Time, int) ([]appusage.ExportJobResult, error) {
+	return s.jobs, nil
+}
+
+func (s *cleanupTestService) ExpireExportJob(context.Context, string) (bool, error) {
+	return s.mark, nil
+}
+
+func (s *cleanupTestService) RecordExportCleanupRun(_ context.Context, cmd appusage.ExportCleanupRunCommand) (appusage.ExportCleanupRunResult, error) {
+	s.runs = append(s.runs, cmd)
+	return appusage.ExportCleanupRunResult{}, nil
+}
+
+func TestCleanupRemovesArtifactMarksJobAndRecordsMetrics(t *testing.T) {
+	store := fileexport.NewStore(t.TempDir())
+	artifact, err := store.Write(context.Background(), "job-1.csv", func(writer io.Writer) error {
+		_, err := io.WriteString(writer, "some export data")
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &cleanupTestService{jobs: []appusage.ExportJobResult{{ID: "job-1", WorkspaceID: "workspace-1", ArtifactPath: artifact.Name, ArtifactSize: artifact.Size}}, mark: true}
+	worker := NewWorker(service, store, time.Second, time.Minute, 3, func(string, ...any) {}).WithCleanup(time.Hour, time.Hour, 10)
+	expired, err := worker.CleanupOnce(context.Background())
+	if err != nil || expired != 1 {
+		t.Fatalf("CleanupOnce() expired=%d err=%v", expired, err)
+	}
+	if _, _, err := store.Open(artifact.Name); !os.IsNotExist(err) {
+		t.Fatalf("artifact open error=%v, want not exist", err)
+	}
+	if len(service.runs) != 1 || service.runs[0].FilesDeleted != 1 || service.runs[0].BytesReclaimed != artifact.Size || service.runs[0].Failures != 0 {
+		t.Fatalf("cleanup runs=%#v", service.runs)
+	}
+}
+
+func TestCleanupDoesNotDoubleCountConcurrentlyExpiredJob(t *testing.T) {
+	store := fileexport.NewStore(t.TempDir())
+	service := &cleanupTestService{jobs: []appusage.ExportJobResult{{ID: "job-1", WorkspaceID: "workspace-1", ArtifactPath: "missing.csv", ArtifactSize: 42}}, mark: false}
+	worker := NewWorker(service, store, time.Second, time.Minute, 3, func(string, ...any) {}).WithCleanup(time.Hour, time.Hour, 10)
+	expired, err := worker.CleanupOnce(context.Background())
+	if err != nil || expired != 0 {
+		t.Fatalf("CleanupOnce() expired=%d err=%v", expired, err)
+	}
+	if len(service.runs) != 1 || service.runs[0].FilesDeleted != 0 || service.runs[0].BytesReclaimed != 0 || service.runs[0].Failures != 0 {
+		t.Fatalf("cleanup runs=%#v", service.runs)
+	}
+}
+
+var _ CleanupService = (*cleanupTestService)(nil)

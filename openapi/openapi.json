@@ -165,6 +165,62 @@
                 }
             }
         },
+        "/v1/alerts/delivery-jobs": {
+            "get": {
+                "tags": [
+                    "alerts"
+                ],
+                "summary": "List alert delivery jobs",
+                "operationId": "listAlertDeliveryJobs",
+                "parameters": [
+                    {
+                        "description": "Result limit",
+                        "name": "limit",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/internal_metering_adapters_http_alert.DeliveryJobListResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/alerts/delivery-jobs/{id}/retry": {
+            "post": {
+                "tags": [
+                    "alerts"
+                ],
+                "summary": "Retry alert delivery job",
+                "operationId": "retryAlertDeliveryJob",
+                "parameters": [
+                    {
+                        "description": "Delivery job ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
         "/v1/alerts/destinations": {
             "get": {
                 "tags": [
@@ -5042,6 +5098,52 @@
                     }
                 }
             },
+            "internal_metering_adapters_http_alert.DeliveryJobListResponse": {
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/internal_metering_adapters_http_alert.DeliveryJobResponse"
+                        }
+                    }
+                }
+            },
+            "internal_metering_adapters_http_alert.DeliveryJobResponse": {
+                "type": "object",
+                "properties": {
+                    "attempts": {
+                        "type": "integer"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "delivered_at": {
+                        "type": "string"
+                    },
+                    "destination_id": {
+                        "type": "string"
+                    },
+                    "event_id": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "last_error": {
+                        "type": "string"
+                    },
+                    "next_attempt_at": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "updated_at": {
+                        "type": "string"
+                    }
+                }
+            },
             "internal_metering_adapters_http_alert.DeliveryResponse": {
                 "type": "object",
                 "properties": {
@@ -6668,6 +6770,29 @@
                     }
                 }
             },
+            "internal_metering_adapters_http_system.LastExportCleanupRunResponse": {
+                "type": "object",
+                "properties": {
+                    "bytes_reclaimed": {
+                        "type": "integer"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "expired_before": {
+                        "type": "string"
+                    },
+                    "failures": {
+                        "type": "integer"
+                    },
+                    "files_deleted": {
+                        "type": "integer"
+                    },
+                    "id": {
+                        "type": "string"
+                    }
+                }
+            },
             "internal_metering_adapters_http_system.LastPruneRunResponse": {
                 "type": "object",
                 "properties": {
@@ -6902,8 +7027,14 @@
                     "decision_prune_runs": {
                         "type": "integer"
                     },
+                    "export_cleanup_runs": {
+                        "type": "integer"
+                    },
                     "last_decision_prune_run": {
                         "$ref": "#/components/schemas/internal_metering_adapters_http_system.LastDecisionPruneRunResponse"
+                    },
+                    "last_export_cleanup_run": {
+                        "$ref": "#/components/schemas/internal_metering_adapters_http_system.LastExportCleanupRunResponse"
                     },
                     "last_prune_run": {
                         "$ref": "#/components/schemas/internal_metering_adapters_http_system.LastPruneRunResponse"
@@ -7401,6 +7532,9 @@
                         "type": "string"
                     },
                     "error": {
+                        "type": "string"
+                    },
+                    "expired_at": {
                         "type": "string"
                     },
                     "format": {

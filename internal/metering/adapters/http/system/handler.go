@@ -340,6 +340,10 @@ func statsResponseFromResult(stats appsystem.StatsResult) StatsResponse {
 		}
 	}
 	var lastDecisionPruneRun *LastDecisionPruneRunResponse
+	var lastExportCleanupRun *LastExportCleanupRunResponse
+	if stats.LastExportCleanupRun.ID != "" {
+		lastExportCleanupRun = &LastExportCleanupRunResponse{ID: stats.LastExportCleanupRun.ID, ExpiredBefore: stats.LastExportCleanupRun.ExpiredBefore.Format(time.RFC3339), FilesDeleted: stats.LastExportCleanupRun.FilesDeleted, BytesReclaimed: stats.LastExportCleanupRun.BytesReclaimed, Failures: stats.LastExportCleanupRun.Failures, CreatedAt: stats.LastExportCleanupRun.CreatedAt.Format(time.RFC3339)}
+	}
 	if stats.LastDecisionPruneRun.ID != "" {
 		lastDecisionPruneRun = &LastDecisionPruneRunResponse{
 			ID: stats.LastDecisionPruneRun.ID, Before: stats.LastDecisionPruneRun.Before.Format(time.RFC3339),
@@ -378,6 +382,8 @@ func statsResponseFromResult(stats appsystem.StatsResult) StatsResponse {
 		UsageEvents:           stats.UsageEvents,
 		PruneRuns:             stats.PruneRuns,
 		LastPruneRun:          lastPruneRun,
+		ExportCleanupRuns:     stats.ExportCleanupRuns,
+		LastExportCleanupRun:  lastExportCleanupRun,
 		ConsumptionDecisions:  stats.ConsumptionDecisions,
 		DecisionPruneRuns:     stats.DecisionPruneRuns,
 		LastDecisionPruneRun:  lastDecisionPruneRun,

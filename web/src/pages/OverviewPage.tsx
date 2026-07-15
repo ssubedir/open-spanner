@@ -11,6 +11,7 @@ import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { formatDate, formatNumber } from '../lib/format'
+import { formatBytes } from '../lib/export-jobs'
 import { useInitialLoad } from '../lib/hooks'
 
 export function OverviewPage() {
@@ -294,8 +295,8 @@ function WorkspaceHealthCard({ latestIngestion, recentAccepted, recentFailures, 
         <OverviewStatusItem
           icon={<Clock />}
           label="Retention"
-          value={stats?.last_decision_prune_run ? `${formatDate(stats.last_decision_prune_run.created_at)} · ${formatNumber(stats.consumption_decisions)} decisions` : stats?.last_prune_run ? formatDate(stats.last_prune_run.created_at) : 'No cleanup runs yet'}
-          variant={stats?.last_decision_prune_run || stats?.last_prune_run ? 'success' : 'muted'}
+          value={stats?.last_export_cleanup_run ? `${formatDate(stats.last_export_cleanup_run.created_at)} · ${formatBytes(stats.last_export_cleanup_run.bytes_reclaimed)} reclaimed` : stats?.last_decision_prune_run ? `${formatDate(stats.last_decision_prune_run.created_at)} · ${formatNumber(stats.consumption_decisions)} decisions` : stats?.last_prune_run ? formatDate(stats.last_prune_run.created_at) : 'No cleanup runs yet'}
+          variant={stats?.last_export_cleanup_run?.failures ? 'warning' : stats?.last_export_cleanup_run || stats?.last_decision_prune_run || stats?.last_prune_run ? 'success' : 'muted'}
         />
         <OverviewStatusItem
           icon={<FileArchive />}

@@ -2,7 +2,7 @@ export type SystemStats = {
   meters: number
   usage_events: number
   prune_runs: number
-  last_prune_run: null | {
+	last_prune_run: null | {
     id: string
     deleted: number
     dry_run: boolean
@@ -15,6 +15,15 @@ export type SystemStats = {
 		before: string
 		deleted: number
 		dry_run: boolean
+		created_at: string
+	}
+	export_cleanup_runs: number
+	last_export_cleanup_run: null | {
+		id: string
+		expired_before: string
+		files_deleted: number
+		bytes_reclaimed: number
+		failures: number
 		created_at: string
 	}
 	last_reconciliation_run: ReconciliationRun | null
@@ -571,6 +580,7 @@ export type UsageExportJob = {
   created_at: string
   updated_at: string
   completed_at?: string
+  expired_at?: string
 }
 
 export type UsageExportJobList = {
