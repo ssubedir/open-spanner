@@ -12,6 +12,7 @@ import (
 type reconciliationRepository struct {
 	heartbeats  []WorkerHeartbeat
 	diagnostics []WorkerDiagnostics
+	deadLetters []WorkerDeadLetter
 	decisions   []DecisionReconciliationRow
 	counters    []CounterReconciliationRow
 	events      []ReconciliationEvent
@@ -29,6 +30,30 @@ func (r *reconciliationRepository) ListWorkerHeartbeats(context.Context) ([]Work
 }
 func (r *reconciliationRepository) ListWorkerDiagnostics(context.Context, time.Time) ([]WorkerDiagnostics, error) {
 	return r.diagnostics, nil
+}
+func (r *reconciliationRepository) ListWorkerDeadLetters(context.Context, int) ([]WorkerDeadLetter, error) {
+	return r.deadLetters, nil
+}
+func (r *reconciliationRepository) GetWorkerDeadLetter(_ context.Context, id string) (WorkerDeadLetter, error) {
+	for _, item := range r.deadLetters {
+		if item.ID == id {
+			return item, nil
+		}
+	}
+	return WorkerDeadLetter{}, domain.ErrNotFound
+}
+func (r *reconciliationRepository) EnqueueWorkerDeadLetter(context.Context, WorkerDeadLetter, time.Time) (bool, error) {
+	return true, nil
+}
+func (r *reconciliationRepository) MarkWorkerDeadLetterRequeued(_ context.Context, id string, at time.Time) (bool, error) {
+	for index := range r.deadLetters {
+		if r.deadLetters[index].ID == id && r.deadLetters[index].Status == "dead_letter" {
+			r.deadLetters[index].Status = "requeued"
+			r.deadLetters[index].RequeuedAt = at
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func TestWorkerHealthDegradesForOldBacklogAndFailures(t *testing.T) {
@@ -56,6 +81,21 @@ func TestWorkerHealthStaleTakesPriorityOverDiagnostics(t *testing.T) {
 	result := workerHealth(map[string]bool{}, []WorkerHeartbeat{{Name: "export", LastHeartbeatAt: now.Add(-time.Minute)}}, []WorkerDiagnostics{{Name: "export", FailedJobs: 1}}, now, 30*time.Second, 5*time.Minute)
 	if result[0].Status != "stale" {
 		t.Fatalf("expected stale status, got %q", result[0].Status)
+	}
+}
+
+func TestRetryWorkerDeadLetterPreservesAuditAndRejectsDuplicate(t *testing.T) {
+	repo := reconciliationRepository{deadLetters: []WorkerDeadLetter{{ID: "00000000-0000-4000-8000-000000000001", WorkerName: "alert", Status: "dead_letter"}}}
+	service := NewService(&repo, directTransactor{})
+
+	if err := service.RetryWorkerDeadLetter(context.Background(), "00000000-0000-4000-8000-000000000001"); err != nil {
+		t.Fatalf("retry worker dead letter: %v", err)
+	}
+	if repo.deadLetters[0].Status != "requeued" || repo.deadLetters[0].RequeuedAt.IsZero() {
+		t.Fatalf("dead-letter audit = %+v, want requeued timestamp", repo.deadLetters[0])
+	}
+	if err := service.RetryWorkerDeadLetter(context.Background(), "00000000-0000-4000-8000-000000000001"); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("second retry error = %v, want conflict", err)
 	}
 }
 

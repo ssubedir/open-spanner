@@ -10,6 +10,8 @@ func (h *Handler) RegisterRoutes(router chi.Router, authorizer access.Authorizer
 	routes := access.NewRouter(router, authorizer)
 
 	routes.Get("/system/stats", h.Stats, access.SystemRead(systemResource))
+	routes.Get("/system/workers/dead-letters", h.ListWorkerDeadLetters, access.SystemRead(systemResource))
+	routes.Post("/system/workers/dead-letters/{id}/retry", h.RetryWorkerDeadLetter, access.SystemWrite(systemResource))
 	routes.Get("/system/reconciliation", h.Reconcile, access.SystemRead(systemResource))
 	routes.Get("/system/reconciliation/runs", h.ListReconciliationRuns, access.SystemRead(systemResource))
 	routes.Get("/system/reconciliation/notifications", h.ListReconciliationNotifications, access.SystemRead(systemResource))

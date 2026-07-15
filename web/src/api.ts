@@ -40,6 +40,20 @@ export type SystemStats = {
 	}>
 }
 
+export type WorkerDeadLetter = {
+	id: string
+	worker_name: 'alert' | 'entitlement'
+	job_key: string
+	rule_id?: string
+	subject?: string
+	meter?: string
+	attempts: number
+	last_error: string
+	status: 'dead_letter' | 'requeued'
+	created_at: string
+	requeued_at?: string
+}
+
 export type ConsumptionDecision = {
 	idempotency_key: string
 	accepted: boolean
@@ -1049,6 +1063,14 @@ export async function listAlertEvents(limit = 25, cursor = '') {
 
 export async function getSystemStats() {
   return request<SystemStats>('/v1/system/stats')
+}
+
+export async function listWorkerDeadLetters(limit = 50) {
+	return request<{ items: WorkerDeadLetter[] }>(`/v1/system/workers/dead-letters?limit=${limit}`)
+}
+
+export async function retryWorkerDeadLetter(id: string) {
+	return request<void>(`/v1/system/workers/dead-letters/${encodeURIComponent(id)}/retry`, { method: 'POST' })
 }
 
 export async function reconcileQuotaRecords(limit = 100, lookbackHours = 24) {

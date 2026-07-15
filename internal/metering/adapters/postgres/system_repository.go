@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
+
 	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/postgres/postgresdb"
 	appsystem "github.com/ssubedir/open-spanner/internal/metering/app/system"
@@ -64,6 +66,79 @@ func (r *SystemRepository) ListWorkerDiagnostics(ctx context.Context, now time.T
 		})
 	}
 	return items, nil
+}
+
+func (r *SystemRepository) ListWorkerDeadLetters(ctx context.Context, limit int) ([]appsystem.WorkerDeadLetter, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := queriesFor(ctx, r.queries).ListWorkerDeadLetters(ctx, postgresdb.ListWorkerDeadLettersParams{WorkspaceID: workspaceID, Limit: int32(limit)})
+	if err != nil {
+		return nil, err
+	}
+	items := make([]appsystem.WorkerDeadLetter, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, postgresWorkerDeadLetter(row.PublicID.String(), row.WorkerName, row.JobKey, row.RuleID, row.Subject, row.MeterName, row.Attempts, row.LastError, row.Status, row.CreatedAt, row.RequeuedAt))
+	}
+	return items, nil
+}
+
+func (r *SystemRepository) GetWorkerDeadLetter(ctx context.Context, id string) (appsystem.WorkerDeadLetter, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return appsystem.WorkerDeadLetter{}, err
+	}
+	publicID, err := uuid.Parse(id)
+	if err != nil {
+		return appsystem.WorkerDeadLetter{}, domain.ErrInvalidInput
+	}
+	row, err := queriesFor(ctx, r.queries).GetWorkerDeadLetter(ctx, postgresdb.GetWorkerDeadLetterParams{WorkspaceID: workspaceID, PublicID: publicID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return appsystem.WorkerDeadLetter{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return appsystem.WorkerDeadLetter{}, err
+	}
+	return postgresWorkerDeadLetter(row.PublicID.String(), row.WorkerName, row.JobKey, row.RuleID, row.Subject, row.MeterName, row.Attempts, row.LastError, row.Status, row.CreatedAt, row.RequeuedAt), nil
+}
+
+func (r *SystemRepository) EnqueueWorkerDeadLetter(ctx context.Context, deadLetter appsystem.WorkerDeadLetter, now time.Time) (bool, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return false, err
+	}
+	var rows int64
+	publicID, err := uuid.Parse(deadLetter.ID)
+	if err != nil {
+		return false, domain.ErrInvalidInput
+	}
+	switch deadLetter.WorkerName {
+	case "alert":
+		rows, err = queriesFor(ctx, r.queries).EnqueueAlertWorkerDeadLetter(ctx, postgresdb.EnqueueAlertWorkerDeadLetterParams{Now: formatTime(now), WorkspaceID: workspaceID, PublicID: publicID})
+	case "entitlement":
+		rows, err = queriesFor(ctx, r.queries).EnqueueEntitlementWorkerDeadLetter(ctx, postgresdb.EnqueueEntitlementWorkerDeadLetterParams{Now: formatTime(now), WorkspaceID: workspaceID, PublicID: publicID})
+	default:
+		return false, domain.ErrInvalidInput
+	}
+	return rows == 1, err
+}
+
+func (r *SystemRepository) MarkWorkerDeadLetterRequeued(ctx context.Context, id string, now time.Time) (bool, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return false, err
+	}
+	publicID, err := uuid.Parse(id)
+	if err != nil {
+		return false, domain.ErrInvalidInput
+	}
+	rows, err := queriesFor(ctx, r.queries).MarkWorkerDeadLetterRequeued(ctx, postgresdb.MarkWorkerDeadLetterRequeuedParams{Now: now, WorkspaceID: workspaceID, PublicID: publicID})
+	return rows == 1, err
+}
+
+func postgresWorkerDeadLetter(id, workerName, jobKey, ruleID, subject, meterName string, attempts int32, lastError, status string, createdAt time.Time, requeuedAt sql.NullTime) appsystem.WorkerDeadLetter {
+	return appsystem.WorkerDeadLetter{ID: id, WorkerName: workerName, JobKey: jobKey, RuleID: ruleID, Subject: subject, MeterName: meterName, Attempts: int(attempts), LastError: lastError, Status: status, CreatedAt: createdAt, RequeuedAt: requeuedAt.Time}
 }
 
 func diagnosticTime(value any) (time.Time, error) {

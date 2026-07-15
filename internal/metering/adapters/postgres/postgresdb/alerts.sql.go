@@ -9,6 +9,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 const claimAlertEvaluationJob = `-- name: ClaimAlertEvaluationJob :one
@@ -786,6 +789,36 @@ func (q *Queries) SaveAlertState(ctx context.Context, arg SaveAlertStateParams) 
 		arg.Message,
 		arg.EvaluatedAt,
 		arg.UpdatedAt,
+	)
+	return err
+}
+
+const saveAlertWorkerDeadLetter = `-- name: SaveAlertWorkerDeadLetter :exec
+INSERT INTO system_worker_dead_letters (
+	public_id, workspace_id, worker_name, job_key, rule_id, attempts, last_error, status, created_at
+) VALUES (
+	$1::uuid, $2::text, 'alert', $3::text, $3::text,
+	$4::int, $5::text, 'dead_letter', $6::timestamptz
+)
+`
+
+type SaveAlertWorkerDeadLetterParams struct {
+	PublicID    uuid.UUID
+	WorkspaceID string
+	RuleID      string
+	Attempts    int32
+	LastError   string
+	CreatedAt   time.Time
+}
+
+func (q *Queries) SaveAlertWorkerDeadLetter(ctx context.Context, arg SaveAlertWorkerDeadLetterParams) error {
+	_, err := q.db.ExecContext(ctx, saveAlertWorkerDeadLetter,
+		arg.PublicID,
+		arg.WorkspaceID,
+		arg.RuleID,
+		arg.Attempts,
+		arg.LastError,
+		arg.CreatedAt,
 	)
 	return err
 }

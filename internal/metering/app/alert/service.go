@@ -102,6 +102,7 @@ type Repository interface {
 	ClaimEvaluationJob(ctx context.Context, now time.Time, lockedUntil time.Time, maxAttempts int) (EvaluationJob, error)
 	CompleteEvaluationJob(ctx context.Context, ruleID string) error
 	RequeueEvaluationJob(ctx context.Context, ruleID string, runAfter time.Time, now time.Time) error
+	SaveEvaluationDeadLetter(ctx context.Context, deadLetter EvaluationDeadLetter) error
 	UpdateRuleNextEvaluation(ctx context.Context, id string, nextEvaluateAt time.Time, updatedAt time.Time) error
 }
 
@@ -127,6 +128,7 @@ type Service interface {
 	ClaimEvaluationJob(ctx context.Context, cmd ClaimCommand) (EvaluationJobResult, bool, error)
 	CompleteEvaluationJob(ctx context.Context, cmd CompleteCommand) error
 	FailEvaluationJob(ctx context.Context, cmd FailCommand) error
+	DeadLetterEvaluationJob(ctx context.Context, cmd DeadLetterCommand) error
 	RecordDelivery(ctx context.Context, cmd DeliveryCommand) (DeliveryResult, error)
 	Evaluate(ctx context.Context, cmd EvaluateCommand) (EvaluationResult, error)
 }
@@ -348,6 +350,20 @@ type FailCommand struct {
 	RetryAfter  time.Duration
 	MaxAttempts int
 	Error       string
+}
+
+type DeadLetterCommand struct {
+	RuleID   string
+	Attempts int
+	Error    string
+}
+
+type EvaluationDeadLetter struct {
+	ID        string
+	RuleID    string
+	Attempts  int
+	Error     string
+	CreatedAt time.Time
 }
 
 type EvaluateCommand struct {
@@ -819,6 +835,22 @@ func (s *service) FailEvaluationJob(ctx context.Context, cmd FailCommand) error 
 	}
 	now := s.now()
 	return s.repo.RequeueEvaluationJob(ctx, id, now.Add(cmd.RetryAfter), now)
+}
+
+func (s *service) DeadLetterEvaluationJob(ctx context.Context, cmd DeadLetterCommand) error {
+	id, err := normalizeRequired(cmd.RuleID, "alert rule id is required")
+	if err != nil {
+		return err
+	}
+	if cmd.Attempts < 1 || strings.TrimSpace(cmd.Error) == "" {
+		return domain.ErrInvalidInput
+	}
+	return s.transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
+		if err := s.repo.SaveEvaluationDeadLetter(txCtx, EvaluationDeadLetter{ID: uuid.NewString(), RuleID: id, Attempts: cmd.Attempts, Error: cmd.Error, CreatedAt: s.now()}); err != nil {
+			return err
+		}
+		return s.repo.CompleteEvaluationJob(txCtx, id)
+	})
 }
 
 func (s *service) RecordDelivery(ctx context.Context, cmd DeliveryCommand) (DeliveryResult, error) {

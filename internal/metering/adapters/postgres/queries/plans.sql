@@ -255,6 +255,14 @@ WHERE workspace_id = sqlc.arg('workspace_id')::text
 	AND subject = sqlc.arg('subject')::text
 	AND meter_name = sqlc.arg('meter_name')::text;
 
+-- name: SaveEntitlementWorkerDeadLetter :exec
+INSERT INTO system_worker_dead_letters (
+	public_id, workspace_id, worker_name, job_key, subject, meter_name, attempts, last_error, status, created_at
+) VALUES (
+	sqlc.arg('public_id')::uuid, sqlc.arg('workspace_id')::text, 'entitlement', sqlc.arg('subject')::text || ':' || sqlc.arg('meter_name')::text,
+	sqlc.arg('subject')::text, sqlc.arg('meter_name')::text, sqlc.arg('attempts')::int, sqlc.arg('last_error')::text, 'dead_letter', sqlc.arg('created_at')::timestamptz
+);
+
 -- name: ListEntitlementStates :many
 SELECT workspace_id, subject, meter_name, plan_id, plan_name, period, state, current_value, limit_value, remaining_value, warning_percent, message, evaluated_at, updated_at
 FROM entitlement_states

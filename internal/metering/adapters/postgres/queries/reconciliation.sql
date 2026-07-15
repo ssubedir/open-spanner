@@ -258,19 +258,19 @@ UNION ALL
 SELECT 'alert',
 	COUNT(*) FILTER (WHERE locked_until IS NULL OR locked_until::timestamptz < sqlc.arg('now')::timestamptz),
 	COUNT(*) FILTER (WHERE locked_until::timestamptz >= sqlc.arg('now')::timestamptz),
-	0,
+	(SELECT COUNT(*) FROM system_worker_dead_letters WHERE worker_name = 'alert' AND status = 'dead_letter'),
 	COALESCE(MIN(created_at) FILTER (WHERE locked_until IS NULL OR locked_until::timestamptz < sqlc.arg('now')::timestamptz), ''),
 	COALESCE((SELECT MAX(evaluated_at) FROM alert_states), ''),
-	COALESCE((SELECT MAX(attempted_at) FROM alert_deliveries WHERE status = 'failed'), '')
+	COALESCE((SELECT MAX(created_at)::text FROM system_worker_dead_letters WHERE worker_name = 'alert' AND status = 'dead_letter'), '')
 FROM alert_evaluation_jobs
 UNION ALL
 SELECT 'entitlement',
 	COUNT(*) FILTER (WHERE locked_until IS NULL OR locked_until::timestamptz < sqlc.arg('now')::timestamptz),
 	COUNT(*) FILTER (WHERE locked_until::timestamptz >= sqlc.arg('now')::timestamptz),
-	0,
+	(SELECT COUNT(*) FROM system_worker_dead_letters WHERE worker_name = 'entitlement' AND status = 'dead_letter'),
 	COALESCE(MIN(created_at) FILTER (WHERE locked_until IS NULL OR locked_until::timestamptz < sqlc.arg('now')::timestamptz), ''),
 	COALESCE((SELECT MAX(evaluated_at) FROM entitlement_states), ''),
-	''
+	COALESCE((SELECT MAX(created_at)::text FROM system_worker_dead_letters WHERE worker_name = 'entitlement' AND status = 'dead_letter'), '')
 FROM entitlement_check_jobs
 UNION ALL
 SELECT 'retention', 0, 0, 0, '',
@@ -293,3 +293,38 @@ SELECT 'reconciliation',
 		COALESCE((SELECT MAX(created_at)::text FROM reconciliation_notification_attempts WHERE status = 'failed'), '')
 	)
 FROM reconciliation_notifications;
+
+-- name: ListWorkerDeadLetters :many
+SELECT public_id, worker_name, job_key, rule_id, subject, meter_name, attempts, last_error, status, created_at, requeued_at
+FROM system_worker_dead_letters
+WHERE workspace_id = sqlc.arg('workspace_id')::text
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg('limit')::int;
+
+-- name: GetWorkerDeadLetter :one
+SELECT public_id, worker_name, job_key, rule_id, subject, meter_name, attempts, last_error, status, created_at, requeued_at
+FROM system_worker_dead_letters
+WHERE workspace_id = sqlc.arg('workspace_id')::text AND public_id = sqlc.arg('public_id')::uuid;
+
+-- name: EnqueueAlertWorkerDeadLetter :execrows
+INSERT INTO alert_evaluation_jobs (rule_id, run_after, locked_until, attempts, created_at, updated_at)
+SELECT d.rule_id, sqlc.arg('now')::text, NULL, 0, sqlc.arg('now')::text, sqlc.arg('now')::text
+FROM system_worker_dead_letters d
+JOIN alert_rules r ON r.id = d.rule_id AND r.workspace_id = d.workspace_id
+WHERE d.workspace_id = sqlc.arg('workspace_id')::text AND d.public_id = sqlc.arg('public_id')::uuid
+	AND d.worker_name = 'alert' AND d.status = 'dead_letter'
+ON CONFLICT(rule_id) DO UPDATE SET run_after = EXCLUDED.run_after, locked_until = NULL, attempts = 0, updated_at = EXCLUDED.updated_at;
+
+-- name: EnqueueEntitlementWorkerDeadLetter :execrows
+INSERT INTO entitlement_check_jobs (workspace_id, subject, meter_name, run_after, locked_until, attempts, created_at, updated_at)
+SELECT d.workspace_id, d.subject, d.meter_name, sqlc.arg('now')::text, NULL, 0, sqlc.arg('now')::text, sqlc.arg('now')::text
+FROM system_worker_dead_letters d
+JOIN meters m ON m.workspace_id = d.workspace_id AND m.name = d.meter_name
+WHERE d.workspace_id = sqlc.arg('workspace_id')::text AND d.public_id = sqlc.arg('public_id')::uuid
+	AND d.worker_name = 'entitlement' AND d.status = 'dead_letter'
+ON CONFLICT(workspace_id, subject, meter_name) DO UPDATE SET run_after = EXCLUDED.run_after, locked_until = NULL, attempts = 0, updated_at = EXCLUDED.updated_at;
+
+-- name: MarkWorkerDeadLetterRequeued :execrows
+UPDATE system_worker_dead_letters
+SET status = 'requeued', requeued_at = sqlc.arg('now')::timestamptz
+WHERE workspace_id = sqlc.arg('workspace_id')::text AND public_id = sqlc.arg('public_id')::uuid AND status = 'dead_letter';

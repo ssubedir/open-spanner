@@ -1246,6 +1246,38 @@ definitions:
           $ref: '#/definitions/internal_metering_adapters_http_system.WorkerHealthResponse'
         type: array
     type: object
+  internal_metering_adapters_http_system.WorkerDeadLetterListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_system.WorkerDeadLetterResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_system.WorkerDeadLetterResponse:
+    properties:
+      attempts:
+        type: integer
+      created_at:
+        type: string
+      id:
+        type: string
+      job_key:
+        type: string
+      last_error:
+        type: string
+      meter:
+        type: string
+      requeued_at:
+        type: string
+      rule_id:
+        type: string
+      status:
+        type: string
+      subject:
+        type: string
+      worker_name:
+        type: string
+    type: object
   internal_metering_adapters_http_system.WorkerHealthResponse:
     properties:
       failed_jobs:
@@ -3666,6 +3698,63 @@ paths:
           schema:
             $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
       summary: Get system stats
+      tags:
+      - system
+  /v1/system/workers/dead-letters:
+    get:
+      operationId: listWorkerDeadLetters
+      parameters:
+      - default: 50
+        description: Maximum audit records
+        in: query
+        maximum: 200
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_system.WorkerDeadLetterListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List worker dead letters
+      tags:
+      - system
+  /v1/system/workers/dead-letters/{id}/retry:
+    post:
+      operationId: retryWorkerDeadLetter
+      parameters:
+      - description: Dead-letter ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Retry a worker dead letter
       tags:
       - system
   /v1/usageevents:

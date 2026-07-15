@@ -26,6 +26,7 @@ type Service interface {
 	Evaluate(ctx context.Context, cmd appalert.EvaluateCommand) (appalert.EvaluationResult, error)
 	CompleteEvaluationJob(ctx context.Context, cmd appalert.CompleteCommand) error
 	FailEvaluationJob(ctx context.Context, cmd appalert.FailCommand) error
+	DeadLetterEvaluationJob(ctx context.Context, cmd appalert.DeadLetterCommand) error
 	RecordDelivery(ctx context.Context, cmd appalert.DeliveryCommand) (appalert.DeliveryResult, error)
 }
 
@@ -171,8 +172,8 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 	failCtx, failCancel := context.WithTimeout(appauth.WithWorkspaceID(context.Background(), job.WorkspaceID), 10*time.Second)
 	defer failCancel()
 	if job.Attempts >= w.maxAttempts {
-		if completeErr := w.service.CompleteEvaluationJob(failCtx, appalert.CompleteCommand{RuleID: job.RuleID}); completeErr != nil && !errors.Is(completeErr, domain.ErrNotFound) {
-			return true, errors.Join(err, completeErr)
+		if deadLetterErr := w.service.DeadLetterEvaluationJob(failCtx, appalert.DeadLetterCommand{RuleID: job.RuleID, Attempts: job.Attempts, Error: err.Error()}); deadLetterErr != nil && !errors.Is(deadLetterErr, domain.ErrNotFound) {
+			return true, errors.Join(err, deadLetterErr)
 		}
 		w.logger("alert evaluation failed permanently: rule_id=%s attempts=%d duration=%s error=%v", job.RuleID, job.Attempts, duration, err)
 		return true, nil

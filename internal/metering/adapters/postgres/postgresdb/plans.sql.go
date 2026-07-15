@@ -8,6 +8,9 @@ package postgresdb
 import (
 	"context"
 	"database/sql"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 const cancelPendingPlanSubjectAssignments = `-- name: CancelPendingPlanSubjectAssignments :execrows
@@ -1164,6 +1167,38 @@ func (q *Queries) SaveEntitlementState(ctx context.Context, arg SaveEntitlementS
 		arg.Message,
 		arg.EvaluatedAt,
 		arg.UpdatedAt,
+	)
+	return err
+}
+
+const saveEntitlementWorkerDeadLetter = `-- name: SaveEntitlementWorkerDeadLetter :exec
+INSERT INTO system_worker_dead_letters (
+	public_id, workspace_id, worker_name, job_key, subject, meter_name, attempts, last_error, status, created_at
+) VALUES (
+	$1::uuid, $2::text, 'entitlement', $3::text || ':' || $4::text,
+	$3::text, $4::text, $5::int, $6::text, 'dead_letter', $7::timestamptz
+)
+`
+
+type SaveEntitlementWorkerDeadLetterParams struct {
+	PublicID    uuid.UUID
+	WorkspaceID string
+	Subject     string
+	MeterName   string
+	Attempts    int32
+	LastError   string
+	CreatedAt   time.Time
+}
+
+func (q *Queries) SaveEntitlementWorkerDeadLetter(ctx context.Context, arg SaveEntitlementWorkerDeadLetterParams) error {
+	_, err := q.db.ExecContext(ctx, saveEntitlementWorkerDeadLetter,
+		arg.PublicID,
+		arg.WorkspaceID,
+		arg.Subject,
+		arg.MeterName,
+		arg.Attempts,
+		arg.LastError,
+		arg.CreatedAt,
 	)
 	return err
 }

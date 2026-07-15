@@ -50,10 +50,12 @@ import {
   listUsageDimensionValues,
   listUsageEvents,
   listUsageExportJobs,
+  listWorkerDeadLetters,
   refreshAuthSession,
   rotateAlertDestinationSecret as rotateAlertDestinationSecretRequest,
   rotateAPIKey as rotateAPIKeyRequest,
   retryUsageExportJob,
+  retryWorkerDeadLetter as retryWorkerDeadLetterRequest,
   updatePlan as updatePlanRequest,
   updateAlertDestination as updateAlertDestinationRequest,
   updateAlertRule,
@@ -94,6 +96,7 @@ import {
   type IngestionRun,
   type SubjectStats,
   type SystemStats,
+  type WorkerDeadLetter,
 } from './api'
 import {
   defaultFilterQuery,
@@ -224,6 +227,7 @@ type AppState = {
     status: LoadState
   }
   overview: {
+    deadLetters: WorkerDeadLetter[]
     error: string
     ingestions: IngestionRun[]
     pinnedUsageQueries: PinnedUsageQuerySummary[]
@@ -374,6 +378,7 @@ export const appStore = createStore<AppState>({
     status: 'idle',
   },
   overview: {
+    deadLetters: [],
     error: '',
     ingestions: [],
     pinnedUsageQueries: [],
@@ -530,6 +535,7 @@ function initialUserDataState(): UserDataState {
       status: 'idle',
     },
     overview: {
+      deadLetters: [],
       error: '',
       ingestions: [],
       pinnedUsageQueries: [],
@@ -1211,15 +1217,17 @@ export const appStoreActions = {
     const generation = currentUserDataGeneration()
     setOverviewState({ error: '', status: 'loading' })
     try {
-      const [nextStats, nextSubjects, nextIngestions] = await Promise.all([
+      const [nextStats, nextSubjects, nextIngestions, nextDeadLetters] = await Promise.all([
         getSystemStats(),
         listSubjects(),
         listIngestions(),
+        listWorkerDeadLetters(),
       ])
       if (!isCurrentUserDataGeneration(generation)) {
         return
       }
       setOverviewState({
+        deadLetters: nextDeadLetters.items,
         ingestions: nextIngestions.items,
         stats: nextStats,
         status: 'ready',
@@ -1251,6 +1259,17 @@ export const appStoreActions = {
         return
       }
       setOverviewState({ error: errorMessage(err, 'Unable to load overview'), status: 'error' })
+    }
+  },
+  async retryWorkerDeadLetter(id: string) {
+    setOverviewState({ error: '' })
+    try {
+      await retryWorkerDeadLetterRequest(id)
+      const [nextStats, nextDeadLetters] = await Promise.all([getSystemStats(), listWorkerDeadLetters()])
+      setOverviewState({ deadLetters: nextDeadLetters.items, stats: nextStats })
+    } catch (err) {
+      setOverviewState({ error: errorMessage(err, 'Unable to retry worker job') })
+      throw err
     }
   },
   async loadSubjects(preferredSubject = '') {

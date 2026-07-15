@@ -226,6 +226,14 @@ WHERE rule_id = sqlc.arg('rule_id');
 DELETE FROM alert_evaluation_jobs
 WHERE rule_id = ?;
 
+-- name: SaveAlertWorkerDeadLetter :exec
+INSERT INTO system_worker_dead_letters (
+	public_id, workspace_id, worker_name, job_key, rule_id, attempts, last_error, status, created_at
+) VALUES (
+	sqlc.arg('public_id'), sqlc.arg('workspace_id'), 'alert', sqlc.arg('rule_id'), sqlc.arg('rule_id'),
+	sqlc.arg('attempts'), sqlc.arg('last_error'), 'dead_letter', sqlc.arg('created_at')
+);
+
 -- name: UpdateAlertRuleNextEvaluation :execrows
 UPDATE alert_rules
 SET next_evaluate_at = sqlc.arg('next_evaluate_at'),

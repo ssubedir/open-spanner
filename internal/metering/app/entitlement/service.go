@@ -100,6 +100,7 @@ type Repository interface {
 	ClaimEntitlementCheckJob(ctx context.Context, cmd ClaimCommand) (CheckJob, bool, error)
 	RequeueEntitlementCheckJob(ctx context.Context, cmd FailCommand) error
 	DeleteEntitlementCheckJob(ctx context.Context, cmd CompleteCommand) error
+	SaveCheckDeadLetter(ctx context.Context, deadLetter CheckDeadLetter) error
 }
 
 type UsageRepository interface {
@@ -127,6 +128,7 @@ type Service interface {
 	Evaluate(ctx context.Context, cmd EvaluateCommand) (EvaluationResult, error)
 	CompleteCheckJob(ctx context.Context, cmd CompleteCommand) error
 	FailCheckJob(ctx context.Context, cmd FailCommand) error
+	DeadLetterCheckJob(ctx context.Context, cmd DeadLetterCommand) error
 }
 
 type service struct {
@@ -455,6 +457,22 @@ type FailCommand struct {
 	Meter      string
 	RetryAfter time.Duration
 	Error      string
+}
+
+type DeadLetterCommand struct {
+	Subject  string
+	Meter    string
+	Attempts int
+	Error    string
+}
+
+type CheckDeadLetter struct {
+	ID        string
+	Subject   string
+	MeterName string
+	Attempts  int
+	Error     string
+	CreatedAt time.Time
 }
 
 type PlanResult struct {
@@ -1308,6 +1326,23 @@ func (s *service) FailCheckJob(ctx context.Context, cmd FailCommand) error {
 		return fmt.Errorf("%w: retry after must be greater than zero", domain.ErrInvalidInput)
 	}
 	return s.repo.RequeueEntitlementCheckJob(ctx, cmd)
+}
+
+func (s *service) DeadLetterCheckJob(ctx context.Context, cmd DeadLetterCommand) error {
+	subject, err := domainusage.NormalizeSubject(cmd.Subject)
+	if err != nil {
+		return err
+	}
+	meterName := strings.TrimSpace(cmd.Meter)
+	if meterName == "" || cmd.Attempts < 1 || strings.TrimSpace(cmd.Error) == "" {
+		return domain.ErrInvalidInput
+	}
+	return s.transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
+		if err := s.repo.SaveCheckDeadLetter(txCtx, CheckDeadLetter{ID: uuid.NewString(), Subject: subject, MeterName: meterName, Attempts: cmd.Attempts, Error: cmd.Error, CreatedAt: s.now()}); err != nil {
+			return err
+		}
+		return s.repo.DeleteEntitlementCheckJob(txCtx, CompleteCommand{Subject: subject, Meter: meterName})
+	})
 }
 
 func (s *service) normalizePlan(ctx context.Context, id, name, description string, input []LimitCommand, createdAt time.Time) (Plan, []PlanLimit, error) {

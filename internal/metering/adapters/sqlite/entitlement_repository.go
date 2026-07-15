@@ -608,6 +608,16 @@ func (r *EntitlementRepository) DeleteEntitlementCheckJob(ctx context.Context, c
 	return nil
 }
 
+func (r *EntitlementRepository) SaveCheckDeadLetter(ctx context.Context, deadLetter appentitlement.CheckDeadLetter) error {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return err
+	}
+	return queriesFor(ctx, r.queries).SaveEntitlementWorkerDeadLetter(ctx, sqlitedb.SaveEntitlementWorkerDeadLetterParams{
+		PublicID: deadLetter.ID, WorkspaceID: workspaceID, Subject: deadLetter.Subject, MeterName: deadLetter.MeterName, Attempts: int64(deadLetter.Attempts), LastError: deadLetter.Error, CreatedAt: formatTime(deadLetter.CreatedAt),
+	})
+}
+
 func sqlitePlan(row sqlitedb.ListPlansRow) (appentitlement.Plan, error) {
 	createdAt, err := parseEntitlementTime(row.CreatedAt)
 	if err != nil {

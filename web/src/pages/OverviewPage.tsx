@@ -14,7 +14,7 @@ import { formatDate, formatNumber } from '../lib/format'
 import { useInitialLoad } from '../lib/hooks'
 
 export function OverviewPage() {
-  const { error, ingestions, pinnedUsageQueries, stats, status, subjects } = useSelector(appStore, (state) => state.overview)
+  const { deadLetters, error, ingestions, pinnedUsageQueries, stats, status, subjects } = useSelector(appStore, (state) => state.overview)
   const router = useRouter()
   const load = useCallback(() => appStoreActions.loadOverview(), [])
 
@@ -97,6 +97,21 @@ export function OverviewPage() {
             worker.oldest_pending_at ? formatDate(worker.oldest_pending_at) : <span className="muted">—</span>,
             workerLastResult(worker),
             worker.last_heartbeat_at ? formatDate(worker.last_heartbeat_at) : <span className="muted">Never</span>,
+          ])} />
+        </CardContent>
+      </Card>
+
+      <Card className="mb-4 min-w-0">
+        <CardHeader className="!px-4 !py-3"><div><CardTitle>Worker Failure Audit</CardTitle><CardDescription>Terminal alert and entitlement failures remain here after retry for operational review.</CardDescription></div></CardHeader>
+        <CardContent>
+          <DataTable emptyLabel="No worker jobs have reached the dead-letter queue" headers={['Time', 'Worker', 'Job', 'Status', 'Attempts', 'Error', '']} rows={deadLetters.map((item) => [
+            formatDate(item.created_at),
+            <span className="capitalize">{item.worker_name}</span>,
+            item.worker_name === 'entitlement' ? `${item.subject} / ${item.meter}` : item.rule_id,
+            <Badge variant={item.status === 'dead_letter' ? 'warning' : 'muted'}>{item.status.replace('_', ' ')}</Badge>,
+            formatNumber(item.attempts),
+            <span className="max-w-[360px] truncate" title={item.last_error}>{item.last_error}</span>,
+            item.status === 'dead_letter' ? <Button onClick={() => void appStoreActions.retryWorkerDeadLetter(item.id)} size="sm" type="button" variant="outline">Retry</Button> : <span className="muted">Retried {item.requeued_at ? formatDate(item.requeued_at) : ''}</span>,
           ])} />
         </CardContent>
       </Card>

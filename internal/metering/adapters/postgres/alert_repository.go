@@ -7,6 +7,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/google/uuid"
+
 	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/postgres/postgresdb"
 	appalert "github.com/ssubedir/open-spanner/internal/metering/app/alert"
@@ -357,6 +359,20 @@ func (r *AlertRepository) RequeueEvaluationJob(ctx context.Context, ruleID strin
 		return domain.ErrNotFound
 	}
 	return nil
+}
+
+func (r *AlertRepository) SaveEvaluationDeadLetter(ctx context.Context, deadLetter appalert.EvaluationDeadLetter) error {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return err
+	}
+	publicID, err := uuid.Parse(deadLetter.ID)
+	if err != nil {
+		return err
+	}
+	return queriesFor(ctx, r.queries).SaveAlertWorkerDeadLetter(ctx, postgresdb.SaveAlertWorkerDeadLetterParams{
+		PublicID: publicID, WorkspaceID: workspaceID, RuleID: deadLetter.RuleID, Attempts: int32(deadLetter.Attempts), LastError: deadLetter.Error, CreatedAt: deadLetter.CreatedAt,
+	})
 }
 
 func (r *AlertRepository) UpdateRuleNextEvaluation(ctx context.Context, id string, nextEvaluateAt time.Time, updatedAt time.Time) error {

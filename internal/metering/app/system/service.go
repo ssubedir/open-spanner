@@ -26,6 +26,8 @@ type Service interface {
 	RetryReconciliationNotification(ctx context.Context, notification ReconciliationNotification, nextAttemptAt time.Time, maxAttempts int, deliveryErr error) error
 	ListReconciliationNotifications(ctx context.Context, limit int) ([]ReconciliationNotification, error)
 	RequeueReconciliationNotification(ctx context.Context, id string) error
+	ListWorkerDeadLetters(ctx context.Context, limit int) ([]WorkerDeadLetter, error)
+	RetryWorkerDeadLetter(ctx context.Context, id string) error
 }
 
 type service struct {
@@ -65,6 +67,10 @@ type Repository interface {
 	UpsertWorkerHeartbeat(ctx context.Context, heartbeat WorkerHeartbeat) error
 	ListWorkerHeartbeats(ctx context.Context) ([]WorkerHeartbeat, error)
 	ListWorkerDiagnostics(ctx context.Context, now time.Time) ([]WorkerDiagnostics, error)
+	ListWorkerDeadLetters(ctx context.Context, limit int) ([]WorkerDeadLetter, error)
+	GetWorkerDeadLetter(ctx context.Context, id string) (WorkerDeadLetter, error)
+	EnqueueWorkerDeadLetter(ctx context.Context, deadLetter WorkerDeadLetter, now time.Time) (bool, error)
+	MarkWorkerDeadLetterRequeued(ctx context.Context, id string, now time.Time) (bool, error)
 }
 
 const (

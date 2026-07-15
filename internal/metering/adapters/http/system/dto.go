@@ -27,6 +27,24 @@ type WorkerHealthResponse struct {
 	LastFailureAt   string `json:"last_failure_at,omitempty"`
 }
 
+type WorkerDeadLetterResponse struct {
+	ID         string `json:"id"`
+	WorkerName string `json:"worker_name"`
+	JobKey     string `json:"job_key"`
+	RuleID     string `json:"rule_id,omitempty"`
+	Subject    string `json:"subject,omitempty"`
+	MeterName  string `json:"meter,omitempty"`
+	Attempts   int    `json:"attempts"`
+	LastError  string `json:"last_error"`
+	Status     string `json:"status"`
+	CreatedAt  string `json:"created_at"`
+	RequeuedAt string `json:"requeued_at,omitempty"`
+}
+
+type WorkerDeadLetterListResponse struct {
+	Items []WorkerDeadLetterResponse `json:"items"`
+}
+
 type LastDecisionPruneRunResponse struct {
 	ID        string `json:"id"`
 	Before    string `json:"before"`

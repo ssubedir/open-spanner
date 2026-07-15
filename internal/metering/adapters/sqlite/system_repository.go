@@ -73,6 +73,82 @@ func (r *SystemRepository) ListWorkerDiagnostics(ctx context.Context, now time.T
 	return items, nil
 }
 
+func (r *SystemRepository) ListWorkerDeadLetters(ctx context.Context, limit int) ([]appsystem.WorkerDeadLetter, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := queriesFor(ctx, r.queries).ListWorkerDeadLetters(ctx, sqlitedb.ListWorkerDeadLettersParams{WorkspaceID: workspaceID, Limit: int64(limit)})
+	if err != nil {
+		return nil, err
+	}
+	items := make([]appsystem.WorkerDeadLetter, 0, len(rows))
+	for _, row := range rows {
+		item, err := sqliteWorkerDeadLetter(row.PublicID, row.WorkerName, row.JobKey, row.RuleID, row.Subject, row.MeterName, row.Attempts, row.LastError, row.Status, row.CreatedAt, row.RequeuedAt)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+func (r *SystemRepository) GetWorkerDeadLetter(ctx context.Context, id string) (appsystem.WorkerDeadLetter, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return appsystem.WorkerDeadLetter{}, err
+	}
+	row, err := queriesFor(ctx, r.queries).GetWorkerDeadLetter(ctx, sqlitedb.GetWorkerDeadLetterParams{WorkspaceID: workspaceID, PublicID: id})
+	if errors.Is(err, sql.ErrNoRows) {
+		return appsystem.WorkerDeadLetter{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return appsystem.WorkerDeadLetter{}, err
+	}
+	return sqliteWorkerDeadLetter(row.PublicID, row.WorkerName, row.JobKey, row.RuleID, row.Subject, row.MeterName, row.Attempts, row.LastError, row.Status, row.CreatedAt, row.RequeuedAt)
+}
+
+func (r *SystemRepository) EnqueueWorkerDeadLetter(ctx context.Context, deadLetter appsystem.WorkerDeadLetter, now time.Time) (bool, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return false, err
+	}
+	var rows int64
+	switch deadLetter.WorkerName {
+	case "alert":
+		rows, err = queriesFor(ctx, r.queries).EnqueueAlertWorkerDeadLetter(ctx, sqlitedb.EnqueueAlertWorkerDeadLetterParams{Now: formatTime(now), WorkspaceID: workspaceID, PublicID: deadLetter.ID})
+	case "entitlement":
+		rows, err = queriesFor(ctx, r.queries).EnqueueEntitlementWorkerDeadLetter(ctx, sqlitedb.EnqueueEntitlementWorkerDeadLetterParams{Now: formatTime(now), WorkspaceID: workspaceID, PublicID: deadLetter.ID})
+	default:
+		return false, domain.ErrInvalidInput
+	}
+	return rows == 1, err
+}
+
+func (r *SystemRepository) MarkWorkerDeadLetterRequeued(ctx context.Context, id string, now time.Time) (bool, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return false, err
+	}
+	rows, err := queriesFor(ctx, r.queries).MarkWorkerDeadLetterRequeued(ctx, sqlitedb.MarkWorkerDeadLetterRequeuedParams{Now: sql.NullString{String: formatTime(now), Valid: true}, WorkspaceID: workspaceID, PublicID: id})
+	return rows == 1, err
+}
+
+func sqliteWorkerDeadLetter(id, workerName, jobKey, ruleID, subject, meterName string, attempts int64, lastError, status, createdAt string, requeuedAt sql.NullString) (appsystem.WorkerDeadLetter, error) {
+	created, err := time.Parse(time.RFC3339Nano, createdAt)
+	if err != nil {
+		return appsystem.WorkerDeadLetter{}, err
+	}
+	var requeued time.Time
+	if requeuedAt.Valid {
+		requeued, err = time.Parse(time.RFC3339Nano, requeuedAt.String)
+		if err != nil {
+			return appsystem.WorkerDeadLetter{}, err
+		}
+	}
+	return appsystem.WorkerDeadLetter{ID: id, WorkerName: workerName, JobKey: jobKey, RuleID: ruleID, Subject: subject, MeterName: meterName, Attempts: int(attempts), LastError: lastError, Status: status, CreatedAt: created, RequeuedAt: requeued}, nil
+}
+
 func diagnosticInt(value any) int {
 	switch typed := value.(type) {
 	case int64:

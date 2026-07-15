@@ -245,19 +245,19 @@ UNION ALL
 SELECT 'alert',
 	COALESCE(SUM(CASE WHEN a.locked_until IS NULL OR a.locked_until < sqlc.arg('now') THEN 1 ELSE 0 END), 0),
 	COALESCE(SUM(CASE WHEN a.locked_until >= sqlc.arg('now') THEN 1 ELSE 0 END), 0),
-	0,
+	(SELECT COUNT(*) FROM system_worker_dead_letters WHERE worker_name = 'alert' AND status = 'dead_letter'),
 	COALESCE(MIN(CASE WHEN a.locked_until IS NULL OR a.locked_until < sqlc.arg('now') THEN a.created_at END), ''),
 	COALESCE((SELECT MAX(evaluated_at) FROM alert_states), ''),
-	COALESCE((SELECT MAX(attempted_at) FROM alert_deliveries WHERE status = 'failed'), '')
+	COALESCE((SELECT MAX(created_at) FROM system_worker_dead_letters WHERE worker_name = 'alert' AND status = 'dead_letter'), '')
 FROM alert_evaluation_jobs a
 UNION ALL
 SELECT 'entitlement',
 	COALESCE(SUM(CASE WHEN e.locked_until IS NULL OR e.locked_until < sqlc.arg('now') THEN 1 ELSE 0 END), 0),
 	COALESCE(SUM(CASE WHEN e.locked_until >= sqlc.arg('now') THEN 1 ELSE 0 END), 0),
-	0,
+	(SELECT COUNT(*) FROM system_worker_dead_letters WHERE worker_name = 'entitlement' AND status = 'dead_letter'),
 	COALESCE(MIN(CASE WHEN e.locked_until IS NULL OR e.locked_until < sqlc.arg('now') THEN e.created_at END), ''),
 	COALESCE((SELECT MAX(evaluated_at) FROM entitlement_states), ''),
-	''
+	COALESCE((SELECT MAX(created_at) FROM system_worker_dead_letters WHERE worker_name = 'entitlement' AND status = 'dead_letter'), '')
 FROM entitlement_check_jobs e
 UNION ALL
 SELECT 'retention', 0, 0, 0, '',
@@ -289,3 +289,38 @@ CROSS JOIN (
 		SELECT COALESCE(MAX(created_at), '') FROM reconciliation_notification_attempts WHERE status = 'failed'
 	)
 );
+
+-- name: ListWorkerDeadLetters :many
+SELECT public_id, worker_name, job_key, rule_id, subject, meter_name, attempts, last_error, status, created_at, requeued_at
+FROM system_worker_dead_letters
+WHERE workspace_id = sqlc.arg('workspace_id')
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg('limit');
+
+-- name: GetWorkerDeadLetter :one
+SELECT public_id, worker_name, job_key, rule_id, subject, meter_name, attempts, last_error, status, created_at, requeued_at
+FROM system_worker_dead_letters
+WHERE workspace_id = sqlc.arg('workspace_id') AND public_id = sqlc.arg('public_id');
+
+-- name: EnqueueAlertWorkerDeadLetter :execrows
+INSERT INTO alert_evaluation_jobs (rule_id, run_after, locked_until, attempts, created_at, updated_at)
+SELECT d.rule_id, sqlc.arg('now'), NULL, 0, sqlc.arg('now'), sqlc.arg('now')
+FROM system_worker_dead_letters d
+JOIN alert_rules r ON r.id = d.rule_id AND r.workspace_id = d.workspace_id
+WHERE d.workspace_id = sqlc.arg('workspace_id') AND d.public_id = sqlc.arg('public_id')
+	AND d.worker_name = 'alert' AND d.status = 'dead_letter'
+ON CONFLICT(rule_id) DO UPDATE SET run_after = excluded.run_after, locked_until = NULL, attempts = 0, updated_at = excluded.updated_at;
+
+-- name: EnqueueEntitlementWorkerDeadLetter :execrows
+INSERT INTO entitlement_check_jobs (workspace_id, subject, meter_name, run_after, locked_until, attempts, created_at, updated_at)
+SELECT d.workspace_id, d.subject, d.meter_name, sqlc.arg('now'), NULL, 0, sqlc.arg('now'), sqlc.arg('now')
+FROM system_worker_dead_letters d
+JOIN meters m ON m.workspace_id = d.workspace_id AND m.name = d.meter_name
+WHERE d.workspace_id = sqlc.arg('workspace_id') AND d.public_id = sqlc.arg('public_id')
+	AND d.worker_name = 'entitlement' AND d.status = 'dead_letter'
+ON CONFLICT(workspace_id, subject, meter_name) DO UPDATE SET run_after = excluded.run_after, locked_until = NULL, attempts = 0, updated_at = excluded.updated_at;
+
+-- name: MarkWorkerDeadLetterRequeued :execrows
+UPDATE system_worker_dead_letters
+SET status = 'requeued', requeued_at = sqlc.arg('now')
+WHERE workspace_id = sqlc.arg('workspace_id') AND public_id = sqlc.arg('public_id') AND status = 'dead_letter';

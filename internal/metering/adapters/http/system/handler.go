@@ -15,6 +15,59 @@ type Handler struct {
 	service appsystem.Service
 }
 
+// ListWorkerDeadLetters lists durable alert and entitlement worker failures.
+//
+// @Summary List worker dead letters
+// @ID listWorkerDeadLetters
+// @Tags system
+// @Produce json
+// @Param limit query int false "Maximum audit records" default(50) maximum(200)
+// @Success 200 {object} WorkerDeadLetterListResponse
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/system/workers/dead-letters [get]
+func (h *Handler) ListWorkerDeadLetters(w http.ResponseWriter, r *http.Request) {
+	limit, err := request.ParseLimit(r.URL.Query().Get("limit"))
+	if err != nil {
+		respond.Error(w, http.StatusBadRequest, request.Code(err), request.Message(err))
+		return
+	}
+	items, err := h.service.ListWorkerDeadLetters(r.Context(), limit)
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	response := WorkerDeadLetterListResponse{Items: make([]WorkerDeadLetterResponse, 0, len(items))}
+	for _, item := range items {
+		converted := WorkerDeadLetterResponse{ID: item.ID, WorkerName: item.WorkerName, JobKey: item.JobKey, RuleID: item.RuleID, Subject: item.Subject, MeterName: item.MeterName, Attempts: item.Attempts, LastError: item.LastError, Status: item.Status, CreatedAt: item.CreatedAt.Format(time.RFC3339Nano)}
+		if !item.RequeuedAt.IsZero() {
+			converted.RequeuedAt = item.RequeuedAt.Format(time.RFC3339Nano)
+		}
+		response.Items = append(response.Items, converted)
+	}
+	respond.JSON(w, http.StatusOK, response)
+}
+
+// RetryWorkerDeadLetter recreates a failed worker job and preserves its audit record.
+//
+// @Summary Retry a worker dead letter
+// @ID retryWorkerDeadLetter
+// @Tags system
+// @Produce json
+// @Param id path string true "Dead-letter ID"
+// @Success 204
+// @Failure 404 {object} respond.ErrorResponse
+// @Failure 409 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/system/workers/dead-letters/{id}/retry [post]
+func (h *Handler) RetryWorkerDeadLetter(w http.ResponseWriter, r *http.Request) {
+	if err := h.service.RetryWorkerDeadLetter(r.Context(), chi.URLParam(r, "id")); err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // Reconcile performs a bounded, read-only quota consistency scan.
 //
 // @Summary Reconcile quota records

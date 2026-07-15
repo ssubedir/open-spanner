@@ -3021,6 +3021,92 @@
                 }
             }
         },
+        "/v1/system/workers/dead-letters": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "List worker dead letters",
+                "operationId": "listWorkerDeadLetters",
+                "parameters": [
+                    {
+                        "maximum": 200,
+                        "type": "integer",
+                        "default": 50,
+                        "description": "Maximum audit records",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_system.WorkerDeadLetterListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/system/workers/dead-letters/{id}/retry": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Retry a worker dead letter",
+                "operationId": "retryWorkerDeadLetter",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Dead-letter ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/usageevents": {
             "get": {
                 "produces": [
@@ -5825,6 +5911,55 @@
                     "items": {
                         "$ref": "#/definitions/internal_metering_adapters_http_system.WorkerHealthResponse"
                     }
+                }
+            }
+        },
+        "internal_metering_adapters_http_system.WorkerDeadLetterListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_system.WorkerDeadLetterResponse"
+                    }
+                }
+            }
+        },
+        "internal_metering_adapters_http_system.WorkerDeadLetterResponse": {
+            "type": "object",
+            "properties": {
+                "attempts": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "job_key": {
+                    "type": "string"
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "meter": {
+                    "type": "string"
+                },
+                "requeued_at": {
+                    "type": "string"
+                },
+                "rule_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "subject": {
+                    "type": "string"
+                },
+                "worker_name": {
+                    "type": "string"
                 }
             }
         },

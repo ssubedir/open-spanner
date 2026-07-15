@@ -770,6 +770,36 @@ func (q *Queries) SaveAlertState(ctx context.Context, arg SaveAlertStateParams) 
 	return err
 }
 
+const saveAlertWorkerDeadLetter = `-- name: SaveAlertWorkerDeadLetter :exec
+INSERT INTO system_worker_dead_letters (
+	public_id, workspace_id, worker_name, job_key, rule_id, attempts, last_error, status, created_at
+) VALUES (
+	?1, ?2, 'alert', ?3, ?3,
+	?4, ?5, 'dead_letter', ?6
+)
+`
+
+type SaveAlertWorkerDeadLetterParams struct {
+	PublicID    string
+	WorkspaceID string
+	RuleID      string
+	Attempts    int64
+	LastError   string
+	CreatedAt   string
+}
+
+func (q *Queries) SaveAlertWorkerDeadLetter(ctx context.Context, arg SaveAlertWorkerDeadLetterParams) error {
+	_, err := q.db.ExecContext(ctx, saveAlertWorkerDeadLetter,
+		arg.PublicID,
+		arg.WorkspaceID,
+		arg.RuleID,
+		arg.Attempts,
+		arg.LastError,
+		arg.CreatedAt,
+	)
+	return err
+}
+
 const updateAlertRuleNextEvaluation = `-- name: UpdateAlertRuleNextEvaluation :execrows
 UPDATE alert_rules
 SET next_evaluate_at = ?1,

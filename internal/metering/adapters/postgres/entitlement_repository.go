@@ -6,6 +6,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/google/uuid"
+
 	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/postgres/postgresdb"
 	appentitlement "github.com/ssubedir/open-spanner/internal/metering/app/entitlement"
@@ -606,6 +608,20 @@ func (r *EntitlementRepository) DeleteEntitlementCheckJob(ctx context.Context, c
 		return domain.ErrNotFound
 	}
 	return nil
+}
+
+func (r *EntitlementRepository) SaveCheckDeadLetter(ctx context.Context, deadLetter appentitlement.CheckDeadLetter) error {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return err
+	}
+	publicID, err := uuid.Parse(deadLetter.ID)
+	if err != nil {
+		return err
+	}
+	return queriesFor(ctx, r.queries).SaveEntitlementWorkerDeadLetter(ctx, postgresdb.SaveEntitlementWorkerDeadLetterParams{
+		PublicID: publicID, WorkspaceID: workspaceID, Subject: deadLetter.Subject, MeterName: deadLetter.MeterName, Attempts: int32(deadLetter.Attempts), LastError: deadLetter.Error, CreatedAt: deadLetter.CreatedAt,
+	})
 }
 
 func postgresPlan(row postgresdb.ListPlansRow) (appentitlement.Plan, error) {

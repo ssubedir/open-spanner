@@ -10,6 +10,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const claimReconciliationNotification = `-- name: ClaimReconciliationNotification :one
@@ -211,6 +213,54 @@ func (q *Queries) DeleteEntitlementCounterForRepair(ctx context.Context, arg Del
 	return result.RowsAffected()
 }
 
+const enqueueAlertWorkerDeadLetter = `-- name: EnqueueAlertWorkerDeadLetter :execrows
+INSERT INTO alert_evaluation_jobs (rule_id, run_after, locked_until, attempts, created_at, updated_at)
+SELECT d.rule_id, $1::text, NULL, 0, $1::text, $1::text
+FROM system_worker_dead_letters d
+JOIN alert_rules r ON r.id = d.rule_id AND r.workspace_id = d.workspace_id
+WHERE d.workspace_id = $2::text AND d.public_id = $3::uuid
+	AND d.worker_name = 'alert' AND d.status = 'dead_letter'
+ON CONFLICT(rule_id) DO UPDATE SET run_after = EXCLUDED.run_after, locked_until = NULL, attempts = 0, updated_at = EXCLUDED.updated_at
+`
+
+type EnqueueAlertWorkerDeadLetterParams struct {
+	Now         string
+	WorkspaceID string
+	PublicID    uuid.UUID
+}
+
+func (q *Queries) EnqueueAlertWorkerDeadLetter(ctx context.Context, arg EnqueueAlertWorkerDeadLetterParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, enqueueAlertWorkerDeadLetter, arg.Now, arg.WorkspaceID, arg.PublicID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const enqueueEntitlementWorkerDeadLetter = `-- name: EnqueueEntitlementWorkerDeadLetter :execrows
+INSERT INTO entitlement_check_jobs (workspace_id, subject, meter_name, run_after, locked_until, attempts, created_at, updated_at)
+SELECT d.workspace_id, d.subject, d.meter_name, $1::text, NULL, 0, $1::text, $1::text
+FROM system_worker_dead_letters d
+JOIN meters m ON m.workspace_id = d.workspace_id AND m.name = d.meter_name
+WHERE d.workspace_id = $2::text AND d.public_id = $3::uuid
+	AND d.worker_name = 'entitlement' AND d.status = 'dead_letter'
+ON CONFLICT(workspace_id, subject, meter_name) DO UPDATE SET run_after = EXCLUDED.run_after, locked_until = NULL, attempts = 0, updated_at = EXCLUDED.updated_at
+`
+
+type EnqueueEntitlementWorkerDeadLetterParams struct {
+	Now         string
+	WorkspaceID string
+	PublicID    uuid.UUID
+}
+
+func (q *Queries) EnqueueEntitlementWorkerDeadLetter(ctx context.Context, arg EnqueueEntitlementWorkerDeadLetterParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, enqueueEntitlementWorkerDeadLetter, arg.Now, arg.WorkspaceID, arg.PublicID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const ensureReconciliationSchedules = `-- name: EnsureReconciliationSchedules :exec
 INSERT INTO reconciliation_schedules (workspace_id, next_run_at, updated_at)
 SELECT id, $1::timestamptz, $1::timestamptz
@@ -335,6 +385,50 @@ func (q *Queries) GetReconciliationSchedule(ctx context.Context, workspaceID str
 	row := q.db.QueryRowContext(ctx, getReconciliationSchedule, workspaceID)
 	var i GetReconciliationScheduleRow
 	err := row.Scan(&i.NextRunAt, &i.LockedUntil, &i.UpdatedAt)
+	return i, err
+}
+
+const getWorkerDeadLetter = `-- name: GetWorkerDeadLetter :one
+SELECT public_id, worker_name, job_key, rule_id, subject, meter_name, attempts, last_error, status, created_at, requeued_at
+FROM system_worker_dead_letters
+WHERE workspace_id = $1::text AND public_id = $2::uuid
+`
+
+type GetWorkerDeadLetterParams struct {
+	WorkspaceID string
+	PublicID    uuid.UUID
+}
+
+type GetWorkerDeadLetterRow struct {
+	PublicID   uuid.UUID
+	WorkerName string
+	JobKey     string
+	RuleID     string
+	Subject    string
+	MeterName  string
+	Attempts   int32
+	LastError  string
+	Status     string
+	CreatedAt  time.Time
+	RequeuedAt sql.NullTime
+}
+
+func (q *Queries) GetWorkerDeadLetter(ctx context.Context, arg GetWorkerDeadLetterParams) (GetWorkerDeadLetterRow, error) {
+	row := q.db.QueryRowContext(ctx, getWorkerDeadLetter, arg.WorkspaceID, arg.PublicID)
+	var i GetWorkerDeadLetterRow
+	err := row.Scan(
+		&i.PublicID,
+		&i.WorkerName,
+		&i.JobKey,
+		&i.RuleID,
+		&i.Subject,
+		&i.MeterName,
+		&i.Attempts,
+		&i.LastError,
+		&i.Status,
+		&i.CreatedAt,
+		&i.RequeuedAt,
+	)
 	return i, err
 }
 
@@ -821,6 +915,68 @@ func (q *Queries) ListReconciliationRuns(ctx context.Context, arg ListReconcilia
 	return items, nil
 }
 
+const listWorkerDeadLetters = `-- name: ListWorkerDeadLetters :many
+SELECT public_id, worker_name, job_key, rule_id, subject, meter_name, attempts, last_error, status, created_at, requeued_at
+FROM system_worker_dead_letters
+WHERE workspace_id = $1::text
+ORDER BY created_at DESC, id DESC
+LIMIT $2::int
+`
+
+type ListWorkerDeadLettersParams struct {
+	WorkspaceID string
+	Limit       int32
+}
+
+type ListWorkerDeadLettersRow struct {
+	PublicID   uuid.UUID
+	WorkerName string
+	JobKey     string
+	RuleID     string
+	Subject    string
+	MeterName  string
+	Attempts   int32
+	LastError  string
+	Status     string
+	CreatedAt  time.Time
+	RequeuedAt sql.NullTime
+}
+
+func (q *Queries) ListWorkerDeadLetters(ctx context.Context, arg ListWorkerDeadLettersParams) ([]ListWorkerDeadLettersRow, error) {
+	rows, err := q.db.QueryContext(ctx, listWorkerDeadLetters, arg.WorkspaceID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListWorkerDeadLettersRow{}
+	for rows.Next() {
+		var i ListWorkerDeadLettersRow
+		if err := rows.Scan(
+			&i.PublicID,
+			&i.WorkerName,
+			&i.JobKey,
+			&i.RuleID,
+			&i.Subject,
+			&i.MeterName,
+			&i.Attempts,
+			&i.LastError,
+			&i.Status,
+			&i.CreatedAt,
+			&i.RequeuedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listWorkerDiagnostics = `-- name: ListWorkerDiagnostics :many
 SELECT 'export'::text AS worker_name,
 	COUNT(*) FILTER (WHERE status = 'queued' OR (status = 'running' AND locked_until::timestamptz < $1::timestamptz)) AS pending_jobs,
@@ -834,19 +990,19 @@ UNION ALL
 SELECT 'alert',
 	COUNT(*) FILTER (WHERE locked_until IS NULL OR locked_until::timestamptz < $1::timestamptz),
 	COUNT(*) FILTER (WHERE locked_until::timestamptz >= $1::timestamptz),
-	0,
+	(SELECT COUNT(*) FROM system_worker_dead_letters WHERE worker_name = 'alert' AND status = 'dead_letter'),
 	COALESCE(MIN(created_at) FILTER (WHERE locked_until IS NULL OR locked_until::timestamptz < $1::timestamptz), ''),
 	COALESCE((SELECT MAX(evaluated_at) FROM alert_states), ''),
-	COALESCE((SELECT MAX(attempted_at) FROM alert_deliveries WHERE status = 'failed'), '')
+	COALESCE((SELECT MAX(created_at)::text FROM system_worker_dead_letters WHERE worker_name = 'alert' AND status = 'dead_letter'), '')
 FROM alert_evaluation_jobs
 UNION ALL
 SELECT 'entitlement',
 	COUNT(*) FILTER (WHERE locked_until IS NULL OR locked_until::timestamptz < $1::timestamptz),
 	COUNT(*) FILTER (WHERE locked_until::timestamptz >= $1::timestamptz),
-	0,
+	(SELECT COUNT(*) FROM system_worker_dead_letters WHERE worker_name = 'entitlement' AND status = 'dead_letter'),
 	COALESCE(MIN(created_at) FILTER (WHERE locked_until IS NULL OR locked_until::timestamptz < $1::timestamptz), ''),
 	COALESCE((SELECT MAX(evaluated_at) FROM entitlement_states), ''),
-	''
+	COALESCE((SELECT MAX(created_at)::text FROM system_worker_dead_letters WHERE worker_name = 'entitlement' AND status = 'dead_letter'), '')
 FROM entitlement_check_jobs
 UNION ALL
 SELECT 'retention', 0, 0, 0, '',
@@ -956,6 +1112,26 @@ type MarkReconciliationNotifiedParams struct {
 func (q *Queries) MarkReconciliationNotified(ctx context.Context, arg MarkReconciliationNotifiedParams) error {
 	_, err := q.db.ExecContext(ctx, markReconciliationNotified, arg.Fingerprint, arg.UpdatedAt, arg.WorkspaceID)
 	return err
+}
+
+const markWorkerDeadLetterRequeued = `-- name: MarkWorkerDeadLetterRequeued :execrows
+UPDATE system_worker_dead_letters
+SET status = 'requeued', requeued_at = $1::timestamptz
+WHERE workspace_id = $2::text AND public_id = $3::uuid AND status = 'dead_letter'
+`
+
+type MarkWorkerDeadLetterRequeuedParams struct {
+	Now         time.Time
+	WorkspaceID string
+	PublicID    uuid.UUID
+}
+
+func (q *Queries) MarkWorkerDeadLetterRequeued(ctx context.Context, arg MarkWorkerDeadLetterRequeuedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markWorkerDeadLetterRequeued, arg.Now, arg.WorkspaceID, arg.PublicID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const requeueReconciliationNotification = `-- name: RequeueReconciliationNotification :execrows

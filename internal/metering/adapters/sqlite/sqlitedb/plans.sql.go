@@ -1165,6 +1165,38 @@ func (q *Queries) SaveEntitlementState(ctx context.Context, arg SaveEntitlementS
 	return err
 }
 
+const saveEntitlementWorkerDeadLetter = `-- name: SaveEntitlementWorkerDeadLetter :exec
+INSERT INTO system_worker_dead_letters (
+	public_id, workspace_id, worker_name, job_key, subject, meter_name, attempts, last_error, status, created_at
+) VALUES (
+	?1, ?2, 'entitlement', ?3 || ':' || ?4,
+	?3, ?4, ?5, ?6, 'dead_letter', ?7
+)
+`
+
+type SaveEntitlementWorkerDeadLetterParams struct {
+	PublicID    string
+	WorkspaceID string
+	Subject     string
+	MeterName   string
+	Attempts    int64
+	LastError   string
+	CreatedAt   string
+}
+
+func (q *Queries) SaveEntitlementWorkerDeadLetter(ctx context.Context, arg SaveEntitlementWorkerDeadLetterParams) error {
+	_, err := q.db.ExecContext(ctx, saveEntitlementWorkerDeadLetter,
+		arg.PublicID,
+		arg.WorkspaceID,
+		arg.Subject,
+		arg.MeterName,
+		arg.Attempts,
+		arg.LastError,
+		arg.CreatedAt,
+	)
+	return err
+}
+
 const savePlan = `-- name: SavePlan :exec
 INSERT INTO plans (id, workspace_id, name, description, version, parent_plan_id, is_current, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)

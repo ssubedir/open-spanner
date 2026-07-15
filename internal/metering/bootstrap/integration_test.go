@@ -28,6 +28,7 @@ import (
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/fileexport"
 	appalert "github.com/ssubedir/open-spanner/internal/metering/app/alert"
 	appconsumption "github.com/ssubedir/open-spanner/internal/metering/app/consumption"
+	appentitlement "github.com/ssubedir/open-spanner/internal/metering/app/entitlement"
 	appsystem "github.com/ssubedir/open-spanner/internal/metering/app/system"
 	alertworker "github.com/ssubedir/open-spanner/internal/metering/workers/alert"
 	entitlementworker "github.com/ssubedir/open-spanner/internal/metering/workers/entitlement"
@@ -1809,6 +1810,50 @@ func runIntegrationPlanEntitlementFlow(t *testing.T, cfg config.Config, namespac
 		t.Fatalf("replay entitlement usage status = %d, want %d: %s", replayUsage.Code, http.StatusCreated, replayUsage.Body.String())
 	}
 
+	principal, err := app.AuthService.AuthenticateAPIKeyPrincipal(context.Background(), identity.APIKey)
+	if err != nil {
+		t.Fatalf("authenticate entitlement worker principal: %v", err)
+	}
+	var failedJob appentitlement.CheckJobResult
+	for attempt := 0; attempt < 20; attempt++ {
+		candidate, ok, claimErr := app.EntitlementService.ClaimCheckJob(context.Background(), appentitlement.ClaimCommand{LockTTL: time.Minute, MaxAttempts: 3})
+		if claimErr != nil || !ok {
+			t.Fatalf("claim entitlement job for dead-letter test: ok=%v err=%v", ok, claimErr)
+		}
+		candidateCtx := appauth.WithWorkspaceID(context.Background(), candidate.Job.WorkspaceID)
+		if candidate.Job.WorkspaceID == principal.WorkspaceID {
+			failedJob = candidate
+			break
+		}
+		if err := app.EntitlementService.FailCheckJob(candidateCtx, appentitlement.FailCommand{Subject: candidate.Job.Subject, Meter: candidate.Job.MeterName, RetryAfter: time.Minute, Error: "deferred by integration test"}); err != nil {
+			t.Fatalf("release foreign entitlement job: %v", err)
+		}
+	}
+	if failedJob.Job.WorkspaceID == "" {
+		t.Fatal("did not claim entitlement job for test workspace")
+	}
+	workerCtx := appauth.WithWorkspaceID(context.Background(), failedJob.Job.WorkspaceID)
+	if err := app.EntitlementService.DeadLetterCheckJob(workerCtx, appentitlement.DeadLetterCommand{Subject: failedJob.Job.Subject, Meter: failedJob.Job.MeterName, Attempts: 3, Error: "synthetic terminal entitlement failure"}); err != nil {
+		t.Fatalf("dead-letter entitlement job: %v", err)
+	}
+	deadLetters := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/system/workers/dead-letters", nil, identity.Headers, nil)
+	if deadLetters.Code != http.StatusOK || !strings.Contains(deadLetters.Body.String(), `"worker_name":"entitlement"`) || !strings.Contains(deadLetters.Body.String(), "synthetic terminal entitlement failure") {
+		t.Fatalf("list entitlement dead letters status=%d body=%s", deadLetters.Code, deadLetters.Body.String())
+	}
+	var entitlementDeadLetters struct {
+		Items []struct {
+			ID string `json:"id"`
+		} `json:"items"`
+	}
+	decodeJSON(t, deadLetters, &entitlementDeadLetters)
+	if len(entitlementDeadLetters.Items) == 0 {
+		t.Fatal("entitlement dead-letter audit is empty")
+	}
+	retryDeadLetter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/system/workers/dead-letters/"+url.PathEscape(entitlementDeadLetters.Items[0].ID)+"/retry", nil, identity.Headers, nil)
+	if retryDeadLetter.Code != http.StatusNoContent {
+		t.Fatalf("retry entitlement dead letter status=%d body=%s", retryDeadLetter.Code, retryDeadLetter.Body.String())
+	}
+
 	entitlementWorker := entitlementworker.NewWorker(app.EntitlementService, time.Millisecond, time.Minute, time.Minute, time.Second, 3, 10, t.Logf)
 	var states entitlementStateListTestResponse
 	processedAny := false
@@ -2096,6 +2141,59 @@ func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handl
 	}, authHeaders, nil)
 	if createLowUsage.Code != http.StatusCreated {
 		t.Fatalf("create low alert usage status = %d, want %d: %s", createLowUsage.Code, http.StatusCreated, createLowUsage.Body.String())
+	}
+
+	principal, err := app.AuthService.AuthenticateAPIKeyPrincipal(context.Background(), strings.TrimPrefix(authHeaders["Authorization"], "Bearer "))
+	if err != nil {
+		t.Fatalf("authenticate alert worker principal: %v", err)
+	}
+	var failedJob appalert.EvaluationJobResult
+	for attempt := 0; attempt < 20; attempt++ {
+		candidate, ok, claimErr := app.AlertService.ClaimEvaluationJob(context.Background(), appalert.ClaimCommand{LockTTL: time.Minute, MaxAttempts: 3})
+		if claimErr != nil || !ok {
+			t.Fatalf("claim alert job for dead-letter test: ok=%v err=%v", ok, claimErr)
+		}
+		candidateCtx := appauth.WithWorkspaceID(context.Background(), candidate.WorkspaceID)
+		if candidate.WorkspaceID == principal.WorkspaceID {
+			failedJob = candidate
+			break
+		}
+		if err := app.AlertService.FailEvaluationJob(candidateCtx, appalert.FailCommand{RuleID: candidate.RuleID, RetryAfter: time.Minute, Error: "deferred by integration test"}); err != nil {
+			t.Fatalf("release foreign alert job: %v", err)
+		}
+	}
+	if failedJob.WorkspaceID == "" {
+		t.Fatal("did not claim alert job for test workspace")
+	}
+	workerCtx := appauth.WithWorkspaceID(context.Background(), failedJob.WorkspaceID)
+	if err := app.AlertService.DeadLetterEvaluationJob(workerCtx, appalert.DeadLetterCommand{RuleID: failedJob.RuleID, Attempts: 3, Error: "synthetic terminal alert failure"}); err != nil {
+		t.Fatalf("dead-letter alert job: %v", err)
+	}
+	deadLetters := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/system/workers/dead-letters", nil, authHeaders, nil)
+	if deadLetters.Code != http.StatusOK || !strings.Contains(deadLetters.Body.String(), `"worker_name":"alert"`) || !strings.Contains(deadLetters.Body.String(), "synthetic terminal alert failure") {
+		t.Fatalf("list alert dead letters status=%d body=%s", deadLetters.Code, deadLetters.Body.String())
+	}
+	var alertDeadLetters struct {
+		Items []struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		} `json:"items"`
+	}
+	decodeJSON(t, deadLetters, &alertDeadLetters)
+	if len(alertDeadLetters.Items) == 0 {
+		t.Fatal("alert dead-letter audit is empty")
+	}
+	retryDeadLetter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/system/workers/dead-letters/"+url.PathEscape(alertDeadLetters.Items[0].ID)+"/retry", nil, authHeaders, nil)
+	if retryDeadLetter.Code != http.StatusNoContent {
+		t.Fatalf("retry alert dead letter status=%d body=%s", retryDeadLetter.Code, retryDeadLetter.Body.String())
+	}
+	retryAgain := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/system/workers/dead-letters/"+url.PathEscape(alertDeadLetters.Items[0].ID)+"/retry", nil, authHeaders, nil)
+	if retryAgain.Code != http.StatusConflict {
+		t.Fatalf("retry alert dead letter twice status=%d body=%s", retryAgain.Code, retryAgain.Body.String())
+	}
+	deadLetters = requestJSONWithHeaders(t, router, http.MethodGet, "/v1/system/workers/dead-letters", nil, authHeaders, nil)
+	if !strings.Contains(deadLetters.Body.String(), `"status":"requeued"`) {
+		t.Fatalf("requeued alert audit body=%s", deadLetters.Body.String())
 	}
 
 	worker := alertworker.NewWorker(app.AlertService, time.Millisecond, time.Minute, time.Minute, time.Second, 3, 10, t.Logf)

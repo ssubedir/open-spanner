@@ -359,6 +359,16 @@ func (r *AlertRepository) RequeueEvaluationJob(ctx context.Context, ruleID strin
 	return nil
 }
 
+func (r *AlertRepository) SaveEvaluationDeadLetter(ctx context.Context, deadLetter appalert.EvaluationDeadLetter) error {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return err
+	}
+	return queriesFor(ctx, r.queries).SaveAlertWorkerDeadLetter(ctx, sqlitedb.SaveAlertWorkerDeadLetterParams{
+		PublicID: deadLetter.ID, WorkspaceID: workspaceID, RuleID: deadLetter.RuleID, Attempts: int64(deadLetter.Attempts), LastError: deadLetter.Error, CreatedAt: formatTime(deadLetter.CreatedAt),
+	})
+}
+
 func (r *AlertRepository) UpdateRuleNextEvaluation(ctx context.Context, id string, nextEvaluateAt time.Time, updatedAt time.Time) error {
 	rows, err := queriesFor(ctx, r.queries).UpdateAlertRuleNextEvaluation(ctx, sqlitedb.UpdateAlertRuleNextEvaluationParams{
 		ID:             id,
