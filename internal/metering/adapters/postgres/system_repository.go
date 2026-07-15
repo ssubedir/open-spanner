@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	appauth "github.com/ssubedir/open-spanner/internal/auth"
@@ -36,6 +37,57 @@ func (r *SystemRepository) ListWorkerHeartbeats(ctx context.Context) ([]appsyste
 		items = append(items, appsystem.WorkerHeartbeat{Name: row.WorkerName, StartedAt: row.StartedAt, LastHeartbeatAt: row.LastHeartbeatAt})
 	}
 	return items, nil
+}
+
+func (r *SystemRepository) ListWorkerDiagnostics(ctx context.Context, now time.Time) ([]appsystem.WorkerDiagnostics, error) {
+	rows, err := queriesFor(ctx, r.queries).ListWorkerDiagnostics(ctx, now)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]appsystem.WorkerDiagnostics, 0, len(rows))
+	for _, row := range rows {
+		oldest, err := diagnosticTime(row.OldestPendingAt)
+		if err != nil {
+			return nil, err
+		}
+		lastSuccess, err := diagnosticTime(row.LastSuccessAt)
+		if err != nil {
+			return nil, err
+		}
+		lastFailure, err := diagnosticTime(row.LastFailureAt)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, appsystem.WorkerDiagnostics{
+			Name: row.WorkerName, PendingJobs: int(row.PendingJobs), RunningJobs: int(row.RunningJobs), FailedJobs: int(row.FailedJobs),
+			OldestPendingAt: oldest, LastSuccessAt: lastSuccess, LastFailureAt: lastFailure,
+		})
+	}
+	return items, nil
+}
+
+func diagnosticTime(value any) (time.Time, error) {
+	var raw string
+	switch typed := value.(type) {
+	case string:
+		raw = typed
+	case []byte:
+		raw = string(typed)
+	case nil:
+		return time.Time{}, nil
+	case time.Time:
+		return typed.UTC(), nil
+	}
+	if raw == "" {
+		return time.Time{}, nil
+	}
+	for _, layout := range []string{time.RFC3339Nano, "2006-01-02 15:04:05.999999999Z07:00", "2006-01-02 15:04:05.999999999Z07"} {
+		parsed, err := time.Parse(layout, raw)
+		if err == nil {
+			return parsed.UTC(), nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("parse diagnostic timestamp %q", raw)
 }
 
 func (r *SystemRepository) ClaimReconciliationSchedule(ctx context.Context, now, lockedUntil time.Time) (appsystem.ReconciliationClaim, bool, error) {

@@ -46,6 +46,66 @@ func (r *SystemRepository) ListWorkerHeartbeats(ctx context.Context) ([]appsyste
 	return items, nil
 }
 
+func (r *SystemRepository) ListWorkerDiagnostics(ctx context.Context, now time.Time) ([]appsystem.WorkerDiagnostics, error) {
+	rows, err := queriesFor(ctx, r.queries).ListWorkerDiagnostics(ctx, sql.NullString{String: formatTime(now), Valid: true})
+	if err != nil {
+		return nil, err
+	}
+	items := make([]appsystem.WorkerDiagnostics, 0, len(rows))
+	for _, row := range rows {
+		oldest, err := diagnosticTime(row.OldestPendingAt)
+		if err != nil {
+			return nil, err
+		}
+		lastSuccess, err := diagnosticTime(row.LastSuccessAt)
+		if err != nil {
+			return nil, err
+		}
+		lastFailure, err := diagnosticTime(row.LastFailureAt)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, appsystem.WorkerDiagnostics{
+			Name: row.WorkerName, PendingJobs: diagnosticInt(row.PendingJobs), RunningJobs: diagnosticInt(row.RunningJobs), FailedJobs: diagnosticInt(row.FailedJobs),
+			OldestPendingAt: oldest, LastSuccessAt: lastSuccess, LastFailureAt: lastFailure,
+		})
+	}
+	return items, nil
+}
+
+func diagnosticInt(value any) int {
+	switch typed := value.(type) {
+	case int64:
+		return int(typed)
+	case int:
+		return typed
+	default:
+		return 0
+	}
+}
+
+func diagnosticTime(value any) (time.Time, error) {
+	var raw string
+	switch typed := value.(type) {
+	case string:
+		raw = typed
+	case []byte:
+		raw = string(typed)
+	case nil:
+		return time.Time{}, nil
+	case time.Time:
+		return typed.UTC(), nil
+	}
+	if raw == "" {
+		return time.Time{}, nil
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return parsed.UTC(), nil
+}
+
 func (r *SystemRepository) ClaimReconciliationSchedule(ctx context.Context, now, lockedUntil time.Time) (appsystem.ReconciliationClaim, bool, error) {
 	formattedNow := formatTime(now)
 	if err := queriesFor(ctx, r.queries).EnsureReconciliationSchedules(ctx, formattedNow); err != nil {

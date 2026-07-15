@@ -86,13 +86,17 @@ export function OverviewPage() {
       </section>
 
       <Card className="mb-4 min-w-0">
-        <CardHeader className="!px-4 !py-3"><div><CardTitle>Operations Health</CardTitle><CardDescription>Durable background-worker heartbeats. Refresh the overview to update.</CardDescription></div></CardHeader>
+        <CardHeader className="!px-4 !py-3"><div><CardTitle>Operations Health</CardTitle><CardDescription>Worker liveness, active work, and durable queue backlog. Backlogs older than five minutes are degraded.</CardDescription></div></CardHeader>
         <CardContent>
-          <DataTable emptyLabel="Worker health is unavailable" headers={['Worker', 'Status', 'Last heartbeat', 'Started']} rows={(stats?.worker_health ?? []).map((worker) => [
+          <DataTable emptyLabel="Worker health is unavailable" headers={['Worker', 'Status', 'Pending', 'Running', 'Failed', 'Oldest pending', 'Last result', 'Last heartbeat']} rows={(stats?.worker_health ?? []).map((worker) => [
             <strong className="capitalize">{worker.name}</strong>,
-            <Badge variant={worker.status === 'healthy' ? 'success' : worker.status === 'stale' ? 'warning' : 'muted'}>{worker.status.replace('_', ' ')}</Badge>,
+            <Badge variant={worker.status === 'healthy' ? 'success' : worker.status === 'stale' || worker.status === 'degraded' ? 'warning' : 'muted'}>{worker.status.replace('_', ' ')}</Badge>,
+            worker.pending_jobs,
+            worker.running_jobs,
+            worker.failed_jobs > 0 ? <strong>{worker.failed_jobs}</strong> : 0,
+            worker.oldest_pending_at ? formatDate(worker.oldest_pending_at) : <span className="muted">—</span>,
+            workerLastResult(worker),
             worker.last_heartbeat_at ? formatDate(worker.last_heartbeat_at) : <span className="muted">Never</span>,
-            worker.started_at ? formatDate(worker.started_at) : <span className="muted">—</span>,
           ])} />
         </CardContent>
       </Card>
@@ -180,6 +184,16 @@ export function OverviewPage() {
       </section>
     </>
   )
+}
+
+function workerLastResult(worker: SystemStats['worker_health'][number]) {
+  if (worker.last_failure_at && (!worker.last_success_at || Date.parse(worker.last_failure_at) >= Date.parse(worker.last_success_at))) {
+    return <span><strong>Failed</strong> {formatDate(worker.last_failure_at)}</span>
+  }
+  if (worker.last_success_at) {
+    return <span>Completed {formatDate(worker.last_success_at)}</span>
+  }
+  return <span className="muted">—</span>
 }
 
 function OverviewActionCard({ description, icon, label, onOpen, title }: { description: string; icon: React.ReactNode; label: string; onOpen: () => void; title: string }) {

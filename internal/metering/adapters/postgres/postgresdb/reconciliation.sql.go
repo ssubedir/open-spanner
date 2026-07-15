@@ -821,6 +821,97 @@ func (q *Queries) ListReconciliationRuns(ctx context.Context, arg ListReconcilia
 	return items, nil
 }
 
+const listWorkerDiagnostics = `-- name: ListWorkerDiagnostics :many
+SELECT 'export'::text AS worker_name,
+	COUNT(*) FILTER (WHERE status = 'queued' OR (status = 'running' AND locked_until::timestamptz < $1::timestamptz)) AS pending_jobs,
+	COUNT(*) FILTER (WHERE status = 'running' AND locked_until::timestamptz >= $1::timestamptz) AS running_jobs,
+	COUNT(*) FILTER (WHERE status = 'failed') AS failed_jobs,
+	COALESCE(MIN(created_at) FILTER (WHERE status = 'queued' OR (status = 'running' AND locked_until::timestamptz < $1::timestamptz)), '') AS oldest_pending_at,
+	COALESCE(MAX(completed_at) FILTER (WHERE status = 'completed'), '') AS last_success_at,
+	COALESCE(MAX(updated_at) FILTER (WHERE status = 'failed'), '') AS last_failure_at
+FROM usage_export_jobs
+UNION ALL
+SELECT 'alert',
+	COUNT(*) FILTER (WHERE locked_until IS NULL OR locked_until::timestamptz < $1::timestamptz),
+	COUNT(*) FILTER (WHERE locked_until::timestamptz >= $1::timestamptz),
+	0,
+	COALESCE(MIN(created_at) FILTER (WHERE locked_until IS NULL OR locked_until::timestamptz < $1::timestamptz), ''),
+	COALESCE((SELECT MAX(evaluated_at) FROM alert_states), ''),
+	COALESCE((SELECT MAX(attempted_at) FROM alert_deliveries WHERE status = 'failed'), '')
+FROM alert_evaluation_jobs
+UNION ALL
+SELECT 'entitlement',
+	COUNT(*) FILTER (WHERE locked_until IS NULL OR locked_until::timestamptz < $1::timestamptz),
+	COUNT(*) FILTER (WHERE locked_until::timestamptz >= $1::timestamptz),
+	0,
+	COALESCE(MIN(created_at) FILTER (WHERE locked_until IS NULL OR locked_until::timestamptz < $1::timestamptz), ''),
+	COALESCE((SELECT MAX(evaluated_at) FROM entitlement_states), ''),
+	''
+FROM entitlement_check_jobs
+UNION ALL
+SELECT 'retention', 0, 0, 0, '',
+	GREATEST(COALESCE((SELECT MAX(created_at) FROM usage_prune_runs), ''), COALESCE((SELECT MAX(created_at)::text FROM consumption_decision_prune_runs), '')), ''
+UNION ALL
+SELECT 'reconciliation',
+	COUNT(*) FILTER (WHERE status = 'pending' AND (locked_until IS NULL OR locked_until < $1::timestamptz))
+		+ (SELECT COUNT(*) FROM reconciliation_schedules s WHERE s.next_run_at <= $1::timestamptz AND (s.locked_until IS NULL OR s.locked_until < $1::timestamptz)),
+	COUNT(*) FILTER (WHERE status = 'pending' AND locked_until >= $1::timestamptz)
+		+ (SELECT COUNT(*) FROM reconciliation_schedules s WHERE s.locked_until >= $1::timestamptz),
+	COUNT(*) FILTER (WHERE status = 'dead_letter'),
+	COALESCE((SELECT MIN(pending_at)::text FROM (
+		SELECT created_at AS pending_at FROM reconciliation_notifications WHERE status = 'pending' AND (locked_until IS NULL OR locked_until < $1::timestamptz)
+		UNION ALL
+		SELECT next_run_at FROM reconciliation_schedules WHERE next_run_at <= $1::timestamptz AND (locked_until IS NULL OR locked_until < $1::timestamptz)
+	) pending), ''),
+	COALESCE((SELECT MAX(created_at)::text FROM reconciliation_runs WHERE status IN ('healthy', 'drift_detected')), ''),
+	GREATEST(
+		COALESCE((SELECT MAX(created_at)::text FROM reconciliation_runs WHERE status = 'failed'), ''),
+		COALESCE((SELECT MAX(created_at)::text FROM reconciliation_notification_attempts WHERE status = 'failed'), '')
+	)
+FROM reconciliation_notifications
+`
+
+type ListWorkerDiagnosticsRow struct {
+	WorkerName      string
+	PendingJobs     int64
+	RunningJobs     int64
+	FailedJobs      int64
+	OldestPendingAt interface{}
+	LastSuccessAt   interface{}
+	LastFailureAt   interface{}
+}
+
+func (q *Queries) ListWorkerDiagnostics(ctx context.Context, now time.Time) ([]ListWorkerDiagnosticsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listWorkerDiagnostics, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListWorkerDiagnosticsRow{}
+	for rows.Next() {
+		var i ListWorkerDiagnosticsRow
+		if err := rows.Scan(
+			&i.WorkerName,
+			&i.PendingJobs,
+			&i.RunningJobs,
+			&i.FailedJobs,
+			&i.OldestPendingAt,
+			&i.LastSuccessAt,
+			&i.LastFailureAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listWorkerHeartbeats = `-- name: ListWorkerHeartbeats :many
 SELECT worker_name, started_at, last_heartbeat_at
 FROM system_worker_heartbeats

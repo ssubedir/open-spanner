@@ -806,6 +806,106 @@ func (q *Queries) ListReconciliationRuns(ctx context.Context, arg ListReconcilia
 	return items, nil
 }
 
+const listWorkerDiagnostics = `-- name: ListWorkerDiagnostics :many
+SELECT 'export' AS worker_name,
+	COALESCE(SUM(CASE WHEN e.status = 'queued' OR (e.status = 'running' AND e.locked_until < ?1) THEN 1 ELSE 0 END), 0) AS pending_jobs,
+	COALESCE(SUM(CASE WHEN e.status = 'running' AND e.locked_until >= ?1 THEN 1 ELSE 0 END), 0) AS running_jobs,
+	COALESCE(SUM(CASE WHEN e.status = 'failed' THEN 1 ELSE 0 END), 0) AS failed_jobs,
+	COALESCE(MIN(CASE WHEN e.status = 'queued' OR (e.status = 'running' AND e.locked_until < ?1) THEN e.created_at END), '') AS oldest_pending_at,
+	COALESCE(MAX(CASE WHEN e.status = 'completed' THEN e.completed_at END), '') AS last_success_at,
+	COALESCE(MAX(CASE WHEN e.status = 'failed' THEN e.updated_at END), '') AS last_failure_at
+FROM usage_export_jobs e
+UNION ALL
+SELECT 'alert',
+	COALESCE(SUM(CASE WHEN a.locked_until IS NULL OR a.locked_until < ?1 THEN 1 ELSE 0 END), 0),
+	COALESCE(SUM(CASE WHEN a.locked_until >= ?1 THEN 1 ELSE 0 END), 0),
+	0,
+	COALESCE(MIN(CASE WHEN a.locked_until IS NULL OR a.locked_until < ?1 THEN a.created_at END), ''),
+	COALESCE((SELECT MAX(evaluated_at) FROM alert_states), ''),
+	COALESCE((SELECT MAX(attempted_at) FROM alert_deliveries WHERE status = 'failed'), '')
+FROM alert_evaluation_jobs a
+UNION ALL
+SELECT 'entitlement',
+	COALESCE(SUM(CASE WHEN e.locked_until IS NULL OR e.locked_until < ?1 THEN 1 ELSE 0 END), 0),
+	COALESCE(SUM(CASE WHEN e.locked_until >= ?1 THEN 1 ELSE 0 END), 0),
+	0,
+	COALESCE(MIN(CASE WHEN e.locked_until IS NULL OR e.locked_until < ?1 THEN e.created_at END), ''),
+	COALESCE((SELECT MAX(evaluated_at) FROM entitlement_states), ''),
+	''
+FROM entitlement_check_jobs e
+UNION ALL
+SELECT 'retention', 0, 0, 0, '',
+	MAX(last_success_at), ''
+FROM (
+	SELECT COALESCE(MAX(created_at), '') AS last_success_at FROM usage_prune_runs
+	UNION ALL
+	SELECT COALESCE(MAX(created_at), '') FROM consumption_decision_prune_runs
+)
+UNION ALL
+SELECT 'reconciliation',
+	COALESCE(SUM(CASE WHEN n.status = 'pending' AND (n.locked_until IS NULL OR n.locked_until < ?1) THEN 1 ELSE 0 END), 0)
+		+ (SELECT COUNT(*) FROM reconciliation_schedules s WHERE s.next_run_at <= ?1 AND (s.locked_until IS NULL OR s.locked_until < ?1)),
+	COALESCE(SUM(CASE WHEN n.status = 'pending' AND n.locked_until >= ?1 THEN 1 ELSE 0 END), 0)
+		+ (SELECT COUNT(*) FROM reconciliation_schedules s WHERE s.locked_until >= ?1),
+	COALESCE(SUM(CASE WHEN n.status = 'dead_letter' THEN 1 ELSE 0 END), 0),
+	COALESCE((SELECT MIN(pending_at) FROM (
+		SELECT created_at AS pending_at FROM reconciliation_notifications WHERE status = 'pending' AND (locked_until IS NULL OR locked_until < ?1)
+		UNION ALL
+		SELECT next_run_at FROM reconciliation_schedules WHERE next_run_at <= ?1 AND (locked_until IS NULL OR locked_until < ?1)
+	)), ''),
+	COALESCE((SELECT MAX(created_at) FROM reconciliation_runs WHERE status IN ('healthy', 'drift_detected')), ''),
+	MAX(last_failure_at)
+FROM reconciliation_notifications n
+CROSS JOIN (
+	SELECT MAX(last_failure_at) AS last_failure_at FROM (
+		SELECT COALESCE(MAX(created_at), '') AS last_failure_at FROM reconciliation_runs WHERE status = 'failed'
+		UNION ALL
+		SELECT COALESCE(MAX(created_at), '') FROM reconciliation_notification_attempts WHERE status = 'failed'
+	)
+)
+`
+
+type ListWorkerDiagnosticsRow struct {
+	WorkerName      string
+	PendingJobs     interface{}
+	RunningJobs     interface{}
+	FailedJobs      interface{}
+	OldestPendingAt interface{}
+	LastSuccessAt   interface{}
+	LastFailureAt   interface{}
+}
+
+func (q *Queries) ListWorkerDiagnostics(ctx context.Context, now sql.NullString) ([]ListWorkerDiagnosticsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listWorkerDiagnostics, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListWorkerDiagnosticsRow{}
+	for rows.Next() {
+		var i ListWorkerDiagnosticsRow
+		if err := rows.Scan(
+			&i.WorkerName,
+			&i.PendingJobs,
+			&i.RunningJobs,
+			&i.FailedJobs,
+			&i.OldestPendingAt,
+			&i.LastSuccessAt,
+			&i.LastFailureAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listWorkerHeartbeats = `-- name: ListWorkerHeartbeats :many
 SELECT worker_name, started_at, last_heartbeat_at
 FROM system_worker_heartbeats

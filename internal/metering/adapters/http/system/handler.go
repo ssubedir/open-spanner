@@ -301,12 +301,21 @@ func statsResponseFromResult(stats appsystem.StatsResult) StatsResponse {
 	}
 	workerHealth := make([]WorkerHealthResponse, 0, len(stats.WorkerHealth))
 	for _, worker := range stats.WorkerHealth {
-		item := WorkerHealthResponse{Name: worker.Name, Status: worker.Status}
+		item := WorkerHealthResponse{Name: worker.Name, Status: worker.Status, PendingJobs: worker.PendingJobs, RunningJobs: worker.RunningJobs, FailedJobs: worker.FailedJobs}
 		if !worker.StartedAt.IsZero() {
 			item.StartedAt = worker.StartedAt.Format(time.RFC3339Nano)
 		}
 		if !worker.LastHeartbeatAt.IsZero() {
 			item.LastHeartbeatAt = worker.LastHeartbeatAt.Format(time.RFC3339Nano)
+		}
+		if !worker.OldestPendingAt.IsZero() {
+			item.OldestPendingAt = worker.OldestPendingAt.Format(time.RFC3339Nano)
+		}
+		if !worker.LastSuccessAt.IsZero() {
+			item.LastSuccessAt = worker.LastSuccessAt.Format(time.RFC3339Nano)
+		}
+		if !worker.LastFailureAt.IsZero() {
+			item.LastFailureAt = worker.LastFailureAt.Format(time.RFC3339Nano)
 		}
 		workerHealth = append(workerHealth, item)
 	}

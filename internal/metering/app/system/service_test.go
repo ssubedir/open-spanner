@@ -11,6 +11,7 @@ import (
 
 type reconciliationRepository struct {
 	heartbeats  []WorkerHeartbeat
+	diagnostics []WorkerDiagnostics
 	decisions   []DecisionReconciliationRow
 	counters    []CounterReconciliationRow
 	events      []ReconciliationEvent
@@ -25,6 +26,37 @@ func (r *reconciliationRepository) UpsertWorkerHeartbeat(_ context.Context, hear
 }
 func (r *reconciliationRepository) ListWorkerHeartbeats(context.Context) ([]WorkerHeartbeat, error) {
 	return r.heartbeats, nil
+}
+func (r *reconciliationRepository) ListWorkerDiagnostics(context.Context, time.Time) ([]WorkerDiagnostics, error) {
+	return r.diagnostics, nil
+}
+
+func TestWorkerHealthDegradesForOldBacklogAndFailures(t *testing.T) {
+	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+	heartbeats := []WorkerHeartbeat{
+		{Name: "export", StartedAt: now.Add(-time.Hour), LastHeartbeatAt: now.Add(-time.Second)},
+		{Name: "alert", StartedAt: now.Add(-time.Hour), LastHeartbeatAt: now.Add(-time.Second)},
+	}
+	diagnostics := []WorkerDiagnostics{
+		{Name: "export", PendingJobs: 2, OldestPendingAt: now.Add(-6 * time.Minute)},
+		{Name: "alert", FailedJobs: 1, LastFailureAt: now.Add(-time.Minute)},
+	}
+
+	result := workerHealth(map[string]bool{}, heartbeats, diagnostics, now, 30*time.Second, 5*time.Minute)
+	if result[0].Status != "degraded" || result[0].PendingJobs != 2 {
+		t.Fatalf("expected export backlog to be degraded, got %+v", result[0])
+	}
+	if result[1].Status != "degraded" || result[1].FailedJobs != 1 {
+		t.Fatalf("expected alert failures to be degraded, got %+v", result[1])
+	}
+}
+
+func TestWorkerHealthStaleTakesPriorityOverDiagnostics(t *testing.T) {
+	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+	result := workerHealth(map[string]bool{}, []WorkerHeartbeat{{Name: "export", LastHeartbeatAt: now.Add(-time.Minute)}}, []WorkerDiagnostics{{Name: "export", FailedJobs: 1}}, now, 30*time.Second, 5*time.Minute)
+	if result[0].Status != "stale" {
+		t.Fatalf("expected stale status, got %q", result[0].Status)
+	}
 }
 
 func (r *reconciliationRepository) ClaimReconciliationSchedule(context.Context, time.Time, time.Time) (ReconciliationClaim, bool, error) {

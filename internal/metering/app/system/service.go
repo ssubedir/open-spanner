@@ -64,6 +64,7 @@ type Repository interface {
 	ListReconciliationNotificationAttempts(ctx context.Context, notificationID string) ([]ReconciliationNotificationAttempt, error)
 	UpsertWorkerHeartbeat(ctx context.Context, heartbeat WorkerHeartbeat) error
 	ListWorkerHeartbeats(ctx context.Context) ([]WorkerHeartbeat, error)
+	ListWorkerDiagnostics(ctx context.Context, now time.Time) ([]WorkerDiagnostics, error)
 }
 
 const (
@@ -168,6 +169,22 @@ type WorkerHealth struct {
 	Status          string
 	StartedAt       time.Time
 	LastHeartbeatAt time.Time
+	PendingJobs     int
+	RunningJobs     int
+	FailedJobs      int
+	OldestPendingAt time.Time
+	LastSuccessAt   time.Time
+	LastFailureAt   time.Time
+}
+
+type WorkerDiagnostics struct {
+	Name            string
+	PendingJobs     int
+	RunningJobs     int
+	FailedJobs      int
+	OldestPendingAt time.Time
+	LastSuccessAt   time.Time
+	LastFailureAt   time.Time
 }
 
 type LastDecisionPruneRunResult struct {
@@ -226,11 +243,16 @@ func (s *service) Stats(ctx context.Context) (StatsResult, error) {
 		return StatsResult{}, err
 	}
 	stats.ReconciliationHealth = reconciliationHealth(schedule, exists, stats.LastReconciliationRun, counts, time.Now().UTC(), s.staleAfter)
+	now := time.Now().UTC()
 	heartbeats, err := s.repo.ListWorkerHeartbeats(ctx)
 	if err != nil {
 		return StatsResult{}, err
 	}
-	stats.WorkerHealth = workerHealth(s.workerEnabled, heartbeats, time.Now().UTC(), 30*time.Second)
+	diagnostics, err := s.repo.ListWorkerDiagnostics(ctx, now)
+	if err != nil {
+		return StatsResult{}, err
+	}
+	stats.WorkerHealth = workerHealth(s.workerEnabled, heartbeats, diagnostics, now, 30*time.Second, 5*time.Minute)
 	return stats, nil
 }
 
@@ -241,15 +263,27 @@ func (s *service) RecordWorkerHeartbeat(ctx context.Context, workerName string, 
 	return s.repo.UpsertWorkerHeartbeat(ctx, WorkerHeartbeat{Name: workerName, StartedAt: startedAt.UTC(), LastHeartbeatAt: heartbeatAt.UTC()})
 }
 
-func workerHealth(enabled map[string]bool, heartbeats []WorkerHeartbeat, now time.Time, staleAfter time.Duration) []WorkerHealth {
+func workerHealth(enabled map[string]bool, heartbeats []WorkerHeartbeat, diagnostics []WorkerDiagnostics, now time.Time, staleAfter, backlogStaleAfter time.Duration) []WorkerHealth {
 	byName := map[string]WorkerHeartbeat{}
 	for _, heartbeat := range heartbeats {
 		byName[heartbeat.Name] = heartbeat
+	}
+	diagnosticsByName := map[string]WorkerDiagnostics{}
+	for _, diagnostic := range diagnostics {
+		diagnosticsByName[diagnostic.Name] = diagnostic
 	}
 	names := []string{"export", "alert", "entitlement", "retention", "reconciliation"}
 	result := make([]WorkerHealth, 0, len(names))
 	for _, name := range names {
 		item := WorkerHealth{Name: name, Status: "not_started"}
+		if diagnostic, ok := diagnosticsByName[name]; ok {
+			item.PendingJobs = diagnostic.PendingJobs
+			item.RunningJobs = diagnostic.RunningJobs
+			item.FailedJobs = diagnostic.FailedJobs
+			item.OldestPendingAt = diagnostic.OldestPendingAt
+			item.LastSuccessAt = diagnostic.LastSuccessAt
+			item.LastFailureAt = diagnostic.LastFailureAt
+		}
 		if active, configured := enabled[name]; configured && !active {
 			item.Status = "disabled"
 			result = append(result, item)
@@ -261,6 +295,8 @@ func workerHealth(enabled map[string]bool, heartbeats []WorkerHeartbeat, now tim
 			item.Status = "healthy"
 			if now.Sub(heartbeat.LastHeartbeatAt) > staleAfter {
 				item.Status = "stale"
+			} else if item.FailedJobs > 0 || (!item.OldestPendingAt.IsZero() && now.Sub(item.OldestPendingAt) > backlogStaleAfter) {
+				item.Status = "degraded"
 			}
 		}
 		result = append(result, item)

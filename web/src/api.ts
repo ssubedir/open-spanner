@@ -28,9 +28,15 @@ export type SystemStats = {
 	}
 	worker_health: Array<{
 		name: string
-		status: 'healthy' | 'stale' | 'disabled' | 'not_started'
+		status: 'healthy' | 'degraded' | 'stale' | 'disabled' | 'not_started'
 		started_at?: string
 		last_heartbeat_at?: string
+		pending_jobs: number
+		running_jobs: number
+		failed_jobs: number
+		oldest_pending_at?: string
+		last_success_at?: string
+		last_failure_at?: string
 	}>
 }
 

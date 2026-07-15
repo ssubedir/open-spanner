@@ -19,6 +19,12 @@ type WorkerHealthResponse struct {
 	Status          string `json:"status"`
 	StartedAt       string `json:"started_at,omitempty"`
 	LastHeartbeatAt string `json:"last_heartbeat_at,omitempty"`
+	PendingJobs     int    `json:"pending_jobs"`
+	RunningJobs     int    `json:"running_jobs"`
+	FailedJobs      int    `json:"failed_jobs"`
+	OldestPendingAt string `json:"oldest_pending_at,omitempty"`
+	LastSuccessAt   string `json:"last_success_at,omitempty"`
+	LastFailureAt   string `json:"last_failure_at,omitempty"`
 }
 
 type LastDecisionPruneRunResponse struct {

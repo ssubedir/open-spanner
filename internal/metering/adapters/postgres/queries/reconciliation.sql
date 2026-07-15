@@ -244,3 +244,52 @@ ON CONFLICT(worker_name) DO UPDATE SET started_at = EXCLUDED.started_at, last_he
 SELECT worker_name, started_at, last_heartbeat_at
 FROM system_worker_heartbeats
 ORDER BY worker_name ASC;
+
+-- name: ListWorkerDiagnostics :many
+SELECT 'export'::text AS worker_name,
+	COUNT(*) FILTER (WHERE status = 'queued' OR (status = 'running' AND locked_until::timestamptz < sqlc.arg('now')::timestamptz)) AS pending_jobs,
+	COUNT(*) FILTER (WHERE status = 'running' AND locked_until::timestamptz >= sqlc.arg('now')::timestamptz) AS running_jobs,
+	COUNT(*) FILTER (WHERE status = 'failed') AS failed_jobs,
+	COALESCE(MIN(created_at) FILTER (WHERE status = 'queued' OR (status = 'running' AND locked_until::timestamptz < sqlc.arg('now')::timestamptz)), '') AS oldest_pending_at,
+	COALESCE(MAX(completed_at) FILTER (WHERE status = 'completed'), '') AS last_success_at,
+	COALESCE(MAX(updated_at) FILTER (WHERE status = 'failed'), '') AS last_failure_at
+FROM usage_export_jobs
+UNION ALL
+SELECT 'alert',
+	COUNT(*) FILTER (WHERE locked_until IS NULL OR locked_until::timestamptz < sqlc.arg('now')::timestamptz),
+	COUNT(*) FILTER (WHERE locked_until::timestamptz >= sqlc.arg('now')::timestamptz),
+	0,
+	COALESCE(MIN(created_at) FILTER (WHERE locked_until IS NULL OR locked_until::timestamptz < sqlc.arg('now')::timestamptz), ''),
+	COALESCE((SELECT MAX(evaluated_at) FROM alert_states), ''),
+	COALESCE((SELECT MAX(attempted_at) FROM alert_deliveries WHERE status = 'failed'), '')
+FROM alert_evaluation_jobs
+UNION ALL
+SELECT 'entitlement',
+	COUNT(*) FILTER (WHERE locked_until IS NULL OR locked_until::timestamptz < sqlc.arg('now')::timestamptz),
+	COUNT(*) FILTER (WHERE locked_until::timestamptz >= sqlc.arg('now')::timestamptz),
+	0,
+	COALESCE(MIN(created_at) FILTER (WHERE locked_until IS NULL OR locked_until::timestamptz < sqlc.arg('now')::timestamptz), ''),
+	COALESCE((SELECT MAX(evaluated_at) FROM entitlement_states), ''),
+	''
+FROM entitlement_check_jobs
+UNION ALL
+SELECT 'retention', 0, 0, 0, '',
+	GREATEST(COALESCE((SELECT MAX(created_at) FROM usage_prune_runs), ''), COALESCE((SELECT MAX(created_at)::text FROM consumption_decision_prune_runs), '')), ''
+UNION ALL
+SELECT 'reconciliation',
+	COUNT(*) FILTER (WHERE status = 'pending' AND (locked_until IS NULL OR locked_until < sqlc.arg('now')::timestamptz))
+		+ (SELECT COUNT(*) FROM reconciliation_schedules s WHERE s.next_run_at <= sqlc.arg('now')::timestamptz AND (s.locked_until IS NULL OR s.locked_until < sqlc.arg('now')::timestamptz)),
+	COUNT(*) FILTER (WHERE status = 'pending' AND locked_until >= sqlc.arg('now')::timestamptz)
+		+ (SELECT COUNT(*) FROM reconciliation_schedules s WHERE s.locked_until >= sqlc.arg('now')::timestamptz),
+	COUNT(*) FILTER (WHERE status = 'dead_letter'),
+	COALESCE((SELECT MIN(pending_at)::text FROM (
+		SELECT created_at AS pending_at FROM reconciliation_notifications WHERE status = 'pending' AND (locked_until IS NULL OR locked_until < sqlc.arg('now')::timestamptz)
+		UNION ALL
+		SELECT next_run_at FROM reconciliation_schedules WHERE next_run_at <= sqlc.arg('now')::timestamptz AND (locked_until IS NULL OR locked_until < sqlc.arg('now')::timestamptz)
+	) pending), ''),
+	COALESCE((SELECT MAX(created_at)::text FROM reconciliation_runs WHERE status IN ('healthy', 'drift_detected')), ''),
+	GREATEST(
+		COALESCE((SELECT MAX(created_at)::text FROM reconciliation_runs WHERE status = 'failed'), ''),
+		COALESCE((SELECT MAX(created_at)::text FROM reconciliation_notification_attempts WHERE status = 'failed'), '')
+	)
+FROM reconciliation_notifications;

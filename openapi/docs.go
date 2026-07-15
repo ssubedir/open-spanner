@@ -5835,11 +5835,29 @@ const docTemplate = `{
         "internal_metering_adapters_http_system.WorkerHealthResponse": {
             "type": "object",
             "properties": {
+                "failed_jobs": {
+                    "type": "integer"
+                },
+                "last_failure_at": {
+                    "type": "string"
+                },
                 "last_heartbeat_at": {
+                    "type": "string"
+                },
+                "last_success_at": {
                     "type": "string"
                 },
                 "name": {
                     "type": "string"
+                },
+                "oldest_pending_at": {
+                    "type": "string"
+                },
+                "pending_jobs": {
+                    "type": "integer"
+                },
+                "running_jobs": {
+                    "type": "integer"
                 },
                 "started_at": {
                     "type": "string"
