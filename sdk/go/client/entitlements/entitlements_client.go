@@ -58,6 +58,12 @@ type ClientOption func(*runtime.ClientOperation)
 // ClientService is the interface for Client methods.
 type ClientService interface {
 
+	// ConsumeEntitlement atomically consume quota.
+	ConsumeEntitlement(params *ConsumeEntitlementParams, opts ...ClientOption) (*ConsumeEntitlementCreated, error)
+
+	// ConsumeEntitlementContext atomically consume quota.
+	ConsumeEntitlementContext(ctx context.Context, params *ConsumeEntitlementParams, opts ...ClientOption) (*ConsumeEntitlementCreated, error)
+
 	// ListEntitlementStates list entitlement states.
 	ListEntitlementStates(params *ListEntitlementStatesParams, opts ...ClientOption) (*ListEntitlementStatesOK, error)
 
@@ -65,6 +71,76 @@ type ClientService interface {
 	ListEntitlementStatesContext(ctx context.Context, params *ListEntitlementStatesParams, opts ...ClientOption) (*ListEntitlementStatesOK, error)
 
 	SetTransport(transport runtime.ContextualTransport)
+}
+
+/*
+ConsumeEntitlementatomicallies consume quota.
+
+Evaluates projected quota under a subject lock. Advisory limits always accept usage; hard limits reject usage that would exceed quota..
+
+This method does not support injected context.
+However, timeout and opentracing contexts are honored whenever enabled.
+
+If you need to pass a specific context, use [Client.ConsumeEntitlementContext] instead.
+*/
+func (a *Client) ConsumeEntitlement(params *ConsumeEntitlementParams, opts ...ClientOption) (*ConsumeEntitlementCreated, error) {
+	var ctx context.Context
+	if params.inner.ctx != nil {
+		ctx = params.inner.ctx
+	} else {
+		ctx = context.Background()
+	}
+
+	return a.ConsumeEntitlementContext(ctx, params, opts...)
+}
+
+/*
+ConsumeEntitlementContextatomicallies consume quota.
+
+Evaluates projected quota under a subject lock. Advisory limits always accept usage; hard limits reject usage that would exceed quota..
+
+Do not use the deprecated [ConsumeEntitlementParams.Context] with this method: it would be ignored.
+*/
+func (a *Client) ConsumeEntitlementContext(ctx context.Context, params *ConsumeEntitlementParams, opts ...ClientOption) (*ConsumeEntitlementCreated, error) {
+	// NOTE: parameters are not validated before sending
+	if params == nil {
+		params = NewConsumeEntitlementParams()
+	}
+
+	op := &runtime.ClientOperation{
+		ID:                 "consumeEntitlement",
+		Method:             "POST",
+		PathPattern:        "/v1/entitlements/consume",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http"},
+		Params:             params,
+		Reader:             &ConsumeEntitlementReader{formats: a.formats},
+		Client:             params.HTTPClient,
+	}
+
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.SubmitContext(ctx, op)
+	if err != nil {
+		return nil, err
+	}
+
+	// only one success response has to be checked
+	success, ok := result.(*ConsumeEntitlementCreated)
+	if ok {
+		return success, nil
+	}
+
+	// unexpected success response.
+
+	// no default response is defined.
+	//
+	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for consumeEntitlement: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*

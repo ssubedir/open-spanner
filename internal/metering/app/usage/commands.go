@@ -49,6 +49,18 @@ func (s *service) Create(ctx context.Context, cmd CreateCommand) (Result, error)
 	return eventResultFromDomain(event), nil
 }
 
+func (s *service) GetByIdempotencyKey(ctx context.Context, idempotencyKey string) (Result, error) {
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
+	if idempotencyKey == "" {
+		return Result{}, fmt.Errorf("%w: idempotency key is required", domain.ErrInvalidInput)
+	}
+	event, err := s.usageRepo.FindEventByIdempotencyKey(ctx, idempotencyKey)
+	if err != nil {
+		return Result{}, err
+	}
+	return eventResultFromDomain(event), nil
+}
+
 func (s *service) CreateBulk(ctx context.Context, idempotencyKey string, commands []CreateCommand) (BulkResult, error) {
 	idempotencyKey = strings.TrimSpace(idempotencyKey)
 

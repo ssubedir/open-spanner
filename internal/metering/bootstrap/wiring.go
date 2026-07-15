@@ -18,6 +18,7 @@ import (
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/postgres"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/sqlite"
 	appalert "github.com/ssubedir/open-spanner/internal/metering/app/alert"
+	appconsumption "github.com/ssubedir/open-spanner/internal/metering/app/consumption"
 	appentitlement "github.com/ssubedir/open-spanner/internal/metering/app/entitlement"
 	appmeter "github.com/ssubedir/open-spanner/internal/metering/app/meter"
 	appsavedquery "github.com/ssubedir/open-spanner/internal/metering/app/savedquery"
@@ -33,6 +34,7 @@ type App struct {
 	UsageService       appusage.Service
 	AlertService       appalert.Service
 	EntitlementService appentitlement.Service
+	ConsumptionService appconsumption.Service
 	AuthService        appauth.Service
 	Authorizer         appauth.Authorizer
 	meterService       appmeter.Service
@@ -91,12 +93,14 @@ func NewApp(ctx context.Context, cfg config.Config) (*App, error) {
 	usageService := appusage.NewService(repos.meter, repos.usage, repos.transactor)
 	alertService := appalert.NewService(repos.alert, repos.meter, repos.usage, repos.transactor)
 	entitlementService := appentitlement.NewService(repos.entitlement, repos.meter, repos.usage, repos.transactor)
+	consumptionService := appconsumption.NewService(usageService, entitlementService, repos.transactor)
 	systemService := appsystem.NewService(repos.system)
 
 	return &App{
 		UsageService:       usageService,
 		AlertService:       alertService,
 		EntitlementService: entitlementService,
+		ConsumptionService: consumptionService,
 		AuthService:        authService,
 		Authorizer:         authorizer,
 		meterService:       meterService,
@@ -132,6 +136,7 @@ func RegisterRoutes(ctx context.Context, router chi.Router, cfg config.Config) (
 			httpusage.NewHandler(app.UsageService, httpusage.HandlerOptions{
 				Alerts:            app.AlertService,
 				Entitlements:      app.EntitlementService,
+				Consumption:       app.ConsumptionService,
 				ExportStoragePath: cfg.ExportStoragePath,
 			}).RegisterRoutes(protected, app.Authorizer)
 			httpsystem.NewHandler(app.systemService).RegisterRoutes(protected, app.Authorizer)

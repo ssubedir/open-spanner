@@ -23,6 +23,7 @@ Open Spanner still does not collect payment, calculate tax, or issue invoices. I
 | Assignment | A subject-to-plan relationship, such as `org_123` on `Pro`. |
 | Progress | Current usage for each limit in the active period. |
 | Entitlement check | A backend decision for whether more usage can be allowed. |
+| Atomic consume | A quota decision and usage write committed as one operation. |
 
 Plan periods are calendar windows in UTC:
 
@@ -32,6 +33,15 @@ Plan periods are calendar windows in UTC:
 - `year`
 
 The warning state is controlled per limit with `warning_percent`. For example, a `100000` monthly API-call limit with `warning_percent=80` enters `warning` at `80000`.
+
+Each limit also has two reliability controls:
+
+| Setting | Values | Default |
+| --- | --- | --- |
+| `enforcement` | `advisory` accepts usage and reports quota state; `hard` rejects usage that would exceed the limit. | `advisory` |
+| `failure_policy` | `fail_open` accepts usage when quota evaluation fails; `fail_closed` rejects it. | `fail_open` |
+
+Start with `advisory` and `fail_open` while validating a new meter. Move a limit to `hard` only when rejecting the product action is safer than recording overage. `fail_closed` is best reserved for resources that must never be granted without a quota decision.
 
 Open Spanner keeps per-period entitlement counters as usage is accepted. Raw usage events remain the audit trail and query source; counters give entitlement checks and progress reads a fast path for current quota state.
 
@@ -99,6 +109,26 @@ Example response:
 For service clients, include `plans:read` on API keys that need entitlement checks. Add `usage:write` when the same service should record usage after an allowed decision.
 
 See [Check Entitlements](/docs/tutorials/check-entitlements) for SDK examples in Go, TypeScript, Python, and C#.
+
+## Atomic Consumption
+
+For enforcement, use `POST /v1/entitlements/consume`. It evaluates the active plan limit and records the usage event in one database transaction, so concurrent requests cannot all pass against the same remaining quota.
+
+```sh
+curl -X POST http://localhost:18081/v1/entitlements/consume \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "idempotency_key": "api-call-001",
+    "subject": "org_123",
+    "meter": "api_calls",
+    "quantity": 1
+  }'
+```
+
+An accepted request returns `201`. A hard-limit rejection returns `429` and includes the current, projected, remaining, reset, enforcement, and failure-policy fields. Retrying an accepted idempotency key returns the original event without consuming quota twice.
+
+The ordinary `POST /v1/usages` and gRPC ingestion paths remain recording-only and do not enforce hard limits. Use the consume endpoint for actions that require an atomic quota gate; use ordinary ingestion for facts that must always be recorded.
 
 ## Progress And Status
 

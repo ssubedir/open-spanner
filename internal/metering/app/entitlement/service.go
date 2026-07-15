@@ -61,6 +61,20 @@ const (
 	AssignmentStatusEnded     AssignmentStatus = "ended"
 )
 
+type EnforcementMode string
+
+const (
+	EnforcementAdvisory EnforcementMode = "advisory"
+	EnforcementHard     EnforcementMode = "hard"
+)
+
+type FailurePolicy string
+
+const (
+	FailurePolicyFailOpen   FailurePolicy = "fail_open"
+	FailurePolicyFailClosed FailurePolicy = "fail_closed"
+)
+
 type Repository interface {
 	SavePlan(ctx context.Context, plan Plan) (Plan, error)
 	RetirePlan(ctx context.Context, id string, updatedAt time.Time) error
@@ -72,6 +86,7 @@ type Repository interface {
 	SaveSubjectAssignment(ctx context.Context, assignment SubjectAssignment) (SubjectAssignment, error)
 	FindSubjectAssignments(ctx context.Context, query AssignmentQuery) ([]SubjectAssignment, error)
 	FindEffectiveSubjectAssignment(ctx context.Context, subject string, at time.Time) (SubjectAssignment, error)
+	LockEffectiveSubjectAssignment(ctx context.Context, subject string, at time.Time) (SubjectAssignment, error)
 	DeleteSubjectAssignment(ctx context.Context, subject string) error
 	GetEntitlementState(ctx context.Context, query StateQuery) (EntitlementState, error)
 	FindEntitlementStates(ctx context.Context, query StateListQuery) ([]EntitlementState, error)
@@ -103,6 +118,7 @@ type Service interface {
 	ListSubjectAssignments(ctx context.Context, query AssignmentListQuery) (SubjectAssignmentListResult, error)
 	GetSubjectProgress(ctx context.Context, query SubjectProgressQuery) (SubjectProgressResult, error)
 	Check(ctx context.Context, cmd CheckCommand) (EntitlementCheckResult, error)
+	AssessConsumption(ctx context.Context, cmd ConsumptionAssessmentCommand) (ConsumptionAssessment, error)
 	ListEntitlementStates(ctx context.Context, query StateListQuery) (StateListResult, error)
 	ListEntitlementEvents(ctx context.Context, query EventListQuery) (EventListResult, error)
 	ListEntitlementPeriodSnapshots(ctx context.Context, query SnapshotListQuery) (SnapshotListResult, error)
@@ -153,6 +169,8 @@ type PlanLimit struct {
 	Period         Period
 	Limit          float64
 	WarningPercent float64
+	Enforcement    EnforcementMode
+	FailurePolicy  FailurePolicy
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }
@@ -195,6 +213,8 @@ type EntitlementState struct {
 	Limit          float64
 	Remaining      float64
 	WarningPercent float64
+	Enforcement    string
+	FailurePolicy  string
 	Message        string
 	EvaluatedAt    time.Time
 	UpdatedAt      time.Time
@@ -346,6 +366,8 @@ type LimitCommand struct {
 	Period         string
 	Limit          float64
 	WarningPercent float64
+	Enforcement    string
+	FailurePolicy  string
 }
 
 type SavePlanCommand struct {
@@ -398,6 +420,13 @@ type CheckCommand struct {
 	Subject  string
 	Meter    string
 	Quantity float64
+}
+
+type ConsumptionAssessmentCommand struct {
+	Subject   string
+	Meter     string
+	Quantity  float64
+	EventTime time.Time
 }
 
 type UsageEvent struct {
@@ -547,6 +576,29 @@ type EntitlementCheckResult struct {
 	To                time.Time
 	PeriodResetAt     time.Time
 	RetryAfterSeconds int64
+	Message           string
+}
+
+type ConsumptionAssessment struct {
+	Allowed           bool
+	State             OverageState
+	Subject           string
+	MeterName         string
+	Quantity          float64
+	Current           float64
+	Projected         float64
+	Limit             float64
+	Remaining         float64
+	Overage           float64
+	PlanID            string
+	PlanName          string
+	Period            Period
+	From              time.Time
+	To                time.Time
+	PeriodResetAt     time.Time
+	RetryAfterSeconds int64
+	Enforcement       EnforcementMode
+	FailurePolicy     FailurePolicy
 	Message           string
 }
 
@@ -1332,6 +1384,14 @@ func (s *service) normalizeLimitCommand(ctx context.Context, planID string, comm
 	if !isFinitePositive(warning) || warning > 100 {
 		return PlanLimit{}, fmt.Errorf("%w: warning percent must be greater than zero and at most 100", domain.ErrInvalidInput)
 	}
+	enforcement, err := normalizeEnforcement(command.Enforcement)
+	if err != nil {
+		return PlanLimit{}, err
+	}
+	failurePolicy, err := normalizeFailurePolicy(command.FailurePolicy)
+	if err != nil {
+		return PlanLimit{}, err
+	}
 
 	return PlanLimit{
 		ID:             uuid.NewString(),
@@ -1340,6 +1400,8 @@ func (s *service) normalizeLimitCommand(ctx context.Context, planID string, comm
 		Period:         period,
 		Limit:          command.Limit,
 		WarningPercent: warning,
+		Enforcement:    enforcement,
+		FailurePolicy:  failurePolicy,
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}, nil
@@ -1530,6 +1592,28 @@ func normalizePeriod(value string) (Period, error) {
 		return PeriodYear, nil
 	default:
 		return "", fmt.Errorf("%w: unsupported plan period %q", domain.ErrInvalidInput, value)
+	}
+}
+
+func normalizeEnforcement(value string) (EnforcementMode, error) {
+	switch EnforcementMode(strings.ToLower(strings.TrimSpace(value))) {
+	case "", EnforcementAdvisory:
+		return EnforcementAdvisory, nil
+	case EnforcementHard:
+		return EnforcementHard, nil
+	default:
+		return "", fmt.Errorf("%w: unsupported enforcement mode %q", domain.ErrInvalidInput, value)
+	}
+}
+
+func normalizeFailurePolicy(value string) (FailurePolicy, error) {
+	switch FailurePolicy(strings.ToLower(strings.TrimSpace(value))) {
+	case "", FailurePolicyFailOpen:
+		return FailurePolicyFailOpen, nil
+	case FailurePolicyFailClosed:
+		return FailurePolicyFailClosed, nil
+	default:
+		return "", fmt.Errorf("%w: unsupported failure policy %q", domain.ErrInvalidInput, value)
 	}
 }
 

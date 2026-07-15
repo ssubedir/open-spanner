@@ -105,6 +105,8 @@ export type PlanLimit = {
   period: string
   limit: number
   warning_percent: number
+  enforcement: 'advisory' | 'hard'
+  failure_policy: 'fail_open' | 'fail_closed'
   created_at: string
   updated_at: string
 }
@@ -178,6 +180,8 @@ export type PlanLimitRequest = {
   period: string
   limit: number
   warning_percent?: number
+  enforcement?: 'advisory' | 'hard'
+  failure_policy?: 'fail_open' | 'fail_closed'
 }
 
 export type PlanSaveRequest = {

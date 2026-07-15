@@ -100,6 +100,80 @@
         }
       }
     },
+    "/v1/entitlements/consume": {
+      "post": {
+        "description": "Evaluates projected quota under a subject lock. Advisory limits always accept usage; hard limits reject usage that would exceed quota.",
+        "tags": [
+          "entitlements",
+          "usages"
+        ],
+        "summary": "Atomically consume quota",
+        "operationId": "consumeEntitlement",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntitlementConsumeRequest"
+              }
+            }
+          },
+          "description": "Consumption event",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntitlementConsumeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntitlementConsumeResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/entitlements/states": {
       "get": {
         "tags": [
@@ -1254,6 +1328,12 @@
           "created_at": {
             "type": "string"
           },
+          "enforcement": {
+            "type": "string"
+          },
+          "failure_policy": {
+            "type": "string"
+          },
           "id": {
             "type": "string"
           },
@@ -1717,6 +1797,118 @@
           }
         },
         "title": "UsageCreateRequest"
+      },
+      "EntitlementConsumeRequest": {
+        "type": "object",
+        "properties": {
+          "idempotency_key": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "meter": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "number"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string"
+          }
+        },
+        "title": "EntitlementConsumeRequest"
+      },
+      "EntitlementConsumeResponse": {
+        "type": "object",
+        "properties": {
+          "accepted": {
+            "type": "boolean"
+          },
+          "evaluation_failed": {
+            "type": "boolean"
+          },
+          "event": {
+            "$ref": "#/components/schemas/UsageEvent"
+          },
+          "quota": {
+            "$ref": "#/components/schemas/EntitlementConsumeQuota"
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        },
+        "title": "EntitlementConsumeResponse"
+      },
+      "EntitlementConsumeQuota": {
+        "type": "object",
+        "properties": {
+          "allowed": {
+            "type": "boolean"
+          },
+          "current": {
+            "type": "number"
+          },
+          "enforcement": {
+            "type": "string"
+          },
+          "failure_policy": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "message": {
+            "type": "string"
+          },
+          "meter": {
+            "type": "string"
+          },
+          "overage": {
+            "type": "number"
+          },
+          "period": {
+            "type": "string"
+          },
+          "period_reset_at": {
+            "type": "string"
+          },
+          "plan_id": {
+            "type": "string"
+          },
+          "plan_name": {
+            "type": "string"
+          },
+          "projected": {
+            "type": "number"
+          },
+          "quantity": {
+            "type": "number"
+          },
+          "remaining": {
+            "type": "number"
+          },
+          "retry_after_seconds": {
+            "type": "integer"
+          },
+          "state": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "title": "EntitlementConsumeQuota"
       },
       "UsageDimensionValueListResponse": {
         "type": "object",

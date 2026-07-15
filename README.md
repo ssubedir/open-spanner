@@ -42,7 +42,7 @@ Read the hosted docs at [ssubedir.github.io/open-spanner/docs](https://ssubedir.
 - Idempotent single and bulk usage ingestion.
 - gRPC stream ingestion for backend service-to-service usage pipelines.
 - Bucketed usage queries with filters, breakdowns, dimensions, and pagination.
-- Plans, subject assignments, quota counters, entitlement checks, and entitlement state history.
+- Plans, subject assignments, quota counters, entitlement checks, and atomic quota consumption with advisory or hard enforcement.
 - Direct CSV exports for focused requests and queued export jobs for larger files.
 - Alert rules that watch usage windows and deliver webhook notifications.
 - Dashboard auth with HttpOnly cookies and scoped API keys for service clients.

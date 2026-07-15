@@ -519,6 +519,10 @@ definitions:
     type: object
   internal_metering_adapters_http_entitlement.LimitRequest:
     properties:
+      enforcement:
+        type: string
+      failure_policy:
+        type: string
       limit:
         type: number
       meter:
@@ -531,6 +535,10 @@ definitions:
   internal_metering_adapters_http_entitlement.LimitResponse:
     properties:
       created_at:
+        type: string
+      enforcement:
+        type: string
+      failure_policy:
         type: string
       id:
         type: string
@@ -1038,6 +1046,78 @@ definitions:
         items:
           $ref: '#/definitions/internal_metering_adapters_http_usage.BulkFailureResponse'
         type: array
+    type: object
+  internal_metering_adapters_http_usage.ConsumeQuotaResponse:
+    properties:
+      allowed:
+        type: boolean
+      current:
+        type: number
+      enforcement:
+        type: string
+      failure_policy:
+        type: string
+      from:
+        type: string
+      limit:
+        type: number
+      message:
+        type: string
+      meter:
+        type: string
+      overage:
+        type: number
+      period:
+        type: string
+      period_reset_at:
+        type: string
+      plan_id:
+        type: string
+      plan_name:
+        type: string
+      projected:
+        type: number
+      quantity:
+        type: number
+      remaining:
+        type: number
+      retry_after_seconds:
+        type: integer
+      state:
+        type: string
+      subject:
+        type: string
+      to:
+        type: string
+    type: object
+  internal_metering_adapters_http_usage.ConsumeRequest:
+    properties:
+      idempotency_key:
+        type: string
+      metadata:
+        additionalProperties: {}
+        type: object
+      meter:
+        type: string
+      quantity:
+        type: number
+      subject:
+        type: string
+      timestamp:
+        type: string
+    type: object
+  internal_metering_adapters_http_usage.ConsumeResponse:
+    properties:
+      accepted:
+        type: boolean
+      evaluation_failed:
+        type: boolean
+      event:
+        $ref: '#/definitions/internal_metering_adapters_http_usage.Response'
+      quota:
+        $ref: '#/definitions/internal_metering_adapters_http_usage.ConsumeQuotaResponse'
+      replayed:
+        type: boolean
     type: object
   internal_metering_adapters_http_usage.CreateRequest:
     properties:
@@ -1971,6 +2051,47 @@ paths:
       summary: Check entitlement quota
       tags:
       - plans
+  /v1/entitlements/consume:
+    post:
+      consumes:
+      - application/json
+      description: Evaluates projected quota under a subject lock. Advisory limits
+        always accept usage; hard limits reject usage that would exceed quota.
+      operationId: consumeEntitlement
+      parameters:
+      - description: Consumption event
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_usage.ConsumeRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_usage.ConsumeResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_usage.ConsumeResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Atomically consume quota
+      tags:
+      - entitlements
+      - usages
   /v1/entitlements/events:
     get:
       operationId: listEntitlementEvents

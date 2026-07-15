@@ -59,6 +59,14 @@ func (r *UsageRepository) Save(ctx context.Context, event domainusage.Event) (do
 	return r.save(ctx, event)
 }
 
+func (r *UsageRepository) FindEventByIdempotencyKey(ctx context.Context, idempotencyKey string) (domainusage.Event, error) {
+	event, err := r.findByIdempotencyKey(ctx, idempotencyKey)
+	if errors.Is(err, sql.ErrNoRows) {
+		return domainusage.Event{}, domain.ErrNotFound
+	}
+	return event, err
+}
+
 func (r *UsageRepository) SaveBulk(ctx context.Context, idempotencyKey string, events []domainusage.Event) (domainusage.BulkSaveResult, error) {
 	workspaceID, err := appauth.RequireWorkspaceID(ctx)
 	if err != nil {

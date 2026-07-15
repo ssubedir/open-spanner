@@ -2,7 +2,7 @@
 
 import { client } from './client.gen.js';
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client/index.js';
-import type { CheckEntitlementData, CheckEntitlementErrors, CheckEntitlementResponses, CreateMeterData, CreateMeterErrors, CreateMeterResponses, CreateUsageBulkData, CreateUsageBulkErrors, CreateUsageBulkResponses, CreateUsageData, CreateUsageErrors, CreateUsageResponses, DeleteMeterData, DeleteMeterErrors, DeleteMeterResponses, ExportFilteredUsageBucketsData, ExportFilteredUsageBucketsErrors, ExportFilteredUsageBucketsResponses, ExportUsageBucketsData, ExportUsageBucketsErrors, ExportUsageBucketsResponses, GetMeterData, GetMeterErrors, GetMeterResponses, GetSubjectPlanProgressData, GetSubjectPlanProgressErrors, GetSubjectPlanProgressResponses, HealthCheckData, HealthCheckResponses, ListEntitlementStatesData, ListEntitlementStatesErrors, ListEntitlementStatesResponses, ListMetersData, ListMetersErrors, ListMetersResponses, ListUsageDimensionValuesData, ListUsageDimensionValuesErrors, ListUsageDimensionValuesResponses, ReadinessCheckData, ReadinessCheckErrors, ReadinessCheckResponses, SearchUsageBreakdownData, SearchUsageBreakdownErrors, SearchUsageBreakdownResponses, SearchUsageBucketsData, SearchUsageBucketsErrors, SearchUsageBucketsResponses, UpdateMeterData, UpdateMeterErrors, UpdateMeterResponses } from './types.gen.js';
+import type { CheckEntitlementData, CheckEntitlementErrors, CheckEntitlementResponses, ConsumeEntitlementData, ConsumeEntitlementErrors, ConsumeEntitlementResponses, CreateMeterData, CreateMeterErrors, CreateMeterResponses, CreateUsageBulkData, CreateUsageBulkErrors, CreateUsageBulkResponses, CreateUsageData, CreateUsageErrors, CreateUsageResponses, DeleteMeterData, DeleteMeterErrors, DeleteMeterResponses, ExportFilteredUsageBucketsData, ExportFilteredUsageBucketsErrors, ExportFilteredUsageBucketsResponses, ExportUsageBucketsData, ExportUsageBucketsErrors, ExportUsageBucketsResponses, GetMeterData, GetMeterErrors, GetMeterResponses, GetSubjectPlanProgressData, GetSubjectPlanProgressErrors, GetSubjectPlanProgressResponses, HealthCheckData, HealthCheckResponses, ListEntitlementStatesData, ListEntitlementStatesErrors, ListEntitlementStatesResponses, ListMetersData, ListMetersErrors, ListMetersResponses, ListUsageDimensionValuesData, ListUsageDimensionValuesErrors, ListUsageDimensionValuesResponses, ReadinessCheckData, ReadinessCheckErrors, ReadinessCheckResponses, SearchUsageBreakdownData, SearchUsageBreakdownErrors, SearchUsageBreakdownResponses, SearchUsageBucketsData, SearchUsageBucketsErrors, SearchUsageBucketsResponses, UpdateMeterData, UpdateMeterErrors, UpdateMeterResponses } from './types.gen.js';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -33,6 +33,20 @@ export const readinessCheck = <ThrowOnError extends boolean = false>(options?: O
  */
 export const checkEntitlement = <ThrowOnError extends boolean = false>(options: Options<CheckEntitlementData, ThrowOnError>): RequestResult<CheckEntitlementResponses, CheckEntitlementErrors, ThrowOnError> => (options.client ?? client).post<CheckEntitlementResponses, CheckEntitlementErrors, ThrowOnError>({
     url: '/v1/entitlements/check',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Atomically consume quota
+ *
+ * Evaluates projected quota under a subject lock. Advisory limits always accept usage; hard limits reject usage that would exceed quota.
+ */
+export const consumeEntitlement = <ThrowOnError extends boolean = false>(options: Options<ConsumeEntitlementData, ThrowOnError>): RequestResult<ConsumeEntitlementResponses, ConsumeEntitlementErrors, ThrowOnError> => (options.client ?? client).post<ConsumeEntitlementResponses, ConsumeEntitlementErrors, ThrowOnError>({
+    url: '/v1/entitlements/consume',
     ...options,
     headers: {
         'Content-Type': 'application/json',

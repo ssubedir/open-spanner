@@ -468,6 +468,8 @@ func limitCommands(input []LimitRequest) []appentitlement.LimitCommand {
 			Period:         limit.Period,
 			Limit:          limit.Limit,
 			WarningPercent: limit.WarningPercent,
+			Enforcement:    limit.Enforcement,
+			FailurePolicy:  limit.FailurePolicy,
 		})
 	}
 	return limits
@@ -550,6 +552,8 @@ func limitResponse(limit appentitlement.PlanLimit) LimitResponse {
 		Period:         string(limit.Period),
 		Limit:          limit.Limit,
 		WarningPercent: limit.WarningPercent,
+		Enforcement:    string(limit.Enforcement),
+		FailurePolicy:  string(limit.FailurePolicy),
 		CreatedAt:      formatTime(limit.CreatedAt),
 		UpdatedAt:      formatTime(limit.UpdatedAt),
 	}

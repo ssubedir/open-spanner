@@ -16,6 +16,7 @@ func (h *Handler) RegisterRoutes(router chi.Router, authorizer access.Authorizer
 	h.registerUsageRoutes(routes)
 	h.registerUsageEventRoutes(routes)
 	h.registerExportRoutes(routes)
+	routes.Post("/entitlements/consume", h.Consume, access.UsageWrite(consumeUsageResource), access.PlansRead(consumePlanResource))
 	routes.Get("/usageingestions", h.ListIngestions, access.UsageRead(allUsageResource))
 }
 
@@ -59,6 +60,12 @@ var (
 	allExportResource   = access.Static(access.Export(""))
 	createUsageResource = access.JSONBodyResource(func(req CreateRequest) (access.Resource, error) {
 		return access.Usage(req.Meter, req.Subject), nil
+	})
+	consumeUsageResource = access.JSONBodyResource(func(req ConsumeRequest) (access.Resource, error) {
+		return access.Usage(req.Meter, req.Subject), nil
+	})
+	consumePlanResource = access.JSONBodyResource(func(req ConsumeRequest) (access.Resource, error) {
+		return access.Plan(req.Meter), nil
 	})
 	bulkUsageResource          = access.JSONBody(bulkUsageResources)
 	searchRequestUsageResource = access.JSONBodyResource(func(req SearchRequest) (access.Resource, error) {

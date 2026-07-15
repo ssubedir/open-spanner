@@ -14,6 +14,7 @@ import (
 type Service interface {
 	Create(ctx context.Context, cmd CreateCommand) (Result, error)
 	CreateBulk(ctx context.Context, idempotencyKey string, commands []CreateCommand) (BulkResult, error)
+	GetByIdempotencyKey(ctx context.Context, idempotencyKey string) (Result, error)
 	List(ctx context.Context, query ListQuery) ([]ListItemResult, error)
 	ListDimensionValues(ctx context.Context, query DimensionValueListQuery) (DimensionValueListResult, error)
 	ListBreakdown(ctx context.Context, query BreakdownListQuery) (BreakdownListResult, error)

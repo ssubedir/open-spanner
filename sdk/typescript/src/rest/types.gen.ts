@@ -60,6 +60,8 @@ export type EntitlementCheckResponse = {
  */
 export type PlanLimit = {
     created_at?: string;
+    enforcement?: string;
+    failure_policy?: string;
     id?: string;
     limit?: number;
     meter?: string;
@@ -278,6 +280,57 @@ export type UsageCreateRequest = {
 };
 
 /**
+ * EntitlementConsumeRequest
+ */
+export type EntitlementConsumeRequest = {
+    idempotency_key?: string;
+    metadata?: {
+        [key: string]: unknown;
+    };
+    meter?: string;
+    quantity?: number;
+    subject?: string;
+    timestamp?: string;
+};
+
+/**
+ * EntitlementConsumeResponse
+ */
+export type EntitlementConsumeResponse = {
+    accepted?: boolean;
+    evaluation_failed?: boolean;
+    event?: UsageEvent;
+    quota?: EntitlementConsumeQuota;
+    replayed?: boolean;
+};
+
+/**
+ * EntitlementConsumeQuota
+ */
+export type EntitlementConsumeQuota = {
+    allowed?: boolean;
+    current?: number;
+    enforcement?: string;
+    failure_policy?: string;
+    from?: string;
+    limit?: number;
+    message?: string;
+    meter?: string;
+    overage?: number;
+    period?: string;
+    period_reset_at?: string;
+    plan_id?: string;
+    plan_name?: string;
+    projected?: number;
+    quantity?: number;
+    remaining?: number;
+    retry_after_seconds?: number;
+    state?: string;
+    subject?: string;
+    to?: string;
+};
+
+/**
  * UsageDimensionValueListResponse
  */
 export type UsageDimensionValueListResponse = {
@@ -414,6 +467,46 @@ export type CheckEntitlementResponses = {
 };
 
 export type CheckEntitlementResponse = CheckEntitlementResponses[keyof CheckEntitlementResponses];
+
+export type ConsumeEntitlementData = {
+    /**
+     * Consumption event
+     */
+    body: EntitlementConsumeRequest;
+    path?: never;
+    query?: never;
+    url: '/v1/entitlements/consume';
+};
+
+export type ConsumeEntitlementErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Too Many Requests
+     */
+    429: EntitlementConsumeResponse;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorResponse;
+};
+
+export type ConsumeEntitlementError = ConsumeEntitlementErrors[keyof ConsumeEntitlementErrors];
+
+export type ConsumeEntitlementResponses = {
+    /**
+     * Created
+     */
+    201: EntitlementConsumeResponse;
+};
+
+export type ConsumeEntitlementResponse = ConsumeEntitlementResponses[keyof ConsumeEntitlementResponses];
 
 export type ListEntitlementStatesData = {
     body?: never;

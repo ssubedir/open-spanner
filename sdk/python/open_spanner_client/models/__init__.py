@@ -2,6 +2,10 @@
 
 from .entitlement_check_request import EntitlementCheckRequest
 from .entitlement_check_response import EntitlementCheckResponse
+from .entitlement_consume_quota import EntitlementConsumeQuota
+from .entitlement_consume_request import EntitlementConsumeRequest
+from .entitlement_consume_request_metadata import EntitlementConsumeRequestMetadata
+from .entitlement_consume_response import EntitlementConsumeResponse
 from .entitlement_progress import EntitlementProgress
 from .entitlement_progress_item import EntitlementProgressItem
 from .entitlement_state import EntitlementState
@@ -35,6 +39,10 @@ from .usage_event_metadata import UsageEventMetadata
 __all__ = (
     "EntitlementCheckRequest",
     "EntitlementCheckResponse",
+    "EntitlementConsumeQuota",
+    "EntitlementConsumeRequest",
+    "EntitlementConsumeRequestMetadata",
+    "EntitlementConsumeResponse",
     "EntitlementProgress",
     "EntitlementProgressItem",
     "EntitlementState",

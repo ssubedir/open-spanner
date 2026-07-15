@@ -17,6 +17,7 @@ import (
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/http/internal/request"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/http/internal/respond"
 	appalert "github.com/ssubedir/open-spanner/internal/metering/app/alert"
+	appconsumption "github.com/ssubedir/open-spanner/internal/metering/app/consumption"
 	appentitlement "github.com/ssubedir/open-spanner/internal/metering/app/entitlement"
 	appusage "github.com/ssubedir/open-spanner/internal/metering/app/usage"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
@@ -27,6 +28,7 @@ type Handler struct {
 	service      appusage.Service
 	alerts       AlertEnqueuer
 	entitlements EntitlementEnqueuer
+	consumption  appconsumption.Service
 	exportStore  fileexport.Store
 }
 
@@ -41,6 +43,7 @@ type EntitlementEnqueuer interface {
 type HandlerOptions struct {
 	Alerts            AlertEnqueuer
 	Entitlements      EntitlementEnqueuer
+	Consumption       appconsumption.Service
 	ExportStoragePath string
 }
 
@@ -53,6 +56,7 @@ func NewHandler(service appusage.Service, options HandlerOptions) *Handler {
 		service:      service,
 		alerts:       options.Alerts,
 		entitlements: options.Entitlements,
+		consumption:  options.Consumption,
 		exportStore:  fileexport.NewStore(exportStoragePath),
 	}
 }
@@ -108,6 +112,65 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	h.enqueueEntitlements(r.Context(), []appusage.Result{event})
 
 	respond.JSON(w, http.StatusCreated, responseFromResult(event))
+}
+
+// Consume atomically evaluates a plan limit and records accepted usage.
+//
+// @Summary Atomically consume quota
+// @Description Evaluates projected quota under a subject lock. Advisory limits always accept usage; hard limits reject usage that would exceed quota.
+// @ID consumeEntitlement
+// @Tags entitlements,usages
+// @Accept json
+// @Produce json
+// @Param request body ConsumeRequest true "Consumption event"
+// @Success 201 {object} ConsumeResponse
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 403 {object} respond.ErrorResponse
+// @Failure 429 {object} ConsumeResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/entitlements/consume [post]
+func (h *Handler) Consume(w http.ResponseWriter, r *http.Request) {
+	if h.consumption == nil {
+		respond.ServiceError(w, errors.New("consumption service is not configured"))
+		return
+	}
+	var req ConsumeRequest
+	if err := request.DecodeJSON(r.Body, &req); err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+	eventTime, err := request.OptionalTime("timestamp", req.Timestamp)
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+	result, err := h.consumption.Consume(r.Context(), appconsumption.Command{
+		IdempotencyKey: req.IdempotencyKey,
+		Subject:        req.Subject,
+		MeterName:      req.Meter,
+		Quantity:       req.Quantity,
+		EventTime:      eventTime,
+		Metadata:       req.Metadata,
+	})
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	if !result.Accepted {
+		respond.JSON(w, http.StatusTooManyRequests, consumeResponse(result))
+		return
+	}
+	if _, err := h.service.RecordIngestion(r.Context(), appusage.IngestionCommand{
+		Kind: "single", Accepted: boolCount(!result.Replayed), Duplicates: boolCount(result.Replayed),
+	}); err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	if !result.Replayed {
+		h.enqueueAlerts(r.Context(), []appusage.Result{result.Event})
+		h.enqueueEntitlements(r.Context(), []appusage.Result{result.Event})
+	}
+	respond.JSON(w, http.StatusCreated, consumeResponse(result))
 }
 
 // CreateBulk creates usage events in bulk.
@@ -1083,6 +1146,41 @@ func responseFromResult(event appusage.Result) Response {
 		ReceivedAt:     event.ReceivedAt.Format(time.RFC3339),
 		Metadata:       event.Metadata,
 	}
+}
+
+func consumeResponse(result appconsumption.Result) ConsumeResponse {
+	var event *Response
+	if result.Accepted {
+		value := responseFromResult(result.Event)
+		event = &value
+	}
+	quota := result.Quota
+	return ConsumeResponse{
+		Accepted: result.Accepted, Replayed: result.Replayed, EvaluationFailed: result.EvaluationFailed,
+		Event: event,
+		Quota: ConsumeQuotaResponse{
+			Allowed: quota.Allowed, State: string(quota.State), Subject: quota.Subject, Meter: quota.MeterName,
+			Quantity: quota.Quantity, Current: quota.Current, Projected: quota.Projected, Limit: quota.Limit,
+			Remaining: quota.Remaining, Overage: quota.Overage, PlanID: quota.PlanID, PlanName: quota.PlanName,
+			Period: string(quota.Period), From: optionalResponseTime(quota.From), To: optionalResponseTime(quota.To),
+			PeriodResetAt: optionalResponseTime(quota.PeriodResetAt), RetryAfterSeconds: quota.RetryAfterSeconds,
+			Enforcement: string(quota.Enforcement), FailurePolicy: string(quota.FailurePolicy), Message: quota.Message,
+		},
+	}
+}
+
+func optionalResponseTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.Format(time.RFC3339)
+}
+
+func boolCount(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func listItemResponses(buckets []appusage.ListItemResult) []ListItemResponse {

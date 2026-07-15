@@ -263,6 +263,192 @@ func TestIntegrationPostgresConcurrentUsageIdempotency(t *testing.T) {
 	}, "postgres")
 }
 
+func TestIntegrationSQLiteAtomicConsumption(t *testing.T) {
+	runIntegrationAtomicConsumption(t, config.Config{
+		DBDriver: "sqlite", SQLitePath: t.TempDir() + "/atomic-consumption.db",
+		DBPool: config.DBPoolConfig{MaxOpenConns: 8},
+	}, "sqlite")
+}
+
+func TestIntegrationPostgresAtomicConsumption(t *testing.T) {
+	dsn := os.Getenv("OPEN_SPANNER_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set OPEN_SPANNER_TEST_POSTGRES_DSN to run Postgres bootstrap integration tests")
+	}
+	runIntegrationAtomicConsumption(t, config.Config{
+		DBDriver: "postgres", PostgresDSN: dsn, DBPool: config.DBPoolConfig{MaxOpenConns: 8},
+	}, "postgres")
+}
+
+func runIntegrationAtomicConsumption(t *testing.T, cfg config.Config, namespace string) {
+	t.Helper()
+	ctx := context.Background()
+	router := chi.NewRouter()
+	app, err := RegisterRoutes(ctx, router, cfg)
+	if err != nil {
+		t.Fatalf("register routes: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := app.Cleanup(); err != nil {
+			t.Fatalf("cleanup: %v", err)
+		}
+	})
+
+	suffix := namespace + "_consume_" + strconv.FormatInt(time.Now().UTC().UnixNano(), 36)
+	identity := createTestDashboardIdentity(t, router, "consume+"+suffix+"@example.com")
+	meterName := "consume_requests_" + suffix
+	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name": meterName, "unit": "request", "aggregation": "sum", "dimensions": []any{},
+	}, identity.Headers, nil)
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create consume meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
+	}
+
+	createAssignedPlan := func(subject, enforcement string, limit int) {
+		t.Helper()
+		planRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/plans", map[string]any{
+			"name": enforcement + " " + suffix + " " + subject,
+			"limits": []map[string]any{{
+				"meter": meterName, "period": "month", "limit": limit, "warning_percent": 80,
+				"enforcement": enforcement, "failure_policy": "fail_open",
+			}},
+		}, identity.Headers, nil)
+		if planRes.Code != http.StatusCreated {
+			t.Fatalf("create %s plan status = %d, want %d: %s", enforcement, planRes.Code, http.StatusCreated, planRes.Body.String())
+		}
+		var plan planTestResponse
+		decodeJSON(t, planRes, &plan)
+		if len(plan.Limits) != 1 || plan.Limits[0].Enforcement != enforcement || plan.Limits[0].FailurePolicy != "fail_open" {
+			t.Fatalf("created %s plan limit = %#v", enforcement, plan.Limits)
+		}
+		assignRes := requestJSONWithHeaders(t, router, http.MethodPut, "/v1/plans/subjects/"+url.PathEscape(subject), map[string]any{
+			"plan_id": plan.ID,
+		}, identity.Headers, nil)
+		if assignRes.Code != http.StatusOK {
+			t.Fatalf("assign %s plan status = %d, want %d: %s", enforcement, assignRes.Code, http.StatusOK, assignRes.Body.String())
+		}
+	}
+
+	hardSubject := "hard_" + suffix
+	advisorySubject := "advisory_" + suffix
+	createAssignedPlan(hardSubject, "hard", 10)
+	createAssignedPlan(advisorySubject, "advisory", 3)
+
+	type consumeResult struct {
+		status int
+		body   string
+		value  consumeTestResponse
+	}
+	runConcurrent := func(subject, keyPrefix string, count int) []consumeResult {
+		t.Helper()
+		results := make(chan consumeResult, count)
+		start := make(chan struct{})
+		var ready sync.WaitGroup
+		ready.Add(count)
+		for index := range count {
+			go func() {
+				ready.Done()
+				<-start
+				payload, marshalErr := json.Marshal(map[string]any{
+					"idempotency_key": keyPrefix + strconv.Itoa(index),
+					"subject":         subject, "meter": meterName, "quantity": 1, "metadata": map[string]any{},
+				})
+				if marshalErr != nil {
+					results <- consumeResult{body: marshalErr.Error()}
+					return
+				}
+				req := httptest.NewRequest(http.MethodPost, "/v1/entitlements/consume", bytes.NewReader(payload))
+				req.Header.Set("Content-Type", "application/json")
+				for key, value := range identity.Headers {
+					req.Header.Set(key, value)
+				}
+				res := httptest.NewRecorder()
+				router.ServeHTTP(res, req)
+				body := res.Body.String()
+				var value consumeTestResponse
+				_ = json.Unmarshal([]byte(body), &value)
+				results <- consumeResult{status: res.Code, body: body, value: value}
+			}()
+		}
+		ready.Wait()
+		close(start)
+		collected := make([]consumeResult, 0, count)
+		for range count {
+			collected = append(collected, <-results)
+		}
+		return collected
+	}
+
+	hardResults := runConcurrent(hardSubject, "hard-consume-"+suffix+"-", 20)
+	hardAccepted, hardRejected := 0, 0
+	acceptedKey := ""
+	for _, result := range hardResults {
+		switch result.status {
+		case http.StatusCreated:
+			hardAccepted++
+			if !result.value.Accepted || result.value.Quota.Enforcement != "hard" {
+				t.Errorf("hard accepted response = %s", result.body)
+			}
+			if acceptedKey == "" && result.value.Event != nil {
+				acceptedKey = result.value.Event.IdempotencyKey
+			}
+		case http.StatusTooManyRequests:
+			hardRejected++
+			if result.value.Accepted || result.value.Quota.State != "exceeded" {
+				t.Errorf("hard rejected response = %s", result.body)
+			}
+		default:
+			t.Errorf("hard consume status = %d, want 201 or 429: %s", result.status, result.body)
+		}
+	}
+	if hardAccepted != 10 || hardRejected != 10 {
+		t.Fatalf("hard consume accepted/rejected = %d/%d, want 10/10", hardAccepted, hardRejected)
+	}
+	if acceptedKey == "" {
+		t.Fatal("hard consumption returned no accepted idempotency key")
+	}
+	replayRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/entitlements/consume", map[string]any{
+		"idempotency_key": acceptedKey, "subject": hardSubject, "meter": meterName, "quantity": 1,
+	}, identity.Headers, nil)
+	if replayRes.Code != http.StatusCreated {
+		t.Fatalf("hard replay status = %d, want %d: %s", replayRes.Code, http.StatusCreated, replayRes.Body.String())
+	}
+	var replay consumeTestResponse
+	decodeJSON(t, replayRes, &replay)
+	if !replay.Accepted || !replay.Replayed || replay.Event == nil || replay.Event.IdempotencyKey != acceptedKey {
+		t.Fatalf("hard replay response = %#v", replay)
+	}
+
+	advisoryResults := runConcurrent(advisorySubject, "advisory-consume-"+suffix+"-", 5)
+	advisoryExceeded := false
+	for _, result := range advisoryResults {
+		if result.status != http.StatusCreated || !result.value.Accepted {
+			t.Errorf("advisory consume status = %d, want accepted: %s", result.status, result.body)
+		}
+		if result.value.Quota.State == "exceeded" {
+			advisoryExceeded = true
+		}
+	}
+	if !advisoryExceeded {
+		t.Fatal("advisory consumption never reported exceeded quota")
+	}
+
+	assertStored := func(subject string, want int) {
+		t.Helper()
+		res := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/usageevents?meter="+url.QueryEscape(meterName)+"&subject="+url.QueryEscape(subject), nil, identity.Headers, nil)
+		if res.Code != http.StatusOK {
+			t.Fatalf("list %s events status = %d: %s", subject, res.Code, res.Body.String())
+		}
+		var events usageEventListResponse
+		decodeJSON(t, res, &events)
+		if len(events.Items) != want {
+			t.Fatalf("stored %s events = %d, want %d", subject, len(events.Items), want)
+		}
+	}
+	assertStored(hardSubject, 10)
+	assertStored(advisorySubject, 5)
+}
+
 func runIntegrationConcurrentUsageIdempotency(t *testing.T, cfg config.Config, namespace string) {
 	t.Helper()
 
@@ -957,6 +1143,9 @@ func runIntegrationPlanEntitlementFlow(t *testing.T, cfg config.Config, namespac
 	decodeJSON(t, createPlan, &plan)
 	if plan.ID == "" || len(plan.Limits) != 1 || plan.Limits[0].Meter != meterName {
 		t.Fatalf("created plan = %#v, want one limit for %q", plan, meterName)
+	}
+	if plan.Limits[0].Enforcement != "advisory" || plan.Limits[0].FailurePolicy != "fail_open" {
+		t.Fatalf("default plan enforcement = %q/%q, want advisory/fail_open", plan.Limits[0].Enforcement, plan.Limits[0].FailurePolicy)
 	}
 	if plan.Version != 1 || !plan.IsCurrent {
 		t.Fatalf("created plan version = %#v, want current v1", plan)
@@ -3003,6 +3192,24 @@ type planLimitTestResponse struct {
 	Period         string  `json:"period"`
 	Limit          float64 `json:"limit"`
 	WarningPercent float64 `json:"warning_percent"`
+	Enforcement    string  `json:"enforcement"`
+	FailurePolicy  string  `json:"failure_policy"`
+}
+
+type consumeTestResponse struct {
+	Accepted         bool                `json:"accepted"`
+	Replayed         bool                `json:"replayed"`
+	EvaluationFailed bool                `json:"evaluation_failed"`
+	Event            *usageEventResponse `json:"event"`
+	Quota            struct {
+		Allowed       bool    `json:"allowed"`
+		State         string  `json:"state"`
+		Current       float64 `json:"current"`
+		Projected     float64 `json:"projected"`
+		Limit         float64 `json:"limit"`
+		Enforcement   string  `json:"enforcement"`
+		FailurePolicy string  `json:"failure_policy"`
+	} `json:"quota"`
 }
 
 type planTestResponse struct {

@@ -12,7 +12,27 @@ The dashboard is where you define the plan:
 3. Assign the subject to the plan.
 4. Create an API key with `plans:read` and `usage:write`.
 
-After that setup, trusted backend code can check quota and write usage only when the check allows it.
+After that setup, trusted backend code should use atomic consumption when the quota decision must remain correct under concurrency. The separate check-then-record flow remains useful for previews and advisory user experiences, but another request can consume the remaining quota between those two calls.
+
+## Atomically Consume Quota
+
+`POST /v1/entitlements/consume` combines the quota decision and usage write. Give every attempted product action a stable idempotency key so a network retry cannot double-count it.
+
+```sh
+curl -X POST "$BASE_URL/v1/entitlements/consume" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "idempotency_key": "api-call-001",
+    "subject": "org_123",
+    "meter": "api_calls",
+    "quantity": 1
+  }'
+```
+
+The response contains `accepted`, `replayed`, the recorded `event` when accepted, and a `quota` decision. Hard limits return HTTP `429` without recording the event when the projected value exceeds the limit. Advisory limits return HTTP `201` and report the warning or exceeded state.
+
+Use `failure_policy: fail_open` when preserving usage facts is more important than enforcing quota during an evaluation failure. Use `fail_closed` when the product action must be rejected unless quota can be verified. Defaults are `advisory` and `fail_open`.
 
 ## Check Then Record
 

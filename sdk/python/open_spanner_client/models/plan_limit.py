@@ -16,6 +16,8 @@ class PlanLimit:
     """
     Attributes:
         created_at (str | Unset):
+        enforcement (str | Unset):
+        failure_policy (str | Unset):
         id (str | Unset):
         limit (float | Unset):
         meter (str | Unset):
@@ -25,6 +27,8 @@ class PlanLimit:
     """
 
     created_at: str | Unset = UNSET
+    enforcement: str | Unset = UNSET
+    failure_policy: str | Unset = UNSET
     id: str | Unset = UNSET
     limit: float | Unset = UNSET
     meter: str | Unset = UNSET
@@ -35,6 +39,10 @@ class PlanLimit:
 
     def to_dict(self) -> dict[str, Any]:
         created_at = self.created_at
+
+        enforcement = self.enforcement
+
+        failure_policy = self.failure_policy
 
         id = self.id
 
@@ -53,6 +61,10 @@ class PlanLimit:
         field_dict.update({})
         if created_at is not UNSET:
             field_dict["created_at"] = created_at
+        if enforcement is not UNSET:
+            field_dict["enforcement"] = enforcement
+        if failure_policy is not UNSET:
+            field_dict["failure_policy"] = failure_policy
         if id is not UNSET:
             field_dict["id"] = id
         if limit is not UNSET:
@@ -73,6 +85,10 @@ class PlanLimit:
         d = dict(src_dict)
         created_at = d.pop("created_at", UNSET)
 
+        enforcement = d.pop("enforcement", UNSET)
+
+        failure_policy = d.pop("failure_policy", UNSET)
+
         id = d.pop("id", UNSET)
 
         limit = d.pop("limit", UNSET)
@@ -87,6 +103,8 @@ class PlanLimit:
 
         plan_limit = cls(
             created_at=created_at,
+            enforcement=enforcement,
+            failure_policy=failure_policy,
             id=id,
             limit=limit,
             meter=meter,

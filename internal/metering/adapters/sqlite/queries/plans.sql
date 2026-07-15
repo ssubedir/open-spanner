@@ -33,13 +33,15 @@ WHERE workspace_id = sqlc.arg('workspace_id')
 	AND id = sqlc.arg('id');
 
 -- name: SavePlanLimit :exec
-INSERT INTO plan_limits (id, workspace_id, plan_id, meter_name, period, limit_value, warning_percent, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO plan_limits (id, workspace_id, plan_id, meter_name, period, limit_value, warning_percent, enforcement, failure_policy, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	meter_name = excluded.meter_name,
 	period = excluded.period,
 	limit_value = excluded.limit_value,
 	warning_percent = excluded.warning_percent,
+	enforcement = excluded.enforcement,
+	failure_policy = excluded.failure_policy,
 	updated_at = excluded.updated_at;
 
 -- name: DeletePlanLimits :exec
@@ -48,7 +50,7 @@ WHERE workspace_id = sqlc.arg('workspace_id')
 	AND plan_id = sqlc.arg('plan_id');
 
 -- name: ListPlanLimits :many
-SELECT id, plan_id, meter_name, period, limit_value, warning_percent, created_at, updated_at
+SELECT id, plan_id, meter_name, period, limit_value, warning_percent, enforcement, failure_policy, created_at, updated_at
 FROM plan_limits
 WHERE workspace_id = sqlc.arg('workspace_id')
 	AND (sqlc.narg('plan_id') IS NULL OR plan_id = sqlc.narg('plan_id'))
@@ -94,6 +96,17 @@ ORDER BY a.updated_at DESC, a.assigned_at DESC, a.subject ASC
 LIMIT sqlc.arg('limit');
 
 -- name: FindEffectivePlanSubjectAssignment :one
+SELECT a.id, a.subject, a.plan_id, p.name AS plan_name, p.version AS plan_version, a.assigned_at, a.period_anchor_at, a.unassigned_at, a.updated_at
+FROM plan_subject_assignments a
+JOIN plans p ON p.workspace_id = a.workspace_id AND p.id = a.plan_id
+WHERE a.workspace_id = sqlc.arg('workspace_id')
+	AND a.subject = sqlc.arg('subject')
+	AND a.assigned_at <= sqlc.arg('now')
+	AND (a.unassigned_at IS NULL OR a.unassigned_at > sqlc.arg('now'))
+ORDER BY a.assigned_at DESC, a.updated_at DESC
+LIMIT 1;
+
+-- name: LockEffectivePlanSubjectAssignment :one
 SELECT a.id, a.subject, a.plan_id, p.name AS plan_name, p.version AS plan_version, a.assigned_at, a.period_anchor_at, a.unassigned_at, a.updated_at
 FROM plan_subject_assignments a
 JOIN plans p ON p.workspace_id = a.workspace_id AND p.id = a.plan_id

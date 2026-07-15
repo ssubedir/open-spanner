@@ -25,6 +25,8 @@ type LimitDraft = {
   period: string
   limit: string
   warningPercent: string
+  enforcement: 'advisory' | 'hard'
+  failurePolicy: 'fail_open' | 'fail_closed'
 }
 
 export function PlanModal({ meters, onClose, onPreview, onSubmit, plan, previewError, previewing, saving, title }: { meters: Meter[]; onClose: () => void; onPreview?: (input: PlanSaveRequest) => Promise<void>; onSubmit: (input: PlanSaveRequest) => Promise<void>; plan?: Plan; previewError?: string; previewing?: boolean; saving: boolean; title: string }) {
@@ -80,7 +82,7 @@ export function PlanModal({ meters, onClose, onPreview, onSubmit, plan, previewE
             </Button>
           </div>
           {limits.map((limit) => (
-            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_36px] items-end gap-2 rounded-md border border-[#e7ebf1] bg-white p-2 lg:grid-cols-[minmax(160px,1fr)_minmax(120px,140px)_minmax(120px,140px)_minmax(105px,125px)_36px]" key={limit.id}>
+            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_36px] items-end gap-2 rounded-md border border-[#e7ebf1] bg-white p-2 lg:grid-cols-[minmax(150px,1fr)_minmax(95px,115px)_minmax(95px,115px)_minmax(90px,110px)_minmax(110px,130px)_minmax(120px,140px)_36px]" key={limit.id}>
               <Label className="col-span-full grid min-w-0 gap-1.5 lg:col-span-1">
                 Meter
                 <Select onValueChange={(value) => updateLimit(limit.id, { meter: value })} required value={limit.meter || undefined}>
@@ -110,6 +112,26 @@ export function PlanModal({ meters, onClose, onPreview, onSubmit, plan, previewE
               <Label className="col-span-full grid min-w-0 gap-1.5 lg:col-span-1">
                 Warn %
                 <Input min="1" max="100" step="any" type="number" value={limit.warningPercent} onChange={(event) => updateLimit(limit.id, { warningPercent: event.currentTarget.value })} />
+              </Label>
+              <Label className="col-span-full grid min-w-0 gap-1.5 lg:col-span-1">
+                Enforcement
+                <Select onValueChange={(value: 'advisory' | 'hard') => updateLimit(limit.id, { enforcement: value })} value={limit.enforcement}>
+                  <SelectTrigger className="min-h-[38px] w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent position="popper">
+                    <SelectItem value="advisory">Advisory</SelectItem>
+                    <SelectItem value="hard">Hard block</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Label>
+              <Label className="col-span-full grid min-w-0 gap-1.5 lg:col-span-1">
+                On evaluation failure
+                <Select onValueChange={(value: 'fail_open' | 'fail_closed') => updateLimit(limit.id, { failurePolicy: value })} value={limit.failurePolicy}>
+                  <SelectTrigger className="min-h-[38px] w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent position="popper">
+                    <SelectItem value="fail_open">Allow usage</SelectItem>
+                    <SelectItem value="fail_closed">Reject usage</SelectItem>
+                  </SelectContent>
+                </Select>
               </Label>
               <Button aria-label="Remove limit" className="col-start-2 self-end lg:col-start-auto" disabled={limits.length <= 1} onClick={() => removeLimit(limit.id)} size="icon" type="button" variant="ghost">
                 <Trash2 aria-hidden="true" />
@@ -209,6 +231,7 @@ export function LimitChips({ limits }: { limits: PlanLimit[] }) {
         <Badge className="inline-flex gap-1.5" key={limit.id} variant="muted">
           <strong>{limit.meter}</strong>
           <span>{formatNumber(limit.limit)} / {limit.period}</span>
+          <span>{limit.enforcement === 'hard' ? 'hard' : 'advisory'}</span>
         </Badge>
       ))}
     </span>
@@ -431,6 +454,8 @@ function draftLimits(limits: PlanLimit[] | undefined, meters: Meter[]): LimitDra
     meter: limit.meter,
     period: limit.period || 'month',
     warningPercent: String(limit.warning_percent || 80),
+    enforcement: limit.enforcement || 'advisory',
+    failurePolicy: limit.failure_policy || 'fail_open',
   }))
 }
 
@@ -441,6 +466,8 @@ function emptyLimitDraft(meters: Meter[]): LimitDraft {
     meter: meters[0]?.name || '',
     period: 'month',
     warningPercent: '80',
+    enforcement: 'advisory',
+    failurePolicy: 'fail_open',
   }
 }
 
@@ -457,6 +484,8 @@ function planInputFromForm(form: HTMLFormElement, limits: LimitDraft[]): PlanSav
       meter: limit.meter,
       period: limit.period,
       warning_percent: limit.warningPercent ? Number(limit.warningPercent) : undefined,
+      enforcement: limit.enforcement,
+      failure_policy: limit.failurePolicy,
     })),
     name: String(data.get('name') || ''),
   }

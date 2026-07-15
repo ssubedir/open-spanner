@@ -684,7 +684,7 @@ func (q *Queries) ListEntitlementStates(ctx context.Context, arg ListEntitlement
 }
 
 const listPlanLimits = `-- name: ListPlanLimits :many
-SELECT id, plan_id, meter_name, period, limit_value, warning_percent, created_at, updated_at
+SELECT id, plan_id, meter_name, period, limit_value, warning_percent, enforcement, failure_policy, created_at, updated_at
 FROM plan_limits
 WHERE workspace_id = ?1
 	AND (?2 IS NULL OR plan_id = ?2)
@@ -703,6 +703,8 @@ type ListPlanLimitsRow struct {
 	Period         string
 	LimitValue     float64
 	WarningPercent float64
+	Enforcement    string
+	FailurePolicy  string
 	CreatedAt      string
 	UpdatedAt      string
 }
@@ -723,6 +725,8 @@ func (q *Queries) ListPlanLimits(ctx context.Context, arg ListPlanLimitsParams) 
 			&i.Period,
 			&i.LimitValue,
 			&i.WarningPercent,
+			&i.Enforcement,
+			&i.FailurePolicy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -878,6 +882,53 @@ func (q *Queries) ListPlans(ctx context.Context, arg ListPlansParams) ([]ListPla
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockEffectivePlanSubjectAssignment = `-- name: LockEffectivePlanSubjectAssignment :one
+SELECT a.id, a.subject, a.plan_id, p.name AS plan_name, p.version AS plan_version, a.assigned_at, a.period_anchor_at, a.unassigned_at, a.updated_at
+FROM plan_subject_assignments a
+JOIN plans p ON p.workspace_id = a.workspace_id AND p.id = a.plan_id
+WHERE a.workspace_id = ?1
+	AND a.subject = ?2
+	AND a.assigned_at <= ?3
+	AND (a.unassigned_at IS NULL OR a.unassigned_at > ?3)
+ORDER BY a.assigned_at DESC, a.updated_at DESC
+LIMIT 1
+`
+
+type LockEffectivePlanSubjectAssignmentParams struct {
+	WorkspaceID string
+	Subject     string
+	Now         string
+}
+
+type LockEffectivePlanSubjectAssignmentRow struct {
+	ID             string
+	Subject        string
+	PlanID         string
+	PlanName       string
+	PlanVersion    int64
+	AssignedAt     string
+	PeriodAnchorAt string
+	UnassignedAt   sql.NullString
+	UpdatedAt      string
+}
+
+func (q *Queries) LockEffectivePlanSubjectAssignment(ctx context.Context, arg LockEffectivePlanSubjectAssignmentParams) (LockEffectivePlanSubjectAssignmentRow, error) {
+	row := q.db.QueryRowContext(ctx, lockEffectivePlanSubjectAssignment, arg.WorkspaceID, arg.Subject, arg.Now)
+	var i LockEffectivePlanSubjectAssignmentRow
+	err := row.Scan(
+		&i.ID,
+		&i.Subject,
+		&i.PlanID,
+		&i.PlanName,
+		&i.PlanVersion,
+		&i.AssignedAt,
+		&i.PeriodAnchorAt,
+		&i.UnassignedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const requeueEntitlementCheckJob = `-- name: RequeueEntitlementCheckJob :execrows
@@ -1154,13 +1205,15 @@ func (q *Queries) SavePlan(ctx context.Context, arg SavePlanParams) error {
 }
 
 const savePlanLimit = `-- name: SavePlanLimit :exec
-INSERT INTO plan_limits (id, workspace_id, plan_id, meter_name, period, limit_value, warning_percent, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO plan_limits (id, workspace_id, plan_id, meter_name, period, limit_value, warning_percent, enforcement, failure_policy, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	meter_name = excluded.meter_name,
 	period = excluded.period,
 	limit_value = excluded.limit_value,
 	warning_percent = excluded.warning_percent,
+	enforcement = excluded.enforcement,
+	failure_policy = excluded.failure_policy,
 	updated_at = excluded.updated_at
 `
 
@@ -1172,6 +1225,8 @@ type SavePlanLimitParams struct {
 	Period         string
 	LimitValue     float64
 	WarningPercent float64
+	Enforcement    string
+	FailurePolicy  string
 	CreatedAt      string
 	UpdatedAt      string
 }
@@ -1185,6 +1240,8 @@ func (q *Queries) SavePlanLimit(ctx context.Context, arg SavePlanLimitParams) er
 		arg.Period,
 		arg.LimitValue,
 		arg.WarningPercent,
+		arg.Enforcement,
+		arg.FailurePolicy,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)

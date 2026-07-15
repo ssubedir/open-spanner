@@ -18,6 +18,49 @@ type CreateRequest struct {
 	Metadata       map[string]any `json:"metadata"`
 }
 
+// ConsumeRequest atomically evaluates quota and records an accepted usage event.
+type ConsumeRequest struct {
+	IdempotencyKey string         `json:"idempotency_key"`
+	Subject        string         `json:"subject"`
+	Meter          string         `json:"meter"`
+	Quantity       float64        `json:"quantity"`
+	Timestamp      string         `json:"timestamp,omitempty"`
+	Metadata       map[string]any `json:"metadata,omitempty"`
+}
+
+// ConsumeResponse reports whether usage was committed and the resulting quota decision.
+type ConsumeResponse struct {
+	Accepted         bool                 `json:"accepted"`
+	Replayed         bool                 `json:"replayed"`
+	EvaluationFailed bool                 `json:"evaluation_failed"`
+	Event            *Response            `json:"event,omitempty"`
+	Quota            ConsumeQuotaResponse `json:"quota"`
+}
+
+// ConsumeQuotaResponse is the projected quota state used for a consumption decision.
+type ConsumeQuotaResponse struct {
+	Allowed           bool    `json:"allowed"`
+	State             string  `json:"state"`
+	Subject           string  `json:"subject"`
+	Meter             string  `json:"meter"`
+	Quantity          float64 `json:"quantity"`
+	Current           float64 `json:"current"`
+	Projected         float64 `json:"projected"`
+	Limit             float64 `json:"limit"`
+	Remaining         float64 `json:"remaining"`
+	Overage           float64 `json:"overage"`
+	PlanID            string  `json:"plan_id,omitempty"`
+	PlanName          string  `json:"plan_name,omitempty"`
+	Period            string  `json:"period,omitempty"`
+	From              string  `json:"from,omitempty"`
+	To                string  `json:"to,omitempty"`
+	PeriodResetAt     string  `json:"period_reset_at,omitempty"`
+	RetryAfterSeconds int64   `json:"retry_after_seconds,omitempty"`
+	Enforcement       string  `json:"enforcement"`
+	FailurePolicy     string  `json:"failure_policy"`
+	Message           string  `json:"message"`
+}
+
 // FilterRequest is an advanced usage search filter.
 type FilterRequest struct {
 	Type  string          `json:"type"`
