@@ -78,11 +78,34 @@ SELECT id, user_id, workspace_id, name, token_hash, prefix, scopes, allowed_mete
 FROM auth_api_keys
 WHERE token_hash = ?;
 
+-- name: FindAPIKeyByID :one
+SELECT id, user_id, workspace_id, name, token_hash, prefix, scopes, allowed_meters, expires_at, revoked_at, created_at, last_used_at
+FROM auth_api_keys
+WHERE id = ? AND user_id = ? AND workspace_id = ?;
+
 -- name: UpdateAPIKeyLastUsed :exec
 UPDATE auth_api_keys
 SET last_used_at = ?
 WHERE id = ?;
 
--- name: DeleteAPIKey :execrows
-DELETE FROM auth_api_keys
-WHERE id = ? AND user_id = ? AND workspace_id = ?;
+-- name: RevokeAPIKey :execrows
+UPDATE auth_api_keys
+SET revoked_at = ?
+WHERE id = ? AND user_id = ? AND workspace_id = ?
+	AND (revoked_at IS NULL OR revoked_at > ?);
+
+-- name: ScheduleAPIKeyRevocation :execrows
+UPDATE auth_api_keys
+SET revoked_at = ?
+WHERE id = ? AND user_id = ? AND workspace_id = ? AND revoked_at IS NULL;
+
+-- name: SaveAPIKeyEvent :exec
+INSERT INTO auth_api_key_events (id, workspace_id, user_id, api_key_id, key_name, key_prefix, event_type, related_api_key_id, effective_at, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListAPIKeyEvents :many
+SELECT id, workspace_id, user_id, api_key_id, key_name, key_prefix, event_type, related_api_key_id, effective_at, created_at
+FROM auth_api_key_events
+WHERE workspace_id = ? AND user_id = ?
+ORDER BY created_at DESC, id DESC
+LIMIT ?;

@@ -347,6 +347,7 @@ type fakeRepository struct {
 	sessionsByHash      map[string]Session
 	apiKeysByID         map[string]APIKey
 	apiKeyIDByHash      map[string]string
+	apiKeyEvents        []APIKeyEvent
 	saveSessionError    error
 }
 
@@ -441,9 +442,10 @@ func (r *fakeRepository) DeleteSessionByTokenHash(_ context.Context, tokenHash s
 	return nil
 }
 
-func (r *fakeRepository) SaveAPIKey(_ context.Context, key APIKey) (APIKey, error) {
+func (r *fakeRepository) CreateAPIKey(_ context.Context, key APIKey, event APIKeyEvent) (APIKey, error) {
 	r.apiKeysByID[key.ID] = key
 	r.apiKeyIDByHash[key.TokenHash] = key.ID
+	r.apiKeyEvents = append(r.apiKeyEvents, event)
 	return key, nil
 }
 
@@ -469,6 +471,18 @@ func (r *fakeRepository) FindAPIKeyByTokenHash(_ context.Context, tokenHash stri
 	return r.apiKeysByID[id], nil
 }
 
+func (r *fakeRepository) FindAPIKeyByID(ctx context.Context, userID string, id string) (APIKey, error) {
+	workspaceID, err := RequireWorkspaceID(ctx)
+	if err != nil {
+		return APIKey{}, err
+	}
+	key, ok := r.apiKeysByID[id]
+	if !ok || key.UserID != userID || key.WorkspaceID != workspaceID {
+		return APIKey{}, domain.ErrNotFound
+	}
+	return key, nil
+}
+
 func (r *fakeRepository) UpdateAPIKeyLastUsed(_ context.Context, id string, lastUsedAt time.Time) error {
 	key, ok := r.apiKeysByID[id]
 	if !ok {
@@ -479,16 +493,47 @@ func (r *fakeRepository) UpdateAPIKeyLastUsed(_ context.Context, id string, last
 	return nil
 }
 
-func (r *fakeRepository) DeleteAPIKey(ctx context.Context, userID string, id string) error {
-	workspaceID, err := RequireWorkspaceID(ctx)
+func (r *fakeRepository) RotateAPIKey(ctx context.Context, userID string, sourceID string, replacement APIKey, revokeAt time.Time, events []APIKeyEvent) (APIKey, error) {
+	source, err := r.FindAPIKeyByID(ctx, userID, sourceID)
+	if err != nil {
+		return APIKey{}, err
+	}
+	if source.RevokedAt != nil {
+		return APIKey{}, domain.ErrConflict
+	}
+	source.RevokedAt = &revokeAt
+	r.apiKeysByID[sourceID] = source
+	r.apiKeysByID[replacement.ID] = replacement
+	r.apiKeyIDByHash[replacement.TokenHash] = replacement.ID
+	r.apiKeyEvents = append(r.apiKeyEvents, events...)
+	return replacement, nil
+}
+
+func (r *fakeRepository) RevokeAPIKey(ctx context.Context, userID string, id string, revokedAt time.Time, event APIKeyEvent) error {
+	key, err := r.FindAPIKeyByID(ctx, userID, id)
 	if err != nil {
 		return err
 	}
-	key, ok := r.apiKeysByID[id]
-	if !ok || key.UserID != userID || key.WorkspaceID != workspaceID {
+	if key.RevokedAt != nil && !key.RevokedAt.After(revokedAt) {
 		return domain.ErrNotFound
 	}
-	delete(r.apiKeyIDByHash, key.TokenHash)
-	delete(r.apiKeysByID, id)
+	key.RevokedAt = &revokedAt
+	r.apiKeysByID[id] = key
+	r.apiKeyEvents = append(r.apiKeyEvents, event)
 	return nil
+}
+
+func (r *fakeRepository) ListAPIKeyEvents(ctx context.Context, userID string, limit int) ([]APIKeyEvent, error) {
+	workspaceID, err := RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := []APIKeyEvent{}
+	for i := len(r.apiKeyEvents) - 1; i >= 0 && len(items) < limit; i-- {
+		event := r.apiKeyEvents[i]
+		if event.UserID == userID && event.WorkspaceID == workspaceID {
+			items = append(items, event)
+		}
+	}
+	return items, nil
 }

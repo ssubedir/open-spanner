@@ -45,7 +45,7 @@ Read the hosted docs at [ssubedir.github.io/open-spanner/docs](https://ssubedir.
 - Plans, subject assignments, quota counters, entitlement checks, atomic quota consumption, decision audit history, reconciliation, and guarded counter repair.
 - Direct CSV exports for focused requests and queued export jobs for larger files.
 - Alert rules that watch usage windows and deliver webhook notifications.
-- Dashboard auth with HttpOnly cookies and scoped API keys for service clients.
+- Dashboard auth with HttpOnly cookies plus scoped API keys with audited rotation and revocation.
 - Workspace isolation so each dashboard user sees their own meters, usage, plans, alerts, exports, and keys.
 - SQLite and Postgres storage, including Postgres JSONB metadata filtering.
 - Embedded React dashboard.

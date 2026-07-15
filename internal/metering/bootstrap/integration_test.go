@@ -248,6 +248,89 @@ func runIntegrationRegistrationControl(t *testing.T, cfg config.Config, namespac
 	}
 }
 
+func TestIntegrationSQLiteAPIKeyRotation(t *testing.T) {
+	runIntegrationAPIKeyRotation(t, config.Config{DBDriver: "sqlite", SQLitePath: ":memory:", DBPool: config.DBPoolConfig{MaxOpenConns: 1}, RegistrationEnabled: true}, "sqlite")
+}
+
+func TestIntegrationPostgresAPIKeyRotation(t *testing.T) {
+	dsn := os.Getenv("OPEN_SPANNER_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set OPEN_SPANNER_TEST_POSTGRES_DSN to run Postgres bootstrap integration tests")
+	}
+	runIntegrationAPIKeyRotation(t, config.Config{DBDriver: "postgres", PostgresDSN: dsn, DBPool: config.DBPoolConfig{MaxOpenConns: 1}, RegistrationEnabled: true}, "postgres")
+}
+
+func runIntegrationAPIKeyRotation(t *testing.T, cfg config.Config, namespace string) {
+	t.Helper()
+	router := chi.NewRouter()
+	app, err := RegisterRoutes(context.Background(), router, cfg)
+	if err != nil {
+		t.Fatalf("register routes: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := app.Cleanup(); err != nil {
+			t.Fatalf("cleanup: %v", err)
+		}
+	})
+
+	suffix := namespace + "-rotation-" + strconv.FormatInt(time.Now().UTC().UnixNano(), 36)
+	identity := createTestDashboardIdentity(t, router, "rotation-"+suffix+"@example.com")
+	created := requestJSON(t, router, http.MethodPost, "/v1/auth/api-keys", fullAccessAPIKeyPayload("rotating-"+suffix), identity.Cookies)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create rotating key status=%d body=%s", created.Code, created.Body.String())
+	}
+	var oldKey apiKeyCreateTestResponse
+	decodeJSON(t, created, &oldKey)
+
+	rotated := requestJSON(t, router, http.MethodPost, "/v1/auth/api-keys/"+url.PathEscape(oldKey.ID)+"/rotate", map[string]any{"grace_period_seconds": 60}, identity.Cookies)
+	if rotated.Code != http.StatusCreated {
+		t.Fatalf("rotate key status=%d body=%s", rotated.Code, rotated.Body.String())
+	}
+	var newKey apiKeyCreateTestResponse
+	decodeJSON(t, rotated, &newKey)
+	if newKey.ID == oldKey.ID || newKey.Key == "" || newKey.Name != oldKey.Name {
+		t.Fatalf("rotated key=%#v old=%#v", newKey, oldKey)
+	}
+
+	for label, token := range map[string]string{"old during grace": oldKey.Key, "replacement": newKey.Key} {
+		res := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/meters", nil, map[string]string{"Authorization": "Bearer " + token}, nil)
+		if res.Code != http.StatusOK {
+			t.Fatalf("%s status=%d body=%s", label, res.Code, res.Body.String())
+		}
+	}
+
+	revoked := requestJSON(t, router, http.MethodDelete, "/v1/auth/api-keys/"+url.PathEscape(oldKey.ID), nil, identity.Cookies)
+	if revoked.Code != http.StatusNoContent {
+		t.Fatalf("revoke old key status=%d body=%s", revoked.Code, revoked.Body.String())
+	}
+	oldAuth := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/meters", nil, map[string]string{"Authorization": "Bearer " + oldKey.Key}, nil)
+	if oldAuth.Code != http.StatusUnauthorized {
+		t.Fatalf("revoked old key status=%d body=%s", oldAuth.Code, oldAuth.Body.String())
+	}
+
+	audit := requestJSON(t, router, http.MethodGet, "/v1/auth/api-key-events", nil, identity.Cookies)
+	if audit.Code != http.StatusOK {
+		t.Fatalf("key audit status=%d body=%s", audit.Code, audit.Body.String())
+	}
+	var history struct {
+		Items []struct {
+			EventType       string `json:"event_type"`
+			APIKeyID        string `json:"api_key_id"`
+			RelatedAPIKeyID string `json:"related_api_key_id"`
+		} `json:"items"`
+	}
+	decodeJSON(t, audit, &history)
+	counts := map[string]int{}
+	for _, event := range history.Items {
+		if event.APIKeyID == oldKey.ID || event.APIKeyID == newKey.ID {
+			counts[event.EventType]++
+		}
+	}
+	if counts["created"] != 2 || counts["rotated"] != 1 || counts["revoked"] != 1 {
+		t.Fatalf("key audit history=%#v", history.Items)
+	}
+}
+
 func TestIntegrationSQLiteSDKUsageFlow(t *testing.T) {
 	runIntegrationSDKUsageFlow(t, config.Config{
 		DBDriver:            "sqlite",

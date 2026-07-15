@@ -755,6 +755,47 @@
                 }
             }
         },
+        "/v1/auth/api-key-events": {
+            "get": {
+                "tags": [
+                    "auth"
+                ],
+                "summary": "List API key audit events",
+                "operationId": "listAPIKeyEvents",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/internal_metering_adapters_http_auth.APIKeyEventListResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/auth/api-keys": {
             "get": {
                 "tags": [
@@ -861,7 +902,7 @@
                 "tags": [
                     "auth"
                 ],
-                "summary": "Delete API key",
+                "summary": "Revoke API key",
                 "operationId": "deleteAPIKey",
                 "parameters": [
                     {
@@ -890,6 +931,99 @@
                     },
                     "404": {
                         "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/auth/api-keys/{id}/rotate": {
+            "post": {
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Rotate API key",
+                "operationId": "rotateAPIKey",
+                "parameters": [
+                    {
+                        "description": "API key ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/internal_metering_adapters_http_auth.RotateAPIKeyRequest"
+                            }
+                        }
+                    },
+                    "description": "Rotation options",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/internal_metering_adapters_http_auth.APIKeyCreateResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -5214,6 +5348,49 @@
                         "items": {
                             "type": "string"
                         }
+                    },
+                    "status": {
+                        "type": "string"
+                    }
+                }
+            },
+            "internal_metering_adapters_http_auth.APIKeyEventListResponse": {
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/internal_metering_adapters_http_auth.APIKeyEventResponse"
+                        }
+                    }
+                }
+            },
+            "internal_metering_adapters_http_auth.APIKeyEventResponse": {
+                "type": "object",
+                "properties": {
+                    "api_key_id": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "effective_at": {
+                        "type": "string"
+                    },
+                    "event_type": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "key_name": {
+                        "type": "string"
+                    },
+                    "key_prefix": {
+                        "type": "string"
+                    },
+                    "related_api_key_id": {
+                        "type": "string"
                     }
                 }
             },
@@ -5263,6 +5440,9 @@
                         "items": {
                             "type": "string"
                         }
+                    },
+                    "status": {
+                        "type": "string"
                     }
                 }
             },
@@ -5358,6 +5538,14 @@
                     },
                     "user": {
                         "$ref": "#/components/schemas/internal_metering_adapters_http_auth.UserResponse"
+                    }
+                }
+            },
+            "internal_metering_adapters_http_auth.RotateAPIKeyRequest": {
+                "type": "object",
+                "properties": {
+                    "grace_period_seconds": {
+                        "type": "integer"
                     }
                 }
             },

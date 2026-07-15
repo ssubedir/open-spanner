@@ -7,6 +7,7 @@ package postgresdb
 import (
 	"database/sql"
 	"encoding/json"
+	"time"
 )
 
 type AlertEvaluationJob struct {
@@ -42,6 +43,19 @@ type AuthApiKey struct {
 	RevokedAt     sql.NullString
 	CreatedAt     string
 	LastUsedAt    sql.NullString
+}
+
+type AuthApiKeyEvent struct {
+	ID              string
+	WorkspaceID     string
+	UserID          string
+	ApiKeyID        string
+	KeyName         string
+	KeyPrefix       string
+	EventType       string
+	RelatedApiKeyID sql.NullString
+	EffectiveAt     sql.NullTime
+	CreatedAt       time.Time
 }
 
 type AuthIdentity struct {

@@ -22,7 +22,9 @@ func (h *Handler) RegisterPublicRoutes(router chi.Router) {
 
 func (h *Handler) RegisterSessionRoutes(router chi.Router) {
 	router.Get("/auth/api-keys", h.ListAPIKeys)
+	router.Get("/auth/api-key-events", h.ListAPIKeyEvents)
 	router.Post("/auth/api-keys", h.CreateAPIKey)
+	router.Post("/auth/api-keys/{id}/rotate", h.RotateAPIKey)
 	router.Delete("/auth/api-keys/{id}", h.DeleteAPIKey)
 	router.Get("/auth/session", h.GetSession)
 }

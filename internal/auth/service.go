@@ -20,6 +20,7 @@ const (
 	defaultAccessTokenTTL  = 15 * time.Minute
 	defaultRefreshTokenTTL = 30 * 24 * time.Hour
 	defaultTokenBytes      = 32
+	maxAPIKeyRotationGrace = 24 * time.Hour
 	minPasswordRunes       = 8
 	accessTokenPrefix      = "osp_at_"
 	refreshTokenPrefix     = "osp_rt_"
@@ -40,11 +41,14 @@ type Repository interface {
 	SaveSession(ctx context.Context, session Session) (Session, error)
 	FindSessionByTokenHash(ctx context.Context, tokenHash string, kind string, now time.Time) (Session, error)
 	DeleteSessionByTokenHash(ctx context.Context, tokenHash string) error
-	SaveAPIKey(ctx context.Context, key APIKey) (APIKey, error)
+	CreateAPIKey(ctx context.Context, key APIKey, event APIKeyEvent) (APIKey, error)
 	ListAPIKeys(ctx context.Context, userID string) ([]APIKey, error)
+	FindAPIKeyByID(ctx context.Context, userID string, id string) (APIKey, error)
 	FindAPIKeyByTokenHash(ctx context.Context, tokenHash string) (APIKey, error)
 	UpdateAPIKeyLastUsed(ctx context.Context, id string, lastUsedAt time.Time) error
-	DeleteAPIKey(ctx context.Context, userID string, id string) error
+	RotateAPIKey(ctx context.Context, userID string, sourceID string, replacement APIKey, revokeAt time.Time, events []APIKeyEvent) (APIKey, error)
+	RevokeAPIKey(ctx context.Context, userID string, id string, revokedAt time.Time, event APIKeyEvent) error
+	ListAPIKeyEvents(ctx context.Context, userID string, limit int) ([]APIKeyEvent, error)
 }
 
 type User struct {
@@ -103,6 +107,19 @@ type APIKey struct {
 	LastUsedAt    *time.Time
 }
 
+type APIKeyEvent struct {
+	ID              string
+	WorkspaceID     string
+	UserID          string
+	APIKeyID        string
+	KeyName         string
+	KeyPrefix       string
+	EventType       string
+	RelatedAPIKeyID string
+	EffectiveAt     *time.Time
+	CreatedAt       time.Time
+}
+
 type CreateUserCommand struct {
 	Email    string
 	Password string
@@ -129,6 +146,12 @@ type CreateAPIKeyCommand struct {
 	ExpiresAt     *time.Time
 }
 
+type RotateAPIKeyCommand struct {
+	UserID      string
+	ID          string
+	GracePeriod time.Duration
+}
+
 type UserResult struct {
 	ID          string
 	Email       string
@@ -152,6 +175,17 @@ type APIKeyResult struct {
 type CreateAPIKeyResult struct {
 	APIKeyResult
 	Key string
+}
+
+type APIKeyEventResult struct {
+	ID              string
+	APIKeyID        string
+	KeyName         string
+	KeyPrefix       string
+	EventType       string
+	RelatedAPIKeyID string
+	EffectiveAt     *time.Time
+	CreatedAt       time.Time
 }
 
 type LoginResult struct {
@@ -250,7 +284,8 @@ func (s Service) CreateAPIKey(ctx context.Context, cmd CreateAPIKeyCommand) (Cre
 		return CreateAPIKeyResult{}, err
 	}
 
-	key, err := s.repo.SaveAPIKey(ctx, APIKey{
+	now := s.now().UTC()
+	key := APIKey{
 		ID:            uuid.NewString(),
 		UserID:        userID,
 		WorkspaceID:   workspaceID,
@@ -260,8 +295,9 @@ func (s Service) CreateAPIKey(ctx context.Context, cmd CreateAPIKeyCommand) (Cre
 		Scopes:        scopes,
 		AllowedMeters: allowedMeters,
 		ExpiresAt:     expiresAt,
-		CreatedAt:     s.now().UTC(),
-	})
+		CreatedAt:     now,
+	}
+	key, err = s.repo.CreateAPIKey(ctx, key, apiKeyEvent(key, "created", "", nil, now))
 	if err != nil {
 		return CreateAPIKeyResult{}, err
 	}
@@ -287,6 +323,66 @@ func (s Service) ListAPIKeys(ctx context.Context, userID string) ([]APIKeyResult
 	results := make([]APIKeyResult, 0, len(keys))
 	for _, key := range keys {
 		results = append(results, apiKeyResult(key))
+	}
+	return results, nil
+}
+
+func (s Service) RotateAPIKey(ctx context.Context, cmd RotateAPIKeyCommand) (CreateAPIKeyResult, error) {
+	cmd.UserID = strings.TrimSpace(cmd.UserID)
+	cmd.ID = strings.TrimSpace(cmd.ID)
+	if cmd.UserID == "" || cmd.ID == "" {
+		return CreateAPIKeyResult{}, errors.Join(domain.ErrInvalidInput, errors.New("api key id is required"))
+	}
+	if cmd.GracePeriod < 0 || cmd.GracePeriod > maxAPIKeyRotationGrace {
+		return CreateAPIKeyResult{}, errors.Join(domain.ErrInvalidInput, errors.New("grace period must be between 0 and 24 hours"))
+	}
+	source, err := s.repo.FindAPIKeyByID(ctx, cmd.UserID, cmd.ID)
+	if err != nil {
+		return CreateAPIKeyResult{}, err
+	}
+	now := s.now().UTC()
+	if source.ExpiresAt != nil && !source.ExpiresAt.After(now) {
+		return CreateAPIKeyResult{}, errors.Join(domain.ErrConflict, errors.New("expired api key cannot be rotated"))
+	}
+	if source.RevokedAt != nil {
+		return CreateAPIKeyResult{}, errors.Join(domain.ErrConflict, errors.New("revoked api key cannot be rotated"))
+	}
+	token, err := newSessionToken(apiKeyPrefix, s.tokenBytes)
+	if err != nil {
+		return CreateAPIKeyResult{}, err
+	}
+	replacement := APIKey{
+		ID: uuid.NewString(), UserID: source.UserID, WorkspaceID: source.WorkspaceID, Name: source.Name,
+		TokenHash: HashToken(token), Prefix: tokenPrefix(token), Scopes: append([]string(nil), source.Scopes...),
+		AllowedMeters: append([]string(nil), source.AllowedMeters...), ExpiresAt: source.ExpiresAt, CreatedAt: now,
+	}
+	revokeAt := now.Add(cmd.GracePeriod)
+	events := []APIKeyEvent{
+		apiKeyEvent(source, "rotated", replacement.ID, &revokeAt, now),
+		apiKeyEvent(replacement, "created", source.ID, nil, now.Add(time.Nanosecond)),
+	}
+	replacement, err = s.repo.RotateAPIKey(ctx, cmd.UserID, source.ID, replacement, revokeAt, events)
+	if err != nil {
+		return CreateAPIKeyResult{}, err
+	}
+	return CreateAPIKeyResult{APIKeyResult: apiKeyResult(replacement), Key: token}, nil
+}
+
+func (s Service) ListAPIKeyEvents(ctx context.Context, userID string, limit int) ([]APIKeyEventResult, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, errors.Join(domain.ErrInvalidInput, errors.New("user id is required"))
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	events, err := s.repo.ListAPIKeyEvents(ctx, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]APIKeyEventResult, 0, len(events))
+	for _, event := range events {
+		results = append(results, APIKeyEventResult{ID: event.ID, APIKeyID: event.APIKeyID, KeyName: event.KeyName, KeyPrefix: event.KeyPrefix, EventType: event.EventType, RelatedAPIKeyID: event.RelatedAPIKeyID, EffectiveAt: event.EffectiveAt, CreatedAt: event.CreatedAt})
 	}
 	return results, nil
 }
@@ -467,7 +563,7 @@ func (s Service) AuthenticateAPIKeyPrincipal(ctx context.Context, token string) 
 	}
 
 	now := s.now().UTC()
-	if key.RevokedAt != nil {
+	if key.RevokedAt != nil && !key.RevokedAt.After(now) {
 		return Principal{}, unauthorized()
 	}
 	if key.ExpiresAt != nil && !key.ExpiresAt.After(now) {
@@ -598,7 +694,12 @@ func (s Service) DeleteAPIKey(ctx context.Context, userID string, id string) err
 	if userID == "" || id == "" {
 		return errors.Join(domain.ErrInvalidInput, errors.New("api key id is required"))
 	}
-	return s.repo.DeleteAPIKey(ctx, userID, id)
+	key, err := s.repo.FindAPIKeyByID(ctx, userID, id)
+	if err != nil {
+		return err
+	}
+	now := s.now().UTC()
+	return s.repo.RevokeAPIKey(ctx, userID, id, now, apiKeyEvent(key, "revoked", "", &now, now))
 }
 
 func HashToken(token string) string {
@@ -715,4 +816,8 @@ func apiKeyResult(key APIKey) APIKeyResult {
 		CreatedAt:     key.CreatedAt,
 		LastUsedAt:    key.LastUsedAt,
 	}
+}
+
+func apiKeyEvent(key APIKey, eventType string, relatedID string, effectiveAt *time.Time, createdAt time.Time) APIKeyEvent {
+	return APIKeyEvent{ID: uuid.NewString(), WorkspaceID: key.WorkspaceID, UserID: key.UserID, APIKeyID: key.ID, KeyName: key.Name, KeyPrefix: key.Prefix, EventType: eventType, RelatedAPIKeyID: relatedID, EffectiveAt: effectiveAt, CreatedAt: createdAt}
 }

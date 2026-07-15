@@ -14,10 +14,11 @@ import (
 
 type AuthRepository struct {
 	queries *sqlitedb.Queries
+	store   *Store
 }
 
 func NewAuthRepository(store *Store) *AuthRepository {
-	return &AuthRepository{queries: sqlitedb.New(store)}
+	return &AuthRepository{queries: sqlitedb.New(store), store: store}
 }
 
 func (r *AuthRepository) CountUsers(ctx context.Context) (int, error) {
@@ -150,7 +151,17 @@ func (r *AuthRepository) DeleteSessionByTokenHash(ctx context.Context, tokenHash
 	return queriesFor(ctx, r.queries).DeleteSessionByTokenHash(ctx, tokenHash)
 }
 
-func (r *AuthRepository) SaveAPIKey(ctx context.Context, key appauth.APIKey) (appauth.APIKey, error) {
+func (r *AuthRepository) CreateAPIKey(ctx context.Context, key appauth.APIKey, event appauth.APIKeyEvent) (appauth.APIKey, error) {
+	err := r.store.WithinTransaction(ctx, func(txCtx context.Context) error {
+		if err := r.saveAPIKey(txCtx, key); err != nil {
+			return err
+		}
+		return r.saveAPIKeyEvent(txCtx, event)
+	})
+	return key, err
+}
+
+func (r *AuthRepository) saveAPIKey(ctx context.Context, key appauth.APIKey) error {
 	err := queriesFor(ctx, r.queries).SaveAPIKey(ctx, sqlitedb.SaveAPIKeyParams{
 		ID:            key.ID,
 		UserID:        key.UserID,
@@ -167,11 +178,11 @@ func (r *AuthRepository) SaveAPIKey(ctx context.Context, key appauth.APIKey) (ap
 	})
 	if err != nil {
 		if isUniqueConstraint(err) {
-			return appauth.APIKey{}, errors.Join(domain.ErrConflict, err)
+			return errors.Join(domain.ErrConflict, err)
 		}
-		return appauth.APIKey{}, err
+		return err
 	}
-	return key, nil
+	return nil
 }
 
 func (r *AuthRepository) ListAPIKeys(ctx context.Context, userID string) ([]appauth.APIKey, error) {
@@ -203,6 +214,15 @@ func (r *AuthRepository) FindAPIKeyByTokenHash(ctx context.Context, tokenHash st
 	return apiKeyFromFields(key.ID, key.UserID, key.WorkspaceID, key.Name, key.TokenHash, key.Prefix, key.Scopes, key.AllowedMeters, key.ExpiresAt, key.RevokedAt, key.CreatedAt, key.LastUsedAt, err)
 }
 
+func (r *AuthRepository) FindAPIKeyByID(ctx context.Context, userID string, id string) (appauth.APIKey, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return appauth.APIKey{}, err
+	}
+	key, err := queriesFor(ctx, r.queries).FindAPIKeyByID(ctx, sqlitedb.FindAPIKeyByIDParams{ID: id, UserID: userID, WorkspaceID: workspaceID})
+	return apiKeyFromFields(key.ID, key.UserID, key.WorkspaceID, key.Name, key.TokenHash, key.Prefix, key.Scopes, key.AllowedMeters, key.ExpiresAt, key.RevokedAt, key.CreatedAt, key.LastUsedAt, err)
+}
+
 func (r *AuthRepository) UpdateAPIKeyLastUsed(ctx context.Context, id string, lastUsedAt time.Time) error {
 	return queriesFor(ctx, r.queries).UpdateAPIKeyLastUsed(ctx, sqlitedb.UpdateAPIKeyLastUsedParams{
 		LastUsedAt: sql.NullString{String: formatTime(lastUsedAt), Valid: true},
@@ -210,23 +230,76 @@ func (r *AuthRepository) UpdateAPIKeyLastUsed(ctx context.Context, id string, la
 	})
 }
 
-func (r *AuthRepository) DeleteAPIKey(ctx context.Context, userID string, id string) error {
+func (r *AuthRepository) RotateAPIKey(ctx context.Context, userID string, sourceID string, replacement appauth.APIKey, revokeAt time.Time, events []appauth.APIKeyEvent) (appauth.APIKey, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return appauth.APIKey{}, err
+	}
+	err = r.store.WithinTransaction(ctx, func(txCtx context.Context) error {
+		rows, err := queriesFor(txCtx, r.queries).ScheduleAPIKeyRevocation(txCtx, sqlitedb.ScheduleAPIKeyRevocationParams{RevokedAt: formatOptionalTime(&revokeAt), ID: sourceID, UserID: userID, WorkspaceID: workspaceID})
+		if err != nil {
+			return err
+		}
+		if rows == 0 {
+			return errors.Join(domain.ErrConflict, errors.New("api key is already revoked or rotating"))
+		}
+		if err := r.saveAPIKey(txCtx, replacement); err != nil {
+			return err
+		}
+		for _, event := range events {
+			if err := r.saveAPIKeyEvent(txCtx, event); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return replacement, err
+}
+
+func (r *AuthRepository) RevokeAPIKey(ctx context.Context, userID string, id string, revokedAt time.Time, event appauth.APIKeyEvent) error {
 	workspaceID, err := appauth.RequireWorkspaceID(ctx)
 	if err != nil {
 		return err
 	}
-	rows, err := queriesFor(ctx, r.queries).DeleteAPIKey(ctx, sqlitedb.DeleteAPIKeyParams{
-		ID:          id,
-		UserID:      userID,
-		WorkspaceID: workspaceID,
+	return r.store.WithinTransaction(ctx, func(txCtx context.Context) error {
+		value := formatOptionalTime(&revokedAt)
+		rows, err := queriesFor(txCtx, r.queries).RevokeAPIKey(txCtx, sqlitedb.RevokeAPIKeyParams{RevokedAt: value, ID: id, UserID: userID, WorkspaceID: workspaceID, RevokedAt_2: value})
+		if err != nil {
+			return err
+		}
+		if rows == 0 {
+			return domain.ErrNotFound
+		}
+		return r.saveAPIKeyEvent(txCtx, event)
 	})
+}
+
+func (r *AuthRepository) ListAPIKeyEvents(ctx context.Context, userID string, limit int) ([]appauth.APIKeyEvent, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if rows == 0 {
-		return domain.ErrNotFound
+	rows, err := queriesFor(ctx, r.queries).ListAPIKeyEvents(ctx, sqlitedb.ListAPIKeyEventsParams{WorkspaceID: workspaceID, UserID: userID, Limit: int64(limit)})
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	events := make([]appauth.APIKeyEvent, 0, len(rows))
+	for _, row := range rows {
+		effectiveAt, err := parseOptionalTime(row.EffectiveAt)
+		if err != nil {
+			return nil, err
+		}
+		createdAt, err := time.Parse(time.RFC3339Nano, row.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
+		events = append(events, appauth.APIKeyEvent{ID: row.ID, WorkspaceID: row.WorkspaceID, UserID: row.UserID, APIKeyID: row.ApiKeyID, KeyName: row.KeyName, KeyPrefix: row.KeyPrefix, EventType: row.EventType, RelatedAPIKeyID: row.RelatedApiKeyID.String, EffectiveAt: effectiveAt, CreatedAt: createdAt})
+	}
+	return events, nil
+}
+
+func (r *AuthRepository) saveAPIKeyEvent(ctx context.Context, event appauth.APIKeyEvent) error {
+	return queriesFor(ctx, r.queries).SaveAPIKeyEvent(ctx, sqlitedb.SaveAPIKeyEventParams{ID: event.ID, WorkspaceID: event.WorkspaceID, UserID: event.UserID, ApiKeyID: event.APIKeyID, KeyName: event.KeyName, KeyPrefix: event.KeyPrefix, EventType: event.EventType, RelatedApiKeyID: sql.NullString{String: event.RelatedAPIKeyID, Valid: event.RelatedAPIKeyID != ""}, EffectiveAt: formatOptionalTime(event.EffectiveAt), CreatedAt: formatTime(event.CreatedAt)})
 }
 
 func workspaceFromFields(id string, name string, createdAt string, err error) (appauth.Workspace, error) {

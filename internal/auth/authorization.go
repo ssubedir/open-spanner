@@ -166,7 +166,7 @@ func (a *CasbinAuthorizer) Can(_ context.Context, principal Principal, action Ac
 	if principal.Kind == PrincipalKindSession {
 		return nil
 	}
-	if principal.RevokedAt != nil {
+	if principal.RevokedAt != nil && !principal.RevokedAt.After(time.Now().UTC()) {
 		return errors.Join(domain.ErrForbidden, errors.New("api key is revoked"))
 	}
 	if principal.ExpiresAt != nil && !principal.ExpiresAt.After(time.Now().UTC()) {

@@ -17,6 +17,10 @@ type CreateAPIKeyRequest struct {
 	ExpiresAt     string   `json:"expires_at,omitempty"`
 }
 
+type RotateAPIKeyRequest struct {
+	GracePeriodSeconds int `json:"grace_period_seconds"`
+}
+
 type UserResponse struct {
 	ID        string `json:"id"`
 	Email     string `json:"email"`
@@ -58,6 +62,7 @@ type APIKeyResponse struct {
 	RevokedAt     *string  `json:"revoked_at,omitempty"`
 	CreatedAt     string   `json:"created_at"`
 	LastUsedAt    *string  `json:"last_used_at,omitempty"`
+	Status        string   `json:"status"`
 }
 
 type APIKeyCreateResponse struct {
@@ -67,4 +72,19 @@ type APIKeyCreateResponse struct {
 
 type APIKeyListResponse struct {
 	Items []APIKeyResponse `json:"items"`
+}
+
+type APIKeyEventResponse struct {
+	ID              string  `json:"id"`
+	APIKeyID        string  `json:"api_key_id"`
+	KeyName         string  `json:"key_name"`
+	KeyPrefix       string  `json:"key_prefix"`
+	EventType       string  `json:"event_type"`
+	RelatedAPIKeyID string  `json:"related_api_key_id,omitempty"`
+	EffectiveAt     *string `json:"effective_at,omitempty"`
+	CreatedAt       string  `json:"created_at"`
+}
+
+type APIKeyEventListResponse struct {
+	Items []APIKeyEventResponse `json:"items"`
 }

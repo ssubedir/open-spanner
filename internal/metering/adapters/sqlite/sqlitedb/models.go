@@ -43,6 +43,19 @@ type AuthApiKey struct {
 	LastUsedAt    sql.NullString
 }
 
+type AuthApiKeyEvent struct {
+	ID              string
+	WorkspaceID     string
+	UserID          string
+	ApiKeyID        string
+	KeyName         string
+	KeyPrefix       string
+	EventType       string
+	RelatedApiKeyID sql.NullString
+	EffectiveAt     sql.NullString
+	CreatedAt       string
+}
+
 type AuthIdentity struct {
 	ID            string
 	UserID        string

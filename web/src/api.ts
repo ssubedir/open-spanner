@@ -661,6 +661,7 @@ export type APIKey = {
   revoked_at?: string | null
   created_at: string
   last_used_at: string | null
+  status: 'active' | 'revoking' | 'revoked' | 'expired'
 }
 
 export type APIKeyList = {
@@ -676,6 +677,17 @@ export type APIKeyCreateRequest = {
   scopes?: string[]
   allowed_meters?: string[]
   expires_at?: string
+}
+
+export type APIKeyEvent = {
+  id: string
+  api_key_id: string
+  key_name: string
+  key_prefix: string
+  event_type: 'created' | 'rotated' | 'revoked'
+  related_api_key_id?: string
+  effective_at?: string
+  created_at: string
 }
 
 type APIKeyPayload = Omit<APIKey, 'allowed_meters' | 'scopes'> & {
@@ -935,6 +947,18 @@ export async function createAPIKey(input: APIKeyCreateRequest) {
     ...normalizeAPIKey(response),
     key: response.key,
   }
+}
+
+export async function rotateAPIKey(id: string, gracePeriodSeconds: number) {
+  const response = await request<APIKeyCreatePayload>(`/v1/auth/api-keys/${encodeURIComponent(id)}/rotate`, {
+    body: JSON.stringify({ grace_period_seconds: gracePeriodSeconds }),
+    method: 'POST',
+  })
+  return { ...normalizeAPIKey(response), key: response.key }
+}
+
+export async function listAPIKeyEvents() {
+  return request<{ items: APIKeyEvent[] }>('/v1/auth/api-key-events')
 }
 
 export async function deleteAPIKey(id: string) {

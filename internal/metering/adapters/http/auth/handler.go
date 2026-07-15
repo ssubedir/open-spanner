@@ -364,9 +364,81 @@ func (h *Handler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// DeleteAPIKey deletes an API key for the current user.
+// RotateAPIKey creates a replacement key and schedules revocation of the old key.
+// @Summary Rotate API key
+// @ID rotateAPIKey
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param id path string true "API key ID"
+// @Param request body RotateAPIKeyRequest true "Rotation options"
+// @Success 201 {object} APIKeyCreateResponse
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 401 {object} respond.ErrorResponse
+// @Failure 404 {object} respond.ErrorResponse
+// @Failure 409 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/auth/api-keys/{id}/rotate [post]
+func (h *Handler) RotateAPIKey(w http.ResponseWriter, r *http.Request) {
+	principal, err := h.currentPrincipal(r)
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	var req RotateAPIKeyRequest
+	if err := request.DecodeJSON(r.Body, &req); err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+	if req.GracePeriodSeconds < 0 || req.GracePeriodSeconds > 86400 {
+		respond.Error(w, http.StatusBadRequest, "invalid_input", "grace_period_seconds must be between 0 and 86400")
+		return
+	}
+	ctx := appauth.WithPrincipal(r.Context(), principal)
+	key, err := h.service.RotateAPIKey(ctx, appauth.RotateAPIKeyCommand{UserID: principal.User.ID, ID: chi.URLParam(r, "id"), GracePeriod: time.Duration(req.GracePeriodSeconds) * time.Second})
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	respond.JSON(w, http.StatusCreated, APIKeyCreateResponse{APIKeyResponse: apiKeyResponse(key.APIKeyResult), Key: key.Key})
+}
+
+// ListAPIKeyEvents lists immutable API key lifecycle events.
+// @Summary List API key audit events
+// @ID listAPIKeyEvents
+// @Tags auth
+// @Produce json
+// @Success 200 {object} APIKeyEventListResponse
+// @Failure 401 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/auth/api-key-events [get]
+func (h *Handler) ListAPIKeyEvents(w http.ResponseWriter, r *http.Request) {
+	principal, err := h.currentPrincipal(r)
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	ctx := appauth.WithPrincipal(r.Context(), principal)
+	events, err := h.service.ListAPIKeyEvents(ctx, principal.User.ID, 50)
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	items := make([]APIKeyEventResponse, 0, len(events))
+	for _, event := range events {
+		var effectiveAt *string
+		if event.EffectiveAt != nil {
+			value := event.EffectiveAt.Format(time.RFC3339)
+			effectiveAt = &value
+		}
+		items = append(items, APIKeyEventResponse{ID: event.ID, APIKeyID: event.APIKeyID, KeyName: event.KeyName, KeyPrefix: event.KeyPrefix, EventType: event.EventType, RelatedAPIKeyID: event.RelatedAPIKeyID, EffectiveAt: effectiveAt, CreatedAt: event.CreatedAt.Format(time.RFC3339)})
+	}
+	respond.JSON(w, http.StatusOK, APIKeyEventListResponse{Items: items})
+}
+
+// DeleteAPIKey immediately revokes an API key for the current user.
 //
-// @Summary Delete API key
+// @Summary Revoke API key
 // @ID deleteAPIKey
 // @Tags auth
 // @Produce json
@@ -498,6 +570,16 @@ func userResponse(user appauth.UserResult) UserResponse {
 }
 
 func apiKeyResponse(key appauth.APIKeyResult) APIKeyResponse {
+	now := time.Now().UTC()
+	status := "active"
+	if key.ExpiresAt != nil && !key.ExpiresAt.After(now) {
+		status = "expired"
+	}
+	if key.RevokedAt != nil && !key.RevokedAt.After(now) {
+		status = "revoked"
+	} else if key.RevokedAt != nil && status == "active" {
+		status = "revoking"
+	}
 	var lastUsedAt *string
 	if key.LastUsedAt != nil {
 		formatted := key.LastUsedAt.Format(time.RFC3339)
@@ -523,6 +605,7 @@ func apiKeyResponse(key appauth.APIKeyResult) APIKeyResponse {
 		RevokedAt:     revokedAt,
 		CreatedAt:     key.CreatedAt.Format(time.RFC3339),
 		LastUsedAt:    lastUsedAt,
+		Status:        status,
 	}
 }
 

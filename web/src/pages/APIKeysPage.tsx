@@ -1,5 +1,5 @@
 import { useSelector } from '@tanstack/react-store'
-import { Copy, KeyRound, Loader2, Plus, Trash2 } from 'lucide-react'
+import { Copy, KeyRound, Loader2, Plus, RefreshCw, ShieldX } from 'lucide-react'
 import { type FormEvent, useCallback } from 'react'
 
 import { appStore, appStoreActions } from '../app-store'
@@ -46,7 +46,7 @@ const apiKeyExpirationPresets = [
 ]
 
 export function APIKeysPage() {
-  const { creating, createdKey, deleting, error, items, saving } = useSelector(appStore, (state) => state.apiKeys)
+  const { creating, createdKey, deleting, error, events, items, rotating, saving } = useSelector(appStore, (state) => state.apiKeys)
   const load = useCallback(() => appStoreActions.loadAPIKeys(), [])
 
   useInitialLoad(load)
@@ -79,6 +79,16 @@ export function APIKeysPage() {
     }
   }
 
+  async function submitRotation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    try {
+      await appStoreActions.rotateSelectedAPIKey(Number(form.get('grace_period_seconds') || 0))
+    } catch {
+      // Store owns the visible API key error state.
+    }
+  }
+
   async function copyCreatedKey() {
     if (!createdKey) {
       return
@@ -92,7 +102,7 @@ export function APIKeysPage() {
         eyebrow="API Keys"
         icon={<KeyRound />}
         title="SDK access"
-        description="Issue API keys for trusted backend clients and revoke stale credentials."
+        description="Issue, rotate, and revoke credentials for trusted backend clients."
         action={null}
       />
 
@@ -120,7 +130,7 @@ export function APIKeysPage() {
         <CardHeader className="!px-4 !py-3">
           <div>
             <CardTitle>Keys</CardTitle>
-            <CardDescription>Active keys for SDK clients.</CardDescription>
+            <CardDescription>Current and revoked SDK credentials.</CardDescription>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
             <Button disabled={saving} onClick={() => appStoreActions.setAPIKeyCreating(true)} type="button">
@@ -132,7 +142,7 @@ export function APIKeysPage() {
         <CardContent>
           <DataTable
             emptyLabel="No API keys yet"
-            headers={['Name', 'Prefix', 'Created', 'Last Used', 'Actions']}
+            headers={['Name', 'Prefix', 'Status', 'Created', 'Last Used', 'Actions']}
             rows={items.map((key) => [
               <span className="api-key-name-block">
                 <strong className="api-key-name">{key.name}</strong>
@@ -142,15 +152,28 @@ export function APIKeysPage() {
               <Badge className="api-key-prefix" variant="muted">
                 <span className="mono">{key.prefix}</span>
               </Badge>,
+              <KeyStatus credential={key} />,
               formatDate(key.created_at),
               key.last_used_at ? formatDate(key.last_used_at) : <span className="muted">Never</span>,
               <span className="table-actions">
-                <Button aria-label={`Delete ${key.name}`} disabled={saving} onClick={() => appStoreActions.setAPIKeyDeleting(key)} size="icon" type="button" variant="ghost">
-                  <Trash2 aria-hidden="true" />
-                </Button>
+                {key.status === 'active' ? <Button aria-label={`Rotate ${key.name}`} disabled={saving} onClick={() => appStoreActions.setAPIKeyRotating(key)} size="icon" type="button" variant="ghost"><RefreshCw aria-hidden="true" /></Button> : null}
+                {key.status === 'active' || key.status === 'revoking' ? <Button aria-label={`Revoke ${key.name}`} disabled={saving} onClick={() => appStoreActions.setAPIKeyDeleting(key)} size="icon" type="button" variant="ghost"><ShieldX aria-hidden="true" /></Button> : null}
               </span>,
             ])}
           />
+        </CardContent>
+      </Card>
+
+      <Card className="min-w-0">
+        <CardHeader className="!px-4 !py-3"><div><CardTitle>Lifecycle audit</CardTitle><CardDescription>Immutable creation, rotation, and revocation history.</CardDescription></div></CardHeader>
+        <CardContent>
+          <DataTable emptyLabel="No API key activity yet" headers={['Event', 'Key', 'Prefix', 'Effective', 'Recorded']} rows={events.map((event) => [
+            <Badge variant={event.event_type === 'revoked' ? 'warning' : 'muted'}>{event.event_type}</Badge>,
+            event.key_name,
+            <span className="mono">{event.key_prefix}</span>,
+            event.effective_at ? formatDate(event.effective_at) : <span className="muted">Immediate</span>,
+            formatDate(event.created_at),
+          ])} />
         </CardContent>
       </Card>
 
@@ -211,16 +234,37 @@ export function APIKeysPage() {
       ) : null}
 
       {deleting ? (
-        <Modal title="Delete API Key" onClose={() => appStoreActions.setAPIKeyDeleting(null)}>
-          <div className="modal-copy">Delete <strong>{deleting.name}</strong>?</div>
+        <Modal title="Revoke API Key" onClose={() => appStoreActions.setAPIKeyDeleting(null)}>
+          <div className="modal-copy">Immediately revoke <strong>{deleting.name}</strong>? Clients using it will lose access.</div>
           <div className="modal-actions">
             <Button onClick={() => appStoreActions.setAPIKeyDeleting(null)} type="button" variant="outline">Cancel</Button>
-            <Button disabled={saving} onClick={() => void confirmDelete()} type="button">Delete</Button>
+            <Button disabled={saving} onClick={() => void confirmDelete()} type="button">Revoke</Button>
           </div>
+        </Modal>
+      ) : null}
+
+      {rotating ? (
+        <Modal title="Rotate API Key" onClose={() => appStoreActions.setAPIKeyRotating(null)}>
+          <form className="modal-form" onSubmit={(event) => void submitRotation(event)}>
+            <div className="modal-copy">Create a replacement for <strong>{rotating.name}</strong> with the same scopes, meter access, and expiry.</div>
+            <Label className="grid gap-1.5">Old key grace period
+              <Select defaultValue="3600" name="grace_period_seconds"><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent position="popper">
+                <SelectItem value="0">Revoke immediately</SelectItem><SelectItem value="300">5 minutes</SelectItem><SelectItem value="3600">1 hour</SelectItem><SelectItem value="86400">24 hours</SelectItem>
+              </SelectContent></Select>
+            </Label>
+            <div className="modal-actions"><Button onClick={() => appStoreActions.setAPIKeyRotating(null)} type="button" variant="outline">Cancel</Button><Button disabled={saving} type="submit">{saving ? <Loader2 className="spin" /> : <RefreshCw />}Rotate key</Button></div>
+          </form>
         </Modal>
       ) : null}
     </>
   )
+}
+
+function KeyStatus({ credential }: { credential: { revoked_at?: string | null; status: 'active' | 'revoking' | 'revoked' | 'expired' } }) {
+  if (credential.status === 'active') return <Badge variant="success">Active</Badge>
+  if (credential.status === 'revoking') return <Badge variant="warning">Revokes {credential.revoked_at ? formatDate(credential.revoked_at) : 'soon'}</Badge>
+  if (credential.status === 'expired') return <Badge variant="muted">Expired</Badge>
+  return <Badge variant="muted">Revoked</Badge>
 }
 
 function ScopeBadges({ scopes }: { scopes: string[] }) {

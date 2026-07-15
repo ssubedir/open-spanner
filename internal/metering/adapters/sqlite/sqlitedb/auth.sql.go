@@ -22,25 +22,6 @@ func (q *Queries) CountUsers(ctx context.Context) (int64, error) {
 	return count, err
 }
 
-const deleteAPIKey = `-- name: DeleteAPIKey :execrows
-DELETE FROM auth_api_keys
-WHERE id = ? AND user_id = ? AND workspace_id = ?
-`
-
-type DeleteAPIKeyParams struct {
-	ID          string
-	UserID      string
-	WorkspaceID string
-}
-
-func (q *Queries) DeleteAPIKey(ctx context.Context, arg DeleteAPIKeyParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteAPIKey, arg.ID, arg.UserID, arg.WorkspaceID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
 const deleteSessionByTokenHash = `-- name: DeleteSessionByTokenHash :exec
 DELETE FROM auth_sessions
 WHERE token_hash = ?
@@ -49,6 +30,38 @@ WHERE token_hash = ?
 func (q *Queries) DeleteSessionByTokenHash(ctx context.Context, tokenHash string) error {
 	_, err := q.db.ExecContext(ctx, deleteSessionByTokenHash, tokenHash)
 	return err
+}
+
+const findAPIKeyByID = `-- name: FindAPIKeyByID :one
+SELECT id, user_id, workspace_id, name, token_hash, prefix, scopes, allowed_meters, expires_at, revoked_at, created_at, last_used_at
+FROM auth_api_keys
+WHERE id = ? AND user_id = ? AND workspace_id = ?
+`
+
+type FindAPIKeyByIDParams struct {
+	ID          string
+	UserID      string
+	WorkspaceID string
+}
+
+func (q *Queries) FindAPIKeyByID(ctx context.Context, arg FindAPIKeyByIDParams) (AuthApiKey, error) {
+	row := q.db.QueryRowContext(ctx, findAPIKeyByID, arg.ID, arg.UserID, arg.WorkspaceID)
+	var i AuthApiKey
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.WorkspaceID,
+		&i.Name,
+		&i.TokenHash,
+		&i.Prefix,
+		&i.Scopes,
+		&i.AllowedMeters,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+		&i.CreatedAt,
+		&i.LastUsedAt,
+	)
+	return i, err
 }
 
 const findAPIKeyByTokenHash = `-- name: FindAPIKeyByTokenHash :one
@@ -191,6 +204,54 @@ func (q *Queries) FindUserByID(ctx context.Context, id string) (AuthUser, error)
 	return i, err
 }
 
+const listAPIKeyEvents = `-- name: ListAPIKeyEvents :many
+SELECT id, workspace_id, user_id, api_key_id, key_name, key_prefix, event_type, related_api_key_id, effective_at, created_at
+FROM auth_api_key_events
+WHERE workspace_id = ? AND user_id = ?
+ORDER BY created_at DESC, id DESC
+LIMIT ?
+`
+
+type ListAPIKeyEventsParams struct {
+	WorkspaceID string
+	UserID      string
+	Limit       int64
+}
+
+func (q *Queries) ListAPIKeyEvents(ctx context.Context, arg ListAPIKeyEventsParams) ([]AuthApiKeyEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listAPIKeyEvents, arg.WorkspaceID, arg.UserID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AuthApiKeyEvent{}
+	for rows.Next() {
+		var i AuthApiKeyEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.UserID,
+			&i.ApiKeyID,
+			&i.KeyName,
+			&i.KeyPrefix,
+			&i.EventType,
+			&i.RelatedApiKeyID,
+			&i.EffectiveAt,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAPIKeys = `-- name: ListAPIKeys :many
 SELECT id, user_id, workspace_id, name, token_hash, prefix, scopes, allowed_meters, expires_at, revoked_at, created_at, last_used_at
 FROM auth_api_keys
@@ -240,6 +301,35 @@ func (q *Queries) ListAPIKeys(ctx context.Context, arg ListAPIKeysParams) ([]Aut
 	return items, nil
 }
 
+const revokeAPIKey = `-- name: RevokeAPIKey :execrows
+UPDATE auth_api_keys
+SET revoked_at = ?
+WHERE id = ? AND user_id = ? AND workspace_id = ?
+	AND (revoked_at IS NULL OR revoked_at > ?)
+`
+
+type RevokeAPIKeyParams struct {
+	RevokedAt   sql.NullString
+	ID          string
+	UserID      string
+	WorkspaceID string
+	RevokedAt_2 sql.NullString
+}
+
+func (q *Queries) RevokeAPIKey(ctx context.Context, arg RevokeAPIKeyParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, revokeAPIKey,
+		arg.RevokedAt,
+		arg.ID,
+		arg.UserID,
+		arg.WorkspaceID,
+		arg.RevokedAt_2,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const saveAPIKey = `-- name: SaveAPIKey :exec
 INSERT INTO auth_api_keys (id, user_id, workspace_id, name, token_hash, prefix, scopes, allowed_meters, expires_at, revoked_at, created_at, last_used_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -274,6 +364,40 @@ func (q *Queries) SaveAPIKey(ctx context.Context, arg SaveAPIKeyParams) error {
 		arg.RevokedAt,
 		arg.CreatedAt,
 		arg.LastUsedAt,
+	)
+	return err
+}
+
+const saveAPIKeyEvent = `-- name: SaveAPIKeyEvent :exec
+INSERT INTO auth_api_key_events (id, workspace_id, user_id, api_key_id, key_name, key_prefix, event_type, related_api_key_id, effective_at, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type SaveAPIKeyEventParams struct {
+	ID              string
+	WorkspaceID     string
+	UserID          string
+	ApiKeyID        string
+	KeyName         string
+	KeyPrefix       string
+	EventType       string
+	RelatedApiKeyID sql.NullString
+	EffectiveAt     sql.NullString
+	CreatedAt       string
+}
+
+func (q *Queries) SaveAPIKeyEvent(ctx context.Context, arg SaveAPIKeyEventParams) error {
+	_, err := q.db.ExecContext(ctx, saveAPIKeyEvent,
+		arg.ID,
+		arg.WorkspaceID,
+		arg.UserID,
+		arg.ApiKeyID,
+		arg.KeyName,
+		arg.KeyPrefix,
+		arg.EventType,
+		arg.RelatedApiKeyID,
+		arg.EffectiveAt,
+		arg.CreatedAt,
 	)
 	return err
 }
@@ -394,6 +518,32 @@ func (q *Queries) SaveWorkspaceMembership(ctx context.Context, arg SaveWorkspace
 		arg.CreatedAt,
 	)
 	return err
+}
+
+const scheduleAPIKeyRevocation = `-- name: ScheduleAPIKeyRevocation :execrows
+UPDATE auth_api_keys
+SET revoked_at = ?
+WHERE id = ? AND user_id = ? AND workspace_id = ? AND revoked_at IS NULL
+`
+
+type ScheduleAPIKeyRevocationParams struct {
+	RevokedAt   sql.NullString
+	ID          string
+	UserID      string
+	WorkspaceID string
+}
+
+func (q *Queries) ScheduleAPIKeyRevocation(ctx context.Context, arg ScheduleAPIKeyRevocationParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, scheduleAPIKeyRevocation,
+		arg.RevokedAt,
+		arg.ID,
+		arg.UserID,
+		arg.WorkspaceID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const updateAPIKeyLastUsed = `-- name: UpdateAPIKeyLastUsed :exec

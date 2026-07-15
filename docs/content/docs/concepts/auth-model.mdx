@@ -70,6 +70,10 @@ Authorization: Bearer <api_key>
 
 Create API keys from the dashboard. Copy them when they are created; the full key is not shown again.
 
+Rotate keys from the dashboard or `POST /v1/auth/api-keys/{id}/rotate`. The replacement preserves the old key's name, scopes, allowed meters, and expiry. Choose a grace period from zero to 24 hours: both credentials work during the grace period, then the old key is rejected. You can revoke a key immediately at any point with `DELETE /v1/auth/api-keys/{id}`.
+
+Open Spanner retains revoked key metadata and an immutable lifecycle history for creation, rotation, and revocation. The full secret is never stored in the audit log. Read the history from `GET /v1/auth/api-key-events` or the API Keys dashboard.
+
 API keys should be used from trusted server-side code. Do not put Open Spanner API keys in browser or mobile clients.
 
 ## Scopes And Meter Access

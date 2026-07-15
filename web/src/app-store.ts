@@ -35,6 +35,7 @@ import {
   listAlertDestinations,
   listAlertRules,
   listAPIKeys,
+  listAPIKeyEvents,
   listIngestions,
   listMeterStats,
   listMeters,
@@ -51,6 +52,7 @@ import {
   listUsageExportJobs,
   refreshAuthSession,
   rotateAlertDestinationSecret as rotateAlertDestinationSecretRequest,
+  rotateAPIKey as rotateAPIKeyRequest,
   retryUsageExportJob,
   updatePlan as updatePlanRequest,
   updateAlertDestination as updateAlertDestinationRequest,
@@ -67,6 +69,7 @@ import {
   type APIKey,
   type APIKeyCreateRequest,
   type APIKeyCreateResponse,
+  type APIKeyEvent,
   type AuthSession,
   type EntitlementEvent,
   type EntitlementPeriodSnapshot,
@@ -159,7 +162,9 @@ type AppState = {
     createdKey: APIKeyCreateResponse | null
     deleting: APIKey | null
     error: string
+    events: APIKeyEvent[]
     items: APIKey[]
+    rotating: APIKey | null
     saving: boolean
     status: LoadState
   }
@@ -307,7 +312,9 @@ export const appStore = createStore<AppState>({
     createdKey: null,
     deleting: null,
     error: '',
+    events: [],
     items: [],
+    rotating: null,
     saving: false,
     status: 'idle',
   },
@@ -461,7 +468,9 @@ function initialUserDataState(): UserDataState {
       createdKey: null,
       deleting: null,
       error: '',
+      events: [],
       items: [],
+      rotating: null,
       saving: false,
       status: 'idle',
     },
@@ -646,13 +655,26 @@ export const appStoreActions = {
     setAPIKeysState({ error: '', saving: true })
     try {
       await deleteAPIKeyRequest(deleting.id)
-      setAPIKeysState((state) => ({
-        createdKey: state.createdKey?.id === deleting.id ? null : state.createdKey,
-        deleting: null,
-        items: state.items.filter((item) => item.id !== deleting.id),
-      }))
+      setAPIKeysState({ deleting: null })
+      await appStoreActions.loadAPIKeys()
     } catch (err) {
       setAPIKeysState({ error: errorMessage(err, 'Unable to delete API key') })
+      throw err
+    } finally {
+      setAPIKeysState({ saving: false })
+    }
+  },
+  async rotateSelectedAPIKey(gracePeriodSeconds: number) {
+    const rotating = appStore.state.apiKeys.rotating
+    if (!rotating) return
+    setAPIKeysState({ createdKey: null, error: '', saving: true })
+    try {
+      const createdKey = await rotateAPIKeyRequest(rotating.id, gracePeriodSeconds)
+      setAPIKeysState({ createdKey, rotating: null })
+      await appStoreActions.loadAPIKeys()
+      return createdKey
+    } catch (err) {
+      setAPIKeysState({ error: errorMessage(err, 'Unable to rotate API key') })
       throw err
     } finally {
       setAPIKeysState({ saving: false })
@@ -918,11 +940,11 @@ export const appStoreActions = {
     const generation = currentUserDataGeneration()
     setAPIKeysState({ error: '', status: 'loading' })
     try {
-      const keys = await listAPIKeys()
+      const [keys, events] = await Promise.all([listAPIKeys(), listAPIKeyEvents()])
       if (!isCurrentUserDataGeneration(generation)) {
         return
       }
-      setAPIKeysState({ items: keys.items, status: 'ready' })
+      setAPIKeysState({ events: events.items, items: keys.items, status: 'ready' })
     } catch (err) {
       if (!isCurrentUserDataGeneration(generation)) {
         return
@@ -1745,6 +1767,9 @@ export const appStoreActions = {
   },
   setAPIKeyDeleting(deleting: APIKey | null) {
     setAPIKeysState({ deleting })
+  },
+  setAPIKeyRotating(rotating: APIKey | null) {
+    setAPIKeysState({ rotating })
   },
   setAlertDeleting(deleting: AlertRule | null) {
     setAlertsState({ deleting })

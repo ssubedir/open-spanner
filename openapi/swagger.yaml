@@ -284,6 +284,34 @@ definitions:
         items:
           type: string
         type: array
+      status:
+        type: string
+    type: object
+  internal_metering_adapters_http_auth.APIKeyEventListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_auth.APIKeyEventResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_auth.APIKeyEventResponse:
+    properties:
+      api_key_id:
+        type: string
+      created_at:
+        type: string
+      effective_at:
+        type: string
+      event_type:
+        type: string
+      id:
+        type: string
+      key_name:
+        type: string
+      key_prefix:
+        type: string
+      related_api_key_id:
+        type: string
     type: object
   internal_metering_adapters_http_auth.APIKeyListResponse:
     properties:
@@ -316,6 +344,8 @@ definitions:
         items:
           type: string
         type: array
+      status:
+        type: string
     type: object
   internal_metering_adapters_http_auth.CreateAPIKeyRequest:
     properties:
@@ -377,6 +407,11 @@ definitions:
         type: string
       user:
         $ref: '#/definitions/internal_metering_adapters_http_auth.UserResponse'
+    type: object
+  internal_metering_adapters_http_auth.RotateAPIKeyRequest:
+    properties:
+      grace_period_seconds:
+        type: integer
     type: object
   internal_metering_adapters_http_auth.SessionResponse:
     properties:
@@ -2012,6 +2047,27 @@ paths:
       summary: List alert events
       tags:
       - alerts
+  /v1/auth/api-key-events:
+    get:
+      operationId: listAPIKeyEvents
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_auth.APIKeyEventListResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List API key audit events
+      tags:
+      - auth
   /v1/auth/api-keys:
     get:
       operationId: listAPIKeys
@@ -2092,7 +2148,54 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
-      summary: Delete API key
+      summary: Revoke API key
+      tags:
+      - auth
+  /v1/auth/api-keys/{id}/rotate:
+    post:
+      consumes:
+      - application/json
+      operationId: rotateAPIKey
+      parameters:
+      - description: API key ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Rotation options
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_auth.RotateAPIKeyRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_auth.APIKeyCreateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Rotate API key
       tags:
       - auth
   /v1/auth/oauth/{provider}:
