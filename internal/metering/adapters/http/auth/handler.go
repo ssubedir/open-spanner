@@ -28,30 +28,33 @@ const (
 )
 
 type Handler struct {
-	httpClient       *http.Client
-	oauthFailurePath string
-	oauthProviders   []OAuthProvider
-	oauthSuccessPath string
-	service          appauth.Service
-	verifier         idTokenVerifier
+	httpClient          *http.Client
+	oauthFailurePath    string
+	oauthProviders      []OAuthProvider
+	oauthSuccessPath    string
+	registrationEnabled bool
+	service             appauth.Service
+	verifier            idTokenVerifier
 }
 
 type HandlerOptions struct {
-	HTTPClient       *http.Client
-	OAuth            config.OAuthConfigs
-	OAuthFailurePath string
-	OAuthSuccessPath string
-	OAuthProviders   []OAuthProvider
-	Verifier         idTokenVerifier
+	HTTPClient           *http.Client
+	OAuth                config.OAuthConfigs
+	OAuthFailurePath     string
+	OAuthSuccessPath     string
+	OAuthProviders       []OAuthProvider
+	RegistrationDisabled bool
+	Verifier             idTokenVerifier
 }
 
 func NewHandler(service appauth.Service, options ...HandlerOptions) *Handler {
 	handler := &Handler{
-		httpClient:       http.DefaultClient,
-		oauthFailurePath: "/login",
-		oauthSuccessPath: "/overview",
-		service:          service,
-		verifier:         googleIDTokenVerifier{},
+		httpClient:          http.DefaultClient,
+		oauthFailurePath:    "/login",
+		oauthSuccessPath:    "/overview",
+		registrationEnabled: true,
+		service:             service,
+		verifier:            googleIDTokenVerifier{},
 	}
 	if len(options) > 0 {
 		if options[0].HTTPClient != nil {
@@ -67,6 +70,7 @@ func NewHandler(service appauth.Service, options ...HandlerOptions) *Handler {
 			handler.verifier = options[0].Verifier
 		}
 		handler.oauthProviders = oauthProviders(options[0].OAuthProviders)
+		handler.registrationEnabled = !options[0].RegistrationDisabled
 		if len(handler.oauthProviders) == 0 {
 			handler.oauthProviders = defaultOAuthProviders(
 				options[0].OAuth,
@@ -91,10 +95,15 @@ func NewHandler(service appauth.Service, options ...HandlerOptions) *Handler {
 // @Param request body CreateUserRequest true "User"
 // @Success 201 {object} UserResponse
 // @Failure 400 {object} respond.ErrorResponse
+// @Failure 403 {object} respond.ErrorResponse
 // @Failure 409 {object} respond.ErrorResponse
 // @Failure 500 {object} respond.ErrorResponse
 // @Router /v1/auth/users [post]
 func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
+	if !h.registrationEnabled {
+		respond.Error(w, http.StatusForbidden, "registration_disabled", "registration is disabled")
+		return
+	}
 	var req CreateUserRequest
 	if err := request.DecodeJSON(r.Body, &req); err != nil {
 		respond.ValidationError(w, err)
@@ -167,7 +176,7 @@ func (h *Handler) ListOAuthProviders(w http.ResponseWriter, r *http.Request) {
 			Name:    provider.Name(),
 		})
 	}
-	respond.JSON(w, http.StatusOK, OAuthProviderListResponse{Items: providers})
+	respond.JSON(w, http.StatusOK, OAuthProviderListResponse{Items: providers, RegistrationEnabled: h.registrationEnabled})
 }
 
 // StartOAuth redirects the user to an OAuth/OIDC provider.
@@ -255,10 +264,11 @@ func (h *Handler) CompleteOAuth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	session, err := h.service.LoginWithExternalIdentity(r.Context(), appauth.ExternalIdentityLoginCommand{
-		Provider:      identity.Provider,
-		Subject:       identity.Subject,
-		Email:         identity.Email,
-		EmailVerified: identity.EmailVerified,
+		Provider:             identity.Provider,
+		Subject:              identity.Subject,
+		Email:                identity.Email,
+		EmailVerified:        identity.EmailVerified,
+		RegistrationDisabled: !h.registrationEnabled,
 	})
 	if err != nil {
 		http.Redirect(w, r, h.oauthFailurePath, http.StatusFound)

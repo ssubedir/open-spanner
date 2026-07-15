@@ -308,6 +308,7 @@ Common runtime variables:
 | --- | --- | --- |
 | `OPEN_SPANNER_HTTP_ADDR` | `:18081` | HTTP dashboard, REST API, and health endpoints. |
 | `OPEN_SPANNER_GRPC_ADDR` | `:18090` | gRPC usage ingestion listen address. |
+| `OPEN_SPANNER_REGISTRATION_ENABLED` | `true` | Allows new password and OAuth dashboard accounts. Disable after creating the deployment's users. |
 | `OPEN_SPANNER_GITHUB_OAUTH_ENABLED` | `true` | Enables GitHub sign-in when credentials are configured. |
 | `OPEN_SPANNER_GITHUB_OAUTH_CLIENT_ID` | | Enables GitHub sign-in when set with `OPEN_SPANNER_GITHUB_OAUTH_CLIENT_SECRET`. |
 | `OPEN_SPANNER_GITHUB_OAUTH_CLIENT_SECRET` | | GitHub OAuth client secret. |

@@ -997,6 +997,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
                         }
                     },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
                     "409": {
                         "description": "Conflict",
                         "schema": {
@@ -4364,6 +4370,9 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/internal_metering_adapters_http_auth.OAuthProviderResponse"
                     }
+                },
+                "registration_enabled": {
+                    "type": "boolean"
                 }
             }
         },

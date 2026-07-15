@@ -7,6 +7,7 @@ services:
     environment:
       OPEN_SPANNER_HTTP_ADDR: :18081
       OPEN_SPANNER_GRPC_ADDR: :18090
+      OPEN_SPANNER_REGISTRATION_ENABLED: ${OPEN_SPANNER_REGISTRATION_ENABLED:-true}
       OPEN_SPANNER_DB_DRIVER: postgres
       OPEN_SPANNER_POSTGRES_DSN: postgres://open_spanner:${OPEN_SPANNER_POSTGRES_PASSWORD:-open_spanner}@postgres:5432/open_spanner?sslmode=disable
       OPEN_SPANNER_EXPORT_STORAGE_PATH: /data/exports

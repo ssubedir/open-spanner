@@ -168,6 +168,38 @@ func TestLoginWithExternalIdentityLinksVerifiedEmail(t *testing.T) {
 	}
 }
 
+func TestLoginWithExternalIdentityHonorsDisabledRegistration(t *testing.T) {
+	ctx := context.Background()
+	repo := newFakeRepository()
+	service := NewService(repo)
+
+	_, err := service.LoginWithExternalIdentity(ctx, ExternalIdentityLoginCommand{
+		Provider:             "github",
+		Subject:              "new-user",
+		Email:                "new-user@example.com",
+		EmailVerified:        true,
+		RegistrationDisabled: true,
+	})
+	if !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("external identity login error = %v, want forbidden", err)
+	}
+
+	user, err := service.CreateUser(ctx, CreateUserCommand{Email: "existing@example.com", Password: "strong-password"})
+	if err != nil {
+		t.Fatalf("create existing user: %v", err)
+	}
+	login, err := service.LoginWithExternalIdentity(ctx, ExternalIdentityLoginCommand{
+		Provider:             "github",
+		Subject:              "existing-user",
+		Email:                user.Email,
+		EmailVerified:        true,
+		RegistrationDisabled: true,
+	})
+	if err != nil || login.User.ID != user.ID {
+		t.Fatalf("link existing external identity login = %#v err=%v", login, err)
+	}
+}
+
 func TestLoginWithExternalIdentityRejectsUnverifiedEmail(t *testing.T) {
 	ctx := context.Background()
 	repo := newFakeRepository()

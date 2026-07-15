@@ -648,6 +648,7 @@ export type OAuthProvider = {
 
 export type OAuthProviderList = {
   items: OAuthProvider[]
+  registration_enabled: boolean
 }
 
 export type APIKey = {

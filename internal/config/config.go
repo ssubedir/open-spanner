@@ -14,6 +14,7 @@ import (
 type Config struct {
 	HTTPAddr                     string
 	GRPCAddr                     string
+	RegistrationEnabled          bool
 	OAuth                        OAuthConfigs
 	DBDriver                     string
 	SQLitePath                   string
@@ -75,6 +76,10 @@ type DBPoolConfig struct {
 
 func Load() (Config, error) {
 	_ = godotenv.Load()
+	registrationEnabled, err := envBool("OPEN_SPANNER_REGISTRATION_ENABLED", true)
+	if err != nil {
+		return Config{}, err
+	}
 
 	pool, err := loadDBPoolConfig()
 	if err != nil {
@@ -211,8 +216,9 @@ func Load() (Config, error) {
 	}
 
 	cfg := Config{
-		HTTPAddr: env("OPEN_SPANNER_HTTP_ADDR", ":18081"),
-		GRPCAddr: env("OPEN_SPANNER_GRPC_ADDR", ":18090"),
+		HTTPAddr:            env("OPEN_SPANNER_HTTP_ADDR", ":18081"),
+		GRPCAddr:            env("OPEN_SPANNER_GRPC_ADDR", ":18090"),
+		RegistrationEnabled: registrationEnabled,
 		OAuth: OAuthConfigs{
 			GitHub: gitHubOAuth,
 			Google: googleOAuth,

@@ -39,9 +39,10 @@ func TestIntegrationAuthGuardsSDKAndDashboardRoutes(t *testing.T) {
 	ctx := context.Background()
 	router := chi.NewRouter()
 	app, err := RegisterRoutes(ctx, router, config.Config{
-		DBDriver:   "sqlite",
-		SQLitePath: ":memory:",
-		DBPool:     config.DBPoolConfig{MaxOpenConns: 1},
+		DBDriver:            "sqlite",
+		SQLitePath:          ":memory:",
+		DBPool:              config.DBPoolConfig{MaxOpenConns: 1},
+		RegistrationEnabled: true,
 	})
 	if err != nil {
 		t.Fatalf("register routes: %v", err)
@@ -184,11 +185,75 @@ func TestIntegrationAuthGuardsSDKAndDashboardRoutes(t *testing.T) {
 	}
 }
 
+func TestIntegrationSQLiteRegistrationControl(t *testing.T) {
+	runIntegrationRegistrationControl(t, config.Config{
+		DBDriver:            "sqlite",
+		SQLitePath:          ":memory:",
+		DBPool:              config.DBPoolConfig{MaxOpenConns: 1},
+		RegistrationEnabled: false,
+	}, "sqlite")
+}
+
+func TestIntegrationPostgresRegistrationControl(t *testing.T) {
+	dsn := os.Getenv("OPEN_SPANNER_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set OPEN_SPANNER_TEST_POSTGRES_DSN to run Postgres bootstrap integration tests")
+	}
+	runIntegrationRegistrationControl(t, config.Config{
+		DBDriver:            "postgres",
+		PostgresDSN:         dsn,
+		DBPool:              config.DBPoolConfig{MaxOpenConns: 1},
+		RegistrationEnabled: false,
+	}, "postgres")
+}
+
+func runIntegrationRegistrationControl(t *testing.T, cfg config.Config, namespace string) {
+	t.Helper()
+	ctx := context.Background()
+	router := chi.NewRouter()
+	app, err := RegisterRoutes(ctx, router, cfg)
+	if err != nil {
+		t.Fatalf("register routes: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := app.Cleanup(); err != nil {
+			t.Fatalf("cleanup: %v", err)
+		}
+	})
+
+	email := "existing-registration-" + namespace + "-" + strconv.FormatInt(time.Now().UTC().UnixNano(), 36) + "@example.com"
+	if _, err := app.AuthService.CreateUser(ctx, appauth.CreateUserCommand{Email: email, Password: "strong-password"}); err != nil {
+		t.Fatalf("seed existing user: %v", err)
+	}
+
+	providers := requestJSON(t, router, http.MethodGet, "/v1/auth/providers", nil, nil)
+	if providers.Code != http.StatusOK || !strings.Contains(providers.Body.String(), `"registration_enabled":false`) {
+		t.Fatalf("providers status = %d body=%s", providers.Code, providers.Body.String())
+	}
+
+	blocked := requestJSON(t, router, http.MethodPost, "/v1/auth/users", map[string]any{
+		"email":    "blocked-" + email,
+		"password": "strong-password",
+	}, nil)
+	if blocked.Code != http.StatusForbidden || !strings.Contains(blocked.Body.String(), `"code":"registration_disabled"`) {
+		t.Fatalf("blocked registration status = %d body=%s", blocked.Code, blocked.Body.String())
+	}
+
+	login := requestJSON(t, router, http.MethodPost, "/v1/auth/sessions", map[string]any{
+		"email":    email,
+		"password": "strong-password",
+	}, nil)
+	if login.Code != http.StatusCreated {
+		t.Fatalf("existing login status = %d body=%s", login.Code, login.Body.String())
+	}
+}
+
 func TestIntegrationSQLiteSDKUsageFlow(t *testing.T) {
 	runIntegrationSDKUsageFlow(t, config.Config{
-		DBDriver:   "sqlite",
-		SQLitePath: ":memory:",
-		DBPool:     config.DBPoolConfig{MaxOpenConns: 1},
+		DBDriver:            "sqlite",
+		SQLitePath:          ":memory:",
+		DBPool:              config.DBPoolConfig{MaxOpenConns: 1},
+		RegistrationEnabled: true,
 	}, "sqlite")
 }
 
@@ -199,17 +264,19 @@ func TestIntegrationPostgresSDKUsageFlow(t *testing.T) {
 	}
 
 	runIntegrationSDKUsageFlow(t, config.Config{
-		DBDriver:    "postgres",
-		PostgresDSN: dsn,
-		DBPool:      config.DBPoolConfig{MaxOpenConns: 1},
+		DBDriver:            "postgres",
+		PostgresDSN:         dsn,
+		DBPool:              config.DBPoolConfig{MaxOpenConns: 1},
+		RegistrationEnabled: true,
 	}, "postgres")
 }
 
 func TestIntegrationSQLiteWorkspaceIsolation(t *testing.T) {
 	runIntegrationWorkspaceIsolationFlow(t, config.Config{
-		DBDriver:   "sqlite",
-		SQLitePath: ":memory:",
-		DBPool:     config.DBPoolConfig{MaxOpenConns: 1},
+		DBDriver:            "sqlite",
+		SQLitePath:          ":memory:",
+		DBPool:              config.DBPoolConfig{MaxOpenConns: 1},
+		RegistrationEnabled: true,
 	}, "sqlite")
 }
 
@@ -220,17 +287,19 @@ func TestIntegrationPostgresWorkspaceIsolation(t *testing.T) {
 	}
 
 	runIntegrationWorkspaceIsolationFlow(t, config.Config{
-		DBDriver:    "postgres",
-		PostgresDSN: dsn,
-		DBPool:      config.DBPoolConfig{MaxOpenConns: 1},
+		DBDriver:            "postgres",
+		PostgresDSN:         dsn,
+		DBPool:              config.DBPoolConfig{MaxOpenConns: 1},
+		RegistrationEnabled: true,
 	}, "postgres")
 }
 
 func TestIntegrationSQLitePlanEntitlementFlow(t *testing.T) {
 	runIntegrationPlanEntitlementFlow(t, config.Config{
-		DBDriver:   "sqlite",
-		SQLitePath: ":memory:",
-		DBPool:     config.DBPoolConfig{MaxOpenConns: 1},
+		DBDriver:            "sqlite",
+		SQLitePath:          ":memory:",
+		DBPool:              config.DBPoolConfig{MaxOpenConns: 1},
+		RegistrationEnabled: true,
 	}, "sqlite")
 }
 
@@ -241,17 +310,19 @@ func TestIntegrationPostgresPlanEntitlementFlow(t *testing.T) {
 	}
 
 	runIntegrationPlanEntitlementFlow(t, config.Config{
-		DBDriver:    "postgres",
-		PostgresDSN: dsn,
-		DBPool:      config.DBPoolConfig{MaxOpenConns: 1},
+		DBDriver:            "postgres",
+		PostgresDSN:         dsn,
+		DBPool:              config.DBPoolConfig{MaxOpenConns: 1},
+		RegistrationEnabled: true,
 	}, "postgres")
 }
 
 func TestIntegrationSQLiteConcurrentUsageIdempotency(t *testing.T) {
 	runIntegrationConcurrentUsageIdempotency(t, config.Config{
-		DBDriver:   "sqlite",
-		SQLitePath: t.TempDir() + "/concurrent-idempotency.db",
-		DBPool:     config.DBPoolConfig{MaxOpenConns: 8},
+		DBDriver:            "sqlite",
+		SQLitePath:          t.TempDir() + "/concurrent-idempotency.db",
+		DBPool:              config.DBPoolConfig{MaxOpenConns: 8},
+		RegistrationEnabled: true,
 	}, "sqlite")
 }
 
@@ -262,15 +333,16 @@ func TestIntegrationPostgresConcurrentUsageIdempotency(t *testing.T) {
 	}
 
 	runIntegrationConcurrentUsageIdempotency(t, config.Config{
-		DBDriver:    "postgres",
-		PostgresDSN: dsn,
-		DBPool:      config.DBPoolConfig{MaxOpenConns: 8},
+		DBDriver:            "postgres",
+		PostgresDSN:         dsn,
+		DBPool:              config.DBPoolConfig{MaxOpenConns: 8},
+		RegistrationEnabled: true,
 	}, "postgres")
 }
 
 func TestIntegrationSQLiteAtomicConsumption(t *testing.T) {
 	runIntegrationAtomicConsumption(t, config.Config{
-		DBDriver: "sqlite", SQLitePath: t.TempDir() + "/atomic-consumption.db",
+		DBDriver: "sqlite", SQLitePath: t.TempDir() + "/atomic-consumption.db", RegistrationEnabled: true,
 		DBPool: config.DBPoolConfig{MaxOpenConns: 8},
 	}, "sqlite")
 }
@@ -281,7 +353,7 @@ func TestIntegrationPostgresAtomicConsumption(t *testing.T) {
 		t.Skip("set OPEN_SPANNER_TEST_POSTGRES_DSN to run Postgres bootstrap integration tests")
 	}
 	runIntegrationAtomicConsumption(t, config.Config{
-		DBDriver: "postgres", PostgresDSN: dsn, DBPool: config.DBPoolConfig{MaxOpenConns: 8},
+		DBDriver: "postgres", PostgresDSN: dsn, DBPool: config.DBPoolConfig{MaxOpenConns: 8}, RegistrationEnabled: true,
 	}, "postgres")
 }
 

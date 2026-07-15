@@ -1207,6 +1207,16 @@
                             }
                         }
                     },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
                     "409": {
                         "description": "Conflict",
                         "content": {
@@ -5320,6 +5330,9 @@
                         "items": {
                             "$ref": "#/components/schemas/internal_metering_adapters_http_auth.OAuthProviderResponse"
                         }
+                    },
+                    "registration_enabled": {
+                        "type": "boolean"
                     }
                 }
             },

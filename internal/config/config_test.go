@@ -23,6 +23,9 @@ func TestLoadDefaultsToSQLite(t *testing.T) {
 	if cfg.GRPCAddr != ":18090" {
 		t.Fatalf("grpc addr = %q, want :18090", cfg.GRPCAddr)
 	}
+	if !cfg.RegistrationEnabled {
+		t.Fatal("registration should be enabled by default")
+	}
 	if cfg.RetentionPruneInterval != time.Hour {
 		t.Fatalf("retention interval = %s, want 1h", cfg.RetentionPruneInterval)
 	}
@@ -129,6 +132,7 @@ func clearEnv(t *testing.T) {
 	for _, key := range []string{
 		"OPEN_SPANNER_HTTP_ADDR",
 		"OPEN_SPANNER_GRPC_ADDR",
+		"OPEN_SPANNER_REGISTRATION_ENABLED",
 		"OPEN_SPANNER_GITHUB_OAUTH_ENABLED",
 		"OPEN_SPANNER_GITHUB_OAUTH_CLIENT_ID",
 		"OPEN_SPANNER_GITHUB_OAUTH_CLIENT_SECRET",

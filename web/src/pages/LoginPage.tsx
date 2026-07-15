@@ -13,6 +13,7 @@ export function LoginPage() {
   const error = useSelector(appStore, (state) => state.auth.loginError)
   const loading = useSelector(appStore, (state) => state.auth.loading)
   const providers = useSelector(appStore, (state) => state.auth.providers.filter((provider) => provider.enabled))
+  const registrationEnabled = useSelector(appStore, (state) => state.auth.registrationEnabled)
   const oauthOrigin = encodeURIComponent(window.location.origin)
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -99,9 +100,11 @@ export function LoginPage() {
           </>
         ) : null}
 
-        <div className="auth-switch">
-          Need an account? <Link to="/register">Register</Link>
-        </div>
+        {registrationEnabled ? (
+          <div className="auth-switch">
+            Need an account? <Link to="/register">Register</Link>
+          </div>
+        ) : null}
       </section>
     </main>
   )

@@ -27,9 +27,10 @@ import (
 
 func TestIntegrationSQLiteGRPCUsageFlow(t *testing.T) {
 	runIntegrationGRPCUsageFlow(t, config.Config{
-		DBDriver:   "sqlite",
-		SQLitePath: ":memory:",
-		DBPool:     config.DBPoolConfig{MaxOpenConns: 1},
+		DBDriver:            "sqlite",
+		SQLitePath:          ":memory:",
+		DBPool:              config.DBPoolConfig{MaxOpenConns: 1},
+		RegistrationEnabled: true,
 	}, "sqlite")
 }
 
@@ -40,9 +41,10 @@ func TestIntegrationPostgresGRPCUsageFlow(t *testing.T) {
 	}
 
 	runIntegrationGRPCUsageFlow(t, config.Config{
-		DBDriver:    "postgres",
-		PostgresDSN: dsn,
-		DBPool:      config.DBPoolConfig{MaxOpenConns: 1},
+		DBDriver:            "postgres",
+		PostgresDSN:         dsn,
+		DBPool:              config.DBPoolConfig{MaxOpenConns: 1},
+		RegistrationEnabled: true,
 	}, "postgres")
 }
 

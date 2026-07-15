@@ -121,7 +121,8 @@ func RegisterRoutes(ctx context.Context, router chi.Router, cfg config.Config) (
 
 	router.Route("/v1", func(r chi.Router) {
 		authHandler := httpauth.NewHandler(app.AuthService, httpauth.HandlerOptions{
-			OAuth: cfg.OAuth,
+			OAuth:                cfg.OAuth,
+			RegistrationDisabled: !cfg.RegistrationEnabled,
 		})
 		authHandler.RegisterRoutes(r)
 		r.Group(func(dashboard chi.Router) {

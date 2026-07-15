@@ -359,6 +359,8 @@ definitions:
         items:
           $ref: '#/definitions/internal_metering_adapters_http_auth.OAuthProviderResponse'
         type: array
+      registration_enabled:
+        type: boolean
     type: object
   internal_metering_adapters_http_auth.OAuthProviderResponse:
     properties:
@@ -2255,6 +2257,10 @@ paths:
             $ref: '#/definitions/internal_metering_adapters_http_auth.UserResponse'
         "400":
           description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "403":
+          description: Forbidden
           schema:
             $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
         "409":

@@ -44,7 +44,8 @@ type OAuthProviderResponse struct {
 }
 
 type OAuthProviderListResponse struct {
-	Items []OAuthProviderResponse `json:"items"`
+	Items               []OAuthProviderResponse `json:"items"`
+	RegistrationEnabled bool                    `json:"registration_enabled"`
 }
 
 type APIKeyResponse struct {

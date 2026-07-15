@@ -150,6 +150,7 @@ type AppState = {
     loading: boolean
     loginError: string
     providers: OAuthProvider[]
+    registrationEnabled: boolean
     registerError: string
     session: AuthSession | null
   }
@@ -297,6 +298,7 @@ export const appStore = createStore<AppState>({
     loading: false,
     loginError: '',
     providers: [],
+    registrationEnabled: false,
     registerError: '',
     session: null,
   },
@@ -899,7 +901,13 @@ export const appStoreActions = {
     setAuthState({ loading: true, loginError: '' })
     try {
       const [session, providers] = await Promise.all([refreshAuthSession(), listOAuthProviders()])
-      setAuthSession({ checked: true, loading: false, providers: providers.items, session })
+      setAuthSession({
+        checked: true,
+        loading: false,
+        providers: providers.items,
+        registrationEnabled: providers.registration_enabled,
+        session,
+      })
       return session?.user ?? null
     } catch {
       setAuthSession({ checked: true, loading: false, session: null })
@@ -2089,6 +2097,9 @@ function authErrorMessage(err: unknown, fallback: string) {
 }
 
 function registerErrorMessage(err: unknown, fallback: string) {
+  if (err instanceof APIError && err.code === 'registration_disabled') {
+    return 'Registration is disabled for this deployment.'
+  }
   if (err instanceof APIError && (err.status === 409 || err.code === 'conflict')) {
     return 'An account with this email already exists.'
   }

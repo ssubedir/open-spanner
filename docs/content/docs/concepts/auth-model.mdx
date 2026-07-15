@@ -16,6 +16,8 @@ Social login maps external accounts into Open Spanner users through provider ide
 
 Social login only creates dashboard sessions. It does not create API keys, bypass API key scopes, or change service authentication.
 
+New account creation is enabled by default. To close registration, create the intended dashboard users and then set `OPEN_SPANNER_REGISTRATION_ENABLED=false` before restarting the API. This removes registration from the dashboard and blocks both new password users and new users created through OAuth. Existing users continue to sign in, and a verified OAuth identity may still link to an existing user with the same email.
+
 ## Workspaces
 
 Each dashboard user works inside a workspace. Meters, usage events, subjects, plans, alert rules, alert destinations, export jobs, saved queries, and API keys are scoped to that workspace.

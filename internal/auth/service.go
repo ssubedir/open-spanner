@@ -114,10 +114,11 @@ type LoginCommand struct {
 }
 
 type ExternalIdentityLoginCommand struct {
-	Provider      string
-	Subject       string
-	Email         string
-	EmailVerified bool
+	Provider             string
+	Subject              string
+	Email                string
+	EmailVerified        bool
+	RegistrationDisabled bool
 }
 
 type CreateAPIKeyCommand struct {
@@ -343,6 +344,9 @@ func (s Service) LoginWithExternalIdentity(ctx context.Context, cmd ExternalIden
 	if err != nil {
 		if !errors.Is(err, domain.ErrNotFound) {
 			return LoginResult{}, err
+		}
+		if cmd.RegistrationDisabled {
+			return LoginResult{}, errors.Join(domain.ErrForbidden, errors.New("registration is disabled"))
 		}
 		user, err = s.repo.SaveUser(ctx, User{
 			ID:           uuid.NewString(),
