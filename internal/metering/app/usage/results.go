@@ -123,6 +123,7 @@ type ExportJobResult struct {
 	ErrorMessage string
 	Attempts     int
 	LockedUntil  time.Time
+	ClaimToken   string
 	ArtifactPath string
 	ArtifactSize int64
 	CreatedAt    time.Time
@@ -211,6 +212,7 @@ func exportJobResultFromDomain(job domainusage.ExportJob) ExportJobResult {
 		ErrorMessage: job.ErrorMessage(),
 		Attempts:     job.Attempts(),
 		LockedUntil:  job.LockedUntil(),
+		ClaimToken:   job.ClaimToken(),
 		ArtifactPath: job.ArtifactPath(),
 		ArtifactSize: job.ArtifactSize(),
 		CreatedAt:    job.CreatedAt(),

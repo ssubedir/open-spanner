@@ -27,6 +27,7 @@ type Service interface {
 	GetExportJob(ctx context.Context, id string) (ExportJobResult, error)
 	ListExportJobs(ctx context.Context, query ExportJobListQuery) (ExportJobListResult, error)
 	ClaimExportJob(ctx context.Context, cmd ExportJobClaimCommand) (ExportJobResult, bool, error)
+	RenewExportJobLease(ctx context.Context, cmd ExportJobRenewCommand) error
 	CompleteExportJob(ctx context.Context, cmd ExportJobCompleteCommand) (ExportJobResult, error)
 	FailExportJob(ctx context.Context, cmd ExportJobFailCommand) (ExportJobResult, error)
 	CancelExportJob(ctx context.Context, cmd ExportJobCancelCommand) (ExportJobResult, error)

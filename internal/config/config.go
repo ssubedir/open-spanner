@@ -23,7 +23,6 @@ type Config struct {
 	ExportStoragePath            string
 	ExportWorkerInterval         time.Duration
 	ExportWorkerLockTTL          time.Duration
-	ExportWorkerTimeout          time.Duration
 	ExportWorkerMaxAttempts      int
 	AlertWorkerInterval          time.Duration
 	AlertWorkerLockTTL           time.Duration
@@ -149,10 +148,6 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	exportWorkerTimeout, err := envDuration("OPEN_SPANNER_EXPORT_WORKER_TIMEOUT", 10*time.Minute)
-	if err != nil {
-		return Config{}, err
-	}
 	exportWorkerMaxAttempts, err := envInt("OPEN_SPANNER_EXPORT_WORKER_MAX_ATTEMPTS", 3)
 	if err != nil {
 		return Config{}, err
@@ -230,7 +225,6 @@ func Load() (Config, error) {
 		ExportStoragePath:            env("OPEN_SPANNER_EXPORT_STORAGE_PATH", "open-spanner-exports"),
 		ExportWorkerInterval:         exportWorkerInterval,
 		ExportWorkerLockTTL:          exportWorkerLockTTL,
-		ExportWorkerTimeout:          exportWorkerTimeout,
 		ExportWorkerMaxAttempts:      exportWorkerMaxAttempts,
 		AlertWorkerInterval:          alertWorkerInterval,
 		AlertWorkerLockTTL:           alertWorkerLockTTL,
@@ -324,9 +318,6 @@ func (cfg Config) Validate() error {
 	}
 	if cfg.ExportWorkerLockTTL <= 0 {
 		return fmt.Errorf("OPEN_SPANNER_EXPORT_WORKER_LOCK_TTL must be greater than zero")
-	}
-	if cfg.ExportWorkerTimeout <= 0 {
-		return fmt.Errorf("OPEN_SPANNER_EXPORT_WORKER_TIMEOUT must be greater than zero")
 	}
 	if cfg.ExportWorkerMaxAttempts <= 0 {
 		return fmt.Errorf("OPEN_SPANNER_EXPORT_WORKER_MAX_ATTEMPTS must be greater than zero")

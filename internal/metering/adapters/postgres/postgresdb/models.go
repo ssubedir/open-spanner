@@ -184,23 +184,6 @@ type SystemWorkerHeartbeat struct {
 	LastHeartbeatAt time.Time
 }
 
-type UsageExportJob struct {
-	ID           string
-	WorkspaceID  string
-	Kind         string
-	Status       string
-	Format       string
-	QueryJson    string
-	Error        string
-	Attempts     int32
-	LockedUntil  sql.NullString
-	ArtifactPath string
-	ArtifactSize int64
-	CreatedAt    string
-	UpdatedAt    string
-	CompletedAt  sql.NullString
-}
-
 type UsageSavedQuery struct {
 	ID          string
 	UserID      string

@@ -31,6 +31,8 @@ import (
 	appconsumption "github.com/ssubedir/open-spanner/internal/metering/app/consumption"
 	appentitlement "github.com/ssubedir/open-spanner/internal/metering/app/entitlement"
 	appsystem "github.com/ssubedir/open-spanner/internal/metering/app/system"
+	appusage "github.com/ssubedir/open-spanner/internal/metering/app/usage"
+	"github.com/ssubedir/open-spanner/internal/metering/domain"
 	alertworker "github.com/ssubedir/open-spanner/internal/metering/workers/alert"
 	entitlementworker "github.com/ssubedir/open-spanner/internal/metering/workers/entitlement"
 	exportworker "github.com/ssubedir/open-spanner/internal/metering/workers/export"
@@ -1424,7 +1426,42 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 		t.Fatalf("retried export job = %#v", retriedExportJob)
 	}
 
-	worker := exportworker.NewWorker(app.UsageService, fileexport.NewStore(cfg.ExportStoragePath), time.Millisecond, time.Minute, time.Minute, 3, t.Logf)
+	principal, err := app.AuthService.AuthenticateAPIKeyPrincipal(context.Background(), apiKey)
+	if err != nil {
+		t.Fatalf("authenticate export worker principal: %v", err)
+	}
+	var claimedExportJob appusage.ExportJobResult
+	for attempt := 0; attempt < 50; attempt++ {
+		candidate, claimed, claimErr := app.UsageService.ClaimExportJob(context.Background(), appusage.ExportJobClaimCommand{LockTTL: 20 * time.Millisecond, MaxAttempts: 3})
+		if claimErr != nil || !claimed {
+			t.Fatalf("claim export job: job=%#v claimed=%v err=%v", candidate, claimed, claimErr)
+		}
+		if candidate.WorkspaceID == principal.WorkspaceID && candidate.ID == exportJob.ID {
+			claimedExportJob = candidate
+			break
+		}
+		candidateCtx := appauth.WithWorkspaceID(context.Background(), candidate.WorkspaceID)
+		if _, failErr := app.UsageService.FailExportJob(candidateCtx, appusage.ExportJobFailCommand{ID: candidate.ID, ClaimToken: candidate.ClaimToken, ErrorMessage: "released by integration test"}); failErr != nil {
+			t.Fatalf("release foreign export job: %v", failErr)
+		}
+	}
+	if claimedExportJob.ID == "" || claimedExportJob.ClaimToken == "" {
+		t.Fatalf("did not claim export job %s for workspace %s", exportJob.ID, principal.WorkspaceID)
+	}
+	exportWorkerCtx := appauth.WithWorkspaceID(context.Background(), principal.WorkspaceID)
+	wrongClaimToken := "22222222-2222-4222-8222-222222222222"
+	if err := app.UsageService.RenewExportJobLease(exportWorkerCtx, appusage.ExportJobRenewCommand{ID: claimedExportJob.ID, ClaimToken: wrongClaimToken, LockTTL: time.Minute}); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("renew export job with stale token error=%v, want not found", err)
+	}
+	if _, err := app.UsageService.CompleteExportJob(exportWorkerCtx, appusage.ExportJobCompleteCommand{ID: claimedExportJob.ID, ClaimToken: wrongClaimToken, ArtifactPath: "stale.csv", ArtifactSize: 1}); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("complete export job with stale token error=%v, want not found", err)
+	}
+	if err := app.UsageService.RenewExportJobLease(exportWorkerCtx, appusage.ExportJobRenewCommand{ID: claimedExportJob.ID, ClaimToken: claimedExportJob.ClaimToken, LockTTL: 20 * time.Millisecond}); err != nil {
+		t.Fatalf("renew export job lease: %v", err)
+	}
+	time.Sleep(25 * time.Millisecond)
+
+	worker := exportworker.NewWorker(app.UsageService, fileexport.NewStore(cfg.ExportStoragePath), time.Millisecond, time.Minute, 3, t.Logf)
 	var completedExportJob usageExportJobResponse
 	for attempt := 0; attempt < 25; attempt++ {
 		processed, err := worker.ProcessOnce(ctx)

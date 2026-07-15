@@ -3,6 +3,7 @@ package usage
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	appauth "github.com/ssubedir/open-spanner/internal/auth"
@@ -29,13 +30,21 @@ type ExportJobClaimCommand struct {
 
 type ExportJobCompleteCommand struct {
 	ID           string
+	ClaimToken   string
 	ArtifactPath string
 	ArtifactSize int64
 }
 
 type ExportJobFailCommand struct {
 	ID           string
+	ClaimToken   string
 	ErrorMessage string
+}
+
+type ExportJobRenewCommand struct {
+	ID         string
+	ClaimToken string
+	LockTTL    time.Duration
 }
 
 type ExportJobCancelCommand struct {
@@ -71,6 +80,7 @@ func (s *service) CreateExportJob(ctx context.Context, cmd ExportJobCreateComman
 		"",
 		0,
 		timeZero(),
+		"",
 		"",
 		0,
 		now,
@@ -136,7 +146,7 @@ func (s *service) ClaimExportJob(ctx context.Context, cmd ExportJobClaimCommand)
 	}
 
 	now := s.now()
-	job, err := s.usageRepo.ClaimExportJob(ctx, now, now.Add(cmd.LockTTL), cmd.MaxAttempts)
+	job, err := s.usageRepo.ClaimExportJob(ctx, now, now.Add(cmd.LockTTL), newID(), cmd.MaxAttempts)
 	if errors.Is(err, domain.ErrNotFound) {
 		return ExportJobResult{}, false, nil
 	}
@@ -147,8 +157,16 @@ func (s *service) ClaimExportJob(ctx context.Context, cmd ExportJobClaimCommand)
 	return exportJobResultFromDomain(job), true, nil
 }
 
+func (s *service) RenewExportJobLease(ctx context.Context, cmd ExportJobRenewCommand) error {
+	if strings.TrimSpace(cmd.ID) == "" || strings.TrimSpace(cmd.ClaimToken) == "" || cmd.LockTTL <= 0 {
+		return domain.ErrInvalidInput
+	}
+	now := s.now()
+	return s.usageRepo.RenewExportJobLease(ctx, cmd.ID, cmd.ClaimToken, now.Add(cmd.LockTTL), now)
+}
+
 func (s *service) CompleteExportJob(ctx context.Context, cmd ExportJobCompleteCommand) (ExportJobResult, error) {
-	job, err := s.usageRepo.CompleteExportJob(ctx, cmd.ID, cmd.ArtifactPath, cmd.ArtifactSize, s.now())
+	job, err := s.usageRepo.CompleteExportJob(ctx, cmd.ID, cmd.ClaimToken, cmd.ArtifactPath, cmd.ArtifactSize, s.now())
 	if err != nil {
 		return ExportJobResult{}, err
 	}
@@ -156,7 +174,7 @@ func (s *service) CompleteExportJob(ctx context.Context, cmd ExportJobCompleteCo
 }
 
 func (s *service) FailExportJob(ctx context.Context, cmd ExportJobFailCommand) (ExportJobResult, error) {
-	job, err := s.usageRepo.FailExportJob(ctx, cmd.ID, cmd.ErrorMessage, s.now())
+	job, err := s.usageRepo.FailExportJob(ctx, cmd.ID, cmd.ClaimToken, cmd.ErrorMessage, s.now())
 	if err != nil {
 		return ExportJobResult{}, err
 	}

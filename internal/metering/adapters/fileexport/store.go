@@ -86,6 +86,17 @@ func (s Store) Open(name string) (*os.File, os.FileInfo, error) {
 	return file, info, nil
 }
 
+func (s Store) Remove(name string) error {
+	path, err := s.path(name)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 func (s Store) path(name string) (string, error) {
 	if s.root == "" {
 		return "", fmt.Errorf("%w: export storage path is required", domain.ErrInvalidInput)

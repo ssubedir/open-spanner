@@ -41,7 +41,6 @@ func main() {
 		fileexport.NewStore(cfg.ExportStoragePath),
 		cfg.ExportWorkerInterval,
 		cfg.ExportWorkerLockTTL,
-		cfg.ExportWorkerTimeout,
 		cfg.ExportWorkerMaxAttempts,
 		log.Printf,
 	)

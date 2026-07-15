@@ -41,6 +41,7 @@ type ExportJob struct {
 	errorMessage string
 	attempts     int
 	lockedUntil  time.Time
+	claimToken   string
 	artifactPath string
 	artifactSize int64
 	createdAt    time.Time
@@ -48,12 +49,13 @@ type ExportJob struct {
 	completedAt  time.Time
 }
 
-func NewExportJob(id string, workspaceID string, kind ExportJobKind, status ExportJobStatus, format ExportJobFormat, queryJSON string, errorMessage string, attempts int, lockedUntil time.Time, artifactPath string, artifactSize int64, createdAt time.Time, updatedAt time.Time, completedAt time.Time) (ExportJob, error) {
+func NewExportJob(id string, workspaceID string, kind ExportJobKind, status ExportJobStatus, format ExportJobFormat, queryJSON string, errorMessage string, attempts int, lockedUntil time.Time, claimToken string, artifactPath string, artifactSize int64, createdAt time.Time, updatedAt time.Time, completedAt time.Time) (ExportJob, error) {
 	id = strings.TrimSpace(id)
 	workspaceID = strings.TrimSpace(workspaceID)
 	queryJSON = strings.TrimSpace(queryJSON)
 	errorMessage = strings.TrimSpace(errorMessage)
 	artifactPath = strings.TrimSpace(artifactPath)
+	claimToken = strings.TrimSpace(claimToken)
 
 	if id == "" {
 		return ExportJob{}, fmt.Errorf("%w: export job id is required", domain.ErrInvalidInput)
@@ -107,6 +109,7 @@ func NewExportJob(id string, workspaceID string, kind ExportJobKind, status Expo
 		errorMessage: errorMessage,
 		attempts:     attempts,
 		lockedUntil:  lockedUntil.UTC(),
+		claimToken:   claimToken,
 		artifactPath: artifactPath,
 		artifactSize: artifactSize,
 		createdAt:    createdAt.UTC(),
@@ -150,6 +153,8 @@ func (j ExportJob) Attempts() int {
 func (j ExportJob) LockedUntil() time.Time {
 	return j.lockedUntil
 }
+
+func (j ExportJob) ClaimToken() string { return j.claimToken }
 
 func (j ExportJob) ArtifactPath() string {
 	return j.artifactPath
