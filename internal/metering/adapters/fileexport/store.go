@@ -2,11 +2,13 @@ package fileexport
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"time"
 
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
 )
@@ -14,19 +16,31 @@ import (
 var artifactNamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 type Artifact struct {
-	Name string
-	Size int64
+	Name    string
+	Size    int64
+	ModTime time.Time
 }
 
-type Store struct {
+type Object struct {
+	Body     io.ReadCloser
+	Artifact Artifact
+}
+
+type Store interface {
+	Write(ctx context.Context, name string, write func(io.Writer) error) (Artifact, error)
+	Open(ctx context.Context, name string) (Object, error)
+	Remove(ctx context.Context, name string) error
+}
+
+type FileStore struct {
 	root string
 }
 
 func NewStore(root string) Store {
-	return Store{root: root}
+	return FileStore{root: root}
 }
 
-func (s Store) Write(ctx context.Context, name string, write func(io.Writer) error) (Artifact, error) {
+func (s FileStore) Write(ctx context.Context, name string, write func(io.Writer) error) (Artifact, error) {
 	if err := ctx.Err(); err != nil {
 		return Artifact{}, err
 	}
@@ -66,27 +80,36 @@ func (s Store) Write(ctx context.Context, name string, write func(io.Writer) err
 	if err != nil {
 		return Artifact{}, err
 	}
-	return Artifact{Name: name, Size: info.Size()}, nil
+	return Artifact{Name: name, Size: info.Size(), ModTime: info.ModTime().UTC()}, nil
 }
 
-func (s Store) Open(name string) (*os.File, os.FileInfo, error) {
+func (s FileStore) Open(ctx context.Context, name string) (Object, error) {
+	if err := ctx.Err(); err != nil {
+		return Object{}, err
+	}
 	path, err := s.path(name)
 	if err != nil {
-		return nil, nil, err
+		return Object{}, err
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, nil, err
+		if os.IsNotExist(err) {
+			return Object{}, errors.Join(domain.ErrNotFound, err)
+		}
+		return Object{}, err
 	}
 	info, err := file.Stat()
 	if err != nil {
 		_ = file.Close()
-		return nil, nil, err
+		return Object{}, err
 	}
-	return file, info, nil
+	return Object{Body: file, Artifact: Artifact{Name: name, Size: info.Size(), ModTime: info.ModTime().UTC()}}, nil
 }
 
-func (s Store) Remove(name string) error {
+func (s FileStore) Remove(ctx context.Context, name string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	path, err := s.path(name)
 	if err != nil {
 		return err
@@ -97,12 +120,19 @@ func (s Store) Remove(name string) error {
 	return nil
 }
 
-func (s Store) path(name string) (string, error) {
+func (s FileStore) path(name string) (string, error) {
 	if s.root == "" {
 		return "", fmt.Errorf("%w: export storage path is required", domain.ErrInvalidInput)
 	}
-	if name == "" || filepath.IsAbs(name) || filepath.Clean(name) != name || !artifactNamePattern.MatchString(name) {
-		return "", fmt.Errorf("%w: invalid export artifact name", domain.ErrInvalidInput)
+	if err := validateName(name); err != nil {
+		return "", err
 	}
 	return filepath.Join(s.root, name), nil
+}
+
+func validateName(name string) error {
+	if name == "" || filepath.IsAbs(name) || filepath.Clean(name) != name || !artifactNamePattern.MatchString(name) {
+		return fmt.Errorf("%w: invalid export artifact name", domain.ErrInvalidInput)
+	}
+	return nil
 }

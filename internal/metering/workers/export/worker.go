@@ -145,7 +145,7 @@ func (w *Worker) CleanupOnce(ctx context.Context) (int, error) {
 			metric = &cleanupMetrics{}
 			metrics[job.WorkspaceID] = metric
 		}
-		if err := w.store.Remove(job.ArtifactPath); err != nil {
+		if err := w.store.Remove(ctx, job.ArtifactPath); err != nil {
 			metric.failures++
 			cleanupErr = errors.Join(cleanupErr, err)
 			continue
@@ -212,7 +212,7 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 	duration := time.Since(startedAt).Round(time.Millisecond)
 	if leaseErr != nil {
 		if artifact.Name != "" {
-			_ = w.store.Remove(artifact.Name)
+			_ = w.store.Remove(baseCtx, artifact.Name)
 		}
 		w.logger("export job lease lost: job_id=%s duration=%s error=%v", job.ID, duration, leaseErr)
 		return true, nil
@@ -220,7 +220,7 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 	if err == nil {
 		_, err = w.service.CompleteExportJob(baseCtx, appusage.ExportJobCompleteCommand{ID: job.ID, ClaimToken: job.ClaimToken, ArtifactPath: artifact.Name, ArtifactSize: artifact.Size})
 		if errors.Is(err, domain.ErrNotFound) {
-			_ = w.store.Remove(artifact.Name)
+			_ = w.store.Remove(baseCtx, artifact.Name)
 			w.logger("export job completion fenced because ownership changed: job_id=%s duration=%s", job.ID, duration)
 			return true, nil
 		}

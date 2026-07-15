@@ -15,6 +15,15 @@ tasks:
     env:
       OPEN_SPANNER_TEST_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/open_spanner_test?sslmode=disable
 
+  test:s3:
+    desc: Run S3-compatible export storage integration tests
+    cmds:
+      - task: s3:up
+      - go test ./internal/metering/adapters/fileexport -run TestS3CompatibleIntegration -count=1
+      - go test ./internal/metering/bootstrap -run TestIntegrationS3ExportUsageFlow -count=1
+    env:
+      OPEN_SPANNER_TEST_S3_ENDPOINT: http://localhost:19000
+
   test:e2e:
     desc: Run browser E2E tests across supported storage backends
     cmds:

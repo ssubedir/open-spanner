@@ -7,6 +7,7 @@ import (
 
 	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/config"
+	"github.com/ssubedir/open-spanner/internal/metering/adapters/fileexport"
 	httpalert "github.com/ssubedir/open-spanner/internal/metering/adapters/http/alert"
 	httpauth "github.com/ssubedir/open-spanner/internal/metering/adapters/http/auth"
 	httpentitlement "github.com/ssubedir/open-spanner/internal/metering/adapters/http/entitlement"
@@ -121,6 +122,11 @@ func RegisterRoutes(ctx context.Context, router chi.Router, cfg config.Config) (
 	if err != nil {
 		return nil, err
 	}
+	exportStore, err := NewExportStore(ctx, cfg)
+	if err != nil {
+		_ = app.Cleanup()
+		return nil, err
+	}
 
 	router.Route("/v1", func(r chi.Router) {
 		authHandler := httpauth.NewHandler(app.AuthService, httpauth.HandlerOptions{
@@ -143,12 +149,22 @@ func RegisterRoutes(ctx context.Context, router chi.Router, cfg config.Config) (
 				Entitlements:      app.EntitlementService,
 				Consumption:       app.ConsumptionService,
 				ExportStoragePath: cfg.ExportStoragePath,
+				ExportStore:       exportStore,
 			}).RegisterRoutes(protected, app.Authorizer)
 			httpsystem.NewHandler(app.SystemService).RegisterRoutes(protected, app.Authorizer)
 		})
 	})
 
 	return app, nil
+}
+
+func NewExportStore(ctx context.Context, cfg config.Config) (fileexport.Store, error) {
+	return fileexport.New(ctx, fileexport.Options{
+		Driver: cfg.ExportStorageDriver, FilesystemPath: cfg.ExportStoragePath,
+		S3Bucket: cfg.ExportS3Bucket, S3Region: cfg.ExportS3Region, S3Endpoint: cfg.ExportS3Endpoint,
+		S3AccessKeyID: cfg.ExportS3AccessKeyID, S3SecretAccessKey: cfg.ExportS3SecretAccessKey,
+		S3SessionToken: cfg.ExportS3SessionToken, S3Prefix: cfg.ExportS3Prefix, S3ForcePathStyle: cfg.ExportS3ForcePathStyle,
+	})
 }
 
 func repositories(ctx context.Context, cfg config.Config) (repositorySet, error) {

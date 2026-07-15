@@ -2,8 +2,8 @@ package export
 
 import (
 	"context"
+	"errors"
 	"io"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -144,7 +144,7 @@ func TestCleanupRemovesArtifactMarksJobAndRecordsMetrics(t *testing.T) {
 	if err != nil || expired != 1 {
 		t.Fatalf("CleanupOnce() expired=%d err=%v", expired, err)
 	}
-	if _, _, err := store.Open(artifact.Name); !os.IsNotExist(err) {
+	if _, err := store.Open(context.Background(), artifact.Name); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("artifact open error=%v, want not exist", err)
 	}
 	if len(service.runs) != 1 || service.runs[0].FilesDeleted != 1 || service.runs[0].BytesReclaimed != artifact.Size || service.runs[0].Failures != 0 {

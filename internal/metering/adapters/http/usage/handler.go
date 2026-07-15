@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
-	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -45,6 +46,7 @@ type HandlerOptions struct {
 	Entitlements      EntitlementEnqueuer
 	Consumption       appconsumption.Service
 	ExportStoragePath string
+	ExportStore       fileexport.Store
 }
 
 func NewHandler(service appusage.Service, options HandlerOptions) *Handler {
@@ -52,12 +54,16 @@ func NewHandler(service appusage.Service, options HandlerOptions) *Handler {
 	if strings.TrimSpace(options.ExportStoragePath) != "" {
 		exportStoragePath = options.ExportStoragePath
 	}
+	store := options.ExportStore
+	if store == nil {
+		store = fileexport.NewStore(exportStoragePath)
+	}
 	return &Handler{
 		service:      service,
 		alerts:       options.Alerts,
 		entitlements: options.Entitlements,
 		consumption:  options.Consumption,
-		exportStore:  fileexport.NewStore(exportStoragePath),
+		exportStore:  store,
 	}
 }
 
@@ -589,21 +595,29 @@ func (h *Handler) DownloadExportJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, info, err := h.exportStore.Open(job.ArtifactPath)
+	object, err := h.exportStore.Open(r.Context(), job.ArtifactPath)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+		if errors.Is(err, domain.ErrNotFound) {
 			respond.ServiceError(w, errors.Join(domain.ErrNotFound, fmt.Errorf("export artifact was not found")))
 			return
 		}
 		respond.ServiceError(w, err)
 		return
 	}
-	defer file.Close()
+	defer object.Body.Close()
 
 	filename := fmt.Sprintf("open-spanner-export-%s.csv", job.ID)
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
-	http.ServeContent(w, r, filename, info.ModTime(), file)
+	if seeker, ok := object.Body.(io.ReadSeeker); ok {
+		http.ServeContent(w, r, filename, object.Artifact.ModTime, seeker)
+		return
+	}
+	if object.Artifact.Size >= 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(object.Artifact.Size, 10))
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.Copy(w, object.Body)
 }
 
 // List lists bucketed usage.

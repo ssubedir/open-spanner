@@ -21,6 +21,15 @@ type Config struct {
 	PostgresDSN                  string
 	DBPool                       DBPoolConfig
 	ExportStoragePath            string
+	ExportStorageDriver          string
+	ExportS3Bucket               string
+	ExportS3Region               string
+	ExportS3Endpoint             string
+	ExportS3AccessKeyID          string
+	ExportS3SecretAccessKey      string
+	ExportS3SessionToken         string
+	ExportS3Prefix               string
+	ExportS3ForcePathStyle       bool
 	ExportWorkerInterval         time.Duration
 	ExportWorkerLockTTL          time.Duration
 	ExportWorkerMaxAttempts      int
@@ -147,6 +156,11 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	exportS3Endpoint := env("OPEN_SPANNER_EXPORT_S3_ENDPOINT", "")
+	exportS3ForcePathStyle, err := envBool("OPEN_SPANNER_EXPORT_S3_FORCE_PATH_STYLE", exportS3Endpoint != "")
+	if err != nil {
+		return Config{}, err
+	}
 	exportWorkerLockTTL, err := envDuration("OPEN_SPANNER_EXPORT_WORKER_LOCK_TTL", 5*time.Minute)
 	if err != nil {
 		return Config{}, err
@@ -238,6 +252,15 @@ func Load() (Config, error) {
 		PostgresDSN:                  env("OPEN_SPANNER_POSTGRES_DSN", ""),
 		DBPool:                       pool,
 		ExportStoragePath:            env("OPEN_SPANNER_EXPORT_STORAGE_PATH", "open-spanner-exports"),
+		ExportStorageDriver:          strings.ToLower(env("OPEN_SPANNER_EXPORT_STORAGE_DRIVER", "filesystem")),
+		ExportS3Bucket:               env("OPEN_SPANNER_EXPORT_S3_BUCKET", ""),
+		ExportS3Region:               env("OPEN_SPANNER_EXPORT_S3_REGION", "us-east-1"),
+		ExportS3Endpoint:             exportS3Endpoint,
+		ExportS3AccessKeyID:          env("OPEN_SPANNER_EXPORT_S3_ACCESS_KEY_ID", ""),
+		ExportS3SecretAccessKey:      env("OPEN_SPANNER_EXPORT_S3_SECRET_ACCESS_KEY", ""),
+		ExportS3SessionToken:         env("OPEN_SPANNER_EXPORT_S3_SESSION_TOKEN", ""),
+		ExportS3Prefix:               env("OPEN_SPANNER_EXPORT_S3_PREFIX", ""),
+		ExportS3ForcePathStyle:       exportS3ForcePathStyle,
 		ExportWorkerInterval:         exportWorkerInterval,
 		ExportWorkerLockTTL:          exportWorkerLockTTL,
 		ExportWorkerMaxAttempts:      exportWorkerMaxAttempts,
@@ -328,8 +351,32 @@ func (cfg Config) Validate() error {
 	if cfg.DBPool.ConnMaxIdleTime < 0 {
 		return fmt.Errorf("OPEN_SPANNER_DB_CONN_MAX_IDLE_TIME cannot be negative")
 	}
-	if strings.TrimSpace(cfg.ExportStoragePath) == "" {
-		return fmt.Errorf("OPEN_SPANNER_EXPORT_STORAGE_PATH is required")
+	switch cfg.ExportStorageDriver {
+	case "filesystem":
+		if strings.TrimSpace(cfg.ExportStoragePath) == "" {
+			return fmt.Errorf("OPEN_SPANNER_EXPORT_STORAGE_PATH is required for filesystem export storage")
+		}
+	case "s3":
+		if strings.TrimSpace(cfg.ExportS3Bucket) == "" {
+			return fmt.Errorf("OPEN_SPANNER_EXPORT_S3_BUCKET is required for S3 export storage")
+		}
+		if strings.TrimSpace(cfg.ExportS3Region) == "" {
+			return fmt.Errorf("OPEN_SPANNER_EXPORT_S3_REGION is required for S3 export storage")
+		}
+		if (cfg.ExportS3AccessKeyID == "") != (cfg.ExportS3SecretAccessKey == "") {
+			return fmt.Errorf("OPEN_SPANNER_EXPORT_S3_ACCESS_KEY_ID and OPEN_SPANNER_EXPORT_S3_SECRET_ACCESS_KEY must be set together")
+		}
+		if cfg.ExportS3SessionToken != "" && cfg.ExportS3AccessKeyID == "" {
+			return fmt.Errorf("OPEN_SPANNER_EXPORT_S3_SESSION_TOKEN requires static S3 credentials")
+		}
+		if cfg.ExportS3Endpoint != "" {
+			endpoint, err := url.ParseRequestURI(cfg.ExportS3Endpoint)
+			if err != nil || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") {
+				return fmt.Errorf("OPEN_SPANNER_EXPORT_S3_ENDPOINT must be an absolute HTTP(S) URL")
+			}
+		}
+	default:
+		return fmt.Errorf("unsupported OPEN_SPANNER_EXPORT_STORAGE_DRIVER %q: expected filesystem or s3", cfg.ExportStorageDriver)
 	}
 	if cfg.ExportWorkerInterval <= 0 {
 		return fmt.Errorf("OPEN_SPANNER_EXPORT_WORKER_INTERVAL must be greater than zero")

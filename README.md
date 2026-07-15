@@ -321,6 +321,9 @@ Common runtime variables:
 | `OPEN_SPANNER_SQLITE_PATH` | `open-spanner.db` | SQLite database path. |
 | `OPEN_SPANNER_POSTGRES_DSN` | | Postgres connection string. |
 | `OPEN_SPANNER_EXPORT_STORAGE_PATH` | `open-spanner-exports` | Shared path for generated export files. |
+| `OPEN_SPANNER_EXPORT_STORAGE_DRIVER` | `filesystem` | Export artifact backend: `filesystem` or `s3`. |
+| `OPEN_SPANNER_EXPORT_S3_BUCKET` | | Bucket used when export storage is `s3`. |
+| `OPEN_SPANNER_EXPORT_S3_ENDPOINT` | | Optional endpoint for S3-compatible storage. |
 | `OPEN_SPANNER_EXPORT_WORKER_INTERVAL` | `5s` | Export worker polling interval. |
 | `OPEN_SPANNER_EXPORT_RETENTION` | `168h` | Time completed export artifacts remain downloadable. |
 | `OPEN_SPANNER_EXPORT_CLEANUP_INTERVAL` | `1h` | Export artifact cleanup interval. |
@@ -391,6 +394,7 @@ Run API tests:
 ```sh
 task test
 task test:postgres
+task test:s3
 ```
 
 Run dashboard E2E tests:

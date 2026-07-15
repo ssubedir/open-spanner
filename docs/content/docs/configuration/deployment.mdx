@@ -89,7 +89,9 @@ docker run --detach \
   ssubedir/open-spanner:0.1.12
 ```
 
-Queued exports need shared artifact storage. In a single-host Docker setup, a shared Docker volume is enough. In a multi-host deployment, the API and export workers need the same mounted filesystem path, or exports should stay co-located until external artifact storage is added.
+Queued exports need shared artifact storage. In a single-host Docker setup, the default shared Docker volume is enough. Multi-host deployments should set `OPEN_SPANNER_EXPORT_STORAGE_DRIVER=s3` on both the API and every export worker, with the same bucket, region, endpoint, and prefix. AWS S3 uses the default AWS credential chain when Open Spanner-specific static credentials are omitted; custom S3-compatible endpoints default to path-style addressing.
+
+Use a dedicated bucket or prefix. Retention deletes the current object version; when bucket versioning is enabled, configure a bucket lifecycle rule to remove noncurrent versions if physical storage reclamation is required.
 
 With Postgres, multiple export, alert, and entitlement workers can run at the same time. Jobs are claimed through database locks so replicas can share the queue.
 

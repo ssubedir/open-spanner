@@ -22,11 +22,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/config"
-	"github.com/ssubedir/open-spanner/internal/metering/adapters/fileexport"
 	appalert "github.com/ssubedir/open-spanner/internal/metering/app/alert"
 	appconsumption "github.com/ssubedir/open-spanner/internal/metering/app/consumption"
 	appentitlement "github.com/ssubedir/open-spanner/internal/metering/app/entitlement"
@@ -364,6 +368,40 @@ func TestIntegrationPostgresSDKUsageFlow(t *testing.T) {
 		DBPool:              config.DBPoolConfig{MaxOpenConns: 1},
 		RegistrationEnabled: true,
 	}, "postgres")
+}
+
+func TestIntegrationS3ExportUsageFlow(t *testing.T) {
+	endpoint := os.Getenv("OPEN_SPANNER_TEST_S3_ENDPOINT")
+	if endpoint == "" {
+		t.Skip("set OPEN_SPANNER_TEST_S3_ENDPOINT to run S3 export integration tests")
+	}
+	accessKey, secretKey := "minioadmin", "minioadmin"
+	bucket := createIntegrationS3Bucket(t, endpoint, accessKey, secretKey)
+	runIntegrationSDKUsageFlow(t, config.Config{
+		DBDriver: "sqlite", SQLitePath: ":memory:", DBPool: config.DBPoolConfig{MaxOpenConns: 1}, RegistrationEnabled: true,
+		ExportStorageDriver: "s3", ExportS3Bucket: bucket, ExportS3Region: "us-east-1", ExportS3Endpoint: endpoint,
+		ExportS3AccessKeyID: accessKey, ExportS3SecretAccessKey: secretKey, ExportS3Prefix: "integration", ExportS3ForcePathStyle: true,
+	}, "s3")
+}
+
+func createIntegrationS3Bucket(t *testing.T, endpoint, accessKey, secretKey string) string {
+	t.Helper()
+	ctx := context.Background()
+	cfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion("us-east-1"), awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := s3.NewFromConfig(cfg, func(options *s3.Options) { options.BaseEndpoint = aws.String(endpoint); options.UsePathStyle = true })
+	bucket := "open-spanner-bootstrap-" + uuid.NewString()
+	if _, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)}); err != nil {
+		t.Fatalf("create S3 integration bucket: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := client.DeleteBucket(context.Background(), &s3.DeleteBucketInput{Bucket: aws.String(bucket)}); err != nil {
+			t.Errorf("delete S3 integration bucket: %v", err)
+		}
+	})
+	return bucket
 }
 
 func TestIntegrationSQLiteWorkspaceIsolation(t *testing.T) {
@@ -1461,7 +1499,11 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 	}
 	time.Sleep(25 * time.Millisecond)
 
-	worker := exportworker.NewWorker(app.UsageService, fileexport.NewStore(cfg.ExportStoragePath), time.Millisecond, time.Minute, 3, t.Logf)
+	exportStore, err := NewExportStore(ctx, cfg)
+	if err != nil {
+		t.Fatalf("create export store: %v", err)
+	}
+	worker := exportworker.NewWorker(app.UsageService, exportStore, time.Millisecond, time.Minute, 3, t.Logf)
 	var completedExportJob usageExportJobResponse
 	for attempt := 0; attempt < 25; attempt++ {
 		processed, err := worker.ProcessOnce(ctx)
@@ -1497,7 +1539,7 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 		t.Fatalf("downloaded export csv = %q", csvBody)
 	}
 
-	cleanupWorker := exportworker.NewWorker(app.UsageService, fileexport.NewStore(cfg.ExportStoragePath), time.Millisecond, time.Minute, 3, t.Logf).WithCleanup(time.Nanosecond, time.Hour, 1000)
+	cleanupWorker := exportworker.NewWorker(app.UsageService, exportStore, time.Millisecond, time.Minute, 3, t.Logf).WithCleanup(time.Nanosecond, time.Hour, 1000)
 	expired, err := cleanupWorker.CleanupOnce(ctx)
 	if err != nil || expired == 0 {
 		t.Fatalf("cleanup export artifacts expired=%d err=%v", expired, err)

@@ -24,6 +24,15 @@ description: Runtime configuration for the Open Spanner service.
 | `OPEN_SPANNER_DB_CONN_MAX_LIFETIME` | `0` | Maximum SQL connection lifetime; `0` disables recycling. |
 | `OPEN_SPANNER_DB_CONN_MAX_IDLE_TIME` | `0` | Maximum SQL connection idle time; `0` disables idle-time recycling. |
 | `OPEN_SPANNER_EXPORT_STORAGE_PATH` | `open-spanner-exports` | Directory used by the API and export worker for generated export files. |
+| `OPEN_SPANNER_EXPORT_STORAGE_DRIVER` | `filesystem` | Export artifact backend: `filesystem` or `s3`. The API and export workers must use identical settings. |
+| `OPEN_SPANNER_EXPORT_S3_BUCKET` | empty | Bucket used by S3 export storage. Required when the driver is `s3`. |
+| `OPEN_SPANNER_EXPORT_S3_REGION` | `us-east-1` | S3 signing region. |
+| `OPEN_SPANNER_EXPORT_S3_ENDPOINT` | empty | Optional absolute endpoint URL for S3-compatible services. |
+| `OPEN_SPANNER_EXPORT_S3_ACCESS_KEY_ID` | empty | Optional static access key. When omitted, the AWS default credential chain is used. |
+| `OPEN_SPANNER_EXPORT_S3_SECRET_ACCESS_KEY` | empty | Static secret key; must be set with the access key. |
+| `OPEN_SPANNER_EXPORT_S3_SESSION_TOKEN` | empty | Optional token for temporary static credentials. |
+| `OPEN_SPANNER_EXPORT_S3_PREFIX` | empty | Object key prefix for export artifacts. |
+| `OPEN_SPANNER_EXPORT_S3_FORCE_PATH_STYLE` | endpoint-dependent | Uses path-style bucket addressing. Defaults to `true` for custom endpoints and `false` for AWS. |
 | `OPEN_SPANNER_EXPORT_WORKER_INTERVAL` | `5s` | How often the export worker checks for queued jobs. |
 | `OPEN_SPANNER_EXPORT_WORKER_LOCK_TTL` | `5m` | Lease duration for a claimed export job. |
 | `OPEN_SPANNER_EXPORT_WORKER_MAX_ATTEMPTS` | `3` | Maximum claim attempts before expired running jobs stop being retried. |
@@ -114,6 +123,8 @@ These variables are read by `docker-compose.app.yml` before the Open Spanner con
 | `OPEN_SPANNER_GRPC_PORT` | `18090` | Host port published for the app container's gRPC listener. |
 | `OPEN_SPANNER_POSTGRES_PASSWORD` | `open_spanner` | Password for the bundled Postgres service and the app connection string. |
 | `OPEN_SPANNER_EXPORT_WORKER_INTERVAL` | `5s` | Passed through to the export worker container. |
+| `OPEN_SPANNER_EXPORT_STORAGE_DRIVER` | `filesystem` | Passed to both API and export worker containers. |
+| `OPEN_SPANNER_EXPORT_S3_*` | empty | S3-compatible storage settings passed to both API and export worker containers. |
 | `OPEN_SPANNER_EXPORT_WORKER_LOCK_TTL` | `5m` | Passed through to the export worker container. |
 | `OPEN_SPANNER_EXPORT_WORKER_MAX_ATTEMPTS` | `3` | Passed through to the export worker container. |
 | `OPEN_SPANNER_EXPORT_RETENTION` | `168h` | Passed through to the export worker container. |

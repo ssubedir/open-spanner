@@ -70,3 +70,8 @@ tasks:
     desc: Stop local Postgres
     cmds:
       - docker compose down
+
+  s3:up:
+    desc: Start local S3-compatible storage for integration tests
+    cmds:
+      - docker compose up -d --wait minio

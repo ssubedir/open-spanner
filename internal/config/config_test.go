@@ -23,6 +23,9 @@ func TestLoadDefaultsToSQLite(t *testing.T) {
 	if cfg.GRPCAddr != ":18090" {
 		t.Fatalf("grpc addr = %q, want :18090", cfg.GRPCAddr)
 	}
+	if cfg.ExportStorageDriver != "filesystem" {
+		t.Fatalf("export storage driver = %q, want filesystem", cfg.ExportStorageDriver)
+	}
 	if !cfg.RegistrationEnabled {
 		t.Fatal("registration should be enabled by default")
 	}
@@ -83,6 +86,35 @@ func TestLoadRejectsUnsupportedDriver(t *testing.T) {
 	_, err := Load()
 	if err == nil || !strings.Contains(err.Error(), "unsupported OPEN_SPANNER_DB_DRIVER") {
 		t.Fatalf("load error = %v, want unsupported driver error", err)
+	}
+}
+
+func TestLoadAcceptsS3ExportStorage(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("OPEN_SPANNER_EXPORT_STORAGE_DRIVER", "s3")
+	t.Setenv("OPEN_SPANNER_EXPORT_S3_BUCKET", "exports")
+	t.Setenv("OPEN_SPANNER_EXPORT_S3_ENDPOINT", "http://localhost:9000")
+	t.Setenv("OPEN_SPANNER_EXPORT_S3_ACCESS_KEY_ID", "test")
+	t.Setenv("OPEN_SPANNER_EXPORT_S3_SECRET_ACCESS_KEY", "secret")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.ExportStorageDriver != "s3" || cfg.ExportS3Bucket != "exports" || !cfg.ExportS3ForcePathStyle {
+		t.Fatalf("S3 config = %#v", cfg)
+	}
+}
+
+func TestLoadRejectsIncompleteS3ExportStorage(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("OPEN_SPANNER_EXPORT_STORAGE_DRIVER", "s3")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "OPEN_SPANNER_EXPORT_S3_BUCKET") {
+		t.Fatalf("load error = %v", err)
+	}
+	t.Setenv("OPEN_SPANNER_EXPORT_S3_BUCKET", "exports")
+	t.Setenv("OPEN_SPANNER_EXPORT_S3_ACCESS_KEY_ID", "test")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "must be set together") {
+		t.Fatalf("load error = %v", err)
 	}
 }
 
@@ -153,6 +185,15 @@ func clearEnv(t *testing.T) {
 		"OPEN_SPANNER_RETENTION_PRUNE_TIMEOUT",
 		"OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION",
 		"OPEN_SPANNER_EXPORT_STORAGE_PATH",
+		"OPEN_SPANNER_EXPORT_STORAGE_DRIVER",
+		"OPEN_SPANNER_EXPORT_S3_BUCKET",
+		"OPEN_SPANNER_EXPORT_S3_REGION",
+		"OPEN_SPANNER_EXPORT_S3_ENDPOINT",
+		"OPEN_SPANNER_EXPORT_S3_ACCESS_KEY_ID",
+		"OPEN_SPANNER_EXPORT_S3_SECRET_ACCESS_KEY",
+		"OPEN_SPANNER_EXPORT_S3_SESSION_TOKEN",
+		"OPEN_SPANNER_EXPORT_S3_PREFIX",
+		"OPEN_SPANNER_EXPORT_S3_FORCE_PATH_STYLE",
 		"OPEN_SPANNER_EXPORT_WORKER_INTERVAL",
 		"OPEN_SPANNER_EXPORT_WORKER_LOCK_TTL",
 		"OPEN_SPANNER_EXPORT_WORKER_MAX_ATTEMPTS",

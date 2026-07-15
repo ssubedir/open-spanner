@@ -8,7 +8,6 @@ import (
 	"syscall"
 
 	"github.com/ssubedir/open-spanner/internal/config"
-	"github.com/ssubedir/open-spanner/internal/metering/adapters/fileexport"
 	"github.com/ssubedir/open-spanner/internal/metering/bootstrap"
 	exportworker "github.com/ssubedir/open-spanner/internal/metering/workers/export"
 	"github.com/ssubedir/open-spanner/internal/metering/workers/heartbeat"
@@ -34,11 +33,15 @@ func main() {
 	}()
 
 	log.Printf("storage driver: %s", cfg.DBDriver)
-	log.Printf("export storage path: %s", cfg.ExportStoragePath)
+	log.Printf("export storage driver: %s", cfg.ExportStorageDriver)
+	store, err := bootstrap.NewExportStore(ctx, cfg)
+	if err != nil {
+		log.Fatalf("failed to initialize export storage: %v", err)
+	}
 
 	worker := exportworker.NewWorker(
 		app.UsageService,
-		fileexport.NewStore(cfg.ExportStoragePath),
+		store,
 		cfg.ExportWorkerInterval,
 		cfg.ExportWorkerLockTTL,
 		cfg.ExportWorkerMaxAttempts,
