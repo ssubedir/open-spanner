@@ -44,8 +44,9 @@ func (r *UsageRepository) queryBucketsWithDynamicSQL(ctx context.Context, query 
 	}
 	filteredSelects = append(filteredSelects, groupSelects...)
 	filteredSelects = append(filteredSelects,
-		goqu.C("quantity"),
-		goqu.L("event_time::timestamptz").As("event_at"),
+		goqu.C("quantity_sum"), goqu.C("quantity_min"), goqu.C("quantity_max"), goqu.C("event_count"),
+		goqu.C("first_quantity"), goqu.C("first_event_time"), goqu.C("first_event_id"),
+		goqu.C("last_quantity"), goqu.C("last_event_time"), goqu.C("last_event_id"),
 	)
 
 	predicates, err := bucketPredicates(ctx, query)
@@ -54,7 +55,7 @@ func (r *UsageRepository) queryBucketsWithDynamicSQL(ctx context.Context, query 
 	}
 
 	filtered := postgresUsageDialect.
-		From("usage_events").
+		From("usage_aggregation_fragments").
 		Prepared(true).
 		Select(filteredSelects...).
 		Where(predicates...)
@@ -125,11 +126,12 @@ func (r *UsageRepository) aggregateWithDynamicSQL(ctx context.Context, query dom
 	}
 
 	filtered := postgresUsageDialect.
-		From("usage_events").
+		From("usage_aggregation_fragments").
 		Prepared(true).
 		Select(
-			goqu.C("quantity"),
-			goqu.L("event_time::timestamptz").As("event_at"),
+			goqu.C("quantity_sum"), goqu.C("quantity_min"), goqu.C("quantity_max"), goqu.C("event_count"),
+			goqu.C("first_quantity"), goqu.C("first_event_time"), goqu.C("first_event_id"),
+			goqu.C("last_quantity"), goqu.C("last_event_time"), goqu.C("last_event_id"),
 		).
 		Where(predicates...)
 
@@ -138,7 +140,7 @@ func (r *UsageRepository) aggregateWithDynamicSQL(ctx context.Context, query dom
 		Prepared(true).
 		Select(
 			breakdownAggregationExpression(query.Aggregation(), query.To().Sub(query.From()).Seconds()).As("quantity"),
-			goqu.L("COUNT(*)").As("usage_events"),
+			goqu.L("SUM(event_count)").As("usage_events"),
 		).
 		ToSQL()
 	if err != nil {
@@ -169,12 +171,13 @@ func (r *UsageRepository) findBreakdownWithDynamicSQL(ctx context.Context, query
 	}
 
 	filtered := postgresUsageDialect.
-		From("usage_events").
+		From("usage_aggregation_fragments").
 		Prepared(true).
 		Select(
 			valueExpression.As("value"),
-			goqu.C("quantity"),
-			goqu.L("event_time::timestamptz").As("event_at"),
+			goqu.C("quantity_sum"), goqu.C("quantity_min"), goqu.C("quantity_max"), goqu.C("event_count"),
+			goqu.C("first_quantity"), goqu.C("first_event_time"), goqu.C("first_event_id"),
+			goqu.C("last_quantity"), goqu.C("last_event_time"), goqu.C("last_event_id"),
 		).
 		Where(predicates...)
 
@@ -184,7 +187,7 @@ func (r *UsageRepository) findBreakdownWithDynamicSQL(ctx context.Context, query
 		Select(
 			goqu.C("value"),
 			breakdownAggregationExpression(query.Aggregation(), query.To().Sub(query.From()).Seconds()).As("quantity"),
-			goqu.L("COUNT(*)").As("usage_events"),
+			goqu.L("SUM(event_count)").As("usage_events"),
 		).
 		Where(goqu.C("value").IsNotNull(), goqu.C("value").Neq("")).
 		GroupBy(goqu.C("value")).
@@ -450,21 +453,21 @@ func groupAlias(index int) string {
 func bucketAggregationExpression(aggregation domainmeter.Aggregation, bucketSize domainusage.BucketSize) exp.LiteralExpression {
 	switch aggregation {
 	case domainmeter.AggregationCount:
-		return goqu.L("COUNT(*)::double precision")
+		return goqu.L("SUM(event_count)::double precision")
 	case domainmeter.AggregationAverage:
-		return goqu.L("AVG(quantity)")
+		return goqu.L("SUM(quantity_sum) / NULLIF(SUM(event_count), 0)")
 	case domainmeter.AggregationMinimum:
-		return goqu.L("MIN(quantity)")
+		return goqu.L("MIN(quantity_min)")
 	case domainmeter.AggregationMaximum:
-		return goqu.L("MAX(quantity)")
+		return goqu.L("MAX(quantity_max)")
 	case domainmeter.AggregationFirst:
-		return goqu.L("(array_agg(quantity ORDER BY event_at ASC))[1]")
+		return goqu.L("(array_agg(first_quantity ORDER BY first_event_time::timestamptz ASC, first_event_id ASC))[1]")
 	case domainmeter.AggregationLast:
-		return goqu.L("(array_agg(quantity ORDER BY event_at DESC))[1]")
+		return goqu.L("(array_agg(last_quantity ORDER BY last_event_time::timestamptz DESC, last_event_id DESC))[1]")
 	case domainmeter.AggregationRate:
-		return goqu.L("COUNT(*)::double precision / ?", bucketDurationSecondsExpression(bucketSize))
+		return goqu.L("SUM(event_count)::double precision / ?", bucketDurationSecondsExpression(bucketSize))
 	default:
-		return goqu.L("SUM(quantity)")
+		return goqu.L("SUM(quantity_sum)")
 	}
 }
 
@@ -478,21 +481,21 @@ func breakdownFieldExpression(field string) (exp.LiteralExpression, error) {
 func breakdownAggregationExpression(aggregation domainmeter.Aggregation, durationSeconds float64) exp.LiteralExpression {
 	switch aggregation {
 	case domainmeter.AggregationCount:
-		return goqu.L("COUNT(*)::double precision")
+		return goqu.L("SUM(event_count)::double precision")
 	case domainmeter.AggregationAverage:
-		return goqu.L("AVG(quantity)")
+		return goqu.L("SUM(quantity_sum) / NULLIF(SUM(event_count), 0)")
 	case domainmeter.AggregationMinimum:
-		return goqu.L("MIN(quantity)")
+		return goqu.L("MIN(quantity_min)")
 	case domainmeter.AggregationMaximum:
-		return goqu.L("MAX(quantity)")
+		return goqu.L("MAX(quantity_max)")
 	case domainmeter.AggregationFirst:
-		return goqu.L("(array_agg(quantity ORDER BY event_at ASC))[1]")
+		return goqu.L("(array_agg(first_quantity ORDER BY first_event_time::timestamptz ASC, first_event_id ASC))[1]")
 	case domainmeter.AggregationLast:
-		return goqu.L("(array_agg(quantity ORDER BY event_at DESC))[1]")
+		return goqu.L("(array_agg(last_quantity ORDER BY last_event_time::timestamptz DESC, last_event_id DESC))[1]")
 	case domainmeter.AggregationRate:
-		return goqu.L("COUNT(*)::double precision / ?", durationSeconds)
+		return goqu.L("SUM(event_count)::double precision / ?", durationSeconds)
 	default:
-		return goqu.L("SUM(quantity)")
+		return goqu.L("SUM(quantity_sum)")
 	}
 }
 

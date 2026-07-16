@@ -1243,11 +1243,12 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 	runIntegrationDimensionNameValidationFlow(t, router, authHeaders, suffix)
 
 	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
-		"name":        meterName,
-		"description": "API calls",
-		"unit":        "call",
-		"aggregation": "sum",
-		"dimensions":  meterDimensionsFromSchema(map[string]string{"endpoint": "string", "status": "number"}),
+		"name":                 meterName,
+		"description":          "API calls",
+		"unit":                 "call",
+		"aggregation":          "sum",
+		"event_retention_days": 1,
+		"dimensions":           meterDimensionsFromSchema(map[string]string{"endpoint": "string", "status": "number"}),
 	}, authHeaders, nil)
 	if createMeter.Code != http.StatusCreated {
 		t.Fatalf("create meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
@@ -1563,6 +1564,23 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 	runIntegrationSummaryAggregationFlow(t, router, authHeaders, suffix)
 	runIntegrationFilterOperatorFlow(t, router, authHeaders, suffix)
 	runIntegrationDynamicSQLParityFlow(t, router, authHeaders, suffix)
+
+	principal, err = app.AuthService.AuthenticateAPIKeyPrincipal(ctx, apiKey)
+	if err != nil {
+		t.Fatalf("authenticate rollup prune principal: %v", err)
+	}
+	if _, err := app.UsageService.PruneEvents(appauth.WithPrincipal(ctx, principal), appusage.PruneCommand{}); err != nil {
+		t.Fatalf("prune usage into hourly rollups: %v", err)
+	}
+	rolledUpBuckets := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/usages?"+query.Encode(), nil, authHeaders, nil)
+	if rolledUpBuckets.Code != http.StatusOK {
+		t.Fatalf("rolled-up usages status = %d, want %d: %s", rolledUpBuckets.Code, http.StatusOK, rolledUpBuckets.Body.String())
+	}
+	var rolledUpUsage []usageBucketResponse
+	decodeJSON(t, rolledUpBuckets, &rolledUpUsage)
+	if len(rolledUpUsage) != 1 || rolledUpUsage[0].Quantity != 2 {
+		t.Fatalf("rolled-up usages = %#v, want quantity 2", rolledUpUsage)
+	}
 }
 
 func runIntegrationWorkspaceIsolationFlow(t *testing.T, cfg config.Config, namespace string) {

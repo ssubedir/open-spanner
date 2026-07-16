@@ -3,6 +3,8 @@ package usage
 import (
 	"context"
 	"errors"
+	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -433,6 +435,87 @@ func TestServicePruneEventsUsesMeterRetention(t *testing.T) {
 	}
 	if len(remaining.Items) != 1 || remaining.Items[0].Quantity != 2 {
 		t.Fatalf("remaining events = %#v", remaining)
+	}
+}
+
+func TestServicePrunePreservesHourlyRollupAnalytics(t *testing.T) {
+	ctx := testContext()
+	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
+	service := NewService(meterRepo, usageRepo, store).(*service)
+	service.now = func() time.Time { return time.Date(2026, 6, 10, 12, 30, 0, 0, time.UTC) }
+
+	expected := map[domainmeter.Aggregation]float64{
+		domainmeter.AggregationSum: 9, domainmeter.AggregationCount: 3,
+		domainmeter.AggregationAverage: 3, domainmeter.AggregationMinimum: 2,
+		domainmeter.AggregationMaximum: 4, domainmeter.AggregationFirst: 2,
+		domainmeter.AggregationLast: 4, domainmeter.AggregationRate: 3.0 / 86400.0,
+	}
+	createdAt := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	for aggregation := range expected {
+		name := "rollup_" + string(aggregation)
+		meter, err := domainmeter.NewWithDimensions(
+			"meter-"+string(aggregation), name, name, "unit", aggregation,
+			[]domainmeter.Dimension{mustDimension(t, "region", domainmeter.MetadataString)}, 1, createdAt,
+		)
+		if err != nil {
+			t.Fatalf("new %s meter: %v", aggregation, err)
+		}
+		if _, err := meterRepo.Save(ctx, meter); err != nil {
+			t.Fatalf("save %s meter: %v", aggregation, err)
+		}
+		for index, sample := range []struct {
+			quantity float64
+			at       time.Time
+		}{{2, time.Date(2026, 6, 9, 10, 5, 0, 0, time.UTC)}, {3, time.Date(2026, 6, 9, 10, 10, 0, 0, time.UTC)}, {4, time.Date(2026, 6, 9, 13, 0, 0, 0, time.UTC)}} {
+			_, err := service.Create(ctx, CreateCommand{
+				IdempotencyKey: fmt.Sprintf("%s-%d", name, index), Subject: "org_123",
+				MeterName: name, Quantity: sample.quantity, EventTime: sample.at,
+				Metadata: map[string]any{"region": "us-east"},
+			})
+			if err != nil {
+				t.Fatalf("create %s sample: %v", aggregation, err)
+			}
+		}
+	}
+
+	if _, err := service.PruneEvents(ctx, PruneCommand{}); err != nil {
+		t.Fatalf("prune into hourly rollups: %v", err)
+	}
+	from, to := time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC), time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+	for aggregation, want := range expected {
+		items, err := service.List(ctx, ListQuery{
+			MeterName: "rollup_" + string(aggregation), From: from, To: to,
+			BucketSize: domainusage.BucketDay, Metadata: map[string]string{"region": "us-east"},
+		})
+		if err != nil {
+			t.Fatalf("query %s rollup: %v", aggregation, err)
+		}
+		if len(items) != 1 || math.Abs(items[0].Quantity-want) > 1e-9 {
+			t.Fatalf("%s rollup = %#v, want %v", aggregation, items, want)
+		}
+	}
+
+	dimensions, err := service.ListDimensionValues(ctx, DimensionValueListQuery{
+		MeterName: "rollup_sum", Field: "region", From: from, To: to,
+	})
+	if err != nil || len(dimensions.Items) != 1 || dimensions.Items[0].UsageEvents != 3 {
+		t.Fatalf("rollup dimensions = %#v, err = %v", dimensions, err)
+	}
+	if _, err := service.List(ctx, ListQuery{
+		MeterName: "rollup_sum", From: from.Add(30 * time.Minute), To: to,
+		BucketSize: domainusage.BucketDay,
+	}); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("partial-hour retained query error = %v, want conflict", err)
+	}
+	quantityFilter, err := domainusage.NewFilterCondition("quantity", domainusage.FilterOpGreaterThan, 1, true)
+	if err != nil {
+		t.Fatalf("new quantity filter: %v", err)
+	}
+	if _, err := service.List(ctx, ListQuery{
+		MeterName: "rollup_sum", From: from, To: to,
+		BucketSize: domainusage.BucketDay, Filter: quantityFilter,
+	}); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("event-only retained filter error = %v, want conflict", err)
 	}
 }
 

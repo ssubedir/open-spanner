@@ -3,6 +3,7 @@ package usage
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
 	domainmeter "github.com/ssubedir/open-spanner/internal/metering/domain/meter"
@@ -24,7 +25,9 @@ func (s *service) PruneEvents(ctx context.Context, cmd PruneCommand) (PruneResul
 	now := s.now()
 	queries := make([]domainusage.PruneQuery, 0, len(meters))
 	for _, meter := range meters {
-		before := now.AddDate(0, 0, -meter.EventRetentionDays())
+		// Only finalize complete UTC hours. Keeping the current partial hour raw
+		// lets rollups preserve every supported analytical bucket exactly.
+		before := now.AddDate(0, 0, -meter.EventRetentionDays()).UTC().Truncate(time.Hour)
 		query, err := domainusage.NewPruneQuery(meter.Name(), before)
 		if err != nil {
 			return PruneResult{}, err

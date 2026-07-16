@@ -133,7 +133,7 @@ Back up Postgres. It is the system of record for meters, plans, subject assignme
 
 Export CSV files are generated artifacts. If your finance or audit workflow treats generated files as evidence, back up the export storage path too. Otherwise, export files can be regenerated while the source usage events are still retained.
 
-Retention pruning permanently deletes raw usage events older than each meter's retention policy. Enable pruning only after choosing retention windows that match your billing, audit, and reporting requirements.
+Retention pruning permanently deletes raw usage events older than each meter's retention policy after atomically materializing hourly aggregate rollups. Enable pruning only after choosing a window that matches individual-event audit requirements.
 
 ## Upgrade Checklist
 

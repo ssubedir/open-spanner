@@ -43,4 +43,4 @@ Create an API key in the dashboard and pass it into the SDK client that reports 
 
 ## Retention
 
-Raw events can be pruned by meter retention policy. Aggregated query results are calculated from retained events, so set retention based on your audit and billing needs.
+Raw events can be pruned by meter retention policy. Hourly rollups preserve aggregate reporting and dimensions after pruning, while individual event browsing remains limited to the raw-event window.

@@ -47,17 +47,17 @@ func (r *UsageRepository) queryBucketsWithDynamicSQL(ctx context.Context, query 
 	}
 
 	filteredSelects := []interface{}{
-		goqu.C("id"),
 		bucketStartExpression(query.BucketSize()).As(bucketStartAlias),
 	}
 	filteredSelects = append(filteredSelects, groupSelects...)
 	filteredSelects = append(filteredSelects,
-		goqu.C("quantity"),
-		goqu.C("event_time").As("event_at"),
+		goqu.C("quantity_sum"), goqu.C("quantity_min"), goqu.C("quantity_max"), goqu.C("event_count"),
+		goqu.C("first_quantity"), goqu.C("first_event_time"), goqu.C("first_event_id"),
+		goqu.C("last_quantity"), goqu.C("last_event_time"), goqu.C("last_event_id"),
 	)
 
 	filtered := sqliteUsageDialect.
-		From("usage_events").
+		From("usage_aggregation_fragments").
 		Prepared(true).
 		Select(filteredSelects...).
 		Where(predicates...)
@@ -73,7 +73,8 @@ func (r *UsageRepository) queryBucketsWithDynamicSQL(ctx context.Context, query 
 
 	rankedSelects := groupResultSelects(groupAliases)
 	rankedSelects = append(rankedSelects,
-		goqu.C("quantity"),
+		goqu.C("quantity_sum"), goqu.C("quantity_min"), goqu.C("quantity_max"), goqu.C("event_count"),
+		goqu.C("first_quantity"), goqu.C("last_quantity"),
 		firstRank.As("first_rank"),
 		lastRank.As("last_rank"),
 	)
@@ -153,12 +154,12 @@ func (r *UsageRepository) aggregateWithDynamicSQL(ctx context.Context, query dom
 	}
 
 	filtered := sqliteUsageDialect.
-		From("usage_events").
+		From("usage_aggregation_fragments").
 		Prepared(true).
 		Select(
-			goqu.C("id"),
-			goqu.C("quantity"),
-			goqu.C("event_time").As("event_at"),
+			goqu.C("quantity_sum"), goqu.C("quantity_min"), goqu.C("quantity_max"), goqu.C("event_count"),
+			goqu.C("first_quantity"), goqu.C("first_event_time"), goqu.C("first_event_id"),
+			goqu.C("last_quantity"), goqu.C("last_event_time"), goqu.C("last_event_id"),
 		).
 		Where(predicates...)
 
@@ -166,9 +167,10 @@ func (r *UsageRepository) aggregateWithDynamicSQL(ctx context.Context, query dom
 		From(filtered.As("filtered")).
 		Prepared(true).
 		Select(
-			goqu.C("quantity"),
-			goqu.L("ROW_NUMBER() OVER (ORDER BY event_at ASC, id ASC)").As("first_rank"),
-			goqu.L("ROW_NUMBER() OVER (ORDER BY event_at DESC, id DESC)").As("last_rank"),
+			goqu.C("quantity_sum"), goqu.C("quantity_min"), goqu.C("quantity_max"), goqu.C("event_count"),
+			goqu.C("first_quantity"), goqu.C("last_quantity"),
+			goqu.L("ROW_NUMBER() OVER (ORDER BY julianday(first_event_time) ASC, first_event_id ASC)").As("first_rank"),
+			goqu.L("ROW_NUMBER() OVER (ORDER BY julianday(last_event_time) DESC, last_event_id DESC)").As("last_rank"),
 		)
 
 	sqlQuery, args, err := sqliteUsageDialect.
@@ -176,7 +178,7 @@ func (r *UsageRepository) aggregateWithDynamicSQL(ctx context.Context, query dom
 		Prepared(true).
 		Select(
 			breakdownAggregationExpression(query.Aggregation(), query.To().Sub(query.From()).Seconds()).As("quantity"),
-			goqu.L("CAST(COUNT(*) AS INTEGER)").As("usage_events"),
+			goqu.L("CAST(SUM(event_count) AS INTEGER)").As("usage_events"),
 		).
 		ToSQL()
 	if err != nil {
@@ -207,13 +209,13 @@ func (r *UsageRepository) findBreakdownWithDynamicSQL(ctx context.Context, query
 	}
 
 	filtered := sqliteUsageDialect.
-		From("usage_events").
+		From("usage_aggregation_fragments").
 		Prepared(true).
 		Select(
-			goqu.C("id"),
 			valueExpression.As("value"),
-			goqu.C("quantity"),
-			goqu.C("event_time").As("event_at"),
+			goqu.C("quantity_sum"), goqu.C("quantity_min"), goqu.C("quantity_max"), goqu.C("event_count"),
+			goqu.C("first_quantity"), goqu.C("first_event_time"), goqu.C("first_event_id"),
+			goqu.C("last_quantity"), goqu.C("last_event_time"), goqu.C("last_event_id"),
 		).
 		Where(predicates...)
 
@@ -222,9 +224,10 @@ func (r *UsageRepository) findBreakdownWithDynamicSQL(ctx context.Context, query
 		Prepared(true).
 		Select(
 			goqu.C("value"),
-			goqu.C("quantity"),
-			goqu.L("ROW_NUMBER() OVER (PARTITION BY value ORDER BY event_at ASC, id ASC)").As("first_rank"),
-			goqu.L("ROW_NUMBER() OVER (PARTITION BY value ORDER BY event_at DESC, id DESC)").As("last_rank"),
+			goqu.C("quantity_sum"), goqu.C("quantity_min"), goqu.C("quantity_max"), goqu.C("event_count"),
+			goqu.C("first_quantity"), goqu.C("last_quantity"),
+			goqu.L("ROW_NUMBER() OVER (PARTITION BY value ORDER BY julianday(first_event_time) ASC, first_event_id ASC)").As("first_rank"),
+			goqu.L("ROW_NUMBER() OVER (PARTITION BY value ORDER BY julianday(last_event_time) DESC, last_event_id DESC)").As("last_rank"),
 		).
 		Where(goqu.C("value").IsNotNull(), goqu.C("value").Neq(""))
 
@@ -234,7 +237,7 @@ func (r *UsageRepository) findBreakdownWithDynamicSQL(ctx context.Context, query
 		Select(
 			goqu.C("value"),
 			breakdownAggregationExpression(query.Aggregation(), query.To().Sub(query.From()).Seconds()).As("quantity"),
-			goqu.L("CAST(COUNT(*) AS INTEGER)").As("usage_events"),
+			goqu.L("CAST(SUM(event_count) AS INTEGER)").As("usage_events"),
 		).
 		GroupBy(goqu.C("value")).
 		Order(goqu.C("quantity").Desc(), goqu.C("value").Asc()).
@@ -497,7 +500,7 @@ func firstRankExpression(groupAliases []string) (exp.LiteralExpression, error) {
 	if err != nil {
 		return nil, err
 	}
-	return goqu.L("ROW_NUMBER() OVER (PARTITION BY " + partition + " ORDER BY event_at ASC, id ASC)"), nil
+	return goqu.L("ROW_NUMBER() OVER (PARTITION BY " + partition + " ORDER BY julianday(first_event_time) ASC, first_event_id ASC)"), nil
 }
 
 func lastRankExpression(groupAliases []string) (exp.LiteralExpression, error) {
@@ -505,7 +508,7 @@ func lastRankExpression(groupAliases []string) (exp.LiteralExpression, error) {
 	if err != nil {
 		return nil, err
 	}
-	return goqu.L("ROW_NUMBER() OVER (PARTITION BY " + partition + " ORDER BY event_at DESC, id DESC)"), nil
+	return goqu.L("ROW_NUMBER() OVER (PARTITION BY " + partition + " ORDER BY julianday(last_event_time) DESC, last_event_id DESC)"), nil
 }
 
 func groupPartitionColumns(aliases []string) (string, error) {
@@ -573,42 +576,42 @@ func sqliteJSONPath(key string) (string, error) {
 func bucketAggregationExpression(aggregation domainmeter.Aggregation, bucketSize domainusage.BucketSize) exp.LiteralExpression {
 	switch aggregation {
 	case domainmeter.AggregationCount:
-		return goqu.L("CAST(COUNT(*) AS REAL)")
+		return goqu.L("CAST(SUM(event_count) AS REAL)")
 	case domainmeter.AggregationAverage:
-		return goqu.L("AVG(quantity)")
+		return goqu.L("SUM(quantity_sum) / NULLIF(SUM(event_count), 0)")
 	case domainmeter.AggregationMinimum:
-		return goqu.L("MIN(quantity)")
+		return goqu.L("MIN(quantity_min)")
 	case domainmeter.AggregationMaximum:
-		return goqu.L("MAX(quantity)")
+		return goqu.L("MAX(quantity_max)")
 	case domainmeter.AggregationFirst:
-		return goqu.L("MAX(CASE WHEN first_rank = 1 THEN quantity END)")
+		return goqu.L("MAX(CASE WHEN first_rank = 1 THEN first_quantity END)")
 	case domainmeter.AggregationLast:
-		return goqu.L("MAX(CASE WHEN last_rank = 1 THEN quantity END)")
+		return goqu.L("MAX(CASE WHEN last_rank = 1 THEN last_quantity END)")
 	case domainmeter.AggregationRate:
-		return goqu.L("CAST(COUNT(*) AS REAL) / ?", bucketDurationSecondsExpression(bucketSize))
+		return goqu.L("CAST(SUM(event_count) AS REAL) / ?", bucketDurationSecondsExpression(bucketSize))
 	default:
-		return goqu.L("SUM(quantity)")
+		return goqu.L("SUM(quantity_sum)")
 	}
 }
 
 func breakdownAggregationExpression(aggregation domainmeter.Aggregation, durationSeconds float64) exp.LiteralExpression {
 	switch aggregation {
 	case domainmeter.AggregationCount:
-		return goqu.L("CAST(COUNT(*) AS REAL)")
+		return goqu.L("CAST(SUM(event_count) AS REAL)")
 	case domainmeter.AggregationAverage:
-		return goqu.L("AVG(quantity)")
+		return goqu.L("SUM(quantity_sum) / NULLIF(SUM(event_count), 0)")
 	case domainmeter.AggregationMinimum:
-		return goqu.L("MIN(quantity)")
+		return goqu.L("MIN(quantity_min)")
 	case domainmeter.AggregationMaximum:
-		return goqu.L("MAX(quantity)")
+		return goqu.L("MAX(quantity_max)")
 	case domainmeter.AggregationFirst:
-		return goqu.L("MAX(CASE WHEN first_rank = 1 THEN quantity END)")
+		return goqu.L("MAX(CASE WHEN first_rank = 1 THEN first_quantity END)")
 	case domainmeter.AggregationLast:
-		return goqu.L("MAX(CASE WHEN last_rank = 1 THEN quantity END)")
+		return goqu.L("MAX(CASE WHEN last_rank = 1 THEN last_quantity END)")
 	case domainmeter.AggregationRate:
-		return goqu.L("CAST(COUNT(*) AS REAL) / ?", durationSeconds)
+		return goqu.L("CAST(SUM(event_count) AS REAL) / ?", durationSeconds)
 	default:
-		return goqu.L("SUM(quantity)")
+		return goqu.L("SUM(quantity_sum)")
 	}
 }
 

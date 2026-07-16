@@ -5,7 +5,9 @@ description: How long raw usage events are kept.
 
 Meters can define `event_retention_days`. Retention controls how long raw usage events are kept for that meter.
 
-Aggregated query results are calculated from retained events. If raw events are pruned, future queries over that old window cannot use the deleted events.
+Before deleting raw events, Open Spanner atomically materializes immutable hourly rollups. Sum, count, average, minimum, maximum, first, last, and rate queries continue to combine retained rollups with live events. Metadata dimensions and subject breakdowns remain available too.
+
+Individual event browsing and event-only filters (`quantity`, event or receive time, and idempotency key) require raw data. A query that overlaps rolled-up history must use UTC hour-aligned boundaries; unsupported retained-history queries return a conflict instead of an incomplete result.
 
 ## Automatic Pruning
 
@@ -20,4 +22,4 @@ OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION=720h
 
 The same worker removes atomic-consumption decisions after `OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION` (30 days by default). During that window, an idempotency key always replays its original accepted or rejected response. After expiration and pruning, the same key is evaluated as a new attempt. Choose a window longer than the maximum client retry period.
 
-Choose retention based on billing, audit, and reporting needs.
+Choose retention based on how long individual event audit data is needed. Aggregated reporting can outlive the raw-event window.

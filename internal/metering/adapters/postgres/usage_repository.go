@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -291,14 +292,16 @@ func addEntitlementCounterPeriod(from time.Time, period string) time.Time {
 }
 
 func (r *UsageRepository) Query(ctx context.Context, query domainusage.Query) ([]domainusage.Bucket, error) {
-	if !bucketQueryNeedsDynamicSQL(query) {
-		return r.queryBucketsWithGeneratedSQL(ctx, query)
+	if err := r.validateRollupQuery(ctx, query.MeterName(), query.From(), query.To(), query.Filter()); err != nil {
+		return nil, err
 	}
-
 	return r.queryBucketsWithDynamicSQL(ctx, query)
 }
 
 func (r *UsageRepository) Aggregate(ctx context.Context, query domainusage.AggregateQuery) (domainusage.Aggregate, error) {
+	if err := r.validateRollupQuery(ctx, query.MeterName(), query.From(), query.To(), query.Filter()); err != nil {
+		return domainusage.Aggregate{}, err
+	}
 	return r.aggregateWithDynamicSQL(ctx, query)
 }
 
@@ -347,32 +350,50 @@ func (r *UsageRepository) FindDimensionValues(ctx context.Context, query domainu
 	if !metadataKeyPattern.MatchString(query.Field()) {
 		return nil, fmt.Errorf("%w: unsupported metadata field %q", domain.ErrInvalidInput, query.Field())
 	}
-
-	rows, err := queriesFor(ctx, r.queries).ListUsageDimensionValues(ctx, postgresdb.ListUsageDimensionValuesParams{
-		WorkspaceID: workspaceID,
-		Field:       query.Field(),
-		MeterName:   query.MeterName(),
-		Subject:     eventStringValue(query.Subject()),
-		FromTime:    eventTimeValue(query.From()),
-		ToTime:      eventTimeValue(query.To()),
-		Limit:       int32(query.Limit()),
-	})
+	if err := r.validateRollupQuery(ctx, query.MeterName(), query.From(), query.To(), domainusage.EmptyFilter()); err != nil {
+		return nil, err
+	}
+	args := []any{workspaceID, strings.Split(query.Field(), "."), query.MeterName()}
+	where := "workspace_id = $1 AND meter_name = $3"
+	if query.Subject() != "" {
+		args = append(args, query.Subject())
+		where += fmt.Sprintf(" AND subject = $%d", len(args))
+	}
+	if !query.From().IsZero() {
+		args = append(args, formatTime(query.From()))
+		where += fmt.Sprintf(" AND event_time >= $%d", len(args))
+	}
+	if !query.To().IsZero() {
+		args = append(args, formatTime(query.To()))
+		where += fmt.Sprintf(" AND event_time < $%d", len(args))
+	}
+	args = append(args, query.Limit())
+	rows, err := r.store.QueryContext(ctx, `SELECT metadata #>> $2::text[] AS value, SUM(event_count)::bigint
+		FROM usage_aggregation_fragments WHERE `+where+`
+		GROUP BY metadata #>> $2::text[]
+		HAVING metadata #>> $2::text[] IS NOT NULL AND metadata #>> $2::text[] <> ''
+		ORDER BY SUM(event_count) DESC, metadata #>> $2::text[] ASC LIMIT $`+fmt.Sprint(len(args)), args...)
 	if err != nil {
 		return nil, err
 	}
 
-	values := make([]domainusage.DimensionValue, 0, len(rows))
-	for _, row := range rows {
-		values = append(values, domainusage.NewDimensionValue(query.Field(), row.Value, int(row.UsageEvents)))
+	defer rows.Close()
+	values := []domainusage.DimensionValue{}
+	for rows.Next() {
+		var value string
+		var count int
+		if err := rows.Scan(&value, &count); err != nil {
+			return nil, err
+		}
+		values = append(values, domainusage.NewDimensionValue(query.Field(), value, count))
 	}
-	return values, nil
+	return values, rows.Err()
 }
 
 func (r *UsageRepository) FindBreakdown(ctx context.Context, query domainusage.BreakdownQuery) ([]domainusage.BreakdownItem, error) {
-	if query.Filter().IsZero() {
-		return r.findBreakdownWithGeneratedSQL(ctx, query)
+	if err := r.validateRollupQuery(ctx, query.MeterName(), query.From(), query.To(), query.Filter()); err != nil {
+		return nil, err
 	}
-
 	return r.findBreakdownWithDynamicSQL(ctx, query)
 }
 
@@ -517,6 +538,10 @@ func (r *UsageRepository) PruneEvents(ctx context.Context, query domainusage.Pru
 	if err != nil {
 		return 0, err
 	}
+	sourceCount, err := r.rollUpPrunableEvents(ctx, workspaceID, query)
+	if err != nil {
+		return 0, err
+	}
 	total := 0
 	for {
 		deleted, err := queriesFor(ctx, r.queries).PruneUsageEventsBatch(ctx, postgresdb.PruneUsageEventsBatchParams{
@@ -539,6 +564,9 @@ func (r *UsageRepository) PruneEvents(ctx context.Context, query domainusage.Pru
 				}); err != nil {
 					return 0, err
 				}
+			}
+			if total != sourceCount {
+				return 0, fmt.Errorf("usage rollup verification failed: materialized %d events but deleted %d", sourceCount, total)
 			}
 			return total, nil
 		}

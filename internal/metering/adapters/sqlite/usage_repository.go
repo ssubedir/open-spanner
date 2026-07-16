@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"regexp"
 	"time"
 
@@ -283,14 +284,16 @@ func addEntitlementCounterPeriod(from time.Time, period string) time.Time {
 }
 
 func (r *UsageRepository) Query(ctx context.Context, query domainusage.Query) ([]domainusage.Bucket, error) {
-	if !bucketQueryNeedsDynamicSQL(query) {
-		return r.queryBucketsWithGeneratedSQL(ctx, query)
+	if err := r.validateRollupQuery(ctx, query.MeterName(), query.From(), query.To(), query.Filter()); err != nil {
+		return nil, err
 	}
-
 	return r.queryBucketsWithDynamicSQL(ctx, query)
 }
 
 func (r *UsageRepository) Aggregate(ctx context.Context, query domainusage.AggregateQuery) (domainusage.Aggregate, error) {
+	if err := r.validateRollupQuery(ctx, query.MeterName(), query.From(), query.To(), query.Filter()); err != nil {
+		return domainusage.Aggregate{}, err
+	}
 	return r.aggregateWithDynamicSQL(ctx, query)
 }
 
@@ -345,32 +348,52 @@ func (r *UsageRepository) FindDimensionValues(ctx context.Context, query domainu
 		return nil, err
 	}
 
-	rows, err := queriesFor(ctx, r.queries).ListUsageDimensionValues(ctx, sqlitedb.ListUsageDimensionValuesParams{
-		WorkspaceID: workspaceID,
-		Path:        path,
-		MeterName:   query.MeterName(),
-		Subject:     eventStringValue(query.Subject()),
-		FromTime:    eventTimeValue(query.From()),
-		ToTime:      eventTimeValue(query.To()),
-		Limit:       int64(query.Limit()),
-	})
+	if err := r.validateRollupQuery(ctx, query.MeterName(), query.From(), query.To(), domainusage.EmptyFilter()); err != nil {
+		return nil, err
+	}
+	args := []any{path, workspaceID, query.MeterName()}
+	where := "workspace_id = ? AND meter_name = ?"
+	whereArgs := []any{workspaceID, query.MeterName()}
+	if query.Subject() != "" {
+		where += " AND subject = ?"
+		whereArgs = append(whereArgs, query.Subject())
+	}
+	if !query.From().IsZero() {
+		where += " AND event_time >= ?"
+		whereArgs = append(whereArgs, formatTime(query.From()))
+	}
+	if !query.To().IsZero() {
+		where += " AND event_time < ?"
+		whereArgs = append(whereArgs, formatTime(query.To()))
+	}
+	args = append(args[:1], whereArgs...)
+	args = append(args, query.Limit())
+	rows, err := r.store.QueryContext(ctx, `SELECT CAST(json_extract(metadata, ?) AS TEXT) AS value, CAST(SUM(event_count) AS INTEGER)
+		FROM usage_aggregation_fragments WHERE `+where+`
+		GROUP BY value HAVING value IS NOT NULL AND value <> ''
+		ORDER BY SUM(event_count) DESC, value ASC LIMIT ?`, args...)
 	if err != nil {
 		return nil, err
 	}
 
-	values := make([]domainusage.DimensionValue, 0, len(rows))
-	for _, row := range rows {
-		values = append(values, domainusage.NewDimensionValue(query.Field(), row.Value, int(row.UsageEvents)))
+	defer rows.Close()
+	values := []domainusage.DimensionValue{}
+	for rows.Next() {
+		var value string
+		var count int
+		if err := rows.Scan(&value, &count); err != nil {
+			return nil, err
+		}
+		values = append(values, domainusage.NewDimensionValue(query.Field(), value, count))
 	}
 
-	return values, nil
+	return values, rows.Err()
 }
 
 func (r *UsageRepository) FindBreakdown(ctx context.Context, query domainusage.BreakdownQuery) ([]domainusage.BreakdownItem, error) {
-	if query.Filter().IsZero() {
-		return r.findBreakdownWithGeneratedSQL(ctx, query)
+	if err := r.validateRollupQuery(ctx, query.MeterName(), query.From(), query.To(), query.Filter()); err != nil {
+		return nil, err
 	}
-
 	return r.findBreakdownWithDynamicSQL(ctx, query)
 }
 
@@ -513,6 +536,10 @@ func (r *UsageRepository) PruneEvents(ctx context.Context, query domainusage.Pru
 	if err != nil {
 		return 0, err
 	}
+	sourceCount, err := r.rollUpPrunableEvents(ctx, workspaceID, query)
+	if err != nil {
+		return 0, err
+	}
 	deleted, err := queriesFor(ctx, r.queries).PruneUsageEvents(ctx, sqlitedb.PruneUsageEventsParams{
 		WorkspaceID: workspaceID,
 		MeterName:   query.MeterName(),
@@ -520,6 +547,9 @@ func (r *UsageRepository) PruneEvents(ctx context.Context, query domainusage.Pru
 	})
 	if err != nil {
 		return 0, err
+	}
+	if int(deleted) != sourceCount {
+		return 0, fmt.Errorf("usage rollup verification failed: materialized %d events but deleted %d", sourceCount, deleted)
 	}
 	if deleted > 0 {
 		if err := queriesFor(ctx, r.queries).IncrementWorkspaceUsageEvents(ctx, sqlitedb.IncrementWorkspaceUsageEventsParams{

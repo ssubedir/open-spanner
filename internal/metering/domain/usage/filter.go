@@ -118,6 +118,23 @@ func (f Filter) Field() string {
 	return f.field
 }
 
+// RollupCompatible reports whether a filter can be evaluated against an
+// aggregate fragment without access to individual events.
+func (f Filter) RollupCompatible() bool {
+	if f.IsZero() {
+		return true
+	}
+	if f.Type() == FilterTypeGroup {
+		for _, rule := range f.rules {
+			if !rule.RollupCompatible() {
+				return false
+			}
+		}
+		return true
+	}
+	return f.field == "subject" || f.field == "meter" || strings.HasPrefix(f.field, "metadata.")
+}
+
 func (f Filter) ConditionOp() FilterConditionOp {
 	return f.condOp
 }
