@@ -140,7 +140,7 @@ func (r *UsageRepository) aggregateWithDynamicSQL(ctx context.Context, query dom
 		Prepared(true).
 		Select(
 			breakdownAggregationExpression(query.Aggregation(), query.To().Sub(query.From()).Seconds()).As("quantity"),
-			goqu.L("SUM(event_count)").As("usage_events"),
+			goqu.L("COALESCE(SUM(event_count), 0)").As("usage_events"),
 		).
 		ToSQL()
 	if err != nil {

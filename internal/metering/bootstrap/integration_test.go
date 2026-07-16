@@ -2502,6 +2502,39 @@ func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handl
 		t.Fatalf("listed alert destinations = %#v, want created destination without secret", destinationList)
 	}
 
+	createEmptyAlert := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/alerts", map[string]any{
+		"name":                        "No usage alert " + suffix,
+		"meter":                       meterName,
+		"subject":                     "org_without_usage_" + suffix,
+		"window_seconds":              3600,
+		"comparator":                  "gte",
+		"threshold":                   1,
+		"evaluation_interval_seconds": 60,
+		"destination_id":              destination.ID,
+	}, authHeaders, nil)
+	if createEmptyAlert.Code != http.StatusCreated {
+		t.Fatalf("create no-usage alert status = %d, want %d: %s", createEmptyAlert.Code, http.StatusCreated, createEmptyAlert.Body.String())
+	}
+	var emptyAlert alertRuleResponse
+	decodeJSON(t, createEmptyAlert, &emptyAlert)
+
+	evaluateEmptyAlert := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/alerts/"+emptyAlert.ID+"/evaluate", nil, authHeaders, nil)
+	if evaluateEmptyAlert.Code != http.StatusOK {
+		t.Fatalf("evaluate no-usage alert status = %d, want %d: %s", evaluateEmptyAlert.Code, http.StatusOK, evaluateEmptyAlert.Body.String())
+	}
+	var emptyEvaluation struct {
+		State alertStateResponse `json:"state"`
+	}
+	decodeJSON(t, evaluateEmptyAlert, &emptyEvaluation)
+	if emptyEvaluation.State.Status != "no_data" || emptyEvaluation.State.Value != 0 {
+		t.Fatalf("no-usage alert state = %#v, want no_data with value 0", emptyEvaluation.State)
+	}
+
+	deleteEmptyAlert := requestJSONWithHeaders(t, router, http.MethodDelete, "/v1/alerts/"+emptyAlert.ID, nil, authHeaders, nil)
+	if deleteEmptyAlert.Code != http.StatusNoContent {
+		t.Fatalf("delete no-usage alert status = %d, want %d: %s", deleteEmptyAlert.Code, http.StatusNoContent, deleteEmptyAlert.Body.String())
+	}
+
 	rotateDestination := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/alerts/destinations/"+destination.ID+"/webhook-secret/rotate", nil, authHeaders, nil)
 	if rotateDestination.Code != http.StatusOK {
 		t.Fatalf("rotate destination webhook secret status = %d, want %d: %s", rotateDestination.Code, http.StatusOK, rotateDestination.Body.String())
