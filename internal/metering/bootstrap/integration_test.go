@@ -374,7 +374,7 @@ func TestIntegrationPostgresIngestionSafetyLimits(t *testing.T) {
 	runIntegrationIngestionSafetyLimits(t, config.Config{
 		DBDriver:            "postgres",
 		PostgresDSN:         dsn,
-		DBPool:              config.DBPoolConfig{MaxOpenConns: 2},
+		DBPool:              config.DBPoolConfig{MaxOpenConns: 16},
 		RegistrationEnabled: true,
 	})
 }
@@ -384,7 +384,9 @@ func runIntegrationIngestionSafetyLimits(t *testing.T, cfg config.Config) {
 	cfg.IngestionMaxBodyBytes = 512
 	cfg.IngestionMaxBulkEvents = 2
 	cfg.IngestionMaxStreamEvents = 2
-	cfg.IngestionRateLimitEvents = 2
+	const rateLimit = 16
+	const concurrentWriters = 32
+	cfg.IngestionRateLimitEvents = rateLimit
 	cfg.IngestionRateLimitWindow = time.Hour
 	ctx := context.Background()
 	router := chi.NewRouter()
@@ -422,9 +424,9 @@ func runIntegrationIngestionSafetyLimits(t *testing.T, cfg config.Config) {
 		retryAfter string
 		body       string
 	}
-	responses := make(chan ingestionResponse, 3)
+	responses := make(chan ingestionResponse, concurrentWriters)
 	var writers sync.WaitGroup
-	for index := 0; index < 3; index++ {
+	for index := 0; index < concurrentWriters; index++ {
 		writers.Add(1)
 		go func(index int) {
 			defer writers.Done()
@@ -451,8 +453,8 @@ func runIntegrationIngestionSafetyLimits(t *testing.T, cfg config.Config) {
 			t.Fatalf("concurrent ingestion status = %d, want 201 or 429: %s", response.status, response.body)
 		}
 	}
-	if accepted != 2 || throttled != 1 {
-		t.Fatalf("concurrent ingestion accepted=%d throttled=%d, want 2 and 1", accepted, throttled)
+	if accepted != rateLimit || throttled != concurrentWriters-rateLimit {
+		t.Fatalf("concurrent ingestion accepted=%d throttled=%d, want %d and %d", accepted, throttled, rateLimit, concurrentWriters-rateLimit)
 	}
 
 	tooLarge := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages", map[string]any{
@@ -474,8 +476,8 @@ func runIntegrationIngestionSafetyLimits(t *testing.T, cfg config.Config) {
 		} `json:"ingestion_safety"`
 	}
 	decodeJSON(t, stats, &result)
-	if result.IngestionSafety.AcceptedEvents != 2 || result.IngestionSafety.ThrottledEvents != 1 {
-		t.Fatalf("ingestion safety = %#v, want accepted=2 throttled=1", result.IngestionSafety)
+	if result.IngestionSafety.AcceptedEvents != rateLimit || result.IngestionSafety.ThrottledEvents != concurrentWriters-rateLimit {
+		t.Fatalf("ingestion safety = %#v, want accepted=%d throttled=%d", result.IngestionSafety, rateLimit, concurrentWriters-rateLimit)
 	}
 }
 

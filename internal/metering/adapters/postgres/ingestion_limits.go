@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"time"
 
 	appauth "github.com/ssubedir/open-spanner/internal/auth"
@@ -12,29 +14,37 @@ func (r *UsageRepository) ConsumeIngestionCapacity(ctx context.Context, windowSt
 	if err != nil {
 		return false, err
 	}
-	allowed := false
+	var reservedWorkspaceID string
+	err = r.store.QueryRowContext(ctx, `INSERT INTO ingestion_rate_windows
+		(workspace_id, window_start, permitted_events, throttled_events, updated_at)
+		SELECT $1::text, $2::text, $3::bigint, 0, $5::text WHERE $3::bigint <= $4::bigint
+		ON CONFLICT (workspace_id) DO UPDATE SET
+			window_start = EXCLUDED.window_start,
+			permitted_events = CASE
+				WHEN ingestion_rate_windows.window_start = EXCLUDED.window_start THEN ingestion_rate_windows.permitted_events
+				ELSE 0
+			END + EXCLUDED.permitted_events,
+			throttled_events = CASE
+				WHEN ingestion_rate_windows.window_start = EXCLUDED.window_start THEN ingestion_rate_windows.throttled_events
+				ELSE 0
+			END,
+			updated_at = EXCLUDED.updated_at
+		WHERE (CASE
+			WHEN ingestion_rate_windows.window_start = EXCLUDED.window_start THEN ingestion_rate_windows.permitted_events
+			ELSE 0
+		END) + EXCLUDED.permitted_events <= $4::bigint
+		RETURNING workspace_id`, workspaceID, formatTime(windowStart), requested, limit, formatTime(updatedAt)).Scan(&reservedWorkspaceID)
+	if err == nil {
+		return true, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+
 	err = r.store.WithinTransaction(ctx, func(txCtx context.Context) error {
 		if _, err := r.store.ExecContext(txCtx, `INSERT INTO ingestion_rate_windows (workspace_id, window_start, permitted_events, throttled_events, updated_at)
 			VALUES ($1, $2, 0, 0, $3) ON CONFLICT (workspace_id) DO NOTHING`, workspaceID, formatTime(windowStart), formatTime(updatedAt)); err != nil {
 			return err
-		}
-		result, err := r.store.ExecContext(txCtx, `UPDATE ingestion_rate_windows SET
-			window_start = $2,
-			permitted_events = CASE WHEN window_start = $2 THEN permitted_events ELSE 0 END + $3,
-			throttled_events = CASE WHEN window_start = $2 THEN throttled_events ELSE 0 END,
-			updated_at = $5
-			WHERE workspace_id = $1 AND (CASE WHEN window_start = $2 THEN permitted_events ELSE 0 END) + $3 <= $4`,
-			workspaceID, formatTime(windowStart), requested, limit, formatTime(updatedAt))
-		if err != nil {
-			return err
-		}
-		rows, err := result.RowsAffected()
-		if err != nil {
-			return err
-		}
-		allowed = rows == 1
-		if allowed {
-			return nil
 		}
 		if _, err := r.store.ExecContext(txCtx, `UPDATE ingestion_rate_windows SET
 			window_start = $2, permitted_events = CASE WHEN window_start = $2 THEN permitted_events ELSE 0 END,
@@ -50,5 +60,5 @@ func (r *UsageRepository) ConsumeIngestionCapacity(ctx context.Context, windowSt
 			updated_at = EXCLUDED.updated_at`, workspaceID, requested, formatTime(updatedAt))
 		return err
 	})
-	return allowed, err
+	return false, err
 }
