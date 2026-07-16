@@ -112,7 +112,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		respond.ValidationError(w, err)
 		return
 	}
-	event, err := h.service.Create(r.Context(), appusage.CreateCommand{
+	event, err := h.service.CreateIngestion(r.Context(), "single", appusage.CreateCommand{
 		IdempotencyKey: req.IdempotencyKey,
 		Subject:        req.Subject,
 		MeterName:      req.Meter,
@@ -125,15 +125,10 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := h.service.RecordIngestion(r.Context(), appusage.IngestionCommand{
-		Kind:     "single",
-		Accepted: 1,
-	}); err != nil {
-		respond.ServiceError(w, err)
-		return
+	if !event.Replayed {
+		h.enqueueAlerts(r.Context(), []appusage.Result{event})
+		h.enqueueEntitlements(r.Context(), []appusage.Result{event})
 	}
-	h.enqueueAlerts(r.Context(), []appusage.Result{event})
-	h.enqueueEntitlements(r.Context(), []appusage.Result{event})
 
 	respond.JSON(w, http.StatusCreated, responseFromResult(event))
 }
@@ -316,15 +311,18 @@ func (h *Handler) CreateBulk(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	result := appusage.BulkResult{Failed: failures}
+	audited := false
 	if len(commands) > 0 || len(failures) == 0 {
-		serviceResult, err := h.service.CreateBulk(r.Context(), r.Header.Get("Idempotency-Key"), commands)
+		serviceResult, err := h.service.CreateBulkIngestion(r.Context(), "bulk", r.Header.Get("Idempotency-Key"), commands, len(failures))
 		if err != nil {
 			respond.ServiceError(w, err)
 			return
 		}
 		result.Accepted = serviceResult.Accepted
 		result.Duplicates = serviceResult.Duplicates
+		result.Replayed = serviceResult.Replayed
 		result.Failed = append(result.Failed, serviceResult.Failed...)
+		audited = true
 	}
 
 	status := http.StatusCreated
@@ -332,17 +330,14 @@ func (h *Handler) CreateBulk(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusBadRequest
 	}
 
-	if _, err := h.service.RecordIngestion(r.Context(), appusage.IngestionCommand{
-		Kind:       "bulk",
-		Accepted:   len(result.Accepted),
-		Duplicates: len(result.Duplicates),
-		Failed:     len(result.Failed),
-	}); err != nil {
-		respond.ServiceError(w, err)
-		return
+	if !audited {
+		if _, err := h.service.RecordIngestion(r.Context(), appusage.IngestionCommand{Kind: "bulk", Failed: len(result.Failed)}); err != nil {
+			respond.ServiceError(w, err)
+			return
+		}
 	}
-	h.enqueueAlerts(r.Context(), result.Accepted)
-	h.enqueueEntitlements(r.Context(), result.Accepted)
+	h.enqueueAlerts(r.Context(), result.NewlyAccepted())
+	h.enqueueEntitlements(r.Context(), result.NewlyAccepted())
 
 	respond.JSON(w, status, bulkResponseFromResult(result))
 }

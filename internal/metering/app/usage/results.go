@@ -15,6 +15,7 @@ type Result struct {
 	EventTime      time.Time
 	ReceivedAt     time.Time
 	Metadata       map[string]any
+	Replayed       bool `json:"-"`
 }
 
 type ListItemResult struct {
@@ -75,6 +76,14 @@ type BulkResult struct {
 	Accepted   []Result
 	Duplicates []Result
 	Failed     []BulkFailureResult
+	Replayed   bool `json:"-"`
+}
+
+func (r BulkResult) NewlyAccepted() []Result {
+	if r.Replayed {
+		return nil
+	}
+	return r.Accepted
 }
 
 func (r BulkResult) Events() []Result {
@@ -198,7 +207,7 @@ func bulkResultFromDomain(result domainusage.BulkSaveResult) BulkResult {
 		duplicates = append(duplicates, eventResultFromDomain(event))
 	}
 
-	return BulkResult{Accepted: accepted, Duplicates: duplicates}
+	return BulkResult{Accepted: accepted, Duplicates: duplicates, Replayed: result.Replayed()}
 }
 
 func ingestionResultFromDomain(run domainusage.IngestionRun) IngestionResult {

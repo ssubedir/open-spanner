@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -1105,6 +1106,75 @@ func TestServiceRecordsIngestionMetricsAfterPersistence(t *testing.T) {
 	if fmt.Sprint(recorder.calls) != fmt.Sprint(want) {
 		t.Fatalf("metric calls = %v, want %v", recorder.calls, want)
 	}
+}
+
+func TestCreateIngestionRecordsReplayOutcome(t *testing.T) {
+	ctx := testContext()
+	service, usageRepo, _ := newIngestionTestService(t, ctx)
+	cmd := CreateCommand{IdempotencyKey: "replay-1", Subject: "org", MeterName: "api_calls", Quantity: 1}
+
+	first, err := service.CreateIngestion(ctx, "single", cmd)
+	if err != nil {
+		t.Fatalf("create ingestion: %v", err)
+	}
+	second, err := service.CreateIngestion(ctx, "single", cmd)
+	if err != nil {
+		t.Fatalf("replay ingestion: %v", err)
+	}
+	if first.Replayed || !second.Replayed || first.ID != second.ID {
+		t.Fatalf("replay outcomes first=%#v second=%#v", first, second)
+	}
+	runs, err := service.ListIngestions(ctx, IngestionListQuery{Limit: 10})
+	if err != nil {
+		t.Fatalf("list ingestion runs: %v", err)
+	}
+	accepted, duplicates := 0, 0
+	for _, run := range runs.Items {
+		accepted += run.Accepted
+		duplicates += run.Duplicates
+	}
+	if accepted != 1 || duplicates != 1 {
+		t.Fatalf("ingestion audit accepted=%d duplicates=%d, want 1 and 1", accepted, duplicates)
+	}
+	count, err := usageRepo.CountEvents(ctx)
+	if err != nil || count != 1 {
+		t.Fatalf("stored events = %d err=%v, want 1", count, err)
+	}
+}
+
+func TestCreateIngestionRollsBackWhenAuditFails(t *testing.T) {
+	ctx := testContext()
+	service, usageRepo, store := newIngestionTestService(t, ctx)
+	if _, err := store.ExecContext(ctx, `CREATE TRIGGER fail_usage_ingestion BEFORE INSERT ON usage_ingestions
+		BEGIN SELECT RAISE(FAIL, 'synthetic audit failure'); END`); err != nil {
+		t.Fatalf("create failure trigger: %v", err)
+	}
+
+	_, err := service.CreateIngestion(ctx, "single", CreateCommand{
+		IdempotencyKey: "rollback-1", Subject: "org", MeterName: "api_calls", Quantity: 1,
+	})
+	if err == nil || !strings.Contains(err.Error(), "synthetic audit failure") {
+		t.Fatalf("create ingestion error = %v, want synthetic audit failure", err)
+	}
+	count, countErr := usageRepo.CountEvents(ctx)
+	if countErr != nil || count != 0 {
+		t.Fatalf("stored events after audit failure = %d err=%v, want 0", count, countErr)
+	}
+}
+
+func newIngestionTestService(t *testing.T, ctx context.Context) (Service, *sqlite.UsageRepository, *sqlite.Store) {
+	t.Helper()
+	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
+	meter, err := domainmeter.NewWithDimensions(
+		"meter-ingestion", "api_calls", "API calls", "call", domainmeter.AggregationSum, nil, 0, time.Now().UTC(),
+	)
+	if err != nil {
+		t.Fatalf("new ingestion meter: %v", err)
+	}
+	if _, err := meterRepo.Save(ctx, meter); err != nil {
+		t.Fatalf("save ingestion meter: %v", err)
+	}
+	return NewService(meterRepo, usageRepo, store), usageRepo, store
 }
 
 type ingestionMetricRecorder struct{ calls []string }

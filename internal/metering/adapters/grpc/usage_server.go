@@ -64,15 +64,14 @@ func (s *UsageServer) CreateUsage(ctx context.Context, req *pb.CreateUsageReques
 		return nil, serviceError(err)
 	}
 
-	event, err := s.service.Create(ctx, cmd)
+	event, err := s.service.CreateIngestion(ctx, "single", cmd)
 	if err != nil {
 		return nil, serviceError(err)
 	}
-	if err := s.recordIngestion(ctx, "single", 1, 0, 0); err != nil {
-		return nil, serviceError(err)
+	if !event.Replayed {
+		s.enqueueAlerts(ctx, []appusage.Result{event})
+		s.enqueueEntitlements(ctx, []appusage.Result{event})
 	}
-	s.enqueueAlerts(ctx, []appusage.Result{event})
-	s.enqueueEntitlements(ctx, []appusage.Result{event})
 
 	res, err := resultToProto(event)
 	if err != nil {
@@ -93,15 +92,12 @@ func (s *UsageServer) CreateUsageBulk(ctx context.Context, req *pb.CreateUsageBu
 		return nil, serviceError(err)
 	}
 
-	result, err := s.service.CreateBulk(ctx, req.GetIdempotencyKey(), commands)
+	result, err := s.service.CreateBulkIngestion(ctx, "bulk", req.GetIdempotencyKey(), commands, 0)
 	if err != nil {
 		return nil, serviceError(err)
 	}
-	if err := s.recordBulkIngestion(ctx, "bulk", result); err != nil {
-		return nil, serviceError(err)
-	}
-	s.enqueueAlerts(ctx, result.Accepted)
-	s.enqueueEntitlements(ctx, result.Accepted)
+	s.enqueueAlerts(ctx, result.NewlyAccepted())
+	s.enqueueEntitlements(ctx, result.NewlyAccepted())
 
 	res, err := bulkResponseFromResult(result)
 	if err != nil {
@@ -136,35 +132,18 @@ func (s *UsageServer) closeUsageStream(stream grpc.ClientStreamingServer[pb.Stre
 		return serviceError(err)
 	}
 
-	result, err := s.service.CreateBulk(stream.Context(), idempotencyKeyFromMetadata(stream.Context()), commands)
+	result, err := s.service.CreateBulkIngestion(stream.Context(), "stream", idempotencyKeyFromMetadata(stream.Context()), commands, 0)
 	if err != nil {
 		return serviceError(err)
 	}
-	if err := s.recordBulkIngestion(stream.Context(), "stream", result); err != nil {
-		return serviceError(err)
-	}
-	s.enqueueAlerts(stream.Context(), result.Accepted)
-	s.enqueueEntitlements(stream.Context(), result.Accepted)
+	s.enqueueAlerts(stream.Context(), result.NewlyAccepted())
+	s.enqueueEntitlements(stream.Context(), result.NewlyAccepted())
 
 	res, err := streamResponseFromResult(result)
 	if err != nil {
 		return serviceError(err)
 	}
 	return stream.SendAndClose(res)
-}
-
-func (s *UsageServer) recordBulkIngestion(ctx context.Context, kind string, result appusage.BulkResult) error {
-	return s.recordIngestion(ctx, kind, len(result.Accepted), len(result.Duplicates), len(result.Failed))
-}
-
-func (s *UsageServer) recordIngestion(ctx context.Context, kind string, accepted int, duplicates int, failed int) error {
-	_, err := s.service.RecordIngestion(ctx, appusage.IngestionCommand{
-		Kind:       kind,
-		Accepted:   accepted,
-		Duplicates: duplicates,
-		Failed:     failed,
-	})
-	return err
 }
 
 func (s *UsageServer) enqueueAlerts(ctx context.Context, events []appusage.Result) {

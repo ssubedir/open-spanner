@@ -75,7 +75,7 @@ func (r *UsageRepository) SaveBulk(ctx context.Context, idempotencyKey string, e
 	if idempotencyKey != "" {
 		existing, err := r.findBulk(ctx, idempotencyKey)
 		if err == nil {
-			return existing, nil
+			return existing.AsReplay(), nil
 		}
 		if err != sql.ErrNoRows {
 			return domainusage.BulkSaveResult{}, err
@@ -114,7 +114,8 @@ func (r *UsageRepository) SaveBulk(ctx context.Context, idempotencyKey string, e
 		return nil
 	})
 	if errors.Is(err, errBulkReplay) {
-		return r.findBulk(ctx, idempotencyKey)
+		existing, findErr := r.findBulk(ctx, idempotencyKey)
+		return existing.AsReplay(), findErr
 	}
 	if err != nil {
 		return domainusage.BulkSaveResult{}, err
@@ -224,9 +225,6 @@ func (r *UsageRepository) applyAcceptedUsage(ctx context.Context, workspaceID st
 		return nil
 	}
 	updatedAt := formatTime(time.Now().UTC())
-	if err := queriesFor(ctx, r.queries).IncrementWorkspaceUsageEvents(ctx, sqlitedb.IncrementWorkspaceUsageEventsParams{WorkspaceID: workspaceID, Delta: int64(len(events)), UpdatedAt: updatedAt}); err != nil {
-		return err
-	}
 	assignments, err := r.findUsagePlanAssignments(ctx, workspaceID, events)
 	if err != nil {
 		return err
@@ -242,7 +240,9 @@ func (r *UsageRepository) applyAcceptedUsage(ctx context.Context, workspaceID st
 			return err
 		}
 	}
-	return nil
+	return queriesFor(ctx, r.queries).IncrementWorkspaceUsageEvents(ctx, sqlitedb.IncrementWorkspaceUsageEventsParams{
+		WorkspaceID: workspaceID, Delta: int64(len(events)), UpdatedAt: updatedAt,
+	})
 }
 
 func (r *UsageRepository) findUsagePlanAssignments(ctx context.Context, workspaceID string, events []domainusage.Event) (map[string][]usagebatch.Assignment, error) {

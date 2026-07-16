@@ -1333,11 +1333,37 @@ func runIntegrationConcurrentUsageIdempotency(t *testing.T, cfg config.Config, n
 		t.Fatalf("concurrent usage stats status = %d, want %d: %s", statsRes.Code, http.StatusOK, statsRes.Body.String())
 	}
 	var stats struct {
-		UsageEvents int64 `json:"usage_events"`
+		UsageEvents     int64 `json:"usage_events"`
+		IngestionSafety struct {
+			AcceptedEvents int64 `json:"accepted_events"`
+		} `json:"ingestion_safety"`
 	}
 	decodeJSON(t, statsRes, &stats)
 	if stats.UsageEvents != 3 {
 		t.Fatalf("concurrent usage-event stats = %d, want 3 unique events", stats.UsageEvents)
+	}
+	if stats.IngestionSafety.AcceptedEvents != 3 {
+		t.Fatalf("concurrent accepted-event audit = %d, want 3 unique events", stats.IngestionSafety.AcceptedEvents)
+	}
+
+	runsRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/usageingestions?limit=50", nil, authHeaders, nil)
+	if runsRes.Code != http.StatusOK {
+		t.Fatalf("concurrent ingestion runs status = %d, want %d: %s", runsRes.Code, http.StatusOK, runsRes.Body.String())
+	}
+	var runs struct {
+		Items []struct {
+			Accepted   int `json:"accepted"`
+			Duplicates int `json:"duplicates"`
+		} `json:"items"`
+	}
+	decodeJSON(t, runsRes, &runs)
+	accepted, duplicates := 0, 0
+	for _, run := range runs.Items {
+		accepted += run.Accepted
+		duplicates += run.Duplicates
+	}
+	if accepted != 3 || duplicates != 45 {
+		t.Fatalf("concurrent ingestion audit accepted=%d duplicates=%d, want 3 and 45", accepted, duplicates)
 	}
 }
 
