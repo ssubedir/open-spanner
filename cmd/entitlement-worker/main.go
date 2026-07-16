@@ -44,9 +44,10 @@ func main() {
 		cfg.EntitlementWorkerBatchSize,
 		log.Printf,
 	)
-	heartbeat.Start(ctx, app.SystemService, "entitlement", log.Printf)
+	stopHeartbeat := heartbeat.Start(ctx, app.SystemService, "entitlement", log.Printf)
 	stopWorker := worker.Start(ctx)
 
 	<-ctx.Done()
 	stopWorker()
+	stopHeartbeat()
 }

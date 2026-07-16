@@ -44,9 +44,10 @@ func main() {
 		cfg.AlertWorkerBatchSize,
 		log.Printf,
 	)
-	heartbeat.Start(ctx, app.SystemService, "alert", log.Printf)
+	stopHeartbeat := heartbeat.Start(ctx, app.SystemService, "alert", log.Printf)
 	stopWorker := worker.Start(ctx)
 
 	<-ctx.Done()
 	stopWorker()
+	stopHeartbeat()
 }

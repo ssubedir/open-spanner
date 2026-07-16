@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -36,13 +39,16 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to initialize telemetry: %v", err)
 	}
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	defer cancelRun()
+	draining := &drainState{}
 
 	router := chi.NewRouter()
 	router.Use(metrics.HTTPMiddleware)
 	router.Get("/health", health)
 	router.Handle("/metrics", metrics.Handler())
 	ui.RegisterRoutes(router)
-	app, err := bootstrap.RegisterRoutesWithMetrics(context.Background(), router, cfg, metrics)
+	app, err := bootstrap.RegisterRoutesWithMetrics(runCtx, router, cfg, metrics)
 	if err != nil {
 		_ = metrics.Shutdown(context.Background())
 		log.Fatalf("failed to initialize metering: %v", err)
@@ -80,7 +86,7 @@ func main() {
 		_ = metrics.Shutdown(context.Background())
 		log.Fatalf("failed to initialize worker telemetry: %v", err)
 	}
-	router.Get("/ready", ready(app))
+	router.Get("/ready", ready(app, draining))
 
 	log.Printf("storage driver: %s", cfg.DBDriver)
 	if cfg.DBDriver == "sqlite" {
@@ -96,21 +102,25 @@ func main() {
 		log.Printf("grpc listening on %s", cfg.GRPCAddr)
 		if err := grpcServer.Serve(grpcListener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 			log.Printf("grpc server stopped: %v", err)
+			cancelRun()
 		}
 	}()
+	grpcDrain := newGRPCDrainer(grpcServer)
 
 	stopRetention := func() {}
+	stopRetentionHeartbeat := func() {}
 	if cfg.RetentionPruneEnabled {
-		heartbeat.Start(context.Background(), app.SystemService, "retention", log.Printf)
+		stopRetentionHeartbeat = heartbeat.Start(runCtx, app.SystemService, "retention", log.Printf)
 		log.Printf("retention prune worker enabled: interval=%s timeout=%s", cfg.RetentionPruneInterval, cfg.RetentionPruneTimeout)
 		stopRetention = retention.NewWorker(app.UsageService, cfg.RetentionPruneInterval, cfg.RetentionPruneTimeout, log.Printf).
 			WithDecisionPruner(app.ConsumptionService, cfg.ConsumptionDecisionRetention).
-			Start(context.Background())
+			Start(runCtx)
 	}
 
 	stopReconciliation := func() {}
+	stopReconciliationHeartbeat := func() {}
 	if cfg.ReconciliationEnabled {
-		heartbeat.Start(context.Background(), app.SystemService, "reconciliation", log.Printf)
+		stopReconciliationHeartbeat = heartbeat.Start(runCtx, app.SystemService, "reconciliation", log.Printf)
 		var notifier reconciliation.Notifier
 		if cfg.ReconciliationWebhookURL != "" {
 			notifier = reconciliation.NewWebhookNotifier(cfg.ReconciliationWebhookURL, cfg.ReconciliationWebhookSecret, nil)
@@ -119,20 +129,29 @@ func main() {
 			PollInterval: cfg.ReconciliationPollInterval, ScheduleInterval: cfg.ReconciliationSchedule,
 			LockTTL: cfg.ReconciliationLockTTL, Timeout: cfg.ReconciliationTimeout, RetryAfter: cfg.ReconciliationRetryAfter,
 			Limit: cfg.ReconciliationLimit, LookbackHours: cfg.ReconciliationLookbackHours, MaxAttempts: cfg.ReconciliationMaxAttempts, Notifier: notifier, Logger: log.Printf,
-		}).Start(context.Background())
+		}).Start(runCtx)
 	}
 
+	beginDrain := func() {
+		draining.Begin()
+		cancelRun()
+		grpcDrain.Begin()
+	}
 	cleanup := func() error {
-		grpcServer.GracefulStop()
-		stopRetention()
-		stopReconciliation()
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		return errors.Join(app.Cleanup(), metrics.Shutdown(ctx))
+		shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancelShutdown()
+		if grpcDrain.Wait(shutdownCtx) {
+			log.Printf("grpc graceful shutdown timed out; forced active streams to stop")
+		}
+		workerErr := stopFunctions(shutdownCtx, stopRetention, stopRetentionHeartbeat, stopReconciliation, stopReconciliationHeartbeat)
+		appErr := app.Cleanup()
+		telemetryCtx, cancelTelemetry := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelTelemetry()
+		return errors.Join(workerErr, appErr, metrics.Shutdown(telemetryCtx))
 	}
 
-	server := serverhttp.New(cfg.HTTPAddr, router, cleanup)
-	if err := server.Run(context.Background()); err != nil {
+	server := serverhttp.New(cfg.HTTPAddr, router, cleanup, beginDrain)
+	if err := server.Run(runCtx); err != nil {
 		log.Fatalf("server stopped: %v", err)
 	}
 }
@@ -160,8 +179,12 @@ type readyChecker interface {
 // @Success 204
 // @Failure 503
 // @Router /ready [get]
-func ready(checker readyChecker) http.HandlerFunc {
+func ready(checker readyChecker, draining *drainState) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if draining != nil && draining.Draining() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 
@@ -175,5 +198,74 @@ func ready(checker readyChecker) http.HandlerFunc {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+type drainState struct {
+	draining atomic.Bool
+}
+
+func (s *drainState) Begin() { s.draining.Store(true) }
+
+func (s *drainState) Draining() bool { return s != nil && s.draining.Load() }
+
+type grpcStopper interface {
+	GracefulStop()
+	Stop()
+}
+
+type grpcDrainer struct {
+	server grpcStopper
+	once   sync.Once
+	done   chan struct{}
+}
+
+func newGRPCDrainer(server grpcStopper) *grpcDrainer {
+	return &grpcDrainer{server: server, done: make(chan struct{})}
+}
+
+func (d *grpcDrainer) Begin() {
+	d.once.Do(func() {
+		go func() {
+			defer close(d.done)
+			d.server.GracefulStop()
+		}()
+	})
+}
+
+// Wait returns true when active streams exceeded the grace period and were forced closed.
+func (d *grpcDrainer) Wait(ctx context.Context) bool {
+	d.Begin()
+	select {
+	case <-d.done:
+		return false
+	case <-ctx.Done():
+		d.server.Stop()
+		return true
+	}
+}
+
+func stopFunctions(ctx context.Context, stops ...func()) error {
+	var wg sync.WaitGroup
+	for _, stop := range stops {
+		if stop == nil {
+			continue
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			stop()
+		}()
+	}
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("worker shutdown: %w", ctx.Err())
 	}
 }

@@ -7,16 +7,25 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 )
 
 type Server struct {
-	httpServer *http.Server
-	cleanup    func() error
+	httpServer  *http.Server
+	beginDrain  func()
+	cleanup     func() error
+	beginOnce   sync.Once
+	cleanupOnce sync.Once
+	cleanupErr  error
 }
 
-func New(addr string, handler http.Handler, cleanup func() error) *Server {
+func New(addr string, handler http.Handler, cleanup func() error, beginDrain ...func()) *Server {
+	var begin func()
+	if len(beginDrain) > 0 {
+		begin = beginDrain[0]
+	}
 	return &Server{
 		httpServer: &http.Server{
 			Addr:         addr,
@@ -25,7 +34,8 @@ func New(addr string, handler http.Handler, cleanup func() error) *Server {
 			WriteTimeout: 10 * time.Second,
 			IdleTimeout:  120 * time.Second,
 		},
-		cleanup: cleanup,
+		beginDrain: begin,
+		cleanup:    cleanup,
 	}
 }
 
@@ -54,29 +64,36 @@ func (s *Server) Run(ctx context.Context) error {
 		return s.stop(nil)
 	case err := <-errs:
 		if err != nil {
-			return err
+			return errors.Join(err, s.stop(nil))
 		}
-		return s.cleanupResources()
+		return s.stop(nil)
 	}
 }
 
 func (s *Server) stop(reason error) error {
+	s.beginOnce.Do(func() {
+		if s.beginDrain != nil {
+			s.beginDrain()
+		}
+	})
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := s.httpServer.Shutdown(ctx); err != nil {
-		return err
+	shutdownErr := s.httpServer.Shutdown(ctx)
+	var forceErr error
+	if shutdownErr != nil {
+		forceErr = s.httpServer.Close()
 	}
-	if err := s.cleanupResources(); err != nil {
-		return err
-	}
-
-	return reason
+	cleanupErr := s.cleanupResources()
+	return errors.Join(reason, shutdownErr, forceErr, cleanupErr)
 }
 
 func (s *Server) cleanupResources() error {
-	if s.cleanup == nil {
-		return nil
-	}
-	return s.cleanup()
+	s.cleanupOnce.Do(func() {
+		if s.cleanup != nil {
+			s.cleanupErr = s.cleanup()
+		}
+	})
+	return s.cleanupErr
 }
