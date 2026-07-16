@@ -43,12 +43,18 @@ type service struct {
 	transactor apptransaction.Transactor
 	now        func() time.Time
 	limits     IngestionLimits
+	metrics    IngestionMetrics
+}
+
+type IngestionMetrics interface {
+	RecordIngestion(ctx context.Context, kind, outcome string, count int)
 }
 
 type IngestionLimits struct {
 	MaxBatchEvents int
 	RateEvents     int
 	RateWindow     time.Duration
+	Metrics        IngestionMetrics
 }
 
 func NewService(meterRepo domainmeter.Repository, usageRepo domainusage.Repository, transactor apptransaction.Transactor, options ...IngestionLimits) Service {
@@ -69,6 +75,7 @@ func NewService(meterRepo domainmeter.Repository, usageRepo domainusage.Reposito
 		transactor: transactor,
 		now:        func() time.Time { return time.Now().UTC() },
 		limits:     limits,
+		metrics:    limits.Metrics,
 	}
 }
 

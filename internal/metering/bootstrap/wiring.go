@@ -2,6 +2,8 @@ package bootstrap
 
 import (
 	"context"
+	"database/sql"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -44,6 +46,8 @@ type App struct {
 	subjectService     appsubject.Service
 	ready              func(context.Context) error
 	cleanup            func() error
+	dbStats            func() sql.DBStats
+	systemRepo         appsystem.Repository
 }
 
 type readinessChecker interface {
@@ -62,6 +66,7 @@ type repositorySet struct {
 	transactor  apptransaction.Transactor
 	ready       func(context.Context) error
 	cleanup     func() error
+	dbStats     func() sql.DBStats
 }
 
 func (a *App) Ready(ctx context.Context) error {
@@ -78,7 +83,30 @@ func (a *App) Cleanup() error {
 	return a.cleanup()
 }
 
+func (a *App) DatabaseStats() sql.DBStats {
+	if a == nil || a.dbStats == nil {
+		return sql.DBStats{}
+	}
+	return a.dbStats()
+}
+
+func (a *App) WorkerTelemetry(ctx context.Context) ([]appsystem.WorkerHeartbeat, []appsystem.WorkerDiagnostics, error) {
+	if a == nil || a.systemRepo == nil {
+		return nil, nil, nil
+	}
+	heartbeats, err := a.systemRepo.ListWorkerHeartbeats(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	diagnostics, err := a.systemRepo.ListWorkerDiagnostics(ctx, time.Now().UTC())
+	return heartbeats, diagnostics, err
+}
+
 func NewApp(ctx context.Context, cfg config.Config) (*App, error) {
+	return NewAppWithMetrics(ctx, cfg, nil)
+}
+
+func NewAppWithMetrics(ctx context.Context, cfg config.Config, metrics appusage.IngestionMetrics) (*App, error) {
 	repos, err := repositories(ctx, cfg)
 	if err != nil {
 		return nil, err
@@ -95,6 +123,7 @@ func NewApp(ctx context.Context, cfg config.Config) (*App, error) {
 	usageService := appusage.NewService(repos.meter, repos.usage, repos.transactor, appusage.IngestionLimits{
 		MaxBatchEvents: max(cfg.IngestionMaxBulkEvents, cfg.IngestionMaxStreamEvents),
 		RateEvents:     cfg.IngestionRateLimitEvents, RateWindow: cfg.IngestionRateLimitWindow,
+		Metrics: metrics,
 	})
 	alertService := appalert.NewService(repos.alert, repos.meter, repos.usage, repos.transactor)
 	entitlementService := appentitlement.NewService(repos.entitlement, repos.meter, repos.usage, repos.transactor)
@@ -118,11 +147,17 @@ func NewApp(ctx context.Context, cfg config.Config) (*App, error) {
 		subjectService:     subjectService,
 		ready:              repos.ready,
 		cleanup:            repos.cleanup,
+		dbStats:            repos.dbStats,
+		systemRepo:         repos.system,
 	}, nil
 }
 
 func RegisterRoutes(ctx context.Context, router chi.Router, cfg config.Config) (*App, error) {
-	app, err := NewApp(ctx, cfg)
+	return RegisterRoutesWithMetrics(ctx, router, cfg, nil)
+}
+
+func RegisterRoutesWithMetrics(ctx context.Context, router chi.Router, cfg config.Config, metrics appusage.IngestionMetrics) (*App, error) {
+	app, err := NewAppWithMetrics(ctx, cfg, metrics)
 	if err != nil {
 		return nil, err
 	}
@@ -193,6 +228,7 @@ func repositories(ctx context.Context, cfg config.Config) (repositorySet, error)
 			transactor:  store,
 			ready:       readiness(store),
 			cleanup:     store.Close,
+			dbStats:     store.Stats,
 		}, nil
 	default:
 		store, err := sqlite.NewStore(ctx, cfg.SQLitePath, cfg.DBPool)
@@ -212,6 +248,7 @@ func repositories(ctx context.Context, cfg config.Config) (repositorySet, error)
 			transactor:  store,
 			ready:       readiness(store),
 			cleanup:     store.Close,
+			dbStats:     store.Stats,
 		}, nil
 	}
 }

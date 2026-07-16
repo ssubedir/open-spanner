@@ -1092,6 +1092,27 @@ func TestServiceCreateMissingMeterReturnsNotFound(t *testing.T) {
 	}
 }
 
+func TestServiceRecordsIngestionMetricsAfterPersistence(t *testing.T) {
+	ctx := testContext()
+	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
+	recorder := &ingestionMetricRecorder{}
+	service := NewService(meterRepo, usageRepo, store, IngestionLimits{Metrics: recorder})
+
+	if _, err := service.RecordIngestion(ctx, IngestionCommand{Kind: "bulk", Accepted: 3, Duplicates: 2, Failed: 1}); err != nil {
+		t.Fatalf("record ingestion: %v", err)
+	}
+	want := []string{"bulk:accepted:3", "bulk:duplicate:2", "bulk:rejected:1"}
+	if fmt.Sprint(recorder.calls) != fmt.Sprint(want) {
+		t.Fatalf("metric calls = %v, want %v", recorder.calls, want)
+	}
+}
+
+type ingestionMetricRecorder struct{ calls []string }
+
+func (r *ingestionMetricRecorder) RecordIngestion(_ context.Context, kind, outcome string, count int) {
+	r.calls = append(r.calls, fmt.Sprintf("%s:%s:%d", kind, outcome, count))
+}
+
 func TestServiceListInvalidTimeRangeReturnsInvalidInput(t *testing.T) {
 	ctx := testContext()
 	service := newTestService(t, ctx)

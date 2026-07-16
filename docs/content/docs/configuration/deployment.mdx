@@ -112,8 +112,11 @@ Use these endpoints from your orchestrator:
 | --- | --- |
 | `/health` | Liveness check that the process is running. |
 | `/ready` | Readiness check that the service can accept traffic. |
+| `/metrics` | OpenTelemetry operational metrics in Prometheus format. |
 
 The Docker Compose app stack uses `/ready` for the API container health check.
+
+Scrape `/metrics` from a trusted monitoring network. See [Observability](/docs/configuration/observability) for metric families, cardinality guarantees, and suggested alerts.
 
 The authenticated `GET /v1/system/stats` response and Overview dashboard also report durable heartbeats for export, alert, entitlement, retention, and reconciliation workers. A worker is `healthy` when its heartbeat is less than 30 seconds old, `stale` after that threshold, `disabled` when its feature is turned off, and `not_started` when no heartbeat has been recorded. Use this view for operator diagnosis; external monitoring can poll the same API.
 

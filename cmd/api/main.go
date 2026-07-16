@@ -16,6 +16,7 @@ import (
 	"github.com/ssubedir/open-spanner/internal/metering/workers/heartbeat"
 	"github.com/ssubedir/open-spanner/internal/metering/workers/reconciliation"
 	"github.com/ssubedir/open-spanner/internal/metering/workers/retention"
+	"github.com/ssubedir/open-spanner/internal/observability"
 	serverhttp "github.com/ssubedir/open-spanner/internal/server/http"
 	"github.com/ssubedir/open-spanner/internal/ui"
 	"google.golang.org/grpc"
@@ -31,13 +32,53 @@ func main() {
 	if err != nil {
 		log.Fatalf("invalid config: %v", err)
 	}
+	metrics, err := observability.New()
+	if err != nil {
+		log.Fatalf("failed to initialize telemetry: %v", err)
+	}
 
 	router := chi.NewRouter()
+	router.Use(metrics.HTTPMiddleware)
 	router.Get("/health", health)
+	router.Handle("/metrics", metrics.Handler())
 	ui.RegisterRoutes(router)
-	app, err := bootstrap.RegisterRoutes(context.Background(), router, cfg)
+	app, err := bootstrap.RegisterRoutesWithMetrics(context.Background(), router, cfg, metrics)
 	if err != nil {
+		_ = metrics.Shutdown(context.Background())
 		log.Fatalf("failed to initialize metering: %v", err)
+	}
+	if err := metrics.RegisterDBPool(app.DatabaseStats, cfg.DBDriver); err != nil {
+		_ = app.Cleanup()
+		_ = metrics.Shutdown(context.Background())
+		log.Fatalf("failed to initialize database telemetry: %v", err)
+	}
+	if err := metrics.RegisterWorkers(func(ctx context.Context) ([]observability.WorkerStats, error) {
+		heartbeats, diagnostics, err := app.WorkerTelemetry(ctx)
+		if err != nil {
+			return nil, err
+		}
+		items := make(map[string]observability.WorkerStats, len(diagnostics)+len(heartbeats))
+		for _, diagnostic := range diagnostics {
+			items[diagnostic.Name] = observability.WorkerStats{
+				Name: diagnostic.Name, PendingJobs: diagnostic.PendingJobs, RunningJobs: diagnostic.RunningJobs, FailedJobs: diagnostic.FailedJobs,
+				OldestPendingAt: diagnostic.OldestPendingAt, LastSuccessAt: diagnostic.LastSuccessAt, LastFailureAt: diagnostic.LastFailureAt,
+			}
+		}
+		for _, heartbeat := range heartbeats {
+			item := items[heartbeat.Name]
+			item.Name = heartbeat.Name
+			item.LastHeartbeatAt = heartbeat.LastHeartbeatAt
+			items[heartbeat.Name] = item
+		}
+		result := make([]observability.WorkerStats, 0, len(items))
+		for _, item := range items {
+			result = append(result, item)
+		}
+		return result, nil
+	}); err != nil {
+		_ = app.Cleanup()
+		_ = metrics.Shutdown(context.Background())
+		log.Fatalf("failed to initialize worker telemetry: %v", err)
 	}
 	router.Get("/ready", ready(app))
 
@@ -50,7 +91,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to listen for grpc: %v", err)
 	}
-	grpcServer := grpcadapter.NewServerWithIngestionLimits(app.UsageService, app.AlertService, app.EntitlementService, app.AuthService, app.Authorizer, grpcadapter.IngestionLimits{MaxBulkEvents: cfg.IngestionMaxBulkEvents, MaxStreamEvents: cfg.IngestionMaxStreamEvents}, grpc.MaxRecvMsgSize(cfg.IngestionMaxBodyBytes))
+	grpcServer := grpcadapter.NewInstrumentedServerWithIngestionLimits(app.UsageService, app.AlertService, app.EntitlementService, app.AuthService, app.Authorizer, grpcadapter.IngestionLimits{MaxBulkEvents: cfg.IngestionMaxBulkEvents, MaxStreamEvents: cfg.IngestionMaxStreamEvents}, metrics, grpc.MaxRecvMsgSize(cfg.IngestionMaxBodyBytes))
 	go func() {
 		log.Printf("grpc listening on %s", cfg.GRPCAddr)
 		if err := grpcServer.Serve(grpcListener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
@@ -85,7 +126,9 @@ func main() {
 		grpcServer.GracefulStop()
 		stopRetention()
 		stopReconciliation()
-		return app.Cleanup()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return errors.Join(app.Cleanup(), metrics.Shutdown(ctx))
 	}
 
 	server := serverhttp.New(cfg.HTTPAddr, router, cleanup)

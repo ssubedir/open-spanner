@@ -40,6 +40,9 @@ func (s *service) checkIngestionCapacity(ctx context.Context, requested int) err
 	if allowed {
 		return nil
 	}
+	if s.metrics != nil {
+		s.metrics.RecordIngestion(ctx, "rate_limit", "throttled", requested)
+	}
 	retryAfter := windowStart.Add(s.limits.RateWindow).Sub(now)
 	if retryAfter < time.Second {
 		retryAfter = time.Second

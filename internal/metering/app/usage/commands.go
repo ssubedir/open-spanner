@@ -140,6 +140,11 @@ func (s *service) RecordIngestion(ctx context.Context, cmd IngestionCommand) (In
 	if err != nil {
 		return IngestionResult{}, err
 	}
+	if s.metrics != nil {
+		s.metrics.RecordIngestion(ctx, cmd.Kind, "accepted", cmd.Accepted)
+		s.metrics.RecordIngestion(ctx, cmd.Kind, "duplicate", cmd.Duplicates)
+		s.metrics.RecordIngestion(ctx, cmd.Kind, "rejected", cmd.Failed)
+	}
 
 	return ingestionResultFromDomain(run), nil
 }

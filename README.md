@@ -49,6 +49,7 @@ Read the hosted docs at [ssubedir.github.io/open-spanner/docs](https://ssubedir.
 - Workspace isolation so each dashboard user sees their own meters, usage, plans, alerts, exports, and keys.
 - SQLite and Postgres storage, including Postgres JSONB metadata filtering.
 - Embedded React dashboard.
+- OpenTelemetry instrumentation with a Prometheus-compatible `/metrics` endpoint for HTTP, gRPC, ingestion, SQL pool, runtime, and worker health signals.
 - Generated REST SDKs for Go, TypeScript, Python, and C#.
 - Go stream SDK for gRPC usage ingestion.
 
@@ -75,6 +76,7 @@ Useful local endpoints:
 | `http://localhost:18081/login` | Dashboard login |
 | `http://localhost:18081/health` | Liveness |
 | `http://localhost:18081/ready` | Readiness |
+| `http://localhost:18081/metrics` | OpenTelemetry metrics in Prometheus format |
 | `localhost:18090` | gRPC usage ingestion |
 
 Stop the stack:
