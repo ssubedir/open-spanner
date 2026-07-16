@@ -65,4 +65,16 @@ OPEN_SPANNER_DB_CONN_MAX_LIFETIME=30m
 OPEN_SPANNER_DB_CONN_MAX_IDLE_TIME=5m
 ```
 
-Leave these at `0` to use Go's default database behavior.
+Leave these at `0` to use Go's default database behavior. Production deployments should set an explicit maximum for every API and worker process. Keep the idle limit at or below the open limit.
+
+Each pod owns an independent pool. Budget the combined maximum across every deployment:
+
+```text
+(API replicas × API pool)
+  + (export replicas × export pool)
+  + (alert replicas × alert pool)
+  + (entitlement replicas × entitlement pool)
+  < Postgres max_connections - reserved connections
+```
+
+The production Compose stack defaults to 20 API connections and 5 connections for each worker, for a total ceiling of 35 with one replica of each process. Its idle limits are 10 for the API and 2 for each worker so idle pods do not retain their entire allowance. Override these with `OPEN_SPANNER_API_DB_MAX_*`, `OPEN_SPANNER_EXPORT_DB_MAX_*`, `OPEN_SPANNER_ALERT_DB_MAX_*`, and `OPEN_SPANNER_ENTITLEMENT_DB_MAX_*` before increasing replica counts.

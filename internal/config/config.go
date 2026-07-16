@@ -384,6 +384,9 @@ func (cfg Config) Validate() error {
 	if cfg.DBPool.MaxIdleConns < 0 {
 		return fmt.Errorf("OPEN_SPANNER_DB_MAX_IDLE_CONNS cannot be negative")
 	}
+	if cfg.DBPool.MaxOpenConns > 0 && cfg.DBPool.MaxIdleConns > cfg.DBPool.MaxOpenConns {
+		return fmt.Errorf("OPEN_SPANNER_DB_MAX_IDLE_CONNS cannot exceed OPEN_SPANNER_DB_MAX_OPEN_CONNS")
+	}
 	if cfg.DBPool.ConnMaxLifetime < 0 {
 		return fmt.Errorf("OPEN_SPANNER_DB_CONN_MAX_LIFETIME cannot be negative")
 	}

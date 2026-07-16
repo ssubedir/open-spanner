@@ -134,6 +134,17 @@ func TestLoadRejectsInvalidPoolConfig(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsIdlePoolLargerThanOpenPool(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("OPEN_SPANNER_DB_MAX_OPEN_CONNS", "4")
+	t.Setenv("OPEN_SPANNER_DB_MAX_IDLE_CONNS", "5")
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "OPEN_SPANNER_DB_MAX_IDLE_CONNS cannot exceed OPEN_SPANNER_DB_MAX_OPEN_CONNS") {
+		t.Fatalf("load error = %v, want idle pool size error", err)
+	}
+}
+
 func TestLoadRejectsInvalidRetentionInterval(t *testing.T) {
 	clearEnv(t)
 	t.Setenv("OPEN_SPANNER_RETENTION_PRUNE_INTERVAL", "0s")

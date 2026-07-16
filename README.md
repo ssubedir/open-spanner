@@ -329,6 +329,8 @@ Common runtime variables:
 | `OPEN_SPANNER_GOOGLE_OAUTH_REDIRECT_URL` | | Optional callback URL; defaults to the request host plus `/v1/auth/oauth/google/callback`. |
 | `OPEN_SPANNER_DB_DRIVER` | `sqlite` | Storage driver: `sqlite` or `postgres`. |
 | `OPEN_SPANNER_SQLITE_PATH` | `open-spanner.db` | SQLite database path. |
+| `OPEN_SPANNER_DB_MAX_OPEN_CONNS` | `0` | Per-process SQL connection ceiling; set explicitly for every production API and worker deployment. |
+| `OPEN_SPANNER_DB_MAX_IDLE_CONNS` | `0` | Per-process idle connection ceiling; cannot exceed the open ceiling. |
 | `OPEN_SPANNER_POSTGRES_DSN` | | Postgres connection string. |
 | `OPEN_SPANNER_EXPORT_STORAGE_PATH` | `open-spanner-exports` | Shared path for generated export files. |
 | `OPEN_SPANNER_EXPORT_STORAGE_DRIVER` | `filesystem` | Export artifact backend: `filesystem` or `s3`. |
