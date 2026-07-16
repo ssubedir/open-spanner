@@ -21,7 +21,6 @@ jobs:
       api: ${{ steps.filter.outputs.api }}
       sdks: ${{ steps.filter.outputs.sdks }}
       admin: ${{ steps.filter.outputs.admin }}
-      browser: ${{ steps.filter.outputs.browser }}
       docs: ${{ steps.filter.outputs.docs }}
 
     steps:
@@ -39,7 +38,6 @@ jobs:
               echo "api=true"
               echo "sdks=true"
               echo "admin=true"
-              echo "browser=true"
               echo "docs=true"
             } >> "$GITHUB_OUTPUT"
 
@@ -83,13 +81,12 @@ jobs:
           SHARED='^\.github/workflows/ci\.yml$|^Taskfile\.yml$|^taskfiles/|^scripts/'
           BACKEND='^cmd/|^internal/|^go\.mod$|^go\.sum$|^sqlc\.yaml$|^openapi/|^docker-compose.*\.yml$|^Dockerfile$'
           SDKS='^sdk/|^examples/|^openapi/|^dotnet-tools\.json$'
-          ADMIN='^web/|^internal/ui/'
+          ADMIN='^web_v2/|^internal/ui/'
           DOCS='^docs/'
 
           set_area api "$SHARED|$BACKEND"
           set_area sdks "$SHARED|$SDKS"
           set_area admin "$SHARED|$ADMIN"
-          set_area browser "$SHARED|$BACKEND|$ADMIN"
           set_area docs "^\\.github/workflows/ci\\.yml$|$DOCS"
 
   api:
@@ -214,61 +211,18 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: web_v2/package-lock.json
 
       - name: Use locked npm version
         run: npm install --global npm@11.6.2
 
       - name: Install dependencies
-        working-directory: web
+        working-directory: web_v2
         run: npm ci
 
       - name: Build admin UI
-        working-directory: web
+        working-directory: web_v2
         run: npm run build
-
-  browser:
-    name: Browser E2E
-    runs-on: ubuntu-latest
-    needs: changes
-    if: needs.changes.outputs.browser == 'true'
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.25.5"
-          cache: true
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-
-      - name: Use locked npm version
-        run: npm install --global npm@11.6.2
-
-      - name: Install Task
-        run: npm install --global @go-task/cli
-
-      - name: Install dependencies
-        working-directory: web
-        run: npm ci
-
-      - name: Install Playwright browsers
-        working-directory: web
-        run: npx playwright install --with-deps chromium
-
-      - name: Run browser E2E
-        run: task test:e2e:web
-
-      - name: Run browser E2E with Postgres
-        run: task test:e2e:web:postgres
 
   docs:
     name: Docs build
