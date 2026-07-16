@@ -118,16 +118,6 @@ ORDER BY a.assigned_at DESC, a.updated_at DESC
 LIMIT 1
 FOR UPDATE;
 
--- name: FindActivePlanAssignmentAnchor :one
-SELECT period_anchor_at
-FROM plan_subject_assignments
-WHERE workspace_id = sqlc.arg('workspace_id')::text
-  AND subject = sqlc.arg('subject')::text
-  AND assigned_at <= sqlc.arg('now')::text
-  AND (unassigned_at IS NULL OR unassigned_at > sqlc.arg('now')::text)
-ORDER BY assigned_at DESC
-LIMIT 1;
-
 -- name: DeletePlanSubjectAssignment :execrows
 UPDATE plan_subject_assignments
 SET unassigned_at = sqlc.arg('unassigned_at'),
@@ -297,8 +287,8 @@ INSERT INTO entitlement_usage_counters (
 )
 VALUES (
 	sqlc.arg('workspace_id'), sqlc.arg('subject'), sqlc.arg('meter_name'), sqlc.arg('period'), sqlc.arg('period_start'), sqlc.arg('period_end'),
-	1, sqlc.arg('quantity'), sqlc.arg('quantity'), sqlc.arg('quantity'),
-	sqlc.arg('quantity'), sqlc.arg('event_time'), sqlc.arg('quantity'), sqlc.arg('event_time'), sqlc.arg('updated_at')
+	sqlc.arg('event_count')::bigint, sqlc.arg('quantity_sum'), sqlc.arg('quantity_min'), sqlc.arg('quantity_max'),
+	sqlc.arg('first_quantity'), sqlc.arg('first_event_time'), sqlc.arg('last_quantity'), sqlc.arg('last_event_time'), sqlc.arg('updated_at')
 )
 ON CONFLICT(workspace_id, subject, meter_name, period, period_start) DO UPDATE SET
 	period_end = excluded.period_end,

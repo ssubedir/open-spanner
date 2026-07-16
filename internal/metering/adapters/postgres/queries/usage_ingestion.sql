@@ -1,27 +1,3 @@
--- name: SaveUsageEvent :execrows
-INSERT INTO usage_events (
-	id,
-	workspace_id,
-	idempotency_key,
-	subject,
-	meter_name,
-	quantity,
-	event_time,
-	received_at,
-	metadata
-) VALUES (
-	sqlc.arg('id'),
-	sqlc.arg('workspace_id'),
-	NULLIF(sqlc.arg('idempotency_key')::text, ''),
-	sqlc.arg('subject'),
-	sqlc.arg('meter_name'),
-	sqlc.arg('quantity'),
-	sqlc.arg('event_time'),
-	sqlc.arg('received_at'),
-	sqlc.arg('metadata')::jsonb
-)
-ON CONFLICT DO NOTHING;
-
 -- name: FindUsageEventByID :one
 SELECT id, idempotency_key, subject, meter_name, quantity, event_time, received_at, metadata
 FROM usage_events

@@ -247,30 +247,6 @@ func (q *Queries) EnqueueEntitlementCheckJob(ctx context.Context, arg EnqueueEnt
 	return err
 }
 
-const findActivePlanAssignmentAnchor = `-- name: FindActivePlanAssignmentAnchor :one
-SELECT period_anchor_at
-FROM plan_subject_assignments
-WHERE workspace_id = ?1
-  AND subject = ?2
-  AND assigned_at <= ?3
-  AND (unassigned_at IS NULL OR unassigned_at > ?3)
-ORDER BY assigned_at DESC
-LIMIT 1
-`
-
-type FindActivePlanAssignmentAnchorParams struct {
-	WorkspaceID string
-	Subject     string
-	Now         string
-}
-
-func (q *Queries) FindActivePlanAssignmentAnchor(ctx context.Context, arg FindActivePlanAssignmentAnchorParams) (string, error) {
-	row := q.db.QueryRowContext(ctx, findActivePlanAssignmentAnchor, arg.WorkspaceID, arg.Subject, arg.Now)
-	var period_anchor_at string
-	err := row.Scan(&period_anchor_at)
-	return period_anchor_at, err
-}
-
 const findEffectivePlanSubjectAssignment = `-- name: FindEffectivePlanSubjectAssignment :one
 SELECT a.id, a.subject, a.plan_id, p.name AS plan_name, p.version AS plan_version, a.assigned_at, a.period_anchor_at, a.unassigned_at, a.updated_at
 FROM plan_subject_assignments a
@@ -421,8 +397,8 @@ INSERT INTO entitlement_usage_counters (
 )
 VALUES (
 	?1, ?2, ?3, ?4, ?5, ?6,
-	1, ?7, ?7, ?7,
-	?7, ?8, ?7, ?8, ?9
+	?7, ?8, ?9, ?10,
+	?11, ?12, ?13, ?14, ?15
 )
 ON CONFLICT(workspace_id, subject, meter_name, period, period_start) DO UPDATE SET
 	period_end = excluded.period_end,
@@ -444,15 +420,21 @@ ON CONFLICT(workspace_id, subject, meter_name, period, period_start) DO UPDATE S
 `
 
 type IncrementEntitlementUsageCounterParams struct {
-	WorkspaceID string
-	Subject     string
-	MeterName   string
-	Period      string
-	PeriodStart string
-	PeriodEnd   string
-	Quantity    float64
-	EventTime   string
-	UpdatedAt   string
+	WorkspaceID    string
+	Subject        string
+	MeterName      string
+	Period         string
+	PeriodStart    string
+	PeriodEnd      string
+	EventCount     int64
+	QuantitySum    float64
+	QuantityMin    float64
+	QuantityMax    float64
+	FirstQuantity  float64
+	FirstEventTime string
+	LastQuantity   float64
+	LastEventTime  string
+	UpdatedAt      string
 }
 
 func (q *Queries) IncrementEntitlementUsageCounter(ctx context.Context, arg IncrementEntitlementUsageCounterParams) error {
@@ -463,8 +445,14 @@ func (q *Queries) IncrementEntitlementUsageCounter(ctx context.Context, arg Incr
 		arg.Period,
 		arg.PeriodStart,
 		arg.PeriodEnd,
-		arg.Quantity,
-		arg.EventTime,
+		arg.EventCount,
+		arg.QuantitySum,
+		arg.QuantityMin,
+		arg.QuantityMax,
+		arg.FirstQuantity,
+		arg.FirstEventTime,
+		arg.LastQuantity,
+		arg.LastEventTime,
 		arg.UpdatedAt,
 	)
 	return err

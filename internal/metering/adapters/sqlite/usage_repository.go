@@ -7,9 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
+	"strings"
 	"time"
 
 	appauth "github.com/ssubedir/open-spanner/internal/auth"
+	"github.com/ssubedir/open-spanner/internal/metering/adapters/internal/usagebatch"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/sqlite/sqlitedb"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
 	domainusage "github.com/ssubedir/open-spanner/internal/metering/domain/usage"
@@ -18,6 +21,8 @@ import (
 var metadataKeyPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$`)
 
 var errBulkReplay = errors.New("bulk ingestion already exists")
+
+const usageInsertBatchSize = 100
 
 type UsageRepository struct {
 	store   *Store
@@ -79,21 +84,11 @@ func (r *UsageRepository) SaveBulk(ctx context.Context, idempotencyKey string, e
 
 	var result domainusage.BulkSaveResult
 	err = r.store.WithinTransaction(ctx, func(txCtx context.Context) error {
-		accepted := make([]domainusage.Event, 0, len(events))
-		duplicates := []domainusage.Event{}
-		for _, event := range events {
-			savedEvent, duplicate, err := r.saveWithDuplicate(txCtx, event)
-			if err != nil {
-				return err
-			}
-			if duplicate {
-				duplicates = append(duplicates, savedEvent)
-				continue
-			}
-			accepted = append(accepted, savedEvent)
+		var err error
+		result, err = r.saveEventBatch(txCtx, workspaceID, events)
+		if err != nil {
+			return err
 		}
-
-		result = domainusage.NewBulkSaveResult(accepted, duplicates)
 		if idempotencyKey == "" {
 			return nil
 		}
@@ -131,93 +126,118 @@ func (r *UsageRepository) SaveBulk(ctx context.Context, idempotencyKey string, e
 func (r *UsageRepository) save(ctx context.Context, event domainusage.Event) (domainusage.Event, error) {
 	var saved domainusage.Event
 	err := r.store.WithinTransaction(ctx, func(txCtx context.Context) error {
-		var err error
-		saved, _, err = r.saveWithDuplicate(txCtx, event)
-		return err
+		workspaceID, err := appauth.RequireWorkspaceID(txCtx)
+		if err != nil {
+			return err
+		}
+		result, err := r.saveEventBatch(txCtx, workspaceID, []domainusage.Event{event})
+		if err != nil {
+			return err
+		}
+		if len(result.Accepted()) == 1 {
+			saved = result.Accepted()[0]
+		} else {
+			saved = result.Duplicates()[0]
+		}
+		return nil
 	})
 	return saved, err
 }
 
-func (r *UsageRepository) saveWithDuplicate(ctx context.Context, event domainusage.Event) (domainusage.Event, bool, error) {
-	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+func (r *UsageRepository) saveEventBatch(ctx context.Context, workspaceID string, events []domainusage.Event) (domainusage.BulkSaveResult, error) {
+	inserted, err := r.insertUsageEvents(ctx, workspaceID, events)
 	if err != nil {
-		return domainusage.Event{}, false, err
+		return domainusage.BulkSaveResult{}, err
 	}
-
-	metadata, err := json.Marshal(event.Metadata())
-	if err != nil {
-		return domainusage.Event{}, false, err
-	}
-
-	rowsAffected, err := queriesFor(ctx, r.queries).SaveUsageEvent(ctx, sqlitedb.SaveUsageEventParams{
-		ID:             event.ID(),
-		WorkspaceID:    workspaceID,
-		IdempotencyKey: event.IdempotencyKey(),
-		Subject:        event.Subject(),
-		MeterName:      event.MeterName(),
-		Quantity:       event.Quantity(),
-		EventTime:      formatTime(event.EventTime()),
-		ReceivedAt:     formatTime(event.ReceivedAt()),
-		Metadata:       string(metadata),
-	})
-	if err != nil {
-		return domainusage.Event{}, false, err
-	}
-	if rowsAffected == 0 {
+	accepted := make([]domainusage.Event, 0, len(inserted))
+	duplicates := make([]domainusage.Event, 0, len(events)-len(inserted))
+	for _, event := range events {
+		if _, ok := inserted[event.ID()]; ok {
+			accepted = append(accepted, event)
+			continue
+		}
 		if _, findErr := r.findByID(ctx, event.ID()); findErr == nil {
-			return domainusage.Event{}, false, domain.ErrConflict
+			return domainusage.BulkSaveResult{}, domain.ErrConflict
 		} else if findErr != sql.ErrNoRows {
-			return domainusage.Event{}, false, findErr
+			return domainusage.BulkSaveResult{}, findErr
 		}
-		if event.IdempotencyKey() != "" {
-			existing, findErr := r.findByIdempotencyKey(ctx, event.IdempotencyKey())
-			return existing, true, findErr
+		if event.IdempotencyKey() == "" {
+			return domainusage.BulkSaveResult{}, domain.ErrConflict
 		}
-		return domainusage.Event{}, false, domain.ErrConflict
+		existing, findErr := r.findByIdempotencyKey(ctx, event.IdempotencyKey())
+		if findErr != nil {
+			return domainusage.BulkSaveResult{}, findErr
+		}
+		duplicates = append(duplicates, existing)
 	}
-
-	if err := queriesFor(ctx, r.queries).IncrementWorkspaceUsageEvents(ctx, sqlitedb.IncrementWorkspaceUsageEventsParams{
-		WorkspaceID: workspaceID,
-		Delta:       1,
-		UpdatedAt:   formatTime(time.Now().UTC()),
-	}); err != nil {
-		return domainusage.Event{}, false, err
+	if err := r.applyAcceptedUsage(ctx, workspaceID, accepted); err != nil {
+		return domainusage.BulkSaveResult{}, err
 	}
-	if err := r.incrementEntitlementUsageCounters(ctx, workspaceID, event); err != nil {
-		return domainusage.Event{}, false, err
-	}
-
-	return event, false, nil
+	return domainusage.NewBulkSaveResult(accepted, duplicates), nil
 }
 
-func (r *UsageRepository) incrementEntitlementUsageCounters(ctx context.Context, workspaceID string, event domainusage.Event) error {
-	anchorText, err := queriesFor(ctx, r.queries).FindActivePlanAssignmentAnchor(ctx, sqlitedb.FindActivePlanAssignmentAnchorParams{
-		WorkspaceID: workspaceID,
-		Subject:     event.Subject(),
-		Now:         formatTime(event.EventTime()),
-	})
-	if errors.Is(err, sql.ErrNoRows) {
+func (r *UsageRepository) insertUsageEvents(ctx context.Context, workspaceID string, events []domainusage.Event) (map[string]struct{}, error) {
+	inserted := make(map[string]struct{}, len(events))
+	for start := 0; start < len(events); start += usageInsertBatchSize {
+		end := start + usageInsertBatchSize
+		if end > len(events) {
+			end = len(events)
+		}
+		var query strings.Builder
+		query.WriteString(`INSERT INTO usage_events (id, workspace_id, idempotency_key, subject, meter_name, quantity, event_time, received_at, metadata) VALUES `)
+		args := make([]any, 0, (end-start)*9)
+		for index, event := range events[start:end] {
+			if index > 0 {
+				query.WriteByte(',')
+			}
+			query.WriteString(`(?,?,NULLIF(?,''),?,?,?,?,?,?)`)
+			metadata, err := json.Marshal(event.Metadata())
+			if err != nil {
+				return nil, err
+			}
+			args = append(args, event.ID(), workspaceID, event.IdempotencyKey(), event.Subject(), event.MeterName(), event.Quantity(), formatTime(event.EventTime()), formatTime(event.ReceivedAt()), string(metadata))
+		}
+		query.WriteString(` ON CONFLICT DO NOTHING RETURNING id`)
+		rows, err := r.store.QueryContext(ctx, query.String(), args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			inserted[id] = struct{}{}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+	return inserted, nil
+}
+
+func (r *UsageRepository) applyAcceptedUsage(ctx context.Context, workspaceID string, events []domainusage.Event) error {
+	if len(events) == 0 {
 		return nil
 	}
-	if err != nil {
-		return err
-	}
-	anchor, err := time.Parse(time.RFC3339Nano, anchorText)
-	if err != nil {
-		return err
-	}
 	updatedAt := formatTime(time.Now().UTC())
-	for _, window := range entitlementCounterWindows(event.EventTime(), anchor) {
+	if err := queriesFor(ctx, r.queries).IncrementWorkspaceUsageEvents(ctx, sqlitedb.IncrementWorkspaceUsageEventsParams{WorkspaceID: workspaceID, Delta: int64(len(events)), UpdatedAt: updatedAt}); err != nil {
+		return err
+	}
+	assignments, err := r.findUsagePlanAssignments(ctx, workspaceID, events)
+	if err != nil {
+		return err
+	}
+	for _, counter := range usagebatch.AggregateCounters(events, assignments) {
 		if err := queriesFor(ctx, r.queries).IncrementEntitlementUsageCounter(ctx, sqlitedb.IncrementEntitlementUsageCounterParams{
-			WorkspaceID: workspaceID,
-			Subject:     event.Subject(),
-			MeterName:   event.MeterName(),
-			Period:      window.period,
-			PeriodStart: formatTime(window.from),
-			PeriodEnd:   formatTime(window.to),
-			Quantity:    event.Quantity(),
-			EventTime:   formatTime(event.EventTime()),
-			UpdatedAt:   updatedAt,
+			WorkspaceID: workspaceID, Subject: counter.Subject, MeterName: counter.MeterName, Period: counter.Period,
+			PeriodStart: formatTime(counter.PeriodStart), PeriodEnd: formatTime(counter.PeriodEnd), EventCount: counter.EventCount,
+			QuantitySum: counter.QuantitySum, QuantityMin: counter.QuantityMin, QuantityMax: counter.QuantityMax,
+			FirstQuantity: counter.FirstQuantity, FirstEventTime: formatTime(counter.FirstEventAt),
+			LastQuantity: counter.LastQuantity, LastEventTime: formatTime(counter.LastEventAt), UpdatedAt: updatedAt,
 		}); err != nil {
 			return err
 		}
@@ -225,47 +245,55 @@ func (r *UsageRepository) incrementEntitlementUsageCounters(ctx context.Context,
 	return nil
 }
 
-type entitlementCounterWindow struct {
-	period string
-	from   time.Time
-	to     time.Time
-}
-
-func entitlementCounterWindows(at time.Time, anchor time.Time) []entitlementCounterWindow {
-	at = at.UTC()
-	anchor = anchor.UTC()
-	if anchor.IsZero() || at.Before(anchor) {
-		return nil
+func (r *UsageRepository) findUsagePlanAssignments(ctx context.Context, workspaceID string, events []domainusage.Event) (map[string][]usagebatch.Assignment, error) {
+	bounds := usagebatch.SubjectBounds(events)
+	subjects := make([]string, 0, len(bounds))
+	for subject := range bounds {
+		subjects = append(subjects, subject)
 	}
-	return []entitlementCounterWindow{
-		entitlementCounterWindowForPeriod(at, anchor, "day"),
-		entitlementCounterWindowForPeriod(at, anchor, "week"),
-		entitlementCounterWindowForPeriod(at, anchor, "month"),
-		entitlementCounterWindowForPeriod(at, anchor, "year"),
+	sort.Strings(subjects)
+	result := make(map[string][]usagebatch.Assignment, len(subjects))
+	for _, subject := range subjects {
+		bound := bounds[subject]
+		rows, err := r.store.QueryContext(ctx, `SELECT assigned_at, period_anchor_at, unassigned_at
+			FROM plan_subject_assignments
+			WHERE workspace_id = ? AND subject = ? AND assigned_at <= ?
+				AND (unassigned_at IS NULL OR unassigned_at > ?)
+			ORDER BY assigned_at DESC`, workspaceID, subject, formatTime(bound.To), formatTime(bound.From))
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var assignedAtText, anchorText string
+			var unassignedAtText sql.NullString
+			if err := rows.Scan(&assignedAtText, &anchorText, &unassignedAtText); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			assignedAt, err := time.Parse(time.RFC3339Nano, assignedAtText)
+			if err != nil {
+				rows.Close()
+				return nil, err
+			}
+			anchor, err := time.Parse(time.RFC3339Nano, anchorText)
+			if err != nil {
+				rows.Close()
+				return nil, err
+			}
+			unassignedAt, err := parseOptionalTime(unassignedAtText)
+			if err != nil {
+				rows.Close()
+				return nil, err
+			}
+			result[subject] = append(result[subject], usagebatch.Assignment{AssignedAt: assignedAt, Anchor: anchor, UnassignedAt: unassignedAt})
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
 	}
-}
-
-func entitlementCounterWindowForPeriod(at time.Time, anchor time.Time, period string) entitlementCounterWindow {
-	from := anchor
-	to := addEntitlementCounterPeriod(from, period)
-	for !at.Before(to) {
-		from = to
-		to = addEntitlementCounterPeriod(from, period)
-	}
-	return entitlementCounterWindow{period: period, from: from, to: to}
-}
-
-func addEntitlementCounterPeriod(from time.Time, period string) time.Time {
-	switch period {
-	case "day":
-		return from.AddDate(0, 0, 1)
-	case "week":
-		return from.AddDate(0, 0, 7)
-	case "year":
-		return from.AddDate(1, 0, 0)
-	default:
-		return from.AddDate(0, 1, 0)
-	}
+	return result, nil
 }
 
 func (r *UsageRepository) Query(ctx context.Context, query domainusage.Query) ([]domainusage.Bucket, error) {

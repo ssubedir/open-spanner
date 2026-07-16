@@ -1327,6 +1327,18 @@ func runIntegrationConcurrentUsageIdempotency(t *testing.T, cfg config.Config, n
 	if len(events.Items) != 3 {
 		t.Fatalf("stored concurrent usage events = %d, want three: %#v", len(events.Items), events.Items)
 	}
+
+	statsRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/system/stats", nil, authHeaders, nil)
+	if statsRes.Code != http.StatusOK {
+		t.Fatalf("concurrent usage stats status = %d, want %d: %s", statsRes.Code, http.StatusOK, statsRes.Body.String())
+	}
+	var stats struct {
+		UsageEvents int64 `json:"usage_events"`
+	}
+	decodeJSON(t, statsRes, &stats)
+	if stats.UsageEvents != 3 {
+		t.Fatalf("concurrent usage-event stats = %d, want 3 unique events", stats.UsageEvents)
+	}
 }
 
 func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace string) {

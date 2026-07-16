@@ -829,9 +829,18 @@ func (s *service) ListEvents(ctx context.Context, query EventListQuery) (EventLi
 func (s *service) EnqueueForUsageEvents(ctx context.Context, events []UsageEvent) error {
 	now := s.now()
 	seen := map[string]struct{}{}
+	eventsByMeter := make(map[string][]UsageEvent)
+	meters := make([]string, 0)
 	for _, event := range events {
+		meterName := strings.TrimSpace(event.Meter)
+		if _, ok := eventsByMeter[meterName]; !ok {
+			meters = append(meters, meterName)
+		}
+		eventsByMeter[meterName] = append(eventsByMeter[meterName], event)
+	}
+	for _, meterName := range meters {
 		rules, err := s.repo.FindRules(ctx, RuleQuery{
-			MeterName: strings.TrimSpace(event.Meter),
+			MeterName: meterName,
 			Enabled:   boolPointer(true),
 			Limit:     domainusage.MaxLimit,
 		})
@@ -843,7 +852,14 @@ func (s *service) EnqueueForUsageEvents(ctx context.Context, events []UsageEvent
 			if _, exists := seen[rule.ID]; exists {
 				continue
 			}
-			if !ruleMatchesUsageEvent(rule, event) {
+			matched := false
+			for _, event := range eventsByMeter[meterName] {
+				if ruleMatchesUsageEvent(rule, event) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
 				continue
 			}
 			seen[rule.ID] = struct{}{}
