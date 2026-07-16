@@ -107,7 +107,7 @@ func NewApp(ctx context.Context, cfg config.Config) (*App, error) {
 }
 
 func NewAppWithMetrics(ctx context.Context, cfg config.Config, metrics appusage.IngestionMetrics) (*App, error) {
-	repos, err := repositories(ctx, cfg)
+	repos, err := repositories(ctx, cfg, metrics)
 	if err != nil {
 		return nil, err
 	}
@@ -208,12 +208,15 @@ func NewExportStore(ctx context.Context, cfg config.Config) (fileexport.Store, e
 	})
 }
 
-func repositories(ctx context.Context, cfg config.Config) (repositorySet, error) {
+func repositories(ctx context.Context, cfg config.Config, metrics appusage.IngestionMetrics) (repositorySet, error) {
 	switch cfg.DBDriver {
 	case "postgres":
 		store, err := postgres.NewStore(ctx, cfg.PostgresDSN, cfg.DBPool)
 		if err != nil {
 			return repositorySet{}, err
+		}
+		if transactionMetrics, ok := metrics.(postgres.TransactionRetryMetrics); ok {
+			store.SetTransactionRetryMetrics(transactionMetrics)
 		}
 
 		return repositorySet{

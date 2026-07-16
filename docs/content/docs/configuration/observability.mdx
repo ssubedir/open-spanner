@@ -21,7 +21,7 @@ Keep `/metrics` on a trusted network or protect it at your ingress. It contains 
 | `open_spanner_http_server_*` | HTTP request count and duration by method, route template, and response status. |
 | `open_spanner_grpc_server_*` | gRPC request count and duration by bounded service method and status. |
 | `open_spanner_ingestion_events_*` | Accepted, duplicate, rejected, and throttled event totals by ingestion kind. |
-| `open_spanner_db_client_*` | Open, in-use, and idle SQL connections, configured pool capacity, waits, and wait duration. |
+| `open_spanner_db_client_*` | Open, in-use, and idle SQL connections, configured pool capacity, waits, wait duration, and retryable transaction failures. |
 | `open_spanner_worker_*` | Durable heartbeat age, pending/running/failed jobs, oldest pending age, and last success or failure age. |
 | `go_*` and `process_*` | Go runtime and operating-system process metrics. |
 
@@ -31,6 +31,7 @@ HTTP measurements use Chi route templates such as `/v1/usages/{id}`. They never 
 
 - Alert when ingestion throttling responses or non-success gRPC statuses increase.
 - Alert when database connections in use approach the configured maximum or connection waits rise continuously.
+- Alert when exhausted Postgres transaction retries are non-zero or retry attempts rise continuously.
 - Alert when a worker heartbeat age exceeds 30 seconds.
 - Alert when pending job count or oldest pending age grows without a corresponding success.
 

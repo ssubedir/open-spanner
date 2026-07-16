@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"embed"
 	"errors"
+	"math/rand/v2"
+	"time"
 
 	"github.com/golang-migrate/migrate/v4"
 	migratepostgres "github.com/golang-migrate/migrate/v4/database/postgres"
@@ -17,7 +19,20 @@ import (
 var migrationFiles embed.FS
 
 type Store struct {
-	db *sql.DB
+	db                 *sql.DB
+	transactionMetrics TransactionRetryMetrics
+}
+
+const (
+	transactionMaxAttempts = 3
+	transactionBaseDelay   = 10 * time.Millisecond
+	transactionMaxDelay    = 100 * time.Millisecond
+)
+
+// TransactionRetryMetrics records bounded Postgres transaction retry outcomes.
+type TransactionRetryMetrics interface {
+	RecordTransactionRetry(ctx context.Context, reason string)
+	RecordTransactionRetryExhausted(ctx context.Context, reason string)
 }
 
 type txContextKey struct{}
@@ -72,11 +87,51 @@ func (s *Store) Ping(ctx context.Context) error {
 
 func (s *Store) Stats() sql.DBStats { return s.db.Stats() }
 
+// SetTransactionRetryMetrics attaches an optional transaction retry recorder.
+// It must be called during application startup before the store is used.
+func (s *Store) SetTransactionRetryMetrics(metrics TransactionRetryMetrics) {
+	s.transactionMetrics = metrics
+}
+
 func (s *Store) WithinTransaction(ctx context.Context, fn func(context.Context) error) error {
 	if _, ok := txFromContext(ctx); ok {
 		return fn(ctx)
 	}
 
+	return runWithTransactionRetries(ctx, s.transactionMetrics, func() error {
+		return s.withinTransactionAttempt(ctx, fn)
+	})
+}
+
+func runWithTransactionRetries(ctx context.Context, metrics TransactionRetryMetrics, fn func() error) error {
+	for attempt := 1; attempt <= transactionMaxAttempts; attempt++ {
+		err := fn()
+		if err == nil {
+			return nil
+		}
+
+		reason, retryable := transactionRetryReason(err)
+		if !retryable {
+			return err
+		}
+		if attempt == transactionMaxAttempts {
+			if metrics != nil {
+				metrics.RecordTransactionRetryExhausted(ctx, reason)
+			}
+			return err
+		}
+		if metrics != nil {
+			metrics.RecordTransactionRetry(ctx, reason)
+		}
+		if err := waitForTransactionRetry(ctx, transactionRetryDelay(attempt)); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *Store) withinTransactionAttempt(ctx context.Context, fn func(context.Context) error) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -89,6 +144,46 @@ func (s *Store) WithinTransaction(ctx context.Context, fn func(context.Context) 
 	}
 
 	return tx.Commit()
+}
+
+func transactionRetryReason(err error) (string, bool) {
+	type sqlStateError interface {
+		SQLState() string
+	}
+
+	var state sqlStateError
+	if !errors.As(err, &state) {
+		return "", false
+	}
+	switch state.SQLState() {
+	case "40001":
+		return "serialization_failure", true
+	case "40P01":
+		return "deadlock_detected", true
+	default:
+		return "", false
+	}
+}
+
+func transactionRetryDelay(attempt int) time.Duration {
+	delay := transactionBaseDelay << (attempt - 1)
+	if delay > transactionMaxDelay {
+		delay = transactionMaxDelay
+	}
+	// Use bounded 50-100% jitter so competing transactions do not retry together.
+	half := delay / 2
+	return half + time.Duration(rand.Int64N(int64(delay-half)+1))
+}
+
+func waitForTransactionRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (s *Store) configure(ctx context.Context) error {

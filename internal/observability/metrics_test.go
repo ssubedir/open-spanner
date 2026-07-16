@@ -31,6 +31,8 @@ func TestMetricsExposeBoundedCoreSignals(t *testing.T) {
 	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/things/tenant-secret", nil))
 
 	metrics.RecordIngestion(context.Background(), "bulk", "accepted", 3)
+	metrics.RecordTransactionRetry(context.Background(), "deadlock_detected")
+	metrics.RecordTransactionRetryExhausted(context.Background(), "serialization_failure")
 	if err := metrics.RegisterDBPool(func() sql.DBStats {
 		return sql.DBStats{MaxOpenConnections: 8, OpenConnections: 3, InUse: 2, Idle: 1, WaitCount: 4, WaitDuration: 2 * time.Second}
 	}, "postgres"); err != nil {
@@ -65,6 +67,9 @@ func TestMetricsExposeBoundedCoreSignals(t *testing.T) {
 		`ingestion_outcome="accepted"`,
 		"open_spanner_db_client_connections",
 		`db_system="postgres"`,
+		"open_spanner_db_client_transaction_retries_total",
+		`db_transaction_retry_reason="deadlock_detected"`,
+		"open_spanner_db_client_transaction_retry_exhausted_total",
 		"open_spanner_worker_heartbeat_age_seconds",
 		"open_spanner_worker_jobs",
 		`worker_name="export"`,

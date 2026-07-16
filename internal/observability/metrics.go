@@ -28,13 +28,15 @@ const instrumentationName = "github.com/ssubedir/open-spanner"
 
 // Metrics owns the process-wide OpenTelemetry meter provider and Prometheus endpoint.
 type Metrics struct {
-	provider        *sdkmetric.MeterProvider
-	handler         http.Handler
-	httpRequests    metric.Int64Counter
-	httpDuration    metric.Float64Histogram
-	grpcRequests    metric.Int64Counter
-	grpcDuration    metric.Float64Histogram
-	ingestionEvents metric.Int64Counter
+	provider                  *sdkmetric.MeterProvider
+	handler                   http.Handler
+	httpRequests              metric.Int64Counter
+	httpDuration              metric.Float64Histogram
+	grpcRequests              metric.Int64Counter
+	grpcDuration              metric.Float64Histogram
+	ingestionEvents           metric.Int64Counter
+	transactionRetries        metric.Int64Counter
+	transactionRetryExhausted metric.Int64Counter
 }
 
 type WorkerStats struct {
@@ -89,11 +91,20 @@ func New() (*Metrics, error) {
 	if err != nil {
 		return nil, errors.Join(err, provider.Shutdown(context.Background()))
 	}
+	transactionRetries, err := meter.Int64Counter("open_spanner.db.client.transaction.retries", metric.WithUnit("{retry}"))
+	if err != nil {
+		return nil, errors.Join(err, provider.Shutdown(context.Background()))
+	}
+	transactionRetryExhausted, err := meter.Int64Counter("open_spanner.db.client.transaction.retry_exhausted", metric.WithUnit("{transaction}"))
+	if err != nil {
+		return nil, errors.Join(err, provider.Shutdown(context.Background()))
+	}
 
 	return &Metrics{
 		provider: provider, handler: promhttp.HandlerFor(registry, promhttp.HandlerOpts{}),
 		httpRequests: httpRequests, httpDuration: httpDuration,
 		grpcRequests: grpcRequests, grpcDuration: grpcDuration, ingestionEvents: ingestionEvents,
+		transactionRetries: transactionRetries, transactionRetryExhausted: transactionRetryExhausted,
 	}, nil
 }
 
@@ -169,6 +180,28 @@ func (m *Metrics) RecordIngestion(ctx context.Context, kind, outcome string, cou
 	m.ingestionEvents.Add(ctx, int64(count), metric.WithAttributes(
 		attribute.String("ingestion.kind", kind),
 		attribute.String("ingestion.outcome", outcome),
+	))
+}
+
+// RecordTransactionRetry records one bounded retry of an aborted Postgres transaction.
+func (m *Metrics) RecordTransactionRetry(ctx context.Context, reason string) {
+	if m == nil {
+		return
+	}
+	m.transactionRetries.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("db.system", "postgres"),
+		attribute.String("db.transaction.retry.reason", reason),
+	))
+}
+
+// RecordTransactionRetryExhausted records a transaction that remained aborted after all attempts.
+func (m *Metrics) RecordTransactionRetryExhausted(ctx context.Context, reason string) {
+	if m == nil {
+		return
+	}
+	m.transactionRetryExhausted.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("db.system", "postgres"),
+		attribute.String("db.transaction.retry.reason", reason),
 	))
 }
 

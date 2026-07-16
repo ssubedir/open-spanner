@@ -32,6 +32,7 @@ import (
 
 	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/config"
+	postgresadapter "github.com/ssubedir/open-spanner/internal/metering/adapters/postgres"
 	appalert "github.com/ssubedir/open-spanner/internal/metering/app/alert"
 	appconsumption "github.com/ssubedir/open-spanner/internal/metering/app/consumption"
 	appentitlement "github.com/ssubedir/open-spanner/internal/metering/app/entitlement"
@@ -596,6 +597,108 @@ func TestIntegrationPostgresConcurrentUsageIdempotency(t *testing.T) {
 		DBPool:              config.DBPoolConfig{MaxOpenConns: 8},
 		RegistrationEnabled: true,
 	}, "postgres")
+}
+
+func TestIntegrationPostgresTransactionDeadlockRetryExactlyOnce(t *testing.T) {
+	dsn := os.Getenv("OPEN_SPANNER_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set OPEN_SPANNER_TEST_POSTGRES_DSN to run Postgres bootstrap integration tests")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	store, err := postgresadapter.NewStore(ctx, dsn, config.DBPoolConfig{MaxOpenConns: 4})
+	if err != nil {
+		t.Fatalf("new postgres store: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("close postgres store: %v", err)
+		}
+	})
+
+	metrics := &postgresTransactionRetryRecorder{}
+	store.SetTransactionRetryMetrics(metrics)
+	table := "transaction_retry_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	if _, err := store.ExecContext(ctx, "CREATE TABLE "+table+" (operation TEXT PRIMARY KEY)"); err != nil {
+		t.Fatalf("create retry table: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := store.ExecContext(context.Background(), "DROP TABLE IF EXISTS "+table); err != nil {
+			t.Fatalf("drop retry table: %v", err)
+		}
+	})
+
+	lockBase := time.Now().UnixNano()
+	firstLocks := make(chan struct{}, 2)
+	releaseSecondLocks := make(chan struct{})
+	errs := make(chan error, 2)
+	var attempts atomic.Int32
+	run := func(operation string, firstLock, secondLock int64) {
+		errs <- store.WithinTransaction(ctx, func(txCtx context.Context) error {
+			attempt := attempts.Add(1)
+			if attempt <= 2 {
+				if _, err := store.ExecContext(txCtx, "SELECT pg_advisory_xact_lock($1)", firstLock); err != nil {
+					return err
+				}
+				select {
+				case firstLocks <- struct{}{}:
+				case <-txCtx.Done():
+					return txCtx.Err()
+				}
+				select {
+				case <-releaseSecondLocks:
+				case <-txCtx.Done():
+					return txCtx.Err()
+				}
+				if _, err := store.ExecContext(txCtx, "SELECT pg_advisory_xact_lock($1)", secondLock); err != nil {
+					return err
+				}
+			}
+			_, err := store.ExecContext(txCtx, "INSERT INTO "+table+" (operation) VALUES ($1)", operation)
+			return err
+		})
+	}
+
+	go run("first", lockBase, lockBase+1)
+	go run("second", lockBase+1, lockBase)
+	for range 2 {
+		select {
+		case <-firstLocks:
+		case <-ctx.Done():
+			t.Fatalf("wait for first advisory locks: %v", ctx.Err())
+		}
+	}
+	close(releaseSecondLocks)
+	for range 2 {
+		if err := <-errs; err != nil {
+			t.Fatalf("deadlocked transaction: %v", err)
+		}
+	}
+
+	var rows int
+	if err := store.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+table).Scan(&rows); err != nil {
+		t.Fatalf("count retry writes: %v", err)
+	}
+	if rows != 2 || attempts.Load() != 3 {
+		t.Fatalf("rows=%d attempts=%d, want 2 exactly-once writes across 3 attempts", rows, attempts.Load())
+	}
+	if metrics.retries.Load() != 1 || metrics.exhausted.Load() != 0 {
+		t.Fatalf("retry metrics retries=%d exhausted=%d", metrics.retries.Load(), metrics.exhausted.Load())
+	}
+}
+
+type postgresTransactionRetryRecorder struct {
+	retries   atomic.Int32
+	exhausted atomic.Int32
+}
+
+func (r *postgresTransactionRetryRecorder) RecordTransactionRetry(context.Context, string) {
+	r.retries.Add(1)
+}
+
+func (r *postgresTransactionRetryRecorder) RecordTransactionRetryExhausted(context.Context, string) {
+	r.exhausted.Add(1)
 }
 
 func TestIntegrationSQLiteAtomicConsumption(t *testing.T) {
