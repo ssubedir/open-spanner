@@ -158,10 +158,45 @@ func (s *S3Store) Write(ctx context.Context, name string, write func(io.Writer) 
 }
 
 func (s *S3Store) Open(ctx context.Context, name string) (Object, error) {
+	return s.open(ctx, name, nil)
+}
+
+func (s *S3Store) Stat(ctx context.Context, name string) (Artifact, error) {
+	if err := validateName(name); err != nil {
+		return Artifact{}, err
+	}
+	output, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(s.key(name))})
+	if err != nil {
+		if isS3NotFound(err) {
+			return Artifact{}, errors.Join(domain.ErrNotFound, err)
+		}
+		return Artifact{}, err
+	}
+	modified := time.Time{}
+	if output.LastModified != nil {
+		modified = output.LastModified.UTC()
+	}
+	size := int64(-1)
+	if output.ContentLength != nil {
+		size = *output.ContentLength
+	}
+	return Artifact{Name: name, Size: size, ModTime: modified}, nil
+}
+
+func (s *S3Store) OpenRange(ctx context.Context, name string, byteRange ByteRange) (Object, error) {
+	if byteRange.Start < 0 || byteRange.End < byteRange.Start {
+		return Object{}, fmt.Errorf("%w: invalid export artifact byte range", domain.ErrInvalidInput)
+	}
+	rangeHeader := fmt.Sprintf("bytes=%d-%d", byteRange.Start, byteRange.End)
+	return s.open(ctx, name, &rangeHeader)
+}
+
+func (s *S3Store) open(ctx context.Context, name string, byteRange *string) (Object, error) {
 	if err := validateName(name); err != nil {
 		return Object{}, err
 	}
-	output, err := s.client.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(s.key(name))})
+	input := &s3.GetObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(s.key(name)), Range: byteRange}
+	output, err := s.client.GetObject(ctx, input)
 	if err != nil {
 		if isS3NotFound(err) {
 			return Object{}, errors.Join(domain.ErrNotFound, err)

@@ -48,6 +48,9 @@ Queued export jobs are available for longer-running bucketed exports:
 - `POST /v1/exports/{id}/cancel`
 - `POST /v1/exports/{id}/retry`
 - `GET /v1/exports/{id}/download`
+- `HEAD /v1/exports/{id}/download`
+
+The download endpoint supports a single HTTP `Range` request for resumable filesystem and S3-compatible transfers.
 
 Alert rules are available in the full REST API and dashboard:
 

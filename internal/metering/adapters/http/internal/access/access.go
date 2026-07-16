@@ -148,6 +148,10 @@ func (r Router) Get(pattern string, handler http.HandlerFunc, policies ...Policy
 	r.router.With(r.authorization(policies...)...).Get(pattern, handler)
 }
 
+func (r Router) Head(pattern string, handler http.HandlerFunc, policies ...Policy) {
+	r.router.With(r.authorization(policies...)...).Head(pattern, handler)
+}
+
 func (r Router) Post(pattern string, handler http.HandlerFunc, policies ...Policy) {
 	r.router.With(r.authorization(policies...)...).Post(pattern, handler)
 }

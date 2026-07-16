@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 	"testing"
@@ -55,6 +56,13 @@ func (f *fakeS3) GetObject(_ context.Context, input *s3.GetObjectInput, _ ...fun
 	data, ok := f.objects[aws.ToString(input.Key)]
 	if !ok {
 		return nil, fakeAPIError{code: "NoSuchKey"}
+	}
+	if input.Range != nil {
+		var start, end int
+		if _, err := fmt.Sscanf(aws.ToString(input.Range), "bytes=%d-%d", &start, &end); err != nil || start < 0 || end < start || end >= len(data) {
+			return nil, fakeAPIError{code: "InvalidRange"}
+		}
+		data = data[start : end+1]
 	}
 	size, modified := int64(len(data)), f.modified[aws.ToString(input.Key)]
 	return &s3.GetObjectOutput{Body: io.NopCloser(bytes.NewReader(data)), ContentLength: &size, LastModified: &modified}, nil

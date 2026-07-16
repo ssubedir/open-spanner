@@ -96,6 +96,16 @@ curl "http://localhost:18081/v1/exports/{job_id}/download" \
   -o usage-export.csv
 ```
 
+Completed export downloads stream without the normal API response deadline and support `HEAD` plus single byte-range requests. Resume an interrupted download with the same authorized URL:
+
+```sh
+curl -C - "http://localhost:18081/v1/exports/{job_id}/download" \
+  -H "Authorization: Bearer $OPEN_SPANNER_API_KEY" \
+  -o usage-export.csv
+```
+
+Client cancellation and coordinated API shutdown still close the underlying filesystem or S3 response stream immediately.
+
 Cancel a queued or running job:
 
 ```sh

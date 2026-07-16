@@ -26,9 +26,17 @@ type Object struct {
 	Artifact Artifact
 }
 
+// ByteRange identifies an inclusive segment of an export artifact.
+type ByteRange struct {
+	Start int64
+	End   int64
+}
+
 type Store interface {
 	Write(ctx context.Context, name string, write func(io.Writer) error) (Artifact, error)
+	Stat(ctx context.Context, name string) (Artifact, error)
 	Open(ctx context.Context, name string) (Object, error)
+	OpenRange(ctx context.Context, name string, byteRange ByteRange) (Object, error)
 	Remove(ctx context.Context, name string) error
 }
 
@@ -106,6 +114,56 @@ func (s FileStore) Open(ctx context.Context, name string) (Object, error) {
 	return Object{Body: file, Artifact: Artifact{Name: name, Size: info.Size(), ModTime: info.ModTime().UTC()}}, nil
 }
 
+func (s FileStore) Stat(ctx context.Context, name string) (Artifact, error) {
+	if err := ctx.Err(); err != nil {
+		return Artifact{}, err
+	}
+	path, err := s.path(name)
+	if err != nil {
+		return Artifact{}, err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return Artifact{}, errors.Join(domain.ErrNotFound, err)
+		}
+		return Artifact{}, err
+	}
+	return Artifact{Name: name, Size: info.Size(), ModTime: info.ModTime().UTC()}, nil
+}
+
+func (s FileStore) OpenRange(ctx context.Context, name string, byteRange ByteRange) (Object, error) {
+	if err := ctx.Err(); err != nil {
+		return Object{}, err
+	}
+	if byteRange.Start < 0 || byteRange.End < byteRange.Start {
+		return Object{}, fmt.Errorf("%w: invalid export artifact byte range", domain.ErrInvalidInput)
+	}
+	path, err := s.path(name)
+	if err != nil {
+		return Object{}, err
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return Object{}, errors.Join(domain.ErrNotFound, err)
+		}
+		return Object{}, err
+	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return Object{}, err
+	}
+	if byteRange.End >= info.Size() {
+		_ = file.Close()
+		return Object{}, fmt.Errorf("%w: export artifact byte range exceeds object size", domain.ErrInvalidInput)
+	}
+	length := byteRange.End - byteRange.Start + 1
+	body := &sectionReadCloser{Reader: io.NewSectionReader(file, byteRange.Start, length), Closer: file}
+	return Object{Body: body, Artifact: Artifact{Name: name, Size: length, ModTime: info.ModTime().UTC()}}, nil
+}
+
 func (s FileStore) Remove(ctx context.Context, name string) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -135,4 +193,9 @@ func validateName(name string) error {
 		return fmt.Errorf("%w: invalid export artifact name", domain.ErrInvalidInput)
 	}
 	return nil
+}
+
+type sectionReadCloser struct {
+	io.Reader
+	io.Closer
 }

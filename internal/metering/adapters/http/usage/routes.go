@@ -54,6 +54,7 @@ func (h *Handler) registerExportRoutes(routes access.Router) {
 		r.Post("/{id}/cancel", h.CancelExportJob, access.ExportsWrite(h.exportJobResource))
 		r.Post("/{id}/retry", h.RetryExportJob, access.ExportsWrite(h.exportJobResource))
 		r.Get("/{id}/download", h.DownloadExportJob, access.ExportsRead(h.exportJobResource))
+		r.Head("/{id}/download", h.DownloadExportJob, access.ExportsRead(h.exportJobResource))
 	})
 }
 

@@ -611,30 +611,109 @@ func (h *Handler) DownloadExportJob(w http.ResponseWriter, r *http.Request) {
 		respond.ServiceError(w, errors.Join(domain.ErrConflict, fmt.Errorf("export artifact has expired")))
 		return
 	}
+	h.serveExportArtifact(w, r, job)
+}
 
-	object, err := h.exportStore.Open(r.Context(), job.ArtifactPath)
+func (h *Handler) serveExportArtifact(w http.ResponseWriter, r *http.Request, job appusage.ExportJobResult) {
+	// Export artifacts can be arbitrarily large. Clear only this response's write
+	// deadline; request cancellation and coordinated server shutdown still apply.
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+
+	artifact, err := h.exportStore.Stat(r.Context(), job.ArtifactPath)
 	if err != nil {
-		if errors.Is(err, domain.ErrNotFound) {
-			respond.ServiceError(w, errors.Join(domain.ErrNotFound, fmt.Errorf("export artifact was not found")))
-			return
-		}
-		respond.ServiceError(w, err)
+		respondExportStoreError(w, err)
 		return
 	}
-	defer object.Body.Close()
+
+	byteRange, err := parseDownloadRange(r.Header.Get("Range"), artifact.Size)
+	if err != nil {
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", max(artifact.Size, 0)))
+		respond.Error(w, http.StatusRequestedRangeNotSatisfiable, "range_not_satisfiable", "requested export byte range is not satisfiable")
+		return
+	}
+
+	var object fileexport.Object
+	if r.Method != http.MethodHead {
+		if byteRange == nil {
+			object, err = h.exportStore.Open(r.Context(), job.ArtifactPath)
+		} else {
+			object, err = h.exportStore.OpenRange(r.Context(), job.ArtifactPath, *byteRange)
+		}
+		if err != nil {
+			respondExportStoreError(w, err)
+			return
+		}
+		defer object.Body.Close()
+	}
 
 	filename := fmt.Sprintf("open-spanner-export-%s.csv", job.ID)
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
-	if seeker, ok := object.Body.(io.ReadSeeker); ok {
-		http.ServeContent(w, r, filename, object.Artifact.ModTime, seeker)
+	w.Header().Set("Accept-Ranges", "bytes")
+	if !artifact.ModTime.IsZero() {
+		w.Header().Set("Last-Modified", artifact.ModTime.UTC().Format(http.TimeFormat))
+	}
+	status := http.StatusOK
+	contentLength := artifact.Size
+	if byteRange != nil {
+		status = http.StatusPartialContent
+		contentLength = byteRange.End - byteRange.Start + 1
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", byteRange.Start, byteRange.End, artifact.Size))
+	}
+	if contentLength >= 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(contentLength, 10))
+	}
+	w.WriteHeader(status)
+	if r.Method != http.MethodHead {
+		_, _ = io.Copy(w, object.Body)
+	}
+}
+
+func respondExportStoreError(w http.ResponseWriter, err error) {
+	if errors.Is(err, domain.ErrNotFound) {
+		respond.ServiceError(w, errors.Join(domain.ErrNotFound, fmt.Errorf("export artifact was not found")))
 		return
 	}
-	if object.Artifact.Size >= 0 {
-		w.Header().Set("Content-Length", strconv.FormatInt(object.Artifact.Size, 10))
+	respond.ServiceError(w, err)
+}
+
+func parseDownloadRange(value string, size int64) (*fileexport.ByteRange, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
 	}
-	w.WriteHeader(http.StatusOK)
-	_, _ = io.Copy(w, object.Body)
+	if size <= 0 || !strings.HasPrefix(value, "bytes=") || strings.Contains(value, ",") {
+		return nil, errors.New("invalid byte range")
+	}
+	parts := strings.Split(strings.TrimSpace(strings.TrimPrefix(value, "bytes=")), "-")
+	if len(parts) != 2 {
+		return nil, errors.New("invalid byte range")
+	}
+	if parts[0] == "" {
+		suffix, err := strconv.ParseInt(parts[1], 10, 64)
+		if err != nil || suffix <= 0 {
+			return nil, errors.New("invalid byte range")
+		}
+		if suffix > size {
+			suffix = size
+		}
+		return &fileexport.ByteRange{Start: size - suffix, End: size - 1}, nil
+	}
+	start, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || start < 0 || start >= size {
+		return nil, errors.New("invalid byte range")
+	}
+	end := size - 1
+	if parts[1] != "" {
+		end, err = strconv.ParseInt(parts[1], 10, 64)
+		if err != nil || end < start {
+			return nil, errors.New("invalid byte range")
+		}
+		if end >= size {
+			end = size - 1
+		}
+	}
+	return &fileexport.ByteRange{Start: start, End: end}, nil
 }
 
 // List lists bucketed usage.

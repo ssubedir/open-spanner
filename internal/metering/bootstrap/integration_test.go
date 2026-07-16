@@ -1812,6 +1812,23 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 		t.Fatalf("downloaded export csv = %q", csvBody)
 	}
 
+	headReq := httptest.NewRequest(http.MethodHead, completedExportJob.DownloadURL, nil)
+	headReq.Header.Set("Authorization", "Bearer "+apiKey)
+	headRes := httptest.NewRecorder()
+	router.ServeHTTP(headRes, headReq)
+	if headRes.Code != http.StatusOK || headRes.Body.Len() != 0 || headRes.Header().Get("Content-Length") != strconv.Itoa(len(csvBody)) || headRes.Header().Get("Accept-Ranges") != "bytes" {
+		t.Fatalf("HEAD export status=%d headers=%v body=%q", headRes.Code, headRes.Header(), headRes.Body.String())
+	}
+
+	rangeReq := httptest.NewRequest(http.MethodGet, completedExportJob.DownloadURL, nil)
+	rangeReq.Header.Set("Authorization", "Bearer "+apiKey)
+	rangeReq.Header.Set("Range", "bytes=0-15")
+	rangeRes := httptest.NewRecorder()
+	router.ServeHTTP(rangeRes, rangeReq)
+	if rangeRes.Code != http.StatusPartialContent || rangeRes.Body.String() != csvBody[:16] || rangeRes.Header().Get("Content-Range") != fmt.Sprintf("bytes 0-15/%d", len(csvBody)) {
+		t.Fatalf("range export status=%d headers=%v body=%q", rangeRes.Code, rangeRes.Header(), rangeRes.Body.String())
+	}
+
 	cleanupWorker := exportworker.NewWorker(app.UsageService, exportStore, time.Millisecond, time.Minute, 3, t.Logf).WithCleanup(time.Nanosecond, time.Hour, 1000)
 	expired, err := cleanupWorker.CleanupOnce(ctx)
 	if err != nil || expired == 0 {

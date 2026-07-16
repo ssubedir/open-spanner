@@ -26,6 +26,10 @@ func testStoreContract(t *testing.T, store Store) {
 	if artifact.Name != "artifact.csv" || artifact.Size != 13 {
 		t.Fatalf("artifact = %#v", artifact)
 	}
+	stat, err := store.Stat(ctx, artifact.Name)
+	if err != nil || stat.Name != artifact.Name || stat.Size != artifact.Size {
+		t.Fatalf("stat artifact=%#v err=%v", stat, err)
+	}
 	object, err := store.Open(ctx, artifact.Name)
 	if err != nil {
 		t.Fatalf("open: %v", err)
@@ -35,11 +39,23 @@ func testStoreContract(t *testing.T, store Store) {
 	if readErr != nil || closeErr != nil || string(data) != "header\nvalue\n" || object.Artifact.Size != artifact.Size {
 		t.Fatalf("read data=%q artifact=%#v readErr=%v closeErr=%v", data, object.Artifact, readErr, closeErr)
 	}
+	ranged, err := store.OpenRange(ctx, artifact.Name, ByteRange{Start: 7, End: 11})
+	if err != nil {
+		t.Fatalf("open range: %v", err)
+	}
+	rangeData, readErr := io.ReadAll(ranged.Body)
+	closeErr = ranged.Body.Close()
+	if readErr != nil || closeErr != nil || string(rangeData) != "value" || ranged.Artifact.Size != 5 {
+		t.Fatalf("range data=%q artifact=%#v readErr=%v closeErr=%v", rangeData, ranged.Artifact, readErr, closeErr)
+	}
 	if err := store.Remove(ctx, artifact.Name); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
 	if _, err := store.Open(ctx, artifact.Name); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("open removed error = %v", err)
+	}
+	if _, err := store.Stat(ctx, artifact.Name); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("stat removed error = %v", err)
 	}
 	if err := store.Remove(ctx, artifact.Name); err != nil {
 		t.Fatalf("idempotent remove: %v", err)
