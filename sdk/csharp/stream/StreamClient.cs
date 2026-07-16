@@ -1,3 +1,4 @@
+using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using Grpc.Net.Client;
@@ -35,13 +36,26 @@ public sealed record BulkResult(
     IReadOnlyList<RecordedEvent> Duplicates,
     IReadOnlyList<Failure> Failed);
 
+public sealed record RetryEvent(int Attempt, TimeSpan Delay, RpcException Error);
+
+public sealed record RetryPolicy
+{
+    /// <summary>Total attempts including the initial request.</summary>
+    public int MaxAttempts { get; init; } = 3;
+    public TimeSpan InitialBackoff { get; init; } = TimeSpan.FromMilliseconds(100);
+    public TimeSpan MaxBackoff { get; init; } = TimeSpan.FromSeconds(5);
+    public double Jitter { get; init; } = 0.2;
+    public Action<RetryEvent>? OnRetry { get; init; }
+}
+
 public sealed class StreamClient : IDisposable
 {
     private readonly GrpcChannel channel;
     private readonly UsageService.UsageServiceClient client;
     private readonly string apiKey;
+    private readonly RetryPolicy? retryPolicy;
 
-    public StreamClient(string address, string apiKey, GrpcChannelOptions? options = null)
+    public StreamClient(string address, string apiKey, GrpcChannelOptions? options = null, RetryPolicy? retryPolicy = null)
     {
         address = address.Trim();
         if (string.IsNullOrWhiteSpace(address))
@@ -56,16 +70,17 @@ public sealed class StreamClient : IDisposable
         }
 
         this.apiKey = apiKey;
+        this.retryPolicy = retryPolicy is null ? null : Normalize(retryPolicy);
         channel = GrpcChannel.ForAddress(NormalizeAddress(address), options ?? new GrpcChannelOptions());
         client = new UsageService.UsageServiceClient(channel);
     }
 
     public async Task<RecordedEvent> TrackAsync(Event usageEvent, CancellationToken cancellationToken = default)
     {
-        var response = await client.CreateUsageAsync(
-            new CreateUsageRequest { Event = EventInput(usageEvent) },
-            headers: MetadataHeaders(),
-            cancellationToken: cancellationToken);
+        var request = new CreateUsageRequest { Event = EventInput(usageEvent) };
+        var response = await RetryUnaryAsync(
+            () => client.CreateUsageAsync(request, headers: MetadataHeaders(), cancellationToken: cancellationToken).ResponseAsync,
+            cancellationToken);
         return Recorded(response.Event);
     }
 
@@ -77,10 +92,9 @@ public sealed class StreamClient : IDisposable
         };
         request.Events.AddRange(events.Select(EventInput));
 
-        var response = await client.CreateUsageBulkAsync(
-            request,
-            headers: MetadataHeaders(),
-            cancellationToken: cancellationToken);
+        var response = await RetryUnaryAsync(
+            () => client.CreateUsageBulkAsync(request, headers: MetadataHeaders(), cancellationToken: cancellationToken).ResponseAsync,
+            cancellationToken);
         return Bulk(response);
     }
 
@@ -106,6 +120,84 @@ public sealed class StreamClient : IDisposable
             metadata.Add(key, value);
         }
         return metadata;
+    }
+
+    private async Task<T> RetryUnaryAsync<T>(Func<Task<T>> call, CancellationToken cancellationToken)
+    {
+        if (retryPolicy is null)
+        {
+            return await call();
+        }
+
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await call();
+            }
+            catch (RpcException error) when (attempt < retryPolicy.MaxAttempts && Retryable(error))
+            {
+                var delay = RetryDelay(error, retryPolicy, attempt);
+                retryPolicy.OnRetry?.Invoke(new RetryEvent(attempt + 1, delay, error));
+                await Task.Delay(delay, cancellationToken);
+            }
+        }
+    }
+
+    private static RetryPolicy Normalize(RetryPolicy policy)
+    {
+        var initial = policy.InitialBackoff > TimeSpan.Zero ? policy.InitialBackoff : TimeSpan.FromMilliseconds(100);
+        return policy with
+        {
+            MaxAttempts = Math.Max(1, policy.MaxAttempts),
+            InitialBackoff = initial,
+            MaxBackoff = policy.MaxBackoff >= initial ? policy.MaxBackoff : initial,
+            Jitter = Math.Clamp(policy.Jitter, 0, 1),
+        };
+    }
+
+    private static bool Retryable(RpcException error) => error.StatusCode is
+        StatusCode.ResourceExhausted or StatusCode.Unavailable or StatusCode.DeadlineExceeded;
+
+    private static TimeSpan RetryDelay(RpcException error, RetryPolicy policy, int attempt)
+    {
+        var guided = RetryInfoDelay(error);
+        if (guided is { } retryAfter && retryAfter > TimeSpan.Zero)
+        {
+            return retryAfter;
+        }
+
+        var backoffMs = Math.Min(
+            policy.MaxBackoff.TotalMilliseconds,
+            policy.InitialBackoff.TotalMilliseconds * Math.Pow(2, attempt - 1));
+        var factor = 1 - policy.Jitter + Random.Shared.NextDouble() * 2 * policy.Jitter;
+        return TimeSpan.FromMilliseconds(Math.Max(1, backoffMs * factor));
+    }
+
+    private static TimeSpan? RetryInfoDelay(RpcException error)
+    {
+        var encoded = error.Trailers.GetValueBytes("grpc-status-details-bin");
+        if (encoded is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var status = Google.Rpc.Status.Parser.ParseFrom(encoded);
+            foreach (var detail in status.Details)
+            {
+                if (detail.Is(Google.Rpc.RetryInfo.Descriptor))
+                {
+                    return detail.Unpack<Google.Rpc.RetryInfo>().RetryDelay?.ToTimeSpan();
+                }
+            }
+        }
+        catch (InvalidProtocolBufferException)
+        {
+            // Ignore malformed proxy trailers and fall back to local backoff.
+        }
+        return null;
     }
 
     private static string NormalizeAddress(string address)

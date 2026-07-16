@@ -41,6 +41,12 @@ When REST ingestion returns `429 Too Many Requests`, wait for the number of seco
 
 Apply jitter when many workers could retry together. Do not retry request-size errors or batches that exceed the configured event limit; split those requests into smaller batches instead.
 
+The Go, TypeScript, Python, and C# gRPC ingestion clients expose an opt-in retry policy for unary single and bulk writes. The default policy makes three total attempts with capped exponential backoff, 20% jitter, and the server-provided `RetryInfo` delay when present. Each policy has an `onRetry`/`OnRetry` callback for metrics and logging.
+
+Each generated REST SDK also includes an explicit usage-write retry helper. Wrap the generated call once, outside the callback, so every attempt uses the same request object. These helpers retry transport failures, `429`, and temporary `500`, `502`, `503`, and `504` responses; they honor `Retry-After` and expose the same retry callback. Other `4xx` responses return immediately.
+
+Client-streaming calls are deliberately not replayed automatically. If a stream fails, the server may have accepted an unknown prefix. Resubmit the stream's events through the unary bulk method with the same per-event and batch idempotency keys; accepted events become duplicates instead of being counted twice.
+
 ## Bulk Writes
 
 Use `POST /v1/usages/bulk` when a worker reports a batch. Each event in the batch should still have its own idempotency key. A batch contains at most `OPEN_SPANNER_INGESTION_MAX_BULK_EVENTS` events (1,000 by default).

@@ -9,7 +9,14 @@ Use the stream client from trusted backend code when you want to send usage thro
 ```csharp
 using OpenSpanner.Streaming;
 
-var client = new StreamClient("http://localhost:18082", "osp_live_...");
+var client = new StreamClient(
+    "http://localhost:18082",
+    "osp_live_...",
+    retryPolicy: new RetryPolicy
+    {
+        MaxAttempts = 3,
+        OnRetry = retry => Console.WriteLine($"retry {retry.Attempt} after {retry.Delay}"),
+    });
 var result = await client.TrackBulkAsync(
     idempotencyKey: Guid.NewGuid().ToString(),
     events:
@@ -32,6 +39,8 @@ var result = await client.TrackBulkAsync(
 Console.WriteLine($"accepted={result.AcceptedCount} failed={result.FailedCount}");
 ```
 
+Retries are opt-in and apply to unary `TrackAsync` and `TrackBulkAsync` calls. They honor `google.rpc.RetryInfo` and retry only overload, temporary unavailability, and deadline failures. Client streams are not replayed automatically; retry an uncertain stream through `TrackBulkAsync` with the original event idempotency keys.
+
 ## REST client
 
 Record usage for a meter that already exists:
@@ -41,6 +50,7 @@ using Microsoft.Kiota.Abstractions.Authentication;
 using Microsoft.Kiota.Http.HttpClientLibrary;
 using OpenSpanner;
 using OpenSpanner.Models;
+using OpenSpanner.Retrying;
 
 var apiKey = "...";
 var authProvider = new BaseBearerTokenAuthenticationProvider(new ApiKeyProvider(apiKey));
@@ -50,14 +60,16 @@ var adapter = new HttpClientRequestAdapter(authProvider)
 };
 var client = new OpenSpannerClient(adapter);
 
-var usage = await client.V1.Usages.PostAsync(new UsageCreateRequest
+var request = new UsageCreateRequest
 {
     IdempotencyKey = Guid.NewGuid().ToString(),
     Subject = "org_123",
     Meter = "api_requests",
     Quantity = 1,
     Timestamp = DateTimeOffset.UtcNow.ToString("O"),
-});
+};
+var usage = await UsageRetry.ExecuteAsync(
+    cancellationToken => client.V1.Usages.PostAsync(request, cancellationToken: cancellationToken));
 
 Console.WriteLine(usage?.Id);
 
@@ -74,3 +86,5 @@ sealed class ApiKeyProvider(string apiKey) : IAccessTokenProvider
     }
 }
 ```
+
+`UsageRetry.ExecuteAsync` retries transport failures, `429`, and temporary `5xx` responses, and honors `Retry-After`.

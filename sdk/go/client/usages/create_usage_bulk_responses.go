@@ -45,6 +45,18 @@ func (o *CreateUsageBulkReader) ReadResponse(response runtime.ClientResponse, co
 			return nil, err
 		}
 		return nil, result
+	case 413:
+		result := NewCreateUsageBulkRequestEntityTooLarge()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 429:
+		result := NewCreateUsageBulkTooManyRequests()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 500:
 		result := NewCreateUsageBulkInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -325,6 +337,158 @@ func (o *CreateUsageBulkConflict) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CreateUsageBulkConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
+		return err
+	}
+
+	return nil
+}
+
+// NewCreateUsageBulkRequestEntityTooLarge creates a CreateUsageBulkRequestEntityTooLarge with default headers values
+func NewCreateUsageBulkRequestEntityTooLarge() *CreateUsageBulkRequestEntityTooLarge {
+	return &CreateUsageBulkRequestEntityTooLarge{}
+}
+
+/*
+CreateUsageBulkRequestEntityTooLarge describes a response with status code 413, with default header values.
+
+Request Entity Too Large
+*/
+type CreateUsageBulkRequestEntityTooLarge struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this create usage bulk request entity too large response has a 2xx status code
+func (o *CreateUsageBulkRequestEntityTooLarge) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this create usage bulk request entity too large response has a 3xx status code
+func (o *CreateUsageBulkRequestEntityTooLarge) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this create usage bulk request entity too large response has a 4xx status code
+func (o *CreateUsageBulkRequestEntityTooLarge) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this create usage bulk request entity too large response has a 5xx status code
+func (o *CreateUsageBulkRequestEntityTooLarge) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this create usage bulk request entity too large response a status code equal to that given
+func (o *CreateUsageBulkRequestEntityTooLarge) IsCode(code int) bool {
+	return code == 413
+}
+
+// Code gets the status code for the create usage bulk request entity too large response
+func (o *CreateUsageBulkRequestEntityTooLarge) Code() int {
+	return 413
+}
+
+func (o *CreateUsageBulkRequestEntityTooLarge) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /v1/usages/bulk][%d] createUsageBulkRequestEntityTooLarge %s", 413, payload)
+}
+
+func (o *CreateUsageBulkRequestEntityTooLarge) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /v1/usages/bulk][%d] createUsageBulkRequestEntityTooLarge %s", 413, payload)
+}
+
+func (o *CreateUsageBulkRequestEntityTooLarge) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *CreateUsageBulkRequestEntityTooLarge) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
+		return err
+	}
+
+	return nil
+}
+
+// NewCreateUsageBulkTooManyRequests creates a CreateUsageBulkTooManyRequests with default headers values
+func NewCreateUsageBulkTooManyRequests() *CreateUsageBulkTooManyRequests {
+	return &CreateUsageBulkTooManyRequests{}
+}
+
+/*
+CreateUsageBulkTooManyRequests describes a response with status code 429, with default header values.
+
+Too Many Requests
+*/
+type CreateUsageBulkTooManyRequests struct {
+
+	/* Seconds until ingestion capacity is available
+	 */
+	RetryAfter string
+
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this create usage bulk too many requests response has a 2xx status code
+func (o *CreateUsageBulkTooManyRequests) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this create usage bulk too many requests response has a 3xx status code
+func (o *CreateUsageBulkTooManyRequests) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this create usage bulk too many requests response has a 4xx status code
+func (o *CreateUsageBulkTooManyRequests) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this create usage bulk too many requests response has a 5xx status code
+func (o *CreateUsageBulkTooManyRequests) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this create usage bulk too many requests response a status code equal to that given
+func (o *CreateUsageBulkTooManyRequests) IsCode(code int) bool {
+	return code == 429
+}
+
+// Code gets the status code for the create usage bulk too many requests response
+func (o *CreateUsageBulkTooManyRequests) Code() int {
+	return 429
+}
+
+func (o *CreateUsageBulkTooManyRequests) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /v1/usages/bulk][%d] createUsageBulkTooManyRequests %s", 429, payload)
+}
+
+func (o *CreateUsageBulkTooManyRequests) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /v1/usages/bulk][%d] createUsageBulkTooManyRequests %s", 429, payload)
+}
+
+func (o *CreateUsageBulkTooManyRequests) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *CreateUsageBulkTooManyRequests) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	// hydrates response header Retry-After
+	hdrRetryAfter := response.GetHeader("Retry-After")
+
+	if hdrRetryAfter != "" {
+		o.RetryAfter = hdrRetryAfter
+	}
 
 	o.Payload = new(models.ErrorResponse)
 

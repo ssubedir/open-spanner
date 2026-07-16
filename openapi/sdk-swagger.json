@@ -680,6 +680,24 @@
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "413": {
+            "description": "Request Entity Too Large",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            },
+            "headers": {
+              "Retry-After": {
+                "type": "string",
+                "description": "Seconds until ingestion capacity is available"
+              }
+            }
+          },
           "500": {
             "description": "Internal Server Error",
             "schema": {
@@ -798,6 +816,24 @@
             "description": "Conflict",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "413": {
+            "description": "Request Entity Too Large",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            },
+            "headers": {
+              "Retry-After": {
+                "type": "string",
+                "description": "Seconds until ingestion capacity is available"
+              }
             }
           },
           "500": {

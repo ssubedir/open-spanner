@@ -4553,6 +4553,34 @@
                             }
                         }
                     },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "headers": {
+                            "Retry-After": {
+                                "description": "Seconds until ingestion capacity is available",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
                         "content": {
@@ -4693,6 +4721,34 @@
                     },
                     "409": {
                         "description": "Conflict",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "headers": {
+                            "Retry-After": {
+                                "description": "Seconds until ingestion capacity is available",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -6750,6 +6806,20 @@
                     }
                 }
             },
+            "internal_metering_adapters_http_system.IngestionSafetyResponse": {
+                "type": "object",
+                "properties": {
+                    "accepted_events": {
+                        "type": "integer"
+                    },
+                    "rejected_events": {
+                        "type": "integer"
+                    },
+                    "throttled_events": {
+                        "type": "integer"
+                    }
+                }
+            },
             "internal_metering_adapters_http_system.LastDecisionPruneRunResponse": {
                 "type": "object",
                 "properties": {
@@ -7018,6 +7088,61 @@
                     }
                 }
             },
+            "internal_metering_adapters_http_system.RollupHealthResponse": {
+                "type": "object",
+                "properties": {
+                    "finalized_through": {
+                        "type": "string"
+                    },
+                    "healthy_meters": {
+                        "type": "integer"
+                    },
+                    "issues": {
+                        "type": "integer"
+                    },
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/internal_metering_adapters_http_system.RollupMeterHealthResponse"
+                        }
+                    },
+                    "meters": {
+                        "type": "integer"
+                    },
+                    "status": {
+                        "type": "string"
+                    }
+                }
+            },
+            "internal_metering_adapters_http_system.RollupMeterHealthResponse": {
+                "type": "object",
+                "properties": {
+                    "expected_through": {
+                        "type": "string"
+                    },
+                    "finalized_through": {
+                        "type": "string"
+                    },
+                    "issue": {
+                        "type": "string"
+                    },
+                    "last_run_at": {
+                        "type": "string"
+                    },
+                    "meter": {
+                        "type": "string"
+                    },
+                    "rollup_rows": {
+                        "type": "integer"
+                    },
+                    "source_events": {
+                        "type": "integer"
+                    },
+                    "status": {
+                        "type": "string"
+                    }
+                }
+            },
             "internal_metering_adapters_http_system.StatsResponse": {
                 "type": "object",
                 "properties": {
@@ -7029,6 +7154,9 @@
                     },
                     "export_cleanup_runs": {
                         "type": "integer"
+                    },
+                    "ingestion_safety": {
+                        "$ref": "#/components/schemas/internal_metering_adapters_http_system.IngestionSafetyResponse"
                     },
                     "last_decision_prune_run": {
                         "$ref": "#/components/schemas/internal_metering_adapters_http_system.LastDecisionPruneRunResponse"
@@ -7050,6 +7178,9 @@
                     },
                     "reconciliation_health": {
                         "$ref": "#/components/schemas/internal_metering_adapters_http_system.ReconciliationHealthResponse"
+                    },
+                    "rollup_health": {
+                        "$ref": "#/components/schemas/internal_metering_adapters_http_system.RollupHealthResponse"
                     },
                     "usage_events": {
                         "type": "integer"

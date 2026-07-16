@@ -45,6 +45,18 @@ func (o *CreateUsageReader) ReadResponse(response runtime.ClientResponse, consum
 			return nil, err
 		}
 		return nil, result
+	case 413:
+		result := NewCreateUsageRequestEntityTooLarge()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 429:
+		result := NewCreateUsageTooManyRequests()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 500:
 		result := NewCreateUsageInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -325,6 +337,158 @@ func (o *CreateUsageConflict) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CreateUsageConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
+		return err
+	}
+
+	return nil
+}
+
+// NewCreateUsageRequestEntityTooLarge creates a CreateUsageRequestEntityTooLarge with default headers values
+func NewCreateUsageRequestEntityTooLarge() *CreateUsageRequestEntityTooLarge {
+	return &CreateUsageRequestEntityTooLarge{}
+}
+
+/*
+CreateUsageRequestEntityTooLarge describes a response with status code 413, with default header values.
+
+Request Entity Too Large
+*/
+type CreateUsageRequestEntityTooLarge struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this create usage request entity too large response has a 2xx status code
+func (o *CreateUsageRequestEntityTooLarge) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this create usage request entity too large response has a 3xx status code
+func (o *CreateUsageRequestEntityTooLarge) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this create usage request entity too large response has a 4xx status code
+func (o *CreateUsageRequestEntityTooLarge) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this create usage request entity too large response has a 5xx status code
+func (o *CreateUsageRequestEntityTooLarge) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this create usage request entity too large response a status code equal to that given
+func (o *CreateUsageRequestEntityTooLarge) IsCode(code int) bool {
+	return code == 413
+}
+
+// Code gets the status code for the create usage request entity too large response
+func (o *CreateUsageRequestEntityTooLarge) Code() int {
+	return 413
+}
+
+func (o *CreateUsageRequestEntityTooLarge) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /v1/usages][%d] createUsageRequestEntityTooLarge %s", 413, payload)
+}
+
+func (o *CreateUsageRequestEntityTooLarge) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /v1/usages][%d] createUsageRequestEntityTooLarge %s", 413, payload)
+}
+
+func (o *CreateUsageRequestEntityTooLarge) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *CreateUsageRequestEntityTooLarge) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
+		return err
+	}
+
+	return nil
+}
+
+// NewCreateUsageTooManyRequests creates a CreateUsageTooManyRequests with default headers values
+func NewCreateUsageTooManyRequests() *CreateUsageTooManyRequests {
+	return &CreateUsageTooManyRequests{}
+}
+
+/*
+CreateUsageTooManyRequests describes a response with status code 429, with default header values.
+
+Too Many Requests
+*/
+type CreateUsageTooManyRequests struct {
+
+	/* Seconds until ingestion capacity is available
+	 */
+	RetryAfter string
+
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this create usage too many requests response has a 2xx status code
+func (o *CreateUsageTooManyRequests) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this create usage too many requests response has a 3xx status code
+func (o *CreateUsageTooManyRequests) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this create usage too many requests response has a 4xx status code
+func (o *CreateUsageTooManyRequests) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this create usage too many requests response has a 5xx status code
+func (o *CreateUsageTooManyRequests) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this create usage too many requests response a status code equal to that given
+func (o *CreateUsageTooManyRequests) IsCode(code int) bool {
+	return code == 429
+}
+
+// Code gets the status code for the create usage too many requests response
+func (o *CreateUsageTooManyRequests) Code() int {
+	return 429
+}
+
+func (o *CreateUsageTooManyRequests) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /v1/usages][%d] createUsageTooManyRequests %s", 429, payload)
+}
+
+func (o *CreateUsageTooManyRequests) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /v1/usages][%d] createUsageTooManyRequests %s", 429, payload)
+}
+
+func (o *CreateUsageTooManyRequests) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *CreateUsageTooManyRequests) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	// hydrates response header Retry-After
+	hdrRetryAfter := response.GetHeader("Retry-After")
+
+	if hdrRetryAfter != "" {
+		o.RetryAfter = hdrRetryAfter
+	}
 
 	o.Payload = new(models.ErrorResponse)
 

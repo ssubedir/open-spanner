@@ -3658,6 +3658,24 @@ const docTemplate = `{
                             "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
                         }
                     },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        },
+                        "headers": {
+                            "Retry-After": {
+                                "type": "string",
+                                "description": "Seconds until ingestion capacity is available"
+                            }
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
@@ -3776,6 +3794,24 @@ const docTemplate = `{
                         "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        },
+                        "headers": {
+                            "Retry-After": {
+                                "type": "string",
+                                "description": "Seconds until ingestion capacity is available"
+                            }
                         }
                     },
                     "500": {
@@ -5732,6 +5768,20 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_metering_adapters_http_system.IngestionSafetyResponse": {
+            "type": "object",
+            "properties": {
+                "accepted_events": {
+                    "type": "integer"
+                },
+                "rejected_events": {
+                    "type": "integer"
+                },
+                "throttled_events": {
+                    "type": "integer"
+                }
+            }
+        },
         "internal_metering_adapters_http_system.LastDecisionPruneRunResponse": {
             "type": "object",
             "properties": {
@@ -6000,6 +6050,61 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_metering_adapters_http_system.RollupHealthResponse": {
+            "type": "object",
+            "properties": {
+                "finalized_through": {
+                    "type": "string"
+                },
+                "healthy_meters": {
+                    "type": "integer"
+                },
+                "issues": {
+                    "type": "integer"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_system.RollupMeterHealthResponse"
+                    }
+                },
+                "meters": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_system.RollupMeterHealthResponse": {
+            "type": "object",
+            "properties": {
+                "expected_through": {
+                    "type": "string"
+                },
+                "finalized_through": {
+                    "type": "string"
+                },
+                "issue": {
+                    "type": "string"
+                },
+                "last_run_at": {
+                    "type": "string"
+                },
+                "meter": {
+                    "type": "string"
+                },
+                "rollup_rows": {
+                    "type": "integer"
+                },
+                "source_events": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_metering_adapters_http_system.StatsResponse": {
             "type": "object",
             "properties": {
@@ -6011,6 +6116,9 @@ const docTemplate = `{
                 },
                 "export_cleanup_runs": {
                     "type": "integer"
+                },
+                "ingestion_safety": {
+                    "$ref": "#/definitions/internal_metering_adapters_http_system.IngestionSafetyResponse"
                 },
                 "last_decision_prune_run": {
                     "$ref": "#/definitions/internal_metering_adapters_http_system.LastDecisionPruneRunResponse"
@@ -6032,6 +6140,9 @@ const docTemplate = `{
                 },
                 "reconciliation_health": {
                     "$ref": "#/definitions/internal_metering_adapters_http_system.ReconciliationHealthResponse"
+                },
+                "rollup_health": {
+                    "$ref": "#/definitions/internal_metering_adapters_http_system.RollupHealthResponse"
                 },
                 "usage_events": {
                     "type": "integer"

@@ -92,6 +92,9 @@ func NewHandler(service appusage.Service, options HandlerOptions) *Handler {
 // @Param request body CreateRequest true "Usage event"
 // @Success 201 {object} Response
 // @Failure 400 {object} respond.ErrorResponse
+// @Failure 413 {object} respond.ErrorResponse
+// @Failure 429 {object} respond.ErrorResponse
+// @Header 429 {string} Retry-After "Seconds until ingestion capacity is available"
 // @Failure 404 {object} respond.ErrorResponse
 // @Failure 409 {object} respond.ErrorResponse
 // @Failure 500 {object} respond.ErrorResponse
@@ -274,6 +277,9 @@ func (h *Handler) GetConsumptionDecision(w http.ResponseWriter, r *http.Request)
 // @Param request body []CreateRequest true "Usage events. Maximum 1000 items."
 // @Success 201 {object} BulkResponse
 // @Failure 400 {object} respond.ErrorResponse
+// @Failure 413 {object} respond.ErrorResponse
+// @Failure 429 {object} respond.ErrorResponse
+// @Header 429 {string} Retry-After "Seconds until ingestion capacity is available"
 // @Failure 404 {object} respond.ErrorResponse
 // @Failure 409 {object} respond.ErrorResponse
 // @Failure 500 {object} respond.ErrorResponse

@@ -927,6 +927,14 @@ export type CreateUsageErrors = {
      */
     409: ErrorResponse;
     /**
+     * Request Entity Too Large
+     */
+    413: ErrorResponse;
+    /**
+     * Too Many Requests
+     */
+    429: ErrorResponse;
+    /**
      * Internal Server Error
      */
     500: ErrorResponse;
@@ -1008,6 +1016,14 @@ export type CreateUsageBulkErrors = {
      * Conflict
      */
     409: ErrorResponse;
+    /**
+     * Request Entity Too Large
+     */
+    413: ErrorResponse;
+    /**
+     * Too Many Requests
+     */
+    429: ErrorResponse;
     /**
      * Internal Server Error
      */

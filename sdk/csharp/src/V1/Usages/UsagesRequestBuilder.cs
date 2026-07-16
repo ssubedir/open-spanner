@@ -73,6 +73,8 @@ namespace OpenSpanner.V1.Usages
         /// <exception cref="global::OpenSpanner.Models.ErrorResponse">When receiving a 400 status code</exception>
         /// <exception cref="global::OpenSpanner.Models.ErrorResponse">When receiving a 404 status code</exception>
         /// <exception cref="global::OpenSpanner.Models.ErrorResponse">When receiving a 409 status code</exception>
+        /// <exception cref="global::OpenSpanner.Models.ErrorResponse">When receiving a 413 status code</exception>
+        /// <exception cref="global::OpenSpanner.Models.ErrorResponse">When receiving a 429 status code</exception>
         /// <exception cref="global::OpenSpanner.Models.ErrorResponse">When receiving a 500 status code</exception>
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
 #nullable enable
@@ -90,6 +92,8 @@ namespace OpenSpanner.V1.Usages
                 { "400", global::OpenSpanner.Models.ErrorResponse.CreateFromDiscriminatorValue },
                 { "404", global::OpenSpanner.Models.ErrorResponse.CreateFromDiscriminatorValue },
                 { "409", global::OpenSpanner.Models.ErrorResponse.CreateFromDiscriminatorValue },
+                { "413", global::OpenSpanner.Models.ErrorResponse.CreateFromDiscriminatorValue },
+                { "429", global::OpenSpanner.Models.ErrorResponse.CreateFromDiscriminatorValue },
                 { "500", global::OpenSpanner.Models.ErrorResponse.CreateFromDiscriminatorValue },
             };
             return await RequestAdapter.SendAsync<global::OpenSpanner.Models.UsageEvent>(requestInfo, global::OpenSpanner.Models.UsageEvent.CreateFromDiscriminatorValue, errorMapping, cancellationToken).ConfigureAwait(false);
