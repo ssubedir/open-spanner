@@ -73,7 +73,7 @@ export function PlanModal({ meters, onClose, onPreview, onSubmit, plan, previewE
           <Input defaultValue={plan?.description || ''} name="description" placeholder="Higher monthly quota for growing teams" />
         </Label>
 
-        <div className="col-span-full grid gap-2 rounded-md border border-border bg-[#f8fafc] p-2.5">
+        <div className="col-span-full grid gap-2 rounded-md border border-border bg-secondary p-2.5">
           <div className="flex items-center justify-between gap-2.5">
             <span className="field-label">Limits</span>
             <Button onClick={addLimit} size="sm" type="button" variant="outline">
@@ -82,7 +82,7 @@ export function PlanModal({ meters, onClose, onPreview, onSubmit, plan, previewE
             </Button>
           </div>
           {limits.map((limit) => (
-            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_36px] items-end gap-2 rounded-md border border-[#e7ebf1] bg-white p-2 lg:grid-cols-[minmax(150px,1fr)_minmax(95px,115px)_minmax(95px,115px)_minmax(90px,110px)_minmax(110px,130px)_minmax(120px,140px)_36px]" key={limit.id}>
+            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_36px] items-end gap-2 rounded-md border border-border bg-card p-2 lg:grid-cols-[minmax(150px,1fr)_minmax(95px,115px)_minmax(95px,115px)_minmax(90px,110px)_minmax(110px,130px)_minmax(120px,140px)_36px]" key={limit.id}>
               <Label className="col-span-full grid min-w-0 gap-1.5 lg:col-span-1">
                 Meter
                 <Select onValueChange={(value) => updateLimit(limit.id, { meter: value })} required value={limit.meter || undefined}>
@@ -172,10 +172,10 @@ export function PlanPreviewModal({ onClose, preview }: { onClose: () => void; pr
     <Modal className="!w-full !max-w-[640px]" title="Plan Change Impact" onClose={onClose}>
       <div className="grid gap-4 p-4">
         <div className="grid gap-2">
-          <p className="text-sm text-muted">
+          <p className="text-sm text-muted-foreground">
             Projected impact across current and scheduled subjects. Assignments are not changed by this preview.
           </p>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <Badge variant="muted">{preview.current.name} v{preview.current.version}</Badge>
             <span>to</span>
             <Badge variant="muted">{preview.proposed.name} v{preview.proposed.version}</Badge>
@@ -184,8 +184,8 @@ export function PlanPreviewModal({ onClose, preview }: { onClose: () => void; pr
 
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {summaryItems.map((item) => (
-            <div className="grid gap-1 rounded-md border border-border bg-[#f8fafc] p-3" key={item.label}>
-              <span className="text-xs font-semibold uppercase text-muted">{item.label}</span>
+            <div className="grid gap-1 rounded-md border border-border bg-secondary p-3" key={item.label}>
+              <span className="text-xs font-semibold uppercase text-muted-foreground">{item.label}</span>
               <strong className="text-2xl leading-none">{formatNumber(item.value)}</strong>
               <Badge className="w-fit" variant={item.variant}>{item.label.toLowerCase()}</Badge>
             </div>
@@ -195,7 +195,7 @@ export function PlanPreviewModal({ onClose, preview }: { onClose: () => void; pr
         {preview.summary.removed_limits > 0 ? (
           <div className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm">
             <strong>{formatNumber(preview.summary.removed_limits)} removed limit impacts.</strong>
-            <span className="ml-1 text-muted">Some assigned subjects currently use meters that this plan version no longer limits.</span>
+            <span className="ml-1 text-muted-foreground">Some assigned subjects currently use meters that this plan version no longer limits.</span>
           </div>
         ) : null}
 
@@ -294,27 +294,27 @@ export function ProgressModal({ onClose, progress }: { onClose: () => void; prog
 export function ProgressList({ progress }: { progress: SubjectPlanProgress }) {
   return (
     <div className="grid gap-3">
-      <div className="flex justify-between gap-3 text-xs text-muted">
+      <div className="flex justify-between gap-3 text-xs text-muted-foreground">
         <div className="flex min-w-0 items-center gap-2">
           <strong>{progress.subject}</strong>
           <small>{progress.plan.name}</small>
         </div>
       </div>
       {progress.items.map((item) => (
-        <div className="grid gap-2 rounded-md border border-border bg-[#f8fafc] p-3" key={`${item.meter}-${item.period}`}>
+        <div className="grid gap-2 rounded-md border border-border bg-secondary p-3" key={`${item.meter}-${item.period}`}>
           <div className="flex items-center justify-between gap-2">
             <strong>{item.meter}</strong>
             <StateBadge state={item.state} />
           </div>
-          <div className="h-2 overflow-hidden rounded-full bg-[#e2e8f0]" aria-label={`${item.meter} quota progress`}>
+          <div className="h-2 overflow-hidden rounded-full bg-border" aria-label={`${item.meter} quota progress`}>
             <span className="block h-full rounded-[inherit] bg-primary" style={{ width: `${Math.min(item.percent, 100)}%` }} />
           </div>
-          <small className="text-xs text-muted">
+          <small className="text-xs text-muted-foreground">
             {formatNumber(item.current)} / {formatNumber(item.limit)} {item.unit} this {item.period}
             {item.remaining > 0 ? `, ${formatNumber(item.remaining)} remaining` : ''}
             {item.overage > 0 ? `, ${formatNumber(item.overage)} over` : ''}
           </small>
-          <small className="text-xs text-muted">
+          <small className="text-xs text-muted-foreground">
             Current period: {formatPeriodRange(item.from, item.to)}
             {item.period_reset_at ? ` - resets ${formatDate(item.period_reset_at)}` : ''}
           </small>
@@ -356,7 +356,7 @@ export function PeriodSnapshotTable({ snapshots }: { snapshots: EntitlementPerio
         <Badge variant="muted">{snapshot.meter}</Badge>,
         <span className="grid gap-0.5">
           <strong>{titleCase(snapshot.period)}</strong>
-          <small className="text-xs text-muted">{formatPeriodRange(snapshot.from, snapshot.to)}</small>
+          <small className="text-xs text-muted-foreground">{formatPeriodRange(snapshot.from, snapshot.to)}</small>
         </span>,
         <span>{formatNumber(snapshot.current)} / {formatNumber(snapshot.limit)}</span>,
         formatNumber(snapshot.included),

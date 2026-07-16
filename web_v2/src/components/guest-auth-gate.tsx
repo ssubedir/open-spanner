@@ -19,7 +19,7 @@ export function GuestAuthGate({ children }: { children: React.ReactNode }) {
 
   if (!auth.checked || auth.loading) {
     return (
-      <div className="grid min-h-screen place-items-center bg-[#f7f7f6]" aria-label="Loading session">
+      <div className="grid min-h-screen place-items-center bg-background" aria-label="Loading session">
         <Loader2 className="size-7 animate-spin text-primary" />
       </div>
     );

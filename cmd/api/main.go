@@ -48,7 +48,9 @@ func main() {
 	router.Use(metrics.HTTPMiddleware)
 	router.Get("/health", health)
 	router.Handle("/metrics", metrics.Handler())
-	ui.RegisterRoutes(router)
+	if cfg.EmbeddedUIEnabled {
+		ui.RegisterRoutes(router)
+	}
 	app, err := bootstrap.RegisterRoutesWithMetrics(runCtx, router, cfg, metrics)
 	if err != nil {
 		_ = metrics.Shutdown(context.Background())

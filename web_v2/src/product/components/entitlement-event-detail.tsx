@@ -14,9 +14,9 @@ export function EntitlementEventDetail({ event }: { event: EntitlementEvent }) {
           <div className="grid min-w-0 gap-2">
             <EntitlementStateBadge state={event.state} />
             <h3 className="text-lg font-semibold leading-tight">{event.plan_name} entitlement changed</h3>
-            <p className="text-sm text-muted">{event.message || 'No entitlement message was recorded.'}</p>
+            <p className="text-sm text-muted-foreground">{event.message || 'No entitlement message was recorded.'}</p>
           </div>
-          <span className="shrink-0 text-xs font-bold text-muted">{formatDate(event.created_at)}</span>
+          <span className="shrink-0 text-xs font-bold text-muted-foreground">{formatDate(event.created_at)}</span>
         </div>
       </section>
 
@@ -39,14 +39,14 @@ export function EntitlementEventDetail({ event }: { event: EntitlementEvent }) {
         <div className="flex items-center justify-between gap-3">
           <div className="grid gap-1">
             <h3 className="text-base font-semibold leading-tight">Event JSON</h3>
-            <p className="text-sm text-muted">Recorded entitlement transition payload.</p>
+            <p className="text-sm text-muted-foreground">Recorded entitlement transition payload.</p>
           </div>
           <Button onClick={() => void copyText(payload)} type="button" variant="outline">
             <Copy aria-hidden="true" />
             Copy
           </Button>
         </div>
-        <pre className="max-h-[260px] overflow-auto rounded-md border border-border bg-[#f8fafc] p-3 font-mono text-sm leading-6 text-foreground">{payload}</pre>
+        <pre className="max-h-[260px] overflow-auto rounded-md border border-border bg-secondary p-3 font-mono text-sm leading-6 text-foreground">{payload}</pre>
       </section>
     </div>
   )
@@ -73,8 +73,8 @@ export function EntitlementStateBadge({ state }: { state: string }) {
 
 function DetailItem({ label, mono = false, value, wide = false }: { label: string; mono?: boolean; value: string; wide?: boolean }) {
   return (
-    <div className={wide ? 'grid gap-1 rounded-md border border-border bg-[#f8fafc] p-3 md:col-span-3' : 'grid gap-1 rounded-md border border-border bg-[#f8fafc] p-3'}>
-      <span className="text-xs font-bold text-muted">{label}</span>
+    <div className={wide ? 'grid gap-1 rounded-md border border-border bg-secondary p-3 md:col-span-3' : 'grid gap-1 rounded-md border border-border bg-secondary p-3'}>
+      <span className="text-xs font-bold text-muted-foreground">{label}</span>
       <strong className={mono ? 'mono min-w-0 break-all text-sm' : 'min-w-0 break-words text-sm'}>{value}</strong>
     </div>
   )

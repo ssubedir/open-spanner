@@ -149,7 +149,7 @@ export function MetersPage() {
                       <TableCell>
                         <div className="grid min-w-[180px] gap-1">
                           <strong>{meter.name}</strong>
-                          <small className="max-w-[360px] truncate text-xs text-muted">{meter.description || 'No description'}</small>
+                          <small className="max-w-[360px] truncate text-xs text-muted-foreground">{meter.description || 'No description'}</small>
                         </div>
                       </TableCell>
                       <TableCell><Badge variant="muted">{meter.aggregation}</Badge></TableCell>

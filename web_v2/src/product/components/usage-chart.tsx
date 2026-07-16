@@ -187,7 +187,7 @@ function usageChartOptions(bucketSize: string, controls: UsageChartControls): Ch
     scales: {
       x: {
         grid: {
-          color: '#eef1f5',
+          color: '#e5e5e5',
         },
         stacked: controls.stacked,
         ticks: {
@@ -203,7 +203,7 @@ function usageChartOptions(bucketSize: string, controls: UsageChartControls): Ch
       y: {
         beginAtZero: true,
         grid: {
-          color: '#eef1f5',
+          color: '#e5e5e5',
         },
         stacked: controls.stacked,
         ticks: {

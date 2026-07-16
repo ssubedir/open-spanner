@@ -36,7 +36,7 @@ export function DetailStatePage({ action, description, icon, title }: { action?:
         <span className="grid h-11 w-11 place-items-center rounded-md bg-secondary text-primary">{icon}</span>
         <div className="grid gap-2">
           <h1 className="text-xl font-semibold leading-tight">{title}</h1>
-          <p className="text-sm text-muted">{description}</p>
+          <p className="text-sm text-muted-foreground">{description}</p>
         </div>
         {action ? <div className="mt-2 flex justify-center">{action}</div> : null}
       </Card>

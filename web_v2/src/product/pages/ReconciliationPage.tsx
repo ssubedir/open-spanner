@@ -5,6 +5,7 @@ import { getSystemStats, listQuotaCounterRepairs, listReconciliationNotification
 import { DataTable, MetricCard, Modal, PageHeader } from '../components/dashboard'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { formatDate, formatNumber } from '../lib/format'
 import { useInitialLoad } from '../lib/hooks'
 
@@ -65,31 +66,73 @@ export function ReconciliationPage() {
 			<MetricCard icon={<ScanSearch />} label="Decisions checked" loading={loading && !result} value={result?.decisions_checked ?? 0} helper={`${result?.lookback_hours ?? 24}-hour lookback`} />
 			<MetricCard icon={<ScanSearch />} label="Active counters" loading={loading && !result} value={result?.counters_checked ?? 0} helper={result?.truncated ? 'Result was bounded; narrow the scan' : 'Current quota periods'} />
 		</section>
-		{result ? <div className="mb-3 flex items-center gap-2"><Badge variant={result.status === 'healthy' ? 'success' : 'warning'}>{result.status === 'healthy' ? 'No drift found' : `${formatNumber(result.issues.length)} issues`}</Badge><span className="text-sm text-muted">Read-only result</span></div> : null}
-		<DataTable emptyLabel={loading ? 'Running reconciliation scan' : 'No quota inconsistencies detected.'} headers={['Severity', 'Issue', 'Subject', 'Meter', 'Expected', 'Actual', 'Details', '']} rows={(result?.issues ?? []).map((issue) => [
-			<Badge variant="warning">{issue.severity}</Badge>, <span className="font-mono text-xs">{issue.kind}</span>, issue.subject ?? '—', issue.meter ?? '—', issue.expected, issue.actual, issue.message,
-			issue.kind.startsWith('counter_') ? <Button disabled={loading} onClick={() => void previewRepair(issue)} size="sm" type="button" variant="outline">Preview repair</Button> : <span className="text-xs text-muted">Manual review</span>,
-		])} />
-		<h2 className="mb-3 mt-6 text-lg font-semibold">Scheduled scan history</h2>
-		<div className="mb-3 flex items-center gap-2"><Badge variant={stats?.reconciliation_health.status === 'healthy' ? 'success' : 'warning'}>{(stats?.reconciliation_health.status ?? 'not_started').replaceAll('_', ' ')}</Badge><span className="text-sm text-muted">Monitor health{stats?.reconciliation_health.updated_at ? ` · updated ${formatDate(stats.reconciliation_health.updated_at)}` : ''}{stats?.reconciliation_health.dead_letter_notifications ? ` · ${formatNumber(stats.reconciliation_health.dead_letter_notifications)} dead-letter` : ''}</span></div>
-		<DataTable emptyLabel="No scheduled reconciliation runs yet." headers={['Time', 'Status', 'Issues', 'Decisions', 'Counters', 'Duration', 'Details']} rows={scheduledRuns.map((run) => [
-			formatDate(run.created_at), <Badge variant={run.status === 'healthy' ? 'success' : 'warning'}>{run.status.replaceAll('_', ' ')}</Badge>, formatNumber(run.issue_count), formatNumber(run.decisions_checked), formatNumber(run.counters_checked), `${formatNumber(run.duration_ms)} ms`, run.error || (run.truncated ? 'Bounded result' : 'Complete bounded scan'),
-		])} />
-		<h2 className="mb-3 mt-6 text-lg font-semibold">Notification delivery</h2>
-		<DataTable emptyLabel="No reconciliation notifications queued." headers={['Time', 'Event', 'Status', 'Attempts', 'Next attempt', 'Details', '']} rows={notifications.map((notification) => [
-			formatDate(notification.created_at), notification.event_type.replaceAll('_', ' '), <Badge variant={notification.status === 'delivered' ? 'success' : 'warning'}>{notification.status.replaceAll('_', ' ')}</Badge>, formatNumber(notification.total_attempts), formatDate(notification.delivered_at || notification.next_attempt_at), notification.last_error || '—', notification.status === 'dead_letter' ? <Button disabled={loading} onClick={() => void retryNotification(notification.id)} size="sm" type="button" variant="outline">Retry</Button> : '—',
-		])} />
-		<h2 className="mb-3 mt-6 text-lg font-semibold">Repair history</h2>
-		<DataTable emptyLabel="No repair previews or applications yet." headers={['Time', 'Mode', 'Subject', 'Meter', 'Period', 'Events before', 'Events after']} rows={repairRuns.map((run) => [
-			formatDate(run.created_at), <Badge variant={run.applied ? 'success' : 'muted'}>{run.applied ? 'Applied' : 'Preview'}</Badge>, run.subject, run.meter, run.period, formatNumber(run.before.event_count), formatNumber(run.after.event_count),
-		])} />
+		<div className="grid max-w-[1480px] gap-4">
+			<Card>
+				<CardHeader className="!px-4 !py-3">
+					<div>
+						<CardTitle>Current scan</CardTitle>
+						<CardDescription>Results from the latest bounded, read-only reconciliation pass.</CardDescription>
+					</div>
+					{result ? <div className="flex items-center gap-2"><Badge variant={result.status === 'healthy' ? 'success' : 'warning'}>{result.status === 'healthy' ? 'No drift found' : `${formatNumber(result.issues.length)} issues`}</Badge><span className="text-xs text-muted-foreground">Read-only</span></div> : null}
+				</CardHeader>
+				<CardContent>
+					<DataTable emptyLabel={loading ? 'Running reconciliation scan' : 'No quota inconsistencies detected.'} headers={['Severity', 'Issue', 'Subject', 'Meter', 'Expected', 'Actual', 'Details', '']} rows={(result?.issues ?? []).map((issue) => [
+						<Badge variant="warning">{issue.severity}</Badge>, <span className="font-mono text-xs">{issue.kind}</span>, issue.subject ?? '—', issue.meter ?? '—', issue.expected, issue.actual, issue.message,
+						issue.kind.startsWith('counter_') ? <Button disabled={loading} onClick={() => void previewRepair(issue)} size="sm" type="button" variant="outline">Preview repair</Button> : <span className="text-xs text-muted-foreground">Manual review</span>,
+					])} />
+				</CardContent>
+			</Card>
+
+			<Card>
+				<CardHeader className="!px-4 !py-3">
+					<div>
+						<CardTitle>Scheduled scan history</CardTitle>
+						<CardDescription>Worker health and the most recent scheduled reconciliation runs.</CardDescription>
+					</div>
+					<div className="flex items-center gap-2"><Badge variant={stats?.reconciliation_health.status === 'healthy' ? 'success' : 'warning'}>{(stats?.reconciliation_health.status ?? 'not_started').replaceAll('_', ' ')}</Badge><span className="text-xs text-muted-foreground">{stats?.reconciliation_health.updated_at ? `Updated ${formatDate(stats.reconciliation_health.updated_at)}` : 'Monitor health'}</span></div>
+				</CardHeader>
+				<CardContent>
+					<DataTable emptyLabel="No scheduled reconciliation runs yet." headers={['Time', 'Status', 'Issues', 'Decisions', 'Counters', 'Duration', 'Details']} rows={scheduledRuns.map((run) => [
+						formatDate(run.created_at), <Badge variant={run.status === 'healthy' ? 'success' : 'warning'}>{run.status.replaceAll('_', ' ')}</Badge>, formatNumber(run.issue_count), formatNumber(run.decisions_checked), formatNumber(run.counters_checked), `${formatNumber(run.duration_ms)} ms`, run.error || (run.truncated ? 'Bounded result' : 'Complete bounded scan'),
+					])} />
+				</CardContent>
+			</Card>
+
+			<Card>
+				<CardHeader className="!px-4 !py-3">
+					<div>
+						<CardTitle>Notification delivery</CardTitle>
+						<CardDescription>Delivery attempts produced by reconciliation findings.</CardDescription>
+					</div>
+				</CardHeader>
+				<CardContent>
+					<DataTable emptyLabel="No reconciliation notifications queued." headers={['Time', 'Event', 'Status', 'Attempts', 'Next attempt', 'Details', '']} rows={notifications.map((notification) => [
+						formatDate(notification.created_at), notification.event_type.replaceAll('_', ' '), <Badge variant={notification.status === 'delivered' ? 'success' : 'warning'}>{notification.status.replaceAll('_', ' ')}</Badge>, formatNumber(notification.total_attempts), formatDate(notification.delivered_at || notification.next_attempt_at), notification.last_error || '—', notification.status === 'dead_letter' ? <Button disabled={loading} onClick={() => void retryNotification(notification.id)} size="sm" type="button" variant="outline">Retry</Button> : '—',
+					])} />
+				</CardContent>
+			</Card>
+
+			<Card>
+				<CardHeader className="!px-4 !py-3">
+					<div>
+						<CardTitle>Repair history</CardTitle>
+						<CardDescription>Audited counter previews and applied corrections.</CardDescription>
+					</div>
+				</CardHeader>
+				<CardContent>
+					<DataTable emptyLabel="No repair previews or applications yet." headers={['Time', 'Mode', 'Subject', 'Meter', 'Period', 'Events before', 'Events after']} rows={repairRuns.map((run) => [
+						formatDate(run.created_at), <Badge variant={run.applied ? 'success' : 'muted'}>{run.applied ? 'Applied' : 'Preview'}</Badge>, run.subject, run.meter, run.period, formatNumber(run.before.event_count), formatNumber(run.after.event_count),
+					])} />
+				</CardContent>
+			</Card>
+		</div>
 		{preview ? <RepairPreviewModal loading={loading} onApply={() => void applyRepair()} onClose={() => setPreview(null)} preview={preview} /> : null}
 	</>
 }
 
 function RepairPreviewModal({ loading, onApply, onClose, preview }: { loading: boolean; onApply: () => void; onClose: () => void; preview: CounterRepair }) {
 	return <Modal title="Preview quota counter repair" onClose={onClose}>
-		<p className="mb-4 text-sm text-muted">This will update only <strong>{preview.subject}</strong> / <strong>{preview.meter}</strong> for the active {preview.period} period. The apply will fail if usage changes after this preview.</p>
+		<p className="mb-4 text-sm text-muted-foreground">This will update only <strong>{preview.subject}</strong> / <strong>{preview.meter}</strong> for the active {preview.period} period. The apply will fail if usage changes after this preview.</p>
 		<DataTable emptyLabel="" headers={['Field', 'Current', 'Recalculated']} rows={[
 			['Event count', formatNumber(preview.before.event_count), formatNumber(preview.after.event_count)],
 			['Quantity sum', formatNumber(preview.before.quantity_sum), formatNumber(preview.after.quantity_sum)],

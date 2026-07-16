@@ -119,9 +119,9 @@ function MeterFact({ helper, icon, label, value }: { helper: string; icon: React
       <CardContent className="flex items-center gap-3 !p-4">
         <span className="metric-icon">{icon}</span>
         <span className="grid min-w-0 gap-1">
-          <span className="text-xs font-bold uppercase text-muted">{label}</span>
+          <span className="text-xs font-bold uppercase text-muted-foreground">{label}</span>
           <strong className="truncate text-2xl">{value}</strong>
-          <small className="truncate text-xs text-muted">{helper}</small>
+          <small className="truncate text-xs text-muted-foreground">{helper}</small>
         </span>
       </CardContent>
     </Card>

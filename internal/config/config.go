@@ -14,6 +14,7 @@ import (
 type Config struct {
 	HTTPAddr                     string
 	GRPCAddr                     string
+	EmbeddedUIEnabled            bool
 	RegistrationEnabled          bool
 	OAuth                        OAuthConfigs
 	DBDriver                     string
@@ -100,6 +101,10 @@ type DBPoolConfig struct {
 func Load() (Config, error) {
 	_ = godotenv.Load()
 	registrationEnabled, err := envBool("OPEN_SPANNER_REGISTRATION_ENABLED", true)
+	if err != nil {
+		return Config{}, err
+	}
+	embeddedUIEnabled, err := envBool("OPEN_SPANNER_EMBEDDED_UI_ENABLED", true)
 	if err != nil {
 		return Config{}, err
 	}
@@ -290,6 +295,7 @@ func Load() (Config, error) {
 	cfg := Config{
 		HTTPAddr:            env("OPEN_SPANNER_HTTP_ADDR", ":18081"),
 		GRPCAddr:            env("OPEN_SPANNER_GRPC_ADDR", ":18090"),
+		EmbeddedUIEnabled:   embeddedUIEnabled,
 		RegistrationEnabled: registrationEnabled,
 		OAuth: OAuthConfigs{
 			GitHub: gitHubOAuth,

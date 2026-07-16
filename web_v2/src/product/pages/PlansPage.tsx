@@ -106,7 +106,7 @@ export function PlansPage() {
                   <strong>{plan.name}</strong>
                   <Badge variant="muted">v{plan.version}</Badge>
                 </span>
-                {plan.description ? <small className="max-w-[420px] truncate text-xs text-muted">{plan.description}</small> : null}
+                {plan.description ? <small className="max-w-[420px] truncate text-xs text-muted-foreground">{plan.description}</small> : null}
               </span>,
               <LimitChips limits={plan.limits} />,
               <Badge variant="muted">{formatNumber(assignmentCounts.get(plan.id) ?? 0)} subjects</Badge>,

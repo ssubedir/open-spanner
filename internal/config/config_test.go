@@ -35,6 +35,9 @@ func TestLoadDefaultsToSQLite(t *testing.T) {
 	if !cfg.RegistrationEnabled {
 		t.Fatal("registration should be enabled by default")
 	}
+	if !cfg.EmbeddedUIEnabled {
+		t.Fatal("embedded UI should be enabled by default")
+	}
 	if cfg.RetentionPruneInterval != time.Hour {
 		t.Fatalf("retention interval = %s, want 1h", cfg.RetentionPruneInterval)
 	}
@@ -187,6 +190,7 @@ func clearEnv(t *testing.T) {
 		"OPEN_SPANNER_EXPORT_WORKER_HEALTH_ADDR",
 		"OPEN_SPANNER_ALERT_WORKER_HEALTH_ADDR",
 		"OPEN_SPANNER_ENTITLEMENT_WORKER_HEALTH_ADDR",
+		"OPEN_SPANNER_EMBEDDED_UI_ENABLED",
 		"OPEN_SPANNER_REGISTRATION_ENABLED",
 		"OPEN_SPANNER_INGESTION_MAX_BODY_BYTES",
 		"OPEN_SPANNER_INGESTION_MAX_BULK_EVENTS",

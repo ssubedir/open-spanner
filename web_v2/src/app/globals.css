@@ -87,7 +87,7 @@ a {
   --card: #ffffff;
   --card-foreground: #171717;
   --foreground: #171717;
-  --muted: #737373;
+  --muted: #f5f5f5;
   --muted-foreground: #737373;
   --border: #e5e5e5;
   --input: #dedede;
@@ -104,14 +104,14 @@ a {
   min-height: calc(100vh - 58px);
   min-width: 0;
   padding: 26px;
-  background: #ffffff;
+  background: var(--background);
 }
 
 .product-page .page-header {
   margin: -26px -26px 22px;
   padding: 25px 30px 22px;
   border-bottom: 1px solid var(--border);
-  background: #ffffff;
+  background: var(--card);
 }
 
 .product-page .page-header h1 {
@@ -121,7 +121,7 @@ a {
 }
 
 .product-page .eyebrow {
-  color: #16845f;
+  color: var(--primary);
   font-size: 11px;
   letter-spacing: 0.12em;
 }
@@ -154,7 +154,7 @@ a {
   width: 36px;
   height: 36px;
   border-radius: 7px;
-  background: #edf8f4;
+  background: color-mix(in oklch, var(--primary) 10%, var(--card));
 }
 
 .product-page .metric-card strong {
@@ -164,7 +164,7 @@ a {
 
 .product-page .card-header {
   padding: 14px 16px;
-  background: #ffffff;
+  background: var(--card);
 }
 
 .product-page .card-title {
@@ -174,8 +174,8 @@ a {
 
 .product-page .table-head {
   height: 38px;
-  background: #fafafa;
-  color: #737373;
+  background: color-mix(in oklch, var(--muted) 70%, var(--card));
+  color: var(--muted-foreground);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -187,7 +187,7 @@ a {
 }
 
 .product-page .table-row:hover .table-cell {
-  background: #fafafa;
+  background: color-mix(in oklch, var(--muted) 70%, var(--card));
 }
 
 .product-page .button {
@@ -197,11 +197,11 @@ a {
 }
 
 .product-page .button-primary {
-  background: #18b97b;
+  background: var(--primary);
 }
 
 .product-page .button-primary:hover:not(:disabled) {
-  background: #149d69;
+  background: color-mix(in oklch, var(--primary) 86%, black);
 }
 
 .product-page .badge {
@@ -219,14 +219,15 @@ a {
   --card: #ffffff;
   --card-foreground: #171717;
   --foreground: #171717;
-  --muted: #737373;
+  --muted: #f5f5f5;
+  --muted-foreground: #737373;
   --border: #e5e5e5;
   --input: #dedede;
   --primary: #159b6d;
   --primary-foreground: #ffffff;
   --ring: rgba(21, 155, 109, 0.2);
   --shadow: 0 12px 35px rgba(0, 0, 0, 0.08);
-  background-color: #f7f7f6;
+  background-color: var(--background);
 }
 
 @media (max-width: 640px) {

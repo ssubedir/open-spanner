@@ -64,13 +64,13 @@ export function SubjectsPage() {
         </CardHeader>
         <CardContent>
           <div className="border-b border-border p-3">
-            <Label className="grid max-w-[420px] gap-1.5 text-xs font-bold text-muted">
+            <Label className="grid max-w-[420px] gap-1.5 text-xs font-bold text-muted-foreground">
               Search
               <span className="relative block">
-                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" aria-hidden="true" />
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
                 <Input
                   aria-label="Search subjects"
-                  className="h-10 bg-white pl-9 text-sm"
+                  className="h-10 bg-card pl-9 text-sm"
                   onChange={(event) => appStoreActions.setSubjectSearchQuery(event.currentTarget.value)}
                   placeholder="Search subjects"
                   value={searchQuery}

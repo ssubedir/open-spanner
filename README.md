@@ -310,6 +310,7 @@ Common runtime variables:
 | --- | --- | --- |
 | `OPEN_SPANNER_HTTP_ADDR` | `:18081` | HTTP dashboard, REST API, and health endpoints. |
 | `OPEN_SPANNER_GRPC_ADDR` | `:18090` | gRPC usage ingestion listen address. |
+| `OPEN_SPANNER_EMBEDDED_UI_ENABLED` | `true` | Serves the bundled dashboard from the API process. Disable when a separate frontend such as `web_v2` is deployed. |
 | `OPEN_SPANNER_EXPORT_WORKER_HEALTH_ADDR` | `:18082` | Export-worker liveness and readiness listen address. |
 | `OPEN_SPANNER_ALERT_WORKER_HEALTH_ADDR` | `:18083` | Alert-worker liveness and readiness listen address. |
 | `OPEN_SPANNER_ENTITLEMENT_WORKER_HEALTH_ADDR` | `:18084` | Entitlement-worker liveness and readiness listen address. |

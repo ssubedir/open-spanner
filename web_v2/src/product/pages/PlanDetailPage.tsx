@@ -199,7 +199,7 @@ export function PlanDetailPage({ planId }: { planId: string }) {
               </div>
             </CardHeader>
             <CardContent className="grid gap-3 !p-4">
-              <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <Badge variant={plan.is_current ? 'success' : 'muted'}>{plan.is_current ? 'Current version' : 'Historical version'}</Badge>
                 <Badge variant="muted">v{plan.version}</Badge>
                 {plan.parent_plan_id ? <span>Created from a previous version.</span> : <span>Original version.</span>}

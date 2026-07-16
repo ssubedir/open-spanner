@@ -22,14 +22,14 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     <div data-testid="dashboard-root" className="min-h-screen bg-background">
       <div data-testid="dashboard-frame" className="min-h-screen overflow-hidden bg-background">
         <div className="grid min-h-screen lg:grid-cols-[220px_minmax(0,1fr)]">
-          <aside className="hidden border-r bg-white lg:block">
+          <aside className="hidden border-r bg-card lg:block">
             <Sidebar pathname={pathname} userEmail={session?.user.email} />
           </aside>
 
           {mobileOpen && (
             <div className="fixed inset-0 z-50 lg:hidden">
               <button className="absolute inset-0 bg-black/20" aria-label="Close navigation" onClick={() => setMobileOpen(false)} />
-              <aside className="relative h-full w-[278px] border-r bg-white shadow-xl">
+              <aside className="relative h-full w-[278px] border-r bg-card shadow-xl">
                 <button className="absolute right-3 top-3 grid size-8 place-items-center rounded-md hover:bg-muted" onClick={() => setMobileOpen(false)} aria-label="Close navigation">
                   <X className="size-4" />
                 </button>
@@ -39,7 +39,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           )}
 
           <div className="min-w-0">
-            <header className="flex h-[58px] items-center gap-3 border-b bg-white px-4 md:px-6">
+            <header className="flex h-[58px] items-center gap-3 border-b bg-card px-4 md:px-6">
               <Button variant="ghost" size="icon" className="-ml-2 lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open navigation">
                 <Menu />
               </Button>
@@ -74,8 +74,8 @@ function Sidebar({ pathname, onNavigate, userEmail }: { pathname: string; onNavi
               {group.items.map((item) => {
                 const active = pathname === item.href || pathname.startsWith(item.href + "/");
                 return (
-                  <Link key={item.href} href={item.href} onClick={onNavigate} className={cn("flex h-8 items-center gap-2.5 rounded-md px-2 text-[13px] transition-colors", active ? "bg-neutral-100 font-medium text-foreground" : "text-neutral-700 hover:bg-muted")}>
-                    <item.icon className={cn("size-4", active ? "text-neutral-900" : "text-neutral-500")} strokeWidth={1.7} />
+                  <Link key={item.href} href={item.href} onClick={onNavigate} className={cn("flex h-8 items-center gap-2.5 rounded-md px-2 text-[13px] transition-colors", active ? "bg-muted font-medium text-foreground" : "text-muted-foreground hover:bg-muted")}>
+                    <item.icon className={cn("size-4", active ? "text-foreground" : "text-muted-foreground")} strokeWidth={1.7} />
                     {item.label}
                     {item.label === "Alerts" && <span className="ml-auto size-1.5 rounded-full bg-amber-500" />}
                   </Link>

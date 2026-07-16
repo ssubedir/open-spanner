@@ -83,15 +83,15 @@ export function RuleDestination({ rule }: { rule: AlertRule }) {
 export function RuleDestinationDetail({ rule }: { rule: AlertRule }) {
   if (!rule.destination) {
     return (
-      <div className="grid gap-1 rounded-md border border-border bg-[#f8fafc] p-3">
+      <div className="grid gap-1 rounded-md border border-border bg-secondary p-3">
         <Badge variant="warning">Missing destination</Badge>
-        <span className="text-sm text-muted">{rule.destination_id || 'No destination selected'}</span>
+        <span className="text-sm text-muted-foreground">{rule.destination_id || 'No destination selected'}</span>
       </div>
     )
   }
 
   return (
-    <div className="grid gap-3 rounded-md border border-border bg-[#f8fafc] p-3">
+    <div className="grid gap-3 rounded-md border border-border bg-secondary p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <strong>{rule.destination.name}</strong>
         <Badge variant={rule.destination.enabled ? 'success' : 'muted'}>{rule.destination.enabled ? 'Enabled' : 'Disabled'}</Badge>

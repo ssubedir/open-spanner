@@ -107,7 +107,7 @@ export function OverviewPage() {
         <CardContent>
           <div className="mb-3 flex items-center gap-2">
             <Badge variant={stats?.rollup_health.status === 'healthy' ? 'success' : stats?.rollup_health.status === 'not_started' ? 'muted' : 'warning'}>{(stats?.rollup_health.status ?? 'not_started').replaceAll('_', ' ')}</Badge>
-            <span className="text-sm text-muted">{formatNumber(stats?.rollup_health.healthy_meters ?? 0)} of {formatNumber(stats?.rollup_health.meters ?? 0)} meters covered{stats?.rollup_health.finalized_through ? ` · through ${formatDate(stats.rollup_health.finalized_through)}` : ''}</span>
+            <span className="text-sm text-muted-foreground">{formatNumber(stats?.rollup_health.healthy_meters ?? 0)} of {formatNumber(stats?.rollup_health.meters ?? 0)} meters covered{stats?.rollup_health.finalized_through ? ` · through ${formatDate(stats.rollup_health.finalized_through)}` : ''}</span>
           </div>
           <DataTable emptyLabel="No retention-enabled meters configured" headers={['Meter', 'Status', 'Finalized through', 'Expected through', 'Source events', 'Rollup rows', 'Details']} rows={(stats?.rollup_health.items ?? []).map((item) => [
             <strong>{item.meter}</strong>,
@@ -254,25 +254,25 @@ function OverviewActionCard({ description, icon, label, onOpen, title }: { descr
       onClick={onOpen}
       type="button"
     >
-      <span className="grid size-9 place-items-center rounded-md bg-[#e6f6f3] text-primary">{icon}</span>
+      <span className="grid size-9 place-items-center rounded-md bg-primary/10 text-primary">{icon}</span>
       <span className="grid min-w-0 gap-0.5">
-        <small className="text-xs font-bold uppercase text-muted">{label}</small>
+        <small className="text-xs font-bold uppercase text-muted-foreground">{label}</small>
         <strong className="truncate text-sm">{title}</strong>
-        <span className="truncate text-xs text-muted">{description}</span>
+        <span className="truncate text-xs text-muted-foreground">{description}</span>
       </span>
-      <ArrowRight aria-hidden="true" className="size-4 text-muted" />
+      <ArrowRight aria-hidden="true" className="size-4 text-muted-foreground" />
     </button>
   )
 }
 
 function EmptyPinnedQueries({ onOpen }: { onOpen: () => void }) {
   return (
-    <div className="grid min-h-[132px] place-items-center rounded-md border border-dashed border-border bg-[#f8fafc] p-6 text-center">
+    <div className="grid min-h-[132px] place-items-center rounded-md border border-dashed border-border bg-secondary p-6 text-center">
       <div className="grid max-w-[420px] gap-3 justify-items-center">
-        <span className="grid size-10 place-items-center rounded-md bg-[#e6f6f3] text-primary"><Pin aria-hidden="true" className="size-5" /></span>
+        <span className="grid size-10 place-items-center rounded-md bg-primary/10 text-primary"><Pin aria-hidden="true" className="size-5" /></span>
         <div className="grid gap-1">
           <strong>No pinned queries yet</strong>
-          <span className="text-sm text-muted">Save and pin a usage query to keep important product signals on this page.</span>
+          <span className="text-sm text-muted-foreground">Save and pin a usage query to keep important product signals on this page.</span>
         </div>
         <Button onClick={onOpen} size="sm" type="button" variant="outline">
           Open usage
@@ -330,11 +330,11 @@ function WorkspaceHealthCard({ latestIngestion, recentAccepted, recentFailures, 
 
 function OverviewStatusItem({ icon, label, value, variant }: { icon: React.ReactNode; label: string; value: string; variant: 'muted' | 'success' | 'warning' }) {
   return (
-    <div className="grid grid-cols-[34px_minmax(0,1fr)_auto] items-center gap-3 rounded-md border border-border bg-[#f8fafc] p-3">
-      <span className="grid size-8 place-items-center rounded-md bg-white text-primary">{icon}</span>
+    <div className="grid grid-cols-[34px_minmax(0,1fr)_auto] items-center gap-3 rounded-md border border-border bg-secondary p-3">
+      <span className="grid size-8 place-items-center rounded-md bg-card text-primary">{icon}</span>
       <span className="grid min-w-0 gap-0.5">
         <strong className="truncate text-sm">{label}</strong>
-        <small className="truncate text-xs text-muted">{value}</small>
+        <small className="truncate text-xs text-muted-foreground">{value}</small>
       </span>
       <Badge variant={variant}>{statusLabel(variant)}</Badge>
     </div>
@@ -367,18 +367,18 @@ function PinnedQueryCard({ onOpen, summary }: { onOpen: () => void; summary: Pin
       type="button"
     >
       <div className="grid grid-cols-[28px_minmax(0,1fr)_auto] items-start gap-2">
-        <span className="grid size-7 place-items-center rounded-md bg-[#e6f6f3] text-primary"><Pin aria-hidden="true" className="size-4" /></span>
+        <span className="grid size-7 place-items-center rounded-md bg-primary/10 text-primary"><Pin aria-hidden="true" className="size-4" /></span>
         <div className="grid min-w-0 gap-0.5">
           <strong className="truncate text-sm">{summary.query.name}</strong>
-          <small className="truncate text-xs text-muted">{groupBy}</small>
+          <small className="truncate text-xs text-muted-foreground">{groupBy}</small>
         </div>
         <Badge variant={summary.error ? 'warning' : 'muted'}>{summary.bucketSize}</Badge>
       </div>
       <div className="grid gap-0.5">
         <strong className="text-2xl leading-none">{summary.error ? '--' : formatNumber(summary.total)}</strong>
-        <span className="text-xs text-muted">{summary.unit || 'units'}</span>
+        <span className="text-xs text-muted-foreground">{summary.unit || 'units'}</span>
       </div>
-      <div className="truncate text-xs text-muted">
+      <div className="truncate text-xs text-muted-foreground">
         <span>{footer}</span>
       </div>
     </button>
