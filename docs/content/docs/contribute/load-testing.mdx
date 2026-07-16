@@ -1,0 +1,41 @@
+---
+title: Load and Soak Testing
+description: Exercise REST and gRPC ingestion against Postgres with correctness and performance gates.
+---
+
+The load regression harness starts real HTTP and gRPC listeners against a dedicated Postgres database. It mixes REST single and bulk writes with gRPC unary, bulk, and client-streaming writes.
+
+Run the smoke profile:
+
+```sh
+task test:load
+```
+
+Override the smoke profile with task variables:
+
+```sh
+task test:load EVENTS=2000 CONCURRENCY=24 BULK_SIZE=40 MAX_P95=2s MIN_THROUGHPUT=50
+```
+
+Run the longer built-in soak profile:
+
+```sh
+task test:load:soak
+```
+
+The test fails when:
+
+- Any ingestion operation returns an unexpected error or partial result.
+- The persisted event set has missing or duplicate idempotency keys.
+- Replaying REST or gRPC writes changes the unique event count.
+- Recovering an uncertain stream through unary bulk ingestion does not report duplicates.
+- The overall p95 operation latency exceeds `-max-p95`.
+- Accepted event throughput falls below `-min-throughput`.
+- Expected HTTP, gRPC, ingestion, or database OpenTelemetry metrics are missing.
+- A high-cardinality run, meter, or subject identifier leaks into the metrics output.
+
+Defaults are deliberately conservative enough for shared CI runners. Use the same hardware and Postgres configuration when comparing throughput between commits. Absolute throughput from a laptop, CI VM, and production-like database is not directly comparable.
+
+The Postgres pull-request workflow runs a 250-event regression gate. A scheduled GitHub Actions workflow runs the 10,000-event soak profile each day and retains its text summary as a workflow artifact, making p50, p95, p99, and throughput changes visible between runs.
+
+No telemetry viewer is required. The harness scrapes the API's Prometheus-format `/metrics` endpoint directly. Prometheus and Grafana are useful when graphing a long soak run, while an OTLP collector is only needed after enabling remote OpenTelemetry export or tracing.

@@ -17,6 +17,9 @@ on:
       - "internal/metering/app/**"
       - "internal/metering/bootstrap/**"
       - "internal/metering/domain/**"
+      - "cmd/loadtest/**"
+      - "internal/observability/**"
+      - "taskfiles/test.yml"
   pull_request:
     paths:
       - ".github/workflows/test-postgres.yml"
@@ -30,6 +33,9 @@ on:
       - "internal/metering/app/**"
       - "internal/metering/bootstrap/**"
       - "internal/metering/domain/**"
+      - "cmd/loadtest/**"
+      - "internal/observability/**"
+      - "taskfiles/test.yml"
 
 concurrency:
   group: test-postgres-${{ github.ref }}
@@ -69,3 +75,8 @@ jobs:
         run: go test ./internal/metering/bootstrap -run TestIntegrationPostgres -count=1
         env:
           OPEN_SPANNER_TEST_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/open_spanner?sslmode=disable
+
+      - name: Run ingestion load regression gate
+        run: go run ./cmd/loadtest -events=250 -concurrency=8 -bulk-size=10 -max-p95=3s -min-throughput=15
+        env:
+          OPEN_SPANNER_LOAD_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/open_spanner?sslmode=disable

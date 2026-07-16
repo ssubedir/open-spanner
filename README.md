@@ -402,7 +402,10 @@ Run API tests:
 task test
 task test:postgres
 task test:s3
+task test:load
 ```
+
+Run the longer Postgres ingestion soak profile with `task test:load:soak`. The harness checks REST and gRPC throughput, p95 latency, idempotent replay, persisted event integrity, and telemetry cardinality without requiring an OpenTelemetry viewer.
 
 Run dashboard E2E tests:
 

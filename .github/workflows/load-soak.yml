@@ -1,0 +1,57 @@
+name: Ingestion Soak Test
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * *"
+
+concurrency:
+  group: ingestion-soak
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  soak:
+    name: Postgres REST and gRPC soak
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: open_spanner
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d open_spanner"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.5"
+          cache: true
+
+      - name: Run ingestion soak regression
+        shell: bash
+        run: go run ./cmd/loadtest -events=10000 -concurrency=32 -bulk-size=50 -timeout=10m -max-p95=3s -min-throughput=50 2>&1 | tee load-results.txt
+        env:
+          OPEN_SPANNER_LOAD_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/open_spanner?sslmode=disable
+
+      - name: Upload soak summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ingestion-soak-results
+          path: load-results.txt
+          if-no-files-found: ignore

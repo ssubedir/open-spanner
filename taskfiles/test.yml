@@ -15,6 +15,30 @@ tasks:
     env:
       OPEN_SPANNER_TEST_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/open_spanner_test?sslmode=disable
 
+  test:load:
+    desc: Run the Postgres ingestion load regression gate
+    vars:
+      EVENTS: '{{default "500" .EVENTS}}'
+      CONCURRENCY: '{{default "12" .CONCURRENCY}}'
+      BULK_SIZE: '{{default "20" .BULK_SIZE}}'
+      MAX_P95: '{{default "2s" .MAX_P95}}'
+      MIN_THROUGHPUT: '{{default "20" .MIN_THROUGHPUT}}'
+    cmds:
+      - task: postgres:up
+      - task: _test:load:reset
+      - go run ./cmd/loadtest -events={{.EVENTS}} -concurrency={{.CONCURRENCY}} -bulk-size={{.BULK_SIZE}} -max-p95={{.MAX_P95}} -min-throughput={{.MIN_THROUGHPUT}}
+    env:
+      OPEN_SPANNER_LOAD_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/open_spanner_load?sslmode=disable
+
+  test:load:soak:
+    desc: Run the longer Postgres ingestion soak profile
+    cmds:
+      - task: postgres:up
+      - task: _test:load:reset
+      - go run ./cmd/loadtest -events=10000 -concurrency=32 -bulk-size=50 -timeout=10m -max-p95=3s -min-throughput=50
+    env:
+      OPEN_SPANNER_LOAD_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/open_spanner_load?sslmode=disable
+
   test:s3:
     desc: Run S3-compatible export storage integration tests
     cmds:
@@ -362,3 +386,10 @@ tasks:
       - docker compose exec -T postgres psql -U postgres -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'open_spanner_test';"
       - docker compose exec -T postgres psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS open_spanner_test;"
       - docker compose exec -T postgres psql -U postgres -d postgres -c "CREATE DATABASE open_spanner_test;"
+
+  _test:load:reset:
+    internal: true
+    cmds:
+      - docker compose exec -T postgres psql -U postgres -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'open_spanner_load';"
+      - docker compose exec -T postgres psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS open_spanner_load;"
+      - docker compose exec -T postgres psql -U postgres -d postgres -c "CREATE DATABASE open_spanner_load;"
