@@ -1,0 +1,327 @@
+import { useSelector } from '@tanstack/react-store'
+import { Copy, KeyRound, Loader2, Plus, RefreshCw, ShieldX } from 'lucide-react'
+import { type FormEvent, useCallback } from 'react'
+
+import { appStore, appStoreActions } from '../app-store'
+import { DataTable, Modal, PageHeader } from '../components/dashboard'
+import { Badge } from '../components/ui/badge'
+import { Button } from '../components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
+import { Checkbox } from '../components/ui/checkbox'
+import { Input } from '../components/ui/input'
+import { Label } from '../components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
+import { Textarea } from '../components/ui/textarea'
+import { formatDate } from '../lib/format'
+import { useInitialLoad } from '../lib/hooks'
+
+const neverExpiresSelectValue = '__never_expires__'
+
+const apiKeyScopes = [
+  { value: 'usage:write', label: 'Write usage', group: 'Usage', description: 'Record usage events from a backend service.' },
+  { value: 'usage:read', label: 'Read usage', group: 'Usage', description: 'Query buckets, raw events, dimensions, and breakdowns.' },
+  { value: 'meters:read', label: 'Read meters', group: 'Meters', description: 'Read meter definitions and schemas.' },
+  { value: 'meters:write', label: 'Write meters', group: 'Meters', description: 'Create and edit meter definitions.' },
+  { value: 'alerts:read', label: 'Read alerts', group: 'Alerts', description: 'List alert rules, destinations, and events.' },
+  { value: 'alerts:write', label: 'Write alerts', group: 'Alerts', description: 'Manage alert rules and destinations.' },
+  { value: 'exports:read', label: 'Read exports', group: 'Exports', description: 'List and download usage exports.' },
+  { value: 'exports:write', label: 'Write exports', group: 'Exports', description: 'Queue, cancel, and retry export jobs.' },
+  { value: 'plans:read', label: 'Read plans', group: 'Plans', description: 'Check plan limits and remaining quota for backend decisions.' },
+  { value: 'plans:write', label: 'Write plans', group: 'Plans', description: 'Manage plans and subject assignments.' },
+  { value: 'system:read', label: 'Read system', group: 'System', description: 'Read operational stats for the workspace.' },
+  { value: 'system:write', label: 'Repair system', group: 'System', description: 'Apply audited quota counter repairs.' },
+]
+
+const defaultAPIKeyScopes = new Set(['usage:write', 'usage:read', 'meters:read', 'meters:write', 'plans:read'])
+const apiKeyScopeGroups = Array.from(new Set(apiKeyScopes.map((scope) => scope.group)))
+
+const apiKeyExpirationPresets = [
+  { value: '', label: 'Never expires' },
+  { value: '1d', label: '1 day' },
+  { value: '7d', label: '1 week' },
+  { value: '30d', label: '1 month' },
+  { value: '90d', label: '3 months' },
+  { value: '180d', label: '6 months' },
+  { value: '365d', label: '1 year' },
+]
+
+export function APIKeysPage() {
+  const { creating, createdKey, deleting, error, events, items, rotating, saving } = useSelector(appStore, (state) => state.apiKeys)
+  const load = useCallback(() => appStoreActions.loadAPIKeys(), [])
+
+  useInitialLoad(load)
+
+  async function submitCreate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+
+    try {
+      const expiresAfter = String(form.get('expires_after') || '').trim()
+      await appStoreActions.createAPIKey({
+        allowed_meters: splitList(String(form.get('allowed_meters') || '')),
+        expires_at: expirationPresetToISO(expiresAfter === neverExpiresSelectValue ? '' : expiresAfter),
+        name: String(form.get('name') || ''),
+        scopes: form.getAll('scopes').map(String),
+      })
+      formElement.reset()
+      appStoreActions.setAPIKeyCreating(false)
+    } catch {
+      // Store owns the visible API key error state.
+    }
+  }
+
+  async function confirmDelete() {
+    try {
+      await appStoreActions.deleteSelectedAPIKey()
+    } catch {
+      // Store owns the visible API key error state.
+    }
+  }
+
+  async function submitRotation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    try {
+      await appStoreActions.rotateSelectedAPIKey(Number(form.get('grace_period_seconds') || 0))
+    } catch {
+      // Store owns the visible API key error state.
+    }
+  }
+
+  async function copyCreatedKey() {
+    if (!createdKey) {
+      return
+    }
+    await copyText(createdKey.key)
+  }
+
+  return (
+    <>
+      <PageHeader
+        eyebrow="API Keys"
+        icon={<KeyRound />}
+        title="SDK access"
+        description="Issue, rotate, and revoke credentials for trusted backend clients."
+        action={null}
+      />
+
+      {error ? <div className="error-banner">{error}</div> : null}
+
+      {createdKey ? (
+        <section className="secret-panel" aria-label="Created API key">
+          <div>
+            <span>New key ready</span>
+            <strong>{createdKey.name}</strong>
+            <small>Copy this secret now. It will not be shown again.</small>
+          </div>
+          <code title={createdKey.key}>{createdKey.key}</code>
+          <div className="secret-actions">
+            <Button onClick={() => void copyCreatedKey()} type="button">
+              <Copy aria-hidden="true" />
+              Copy key
+            </Button>
+            <Button onClick={appStoreActions.clearCreatedAPIKey} type="button" variant="outline">Dismiss</Button>
+          </div>
+        </section>
+      ) : null}
+
+      <Card className="min-w-0">
+        <CardHeader className="!px-4 !py-3">
+          <div>
+            <CardTitle>Keys</CardTitle>
+            <CardDescription>Current and revoked SDK credentials.</CardDescription>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button disabled={saving} onClick={() => appStoreActions.setAPIKeyCreating(true)} type="button">
+              <Plus aria-hidden="true" />
+              New key
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            emptyLabel="No API keys yet"
+            headers={['Name', 'Prefix', 'Status', 'Created', 'Last Used', 'Actions']}
+            rows={items.map((key) => [
+              <span className="api-key-name-block">
+                <strong className="api-key-name">{key.name}</strong>
+                <ScopeBadges scopes={key.scopes} />
+                {key.allowed_meters.length > 0 ? <small>meters: {key.allowed_meters.join(', ')}</small> : null}
+              </span>,
+              <Badge className="api-key-prefix" variant="muted">
+                <span className="mono">{key.prefix}</span>
+              </Badge>,
+              <KeyStatus credential={key} />,
+              formatDate(key.created_at),
+              key.last_used_at ? formatDate(key.last_used_at) : <span className="muted">Never</span>,
+              <span className="table-actions">
+                {key.status === 'active' ? <Button aria-label={`Rotate ${key.name}`} disabled={saving} onClick={() => appStoreActions.setAPIKeyRotating(key)} size="icon" type="button" variant="ghost"><RefreshCw aria-hidden="true" /></Button> : null}
+                {key.status === 'active' || key.status === 'revoking' ? <Button aria-label={`Revoke ${key.name}`} disabled={saving} onClick={() => appStoreActions.setAPIKeyDeleting(key)} size="icon" type="button" variant="ghost"><ShieldX aria-hidden="true" /></Button> : null}
+              </span>,
+            ])}
+          />
+        </CardContent>
+      </Card>
+
+      <Card className="min-w-0">
+        <CardHeader className="!px-4 !py-3"><div><CardTitle>Lifecycle audit</CardTitle><CardDescription>Immutable creation, rotation, and revocation history.</CardDescription></div></CardHeader>
+        <CardContent>
+          <DataTable emptyLabel="No API key activity yet" headers={['Event', 'Key', 'Prefix', 'Effective', 'Recorded']} rows={events.map((event) => [
+            <Badge variant={event.event_type === 'revoked' ? 'warning' : 'muted'}>{event.event_type}</Badge>,
+            event.key_name,
+            <span className="mono">{event.key_prefix}</span>,
+            event.effective_at ? formatDate(event.effective_at) : <span className="muted">Immediate</span>,
+            formatDate(event.created_at),
+          ])} />
+        </CardContent>
+      </Card>
+
+      {creating ? (
+        <Modal className="!w-full !max-w-[700px]" title="Create API Key" onClose={() => appStoreActions.setAPIKeyCreating(false)}>
+          <form className="modal-form max-h-[calc(100vh-128px)] overflow-auto" onSubmit={(event) => void submitCreate(event)}>
+            <Label className="grid gap-1.5">
+              Name
+              <Input name="name" placeholder="server-billing-sync" required />
+            </Label>
+            <div className="form-field wide">
+              <span className="field-label">Scopes</span>
+              <div className="scope-picker">
+                {apiKeyScopeGroups.map((group) => (
+                  <section className="scope-group" key={group} aria-label={`${group} scopes`}>
+                    <strong>{group}</strong>
+                    <div className="scope-options">
+                      {apiKeyScopes.filter((scope) => scope.group === group).map((scope) => (
+                        <Label className="scope-option" key={scope.value}>
+                          <Checkbox defaultChecked={defaultAPIKeyScopes.has(scope.value)} name="scopes" value={scope.value} />
+                          <span>
+                            <b>{scope.label}</b>
+                            <small>{scope.description}</small>
+                          </span>
+                        </Label>
+                      ))}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            </div>
+            <Label className="grid gap-1.5">
+              Allowed meters
+              <Textarea name="allowed_meters" placeholder={'Leave blank for all meters\napi_requests\nstorage_bytes'} rows={3} />
+            </Label>
+            <Label className="grid gap-1.5">
+              Expires after
+              <Select defaultValue={neverExpiresSelectValue} name="expires_after">
+                <SelectTrigger className="min-h-[38px] w-full">
+                  <SelectValue placeholder="Select expiry" />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                {apiKeyExpirationPresets.map((preset) => (
+                  <SelectItem key={preset.value || 'never'} value={preset.value || neverExpiresSelectValue}>{preset.label}</SelectItem>
+                ))}
+                </SelectContent>
+              </Select>
+            </Label>
+            <div className="modal-actions">
+              <Button onClick={() => appStoreActions.setAPIKeyCreating(false)} type="button" variant="outline">Cancel</Button>
+              <Button disabled={saving} type="submit">
+                {saving ? <Loader2 className="spin" aria-hidden="true" /> : <Plus aria-hidden="true" />}
+                Create key
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+
+      {deleting ? (
+        <Modal title="Revoke API Key" onClose={() => appStoreActions.setAPIKeyDeleting(null)}>
+          <div className="modal-copy">Immediately revoke <strong>{deleting.name}</strong>? Clients using it will lose access.</div>
+          <div className="modal-actions">
+            <Button onClick={() => appStoreActions.setAPIKeyDeleting(null)} type="button" variant="outline">Cancel</Button>
+            <Button disabled={saving} onClick={() => void confirmDelete()} type="button">Revoke</Button>
+          </div>
+        </Modal>
+      ) : null}
+
+      {rotating ? (
+        <Modal title="Rotate API Key" onClose={() => appStoreActions.setAPIKeyRotating(null)}>
+          <form className="modal-form" onSubmit={(event) => void submitRotation(event)}>
+            <div className="modal-copy">Create a replacement for <strong>{rotating.name}</strong> with the same scopes, meter access, and expiry.</div>
+            <Label className="grid gap-1.5">Old key grace period
+              <Select defaultValue="3600" name="grace_period_seconds"><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent position="popper">
+                <SelectItem value="0">Revoke immediately</SelectItem><SelectItem value="300">5 minutes</SelectItem><SelectItem value="3600">1 hour</SelectItem><SelectItem value="86400">24 hours</SelectItem>
+              </SelectContent></Select>
+            </Label>
+            <div className="modal-actions"><Button onClick={() => appStoreActions.setAPIKeyRotating(null)} type="button" variant="outline">Cancel</Button><Button disabled={saving} type="submit">{saving ? <Loader2 className="spin" /> : <RefreshCw />}Rotate key</Button></div>
+          </form>
+        </Modal>
+      ) : null}
+    </>
+  )
+}
+
+function KeyStatus({ credential }: { credential: { revoked_at?: string | null; status: 'active' | 'revoking' | 'revoked' | 'expired' } }) {
+  if (credential.status === 'active') return <Badge variant="success">Active</Badge>
+  if (credential.status === 'revoking') return <Badge variant="warning">Revokes {credential.revoked_at ? formatDate(credential.revoked_at) : 'soon'}</Badge>
+  if (credential.status === 'expired') return <Badge variant="muted">Expired</Badge>
+  return <Badge variant="muted">Revoked</Badge>
+}
+
+function ScopeBadges({ scopes }: { scopes: string[] }) {
+  if (scopes.length === 0) {
+    return <Badge variant="warning">No scopes</Badge>
+  }
+
+  return (
+    <span className="scope-badge-list" aria-label={scopes.join(', ')}>
+      {scopes.map((scope) => (
+        <Badge key={scope} title={scope} variant="muted">
+          {scopeLabel(scope)}
+        </Badge>
+      ))}
+    </span>
+  )
+}
+
+function scopeLabel(scope: string) {
+  return apiKeyScopes.find((item) => item.value === scope)?.label || scope
+}
+
+async function copyText(value: string) {
+  try {
+    await navigator.clipboard.writeText(value)
+    return
+  } catch {
+    const textarea = document.createElement('textarea')
+    textarea.value = value
+    textarea.setAttribute('readonly', 'true')
+    textarea.style.left = '-9999px'
+    textarea.style.position = 'fixed'
+    document.body.appendChild(textarea)
+    textarea.select()
+    document.execCommand('copy')
+    textarea.remove()
+  }
+}
+
+function splitList(value: string) {
+  return value
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function expirationPresetToISO(value: string) {
+  if (!value) {
+    return undefined
+  }
+
+  const match = value.match(/^(\d+)d$/)
+  if (!match) {
+    return undefined
+  }
+
+  const expiresAt = new Date()
+  expiresAt.setDate(expiresAt.getDate() + Number(match[1]))
+  return expiresAt.toISOString()
+}
