@@ -1581,6 +1581,33 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 	if len(rolledUpUsage) != 1 || rolledUpUsage[0].Quantity != 2 {
 		t.Fatalf("rolled-up usages = %#v, want quantity 2", rolledUpUsage)
 	}
+	rollupStatsRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/system/stats", nil, authHeaders, nil)
+	if rollupStatsRes.Code != http.StatusOK {
+		t.Fatalf("rollup health stats status = %d, want %d: %s", rollupStatsRes.Code, http.StatusOK, rollupStatsRes.Body.String())
+	}
+	var rollupStats struct {
+		RollupHealth struct {
+			Status string `json:"status"`
+			Items  []struct {
+				Meter  string `json:"meter"`
+				Status string `json:"status"`
+			} `json:"items"`
+		} `json:"rollup_health"`
+	}
+	decodeJSON(t, rollupStatsRes, &rollupStats)
+	if rollupStats.RollupHealth.Status != "healthy" {
+		t.Fatalf("rollup health = %#v, want healthy", rollupStats.RollupHealth)
+	}
+	foundHealthyMeter := false
+	for _, item := range rollupStats.RollupHealth.Items {
+		if item.Meter == meterName && item.Status == "healthy" {
+			foundHealthyMeter = true
+			break
+		}
+	}
+	if !foundHealthyMeter {
+		t.Fatalf("rollup health missing healthy meter %q: %#v", meterName, rollupStats.RollupHealth.Items)
+	}
 }
 
 func runIntegrationWorkspaceIsolationFlow(t *testing.T, cfg config.Config, namespace string) {

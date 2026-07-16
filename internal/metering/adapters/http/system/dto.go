@@ -14,6 +14,27 @@ type StatsResponse struct {
 	LastReconciliationRun *ReconciliationRunResponse    `json:"last_reconciliation_run"`
 	ReconciliationHealth  ReconciliationHealthResponse  `json:"reconciliation_health"`
 	WorkerHealth          []WorkerHealthResponse        `json:"worker_health"`
+	RollupHealth          RollupHealthResponse          `json:"rollup_health"`
+}
+
+type RollupHealthResponse struct {
+	Status           string                      `json:"status"`
+	Meters           int                         `json:"meters"`
+	HealthyMeters    int                         `json:"healthy_meters"`
+	Issues           int                         `json:"issues"`
+	FinalizedThrough string                      `json:"finalized_through,omitempty"`
+	Items            []RollupMeterHealthResponse `json:"items"`
+}
+
+type RollupMeterHealthResponse struct {
+	MeterName        string `json:"meter"`
+	Status           string `json:"status"`
+	ExpectedThrough  string `json:"expected_through"`
+	FinalizedThrough string `json:"finalized_through,omitempty"`
+	SourceEvents     int64  `json:"source_events"`
+	RollupRows       int64  `json:"rollup_rows"`
+	LastRunAt        string `json:"last_run_at,omitempty"`
+	Issue            string `json:"issue,omitempty"`
 }
 
 type LastExportCleanupRunResponse struct {

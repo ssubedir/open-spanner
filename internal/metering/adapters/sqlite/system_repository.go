@@ -15,11 +15,12 @@ import (
 )
 
 type SystemRepository struct {
+	store   *Store
 	queries *sqlitedb.Queries
 }
 
 func NewSystemRepository(store *Store) *SystemRepository {
-	return &SystemRepository{queries: sqlitedb.New(store)}
+	return &SystemRepository{store: store, queries: sqlitedb.New(store)}
 }
 
 func (r *SystemRepository) UpsertWorkerHeartbeat(ctx context.Context, heartbeat appsystem.WorkerHeartbeat) error {

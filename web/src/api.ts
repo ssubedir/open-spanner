@@ -47,6 +47,23 @@ export type SystemStats = {
 		last_success_at?: string
 		last_failure_at?: string
 	}>
+	rollup_health: {
+		status: 'healthy' | 'degraded' | 'stale' | 'not_started'
+		meters: number
+		healthy_meters: number
+		issues: number
+		finalized_through?: string
+		items: Array<{
+			meter: string
+			status: 'healthy' | 'degraded' | 'stale' | 'not_started'
+			expected_through: string
+			finalized_through?: string
+			source_events: number
+			rollup_rows: number
+			last_run_at?: string
+			issue?: string
+		}>
+	}
 }
 
 export type WorkerDeadLetter = {

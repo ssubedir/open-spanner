@@ -182,6 +182,31 @@ func TestReconciliationHealthDetectsDeadLetters(t *testing.T) {
 	}
 }
 
+func TestRollupHealthDetectsCoverageAndIntegrityIssues(t *testing.T) {
+	now := time.Date(2026, 7, 15, 12, 30, 0, 0, time.UTC)
+	health := rollupHealth([]RollupMeterCoverage{
+		{MeterName: "healthy", RetentionDays: 1, FinalizedThrough: time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC), SourceEvents: 10, RollupRows: 3, LastRunAt: now.Add(-time.Hour)},
+		{MeterName: "missing", RetentionDays: 7},
+		{MeterName: "corrupt", RetentionDays: 30, FinalizedThrough: now.AddDate(0, 0, -30).Truncate(time.Hour), InvalidRollupRows: 1},
+	}, now, 2*time.Hour)
+	if health.Status != "degraded" || health.Meters != 3 || health.HealthyMeters != 1 || health.Issues != 2 {
+		t.Fatalf("rollup health = %#v", health)
+	}
+	if health.Items[1].Status != "not_started" || health.Items[2].Status != "degraded" {
+		t.Fatalf("rollup items = %#v", health.Items)
+	}
+}
+
+func TestRollupHealthReportsStaleCoverage(t *testing.T) {
+	now := time.Date(2026, 7, 15, 12, 30, 0, 0, time.UTC)
+	health := rollupHealth([]RollupMeterCoverage{{
+		MeterName: "stale", RetentionDays: 1, FinalizedThrough: time.Date(2026, 7, 14, 8, 0, 0, 0, time.UTC),
+	}}, now, 2*time.Hour)
+	if health.Status != "stale" || len(health.Items) != 1 || health.Items[0].Status != "stale" {
+		t.Fatalf("stale rollup health = %#v", health)
+	}
+}
+
 type directTransactor struct{}
 
 func (directTransactor) WithinTransaction(ctx context.Context, fn func(context.Context) error) error {

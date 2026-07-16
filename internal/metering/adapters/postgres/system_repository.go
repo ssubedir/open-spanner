@@ -18,11 +18,12 @@ import (
 )
 
 type SystemRepository struct {
+	store   *Store
 	queries *postgresdb.Queries
 }
 
 func NewSystemRepository(store *Store) *SystemRepository {
-	return &SystemRepository{queries: postgresdb.New(store)}
+	return &SystemRepository{store: store, queries: postgresdb.New(store)}
 }
 
 func (r *SystemRepository) UpsertWorkerHeartbeat(ctx context.Context, heartbeat appsystem.WorkerHeartbeat) error {

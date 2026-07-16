@@ -31,10 +31,11 @@ type Service interface {
 }
 
 type service struct {
-	repo          Repository
-	transactor    apptransaction.Transactor
-	staleAfter    time.Duration
-	workerEnabled map[string]bool
+	repo             Repository
+	transactor       apptransaction.Transactor
+	staleAfter       time.Duration
+	rollupStaleAfter time.Duration
+	workerEnabled    map[string]bool
 }
 
 type Repository interface {
@@ -164,6 +165,42 @@ type StatsResult struct {
 	LastReconciliationRun ReconciliationRun
 	ReconciliationHealth  ReconciliationHealth
 	WorkerHealth          []WorkerHealth
+	RollupHealth          RollupHealth
+}
+
+type RollupCoverageRepository interface {
+	ListRollupMeterCoverage(ctx context.Context) ([]RollupMeterCoverage, error)
+}
+
+type RollupMeterCoverage struct {
+	MeterName          string
+	RetentionDays      int
+	FinalizedThrough   time.Time
+	SourceEvents       int64
+	RollupRows         int64
+	LastRunAt          time.Time
+	InvalidRollupRows  int
+	RawBeforeFinalized int
+}
+
+type RollupHealth struct {
+	Status           string
+	Meters           int
+	HealthyMeters    int
+	Issues           int
+	FinalizedThrough time.Time
+	Items            []RollupMeterHealth
+}
+
+type RollupMeterHealth struct {
+	MeterName        string
+	Status           string
+	ExpectedThrough  time.Time
+	FinalizedThrough time.Time
+	SourceEvents     int64
+	RollupRows       int64
+	LastRunAt        time.Time
+	Issue            string
 }
 
 type WorkerHeartbeat struct {
@@ -221,6 +258,7 @@ type LastExportCleanupRunResult struct {
 
 type ServiceOptions struct {
 	ReconciliationStaleAfter time.Duration
+	RollupStaleAfter         time.Duration
 	WorkerEnabled            map[string]bool
 }
 
@@ -229,14 +267,18 @@ func NewService(repo Repository, transactor apptransaction.Transactor, options .
 		panic("system service requires repository and transactor")
 	}
 	staleAfter := 30 * time.Minute
+	rollupStaleAfter := 2 * time.Hour
 	if len(options) > 0 && options[0].ReconciliationStaleAfter > 0 {
 		staleAfter = options[0].ReconciliationStaleAfter
+	}
+	if len(options) > 0 && options[0].RollupStaleAfter > 0 {
+		rollupStaleAfter = options[0].RollupStaleAfter
 	}
 	workerEnabled := map[string]bool{}
 	if len(options) > 0 && options[0].WorkerEnabled != nil {
 		workerEnabled = options[0].WorkerEnabled
 	}
-	return &service{repo: repo, transactor: transactor, staleAfter: staleAfter, workerEnabled: workerEnabled}
+	return &service{repo: repo, transactor: transactor, staleAfter: staleAfter, rollupStaleAfter: rollupStaleAfter, workerEnabled: workerEnabled}
 }
 
 func (s *service) Stats(ctx context.Context) (StatsResult, error) {
@@ -270,7 +312,61 @@ func (s *service) Stats(ctx context.Context) (StatsResult, error) {
 		return StatsResult{}, err
 	}
 	stats.WorkerHealth = workerHealth(s.workerEnabled, heartbeats, diagnostics, now, 30*time.Second, 5*time.Minute)
+	if repo, ok := s.repo.(RollupCoverageRepository); ok {
+		coverage, err := repo.ListRollupMeterCoverage(ctx)
+		if err != nil {
+			return StatsResult{}, err
+		}
+		stats.RollupHealth = rollupHealth(coverage, now, s.rollupStaleAfter)
+	}
 	return stats, nil
+}
+
+func rollupHealth(coverage []RollupMeterCoverage, now time.Time, staleAfter time.Duration) RollupHealth {
+	health := RollupHealth{Status: "healthy", Meters: len(coverage), Items: make([]RollupMeterHealth, 0, len(coverage))}
+	notStarted := 0
+	for _, row := range coverage {
+		expected := now.AddDate(0, 0, -row.RetentionDays).UTC().Truncate(time.Hour)
+		item := RollupMeterHealth{MeterName: row.MeterName, Status: "healthy", ExpectedThrough: expected, FinalizedThrough: row.FinalizedThrough, SourceEvents: row.SourceEvents, RollupRows: row.RollupRows, LastRunAt: row.LastRunAt}
+		switch {
+		case row.FinalizedThrough.IsZero():
+			item.Status, item.Issue = "not_started", "No finalized rollup coverage has been recorded."
+			notStarted++
+		case row.InvalidRollupRows > 0:
+			item.Status, item.Issue = "degraded", fmt.Sprintf("%d malformed rollup rows detected.", row.InvalidRollupRows)
+		case row.RawBeforeFinalized > 0:
+			item.Status, item.Issue = "degraded", fmt.Sprintf("%d raw events remain behind the finalized cutoff.", row.RawBeforeFinalized)
+		case row.FinalizedThrough.Before(expected.Add(-staleAfter)):
+			item.Status, item.Issue = "stale", "Finalized coverage is behind the meter retention cutoff."
+		default:
+			health.HealthyMeters++
+		}
+		if item.Status != "healthy" {
+			health.Issues++
+		}
+		if !row.FinalizedThrough.IsZero() && (health.FinalizedThrough.IsZero() || row.FinalizedThrough.Before(health.FinalizedThrough)) {
+			health.FinalizedThrough = row.FinalizedThrough
+		}
+		health.Items = append(health.Items, item)
+	}
+	if health.Issues > 0 {
+		health.Status = "degraded"
+		if notStarted == len(coverage) {
+			health.Status = "not_started"
+		} else {
+			allStale := true
+			for _, item := range health.Items {
+				if item.Status != "healthy" && item.Status != "stale" {
+					allStale = false
+					break
+				}
+			}
+			if allStale {
+				health.Status = "stale"
+			}
+		}
+	}
+	return health
 }
 
 func (s *service) RecordWorkerHeartbeat(ctx context.Context, workerName string, startedAt, heartbeatAt time.Time) error {

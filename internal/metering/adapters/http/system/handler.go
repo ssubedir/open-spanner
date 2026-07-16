@@ -390,7 +390,26 @@ func statsResponseFromResult(stats appsystem.StatsResult) StatsResponse {
 		LastReconciliationRun: lastReconciliationRun,
 		ReconciliationHealth:  reconciliationHealthResponse(stats.ReconciliationHealth),
 		WorkerHealth:          workerHealth,
+		RollupHealth:          rollupHealthResponse(stats.RollupHealth),
 	}
+}
+
+func rollupHealthResponse(health appsystem.RollupHealth) RollupHealthResponse {
+	response := RollupHealthResponse{Status: health.Status, Meters: health.Meters, HealthyMeters: health.HealthyMeters, Issues: health.Issues, Items: make([]RollupMeterHealthResponse, 0, len(health.Items))}
+	if !health.FinalizedThrough.IsZero() {
+		response.FinalizedThrough = health.FinalizedThrough.Format(time.RFC3339Nano)
+	}
+	for _, item := range health.Items {
+		mapped := RollupMeterHealthResponse{MeterName: item.MeterName, Status: item.Status, ExpectedThrough: item.ExpectedThrough.Format(time.RFC3339Nano), SourceEvents: item.SourceEvents, RollupRows: item.RollupRows, Issue: item.Issue}
+		if !item.FinalizedThrough.IsZero() {
+			mapped.FinalizedThrough = item.FinalizedThrough.Format(time.RFC3339Nano)
+		}
+		if !item.LastRunAt.IsZero() {
+			mapped.LastRunAt = item.LastRunAt.Format(time.RFC3339Nano)
+		}
+		response.Items = append(response.Items, mapped)
+	}
+	return response
 }
 
 func reconciliationHealthResponse(health appsystem.ReconciliationHealth) ReconciliationHealthResponse {

@@ -7,6 +7,8 @@ Meters can define `event_retention_days`. Retention controls how long raw usage 
 
 Before deleting raw events, Open Spanner atomically materializes immutable hourly rollups. Sum, count, average, minimum, maximum, first, last, and rate queries continue to combine retained rollups with live events. Metadata dimensions and subject breakdowns remain available too.
 
+Every non-dry-run retention pass records the finalized cutoff, number of source events, and number of rollup rows for each meter, including passes with no expired events. `GET /v1/system/stats` and the Overview dashboard report per-meter coverage health. The check flags missing or stale coverage, malformed rollup rows, and raw events left behind an already finalized cutoff; it never rebuilds or deletes data.
+
 Individual event browsing and event-only filters (`quantity`, event or receive time, and idempotency key) require raw data. A query that overlaps rolled-up history must use UTC hour-aligned boundaries; unsupported retained-history queries return a conflict instead of an incomplete result.
 
 ## Automatic Pruning

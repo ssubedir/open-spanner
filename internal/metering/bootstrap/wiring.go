@@ -98,6 +98,7 @@ func NewApp(ctx context.Context, cfg config.Config) (*App, error) {
 	consumptionService := appconsumption.NewService(repos.consumption, usageService, entitlementService, repos.transactor)
 	systemService := appsystem.NewService(repos.system, repos.transactor, appsystem.ServiceOptions{
 		ReconciliationStaleAfter: cfg.ReconciliationStaleAfter,
+		RollupStaleAfter:         2 * cfg.RetentionPruneInterval,
 		WorkerEnabled:            map[string]bool{"export": true, "alert": true, "entitlement": true, "retention": cfg.RetentionPruneEnabled, "reconciliation": cfg.ReconciliationEnabled},
 	})
 

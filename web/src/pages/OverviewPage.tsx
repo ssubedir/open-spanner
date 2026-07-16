@@ -102,6 +102,25 @@ export function OverviewPage() {
         </CardContent>
       </Card>
 
+      <Card className="mb-4 min-w-0">
+        <CardHeader className="!px-4 !py-3"><div><CardTitle>Retention Rollup Coverage</CardTitle><CardDescription>Read-only verification that aggregate history is finalized through each meter retention cutoff.</CardDescription></div></CardHeader>
+        <CardContent>
+          <div className="mb-3 flex items-center gap-2">
+            <Badge variant={stats?.rollup_health.status === 'healthy' ? 'success' : stats?.rollup_health.status === 'not_started' ? 'muted' : 'warning'}>{(stats?.rollup_health.status ?? 'not_started').replaceAll('_', ' ')}</Badge>
+            <span className="text-sm text-muted">{formatNumber(stats?.rollup_health.healthy_meters ?? 0)} of {formatNumber(stats?.rollup_health.meters ?? 0)} meters covered{stats?.rollup_health.finalized_through ? ` · through ${formatDate(stats.rollup_health.finalized_through)}` : ''}</span>
+          </div>
+          <DataTable emptyLabel="No retention-enabled meters configured" headers={['Meter', 'Status', 'Finalized through', 'Expected through', 'Source events', 'Rollup rows', 'Details']} rows={(stats?.rollup_health.items ?? []).map((item) => [
+            <strong>{item.meter}</strong>,
+            <Badge variant={item.status === 'healthy' ? 'success' : item.status === 'not_started' ? 'muted' : 'warning'}>{item.status.replaceAll('_', ' ')}</Badge>,
+            item.finalized_through ? formatDate(item.finalized_through) : <span className="muted">Never</span>,
+            formatDate(item.expected_through),
+            formatNumber(item.source_events),
+            formatNumber(item.rollup_rows),
+            item.issue || (item.last_run_at ? `Verified ${formatDate(item.last_run_at)}` : 'Ready'),
+          ])} />
+        </CardContent>
+      </Card>
+
 	  <Card className="mb-4 min-w-0">
 		<CardHeader className="!px-4 !py-3"><div><CardTitle>Alert Delivery Outbox</CardTitle><CardDescription>Webhook notifications are retried with backoff and remain inspectable after terminal failure.</CardDescription></div></CardHeader>
 		<CardContent>

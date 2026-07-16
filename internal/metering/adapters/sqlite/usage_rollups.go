@@ -49,9 +49,12 @@ func (r *UsageRepository) rollUpPrunableEvents(ctx context.Context, workspaceID 
 		return 0, err
 	}
 	if sourceCount == 0 {
+		if err := r.saveRollupRun(ctx, workspaceID, query, 0, 0); err != nil {
+			return 0, err
+		}
 		return 0, nil
 	}
-	_, err := r.store.ExecContext(ctx, `
+	result, err := r.store.ExecContext(ctx, `
 		WITH ranked AS (
 			SELECT *, strftime('%Y-%m-%dT%H:00:00Z', event_time) AS bucket,
 				ROW_NUMBER() OVER (PARTITION BY subject, strftime('%Y-%m-%dT%H:00:00Z', event_time), metadata ORDER BY julianday(event_time), id) AS first_rank,
@@ -87,5 +90,24 @@ func (r *UsageRepository) rollUpPrunableEvents(ctx context.Context, workspaceID 
 			last_event_id = CASE WHEN julianday(excluded.last_event_time) > julianday(last_event_time) OR (julianday(excluded.last_event_time) = julianday(last_event_time) AND excluded.last_event_id > last_event_id) THEN excluded.last_event_id ELSE last_event_id END,
 			rolled_up_at = excluded.rolled_up_at`,
 		workspaceID, query.MeterName(), formatTime(query.Before()), formatTime(time.Now().UTC()))
-	return sourceCount, err
+	if err != nil {
+		return 0, err
+	}
+	rollupRows, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if err := r.saveRollupRun(ctx, workspaceID, query, sourceCount, rollupRows); err != nil {
+		return 0, err
+	}
+	return sourceCount, nil
+}
+
+func (r *UsageRepository) saveRollupRun(ctx context.Context, workspaceID string, query domainusage.PruneQuery, sourceEvents int, rollupRows int64) error {
+	_, err := r.store.ExecContext(ctx, `INSERT INTO usage_rollup_runs
+		(workspace_id, meter_name, finalized_through, source_events, rollup_rows, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT (workspace_id, meter_name, finalized_through) DO NOTHING`,
+		workspaceID, query.MeterName(), formatTime(query.Before()), sourceEvents, rollupRows, formatTime(time.Now().UTC()))
+	return err
 }
