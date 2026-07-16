@@ -10,6 +10,10 @@ import (
 )
 
 func NewServer(usageService appusage.Service, alertService appalert.Service, entitlementService appentitlement.Service, authService appauth.Service, authorizer appauth.Authorizer, opts ...grpc.ServerOption) *grpc.Server {
+	return NewServerWithIngestionLimits(usageService, alertService, entitlementService, authService, authorizer, IngestionLimits{}, opts...)
+}
+
+func NewServerWithIngestionLimits(usageService appusage.Service, alertService appalert.Service, entitlementService appentitlement.Service, authService appauth.Service, authorizer appauth.Authorizer, limits IngestionLimits, opts ...grpc.ServerOption) *grpc.Server {
 	serverOptions := []grpc.ServerOption{
 		grpc.ChainUnaryInterceptor(UnaryAuthInterceptor(authService)),
 		grpc.ChainStreamInterceptor(StreamAuthInterceptor(authService)),
@@ -17,6 +21,6 @@ func NewServer(usageService appusage.Service, alertService appalert.Service, ent
 	serverOptions = append(serverOptions, opts...)
 
 	server := grpc.NewServer(serverOptions...)
-	pb.RegisterUsageServiceServer(server, NewUsageServer(usageService, alertService, entitlementService, authorizer))
+	pb.RegisterUsageServiceServer(server, NewUsageServer(usageService, alertService, entitlementService, authorizer, limits))
 	return server
 }

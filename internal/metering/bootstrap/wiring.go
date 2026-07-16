@@ -92,7 +92,10 @@ func NewApp(ctx context.Context, cfg config.Config) (*App, error) {
 	meterService := appmeter.NewService(repos.meter, repos.usage)
 	savedQueryService := appsavedquery.NewService(repos.savedQuery)
 	subjectService := appsubject.NewService(repos.usage)
-	usageService := appusage.NewService(repos.meter, repos.usage, repos.transactor)
+	usageService := appusage.NewService(repos.meter, repos.usage, repos.transactor, appusage.IngestionLimits{
+		MaxBatchEvents: max(cfg.IngestionMaxBulkEvents, cfg.IngestionMaxStreamEvents),
+		RateEvents:     cfg.IngestionRateLimitEvents, RateWindow: cfg.IngestionRateLimitWindow,
+	})
 	alertService := appalert.NewService(repos.alert, repos.meter, repos.usage, repos.transactor)
 	entitlementService := appentitlement.NewService(repos.entitlement, repos.meter, repos.usage, repos.transactor)
 	consumptionService := appconsumption.NewService(repos.consumption, usageService, entitlementService, repos.transactor)
@@ -151,6 +154,8 @@ func RegisterRoutes(ctx context.Context, router chi.Router, cfg config.Config) (
 				Consumption:       app.ConsumptionService,
 				ExportStoragePath: cfg.ExportStoragePath,
 				ExportStore:       exportStore,
+				MaxBodyBytes:      int64(cfg.IngestionMaxBodyBytes),
+				MaxBulkEvents:     cfg.IngestionMaxBulkEvents,
 			}).RegisterRoutes(protected, app.Authorizer)
 			httpsystem.NewHandler(app.SystemService).RegisterRoutes(protected, app.Authorizer)
 		})

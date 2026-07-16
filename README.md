@@ -308,6 +308,11 @@ Common runtime variables:
 | --- | --- | --- |
 | `OPEN_SPANNER_HTTP_ADDR` | `:18081` | HTTP dashboard, REST API, and health endpoints. |
 | `OPEN_SPANNER_GRPC_ADDR` | `:18090` | gRPC usage ingestion listen address. |
+| `OPEN_SPANNER_INGESTION_MAX_BODY_BYTES` | `1048576` | Maximum REST request body and gRPC receive message size. |
+| `OPEN_SPANNER_INGESTION_MAX_BULK_EVENTS` | `1000` | Maximum events in one REST or unary gRPC bulk write. |
+| `OPEN_SPANNER_INGESTION_MAX_STREAM_EVENTS` | `1000` | Maximum events accepted by one gRPC client stream. |
+| `OPEN_SPANNER_INGESTION_RATE_LIMIT_EVENTS` | `10000` | Workspace event allowance per ingestion rate window. |
+| `OPEN_SPANNER_INGESTION_RATE_LIMIT_WINDOW` | `1m` | Fixed window used by the distributed ingestion limiter. |
 | `OPEN_SPANNER_REGISTRATION_ENABLED` | `true` | Allows new password and OAuth dashboard accounts. Disable after creating the deployment's users. |
 | `OPEN_SPANNER_GITHUB_OAUTH_ENABLED` | `true` | Enables GitHub sign-in when credentials are configured. |
 | `OPEN_SPANNER_GITHUB_OAUTH_CLIENT_ID` | | Enables GitHub sign-in when set with `OPEN_SPANNER_GITHUB_OAUTH_CLIENT_SECRET`. |

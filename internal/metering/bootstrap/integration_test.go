@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -354,6 +355,128 @@ func TestIntegrationSQLiteSDKUsageFlow(t *testing.T) {
 		DBPool:              config.DBPoolConfig{MaxOpenConns: 1},
 		RegistrationEnabled: true,
 	}, "sqlite")
+}
+
+func TestIntegrationSQLiteIngestionSafetyLimits(t *testing.T) {
+	runIntegrationIngestionSafetyLimits(t, config.Config{
+		DBDriver:            "sqlite",
+		SQLitePath:          ":memory:",
+		DBPool:              config.DBPoolConfig{MaxOpenConns: 1},
+		RegistrationEnabled: true,
+	})
+}
+
+func TestIntegrationPostgresIngestionSafetyLimits(t *testing.T) {
+	dsn := os.Getenv("OPEN_SPANNER_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set OPEN_SPANNER_TEST_POSTGRES_DSN to run Postgres bootstrap integration tests")
+	}
+	runIntegrationIngestionSafetyLimits(t, config.Config{
+		DBDriver:            "postgres",
+		PostgresDSN:         dsn,
+		DBPool:              config.DBPoolConfig{MaxOpenConns: 2},
+		RegistrationEnabled: true,
+	})
+}
+
+func runIntegrationIngestionSafetyLimits(t *testing.T, cfg config.Config) {
+	t.Helper()
+	cfg.IngestionMaxBodyBytes = 512
+	cfg.IngestionMaxBulkEvents = 2
+	cfg.IngestionMaxStreamEvents = 2
+	cfg.IngestionRateLimitEvents = 2
+	cfg.IngestionRateLimitWindow = time.Hour
+	ctx := context.Background()
+	router := chi.NewRouter()
+	app, err := RegisterRoutes(ctx, router, cfg)
+	if err != nil {
+		t.Fatalf("register routes: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := app.Cleanup(); err != nil {
+			t.Fatalf("cleanup: %v", err)
+		}
+	})
+
+	suffix := strconv.FormatInt(time.Now().UTC().UnixNano(), 36)
+	headers := map[string]string{"Authorization": "Bearer " + createTestDashboardAPIKey(t, router, "limits+"+suffix+"@example.com")}
+	meter := "limited_" + suffix
+	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name": meter, "unit": "event", "aggregation": "sum",
+	}, headers, nil)
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
+	}
+
+	bulk := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages/bulk", []map[string]any{
+		{"idempotency_key": "bulk-1-" + suffix, "subject": "org", "meter": meter, "quantity": 1},
+		{"idempotency_key": "bulk-2-" + suffix, "subject": "org", "meter": meter, "quantity": 1},
+		{"idempotency_key": "bulk-3-" + suffix, "subject": "org", "meter": meter, "quantity": 1},
+	}, headers, nil)
+	if bulk.Code != http.StatusBadRequest {
+		t.Fatalf("oversized bulk status = %d, want %d: %s", bulk.Code, http.StatusBadRequest, bulk.Body.String())
+	}
+
+	type ingestionResponse struct {
+		status     int
+		retryAfter string
+		body       string
+	}
+	responses := make(chan ingestionResponse, 3)
+	var writers sync.WaitGroup
+	for index := 0; index < 3; index++ {
+		writers.Add(1)
+		go func(index int) {
+			defer writers.Done()
+			usage := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages", map[string]any{
+				"idempotency_key": fmt.Sprintf("limited-%d-%s", index, suffix),
+				"subject":         "org", "meter": meter, "quantity": 1,
+			}, headers, nil)
+			responses <- ingestionResponse{status: usage.Code, retryAfter: usage.Header().Get("Retry-After"), body: usage.Body.String()}
+		}(index)
+	}
+	writers.Wait()
+	close(responses)
+	accepted, throttled := 0, 0
+	for response := range responses {
+		switch response.status {
+		case http.StatusCreated:
+			accepted++
+		case http.StatusTooManyRequests:
+			throttled++
+			if response.retryAfter == "" {
+				t.Fatalf("throttled response is missing Retry-After: %s", response.body)
+			}
+		default:
+			t.Fatalf("concurrent ingestion status = %d, want 201 or 429: %s", response.status, response.body)
+		}
+	}
+	if accepted != 2 || throttled != 1 {
+		t.Fatalf("concurrent ingestion accepted=%d throttled=%d, want 2 and 1", accepted, throttled)
+	}
+
+	tooLarge := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages", map[string]any{
+		"idempotency_key": "large-" + suffix, "subject": "org", "meter": meter, "quantity": 1,
+		"metadata": map[string]any{"payload": strings.Repeat("x", 1024)},
+	}, headers, nil)
+	if tooLarge.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized body status = %d, want %d: %s", tooLarge.Code, http.StatusRequestEntityTooLarge, tooLarge.Body.String())
+	}
+
+	stats := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/system/stats", nil, headers, nil)
+	if stats.Code != http.StatusOK {
+		t.Fatalf("stats status = %d, want %d: %s", stats.Code, http.StatusOK, stats.Body.String())
+	}
+	var result struct {
+		IngestionSafety struct {
+			AcceptedEvents  int64 `json:"accepted_events"`
+			ThrottledEvents int64 `json:"throttled_events"`
+		} `json:"ingestion_safety"`
+	}
+	decodeJSON(t, stats, &result)
+	if result.IngestionSafety.AcceptedEvents != 2 || result.IngestionSafety.ThrottledEvents != 1 {
+		t.Fatalf("ingestion safety = %#v, want accepted=2 throttled=1", result.IngestionSafety)
+	}
 }
 
 func TestIntegrationPostgresSDKUsageFlow(t *testing.T) {
@@ -1207,6 +1330,12 @@ func runIntegrationConcurrentUsageIdempotency(t *testing.T, cfg config.Config, n
 func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace string) {
 	t.Helper()
 
+	// Exercise the distributed database-backed limiter in both SQLite and
+	// PostgreSQL integration flows without constraining the broader SDK suite.
+	if cfg.IngestionRateLimitEvents == 0 {
+		cfg.IngestionRateLimitEvents = 100000
+		cfg.IngestionRateLimitWindow = time.Hour
+	}
 	if cfg.ExportStoragePath == "" {
 		cfg.ExportStoragePath = t.TempDir()
 	}

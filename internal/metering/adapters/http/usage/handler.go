@@ -26,11 +26,13 @@ import (
 )
 
 type Handler struct {
-	service      appusage.Service
-	alerts       AlertEnqueuer
-	entitlements EntitlementEnqueuer
-	consumption  appconsumption.Service
-	exportStore  fileexport.Store
+	service       appusage.Service
+	alerts        AlertEnqueuer
+	entitlements  EntitlementEnqueuer
+	consumption   appconsumption.Service
+	exportStore   fileexport.Store
+	maxBodyBytes  int64
+	maxBulkEvents int
 }
 
 type AlertEnqueuer interface {
@@ -47,6 +49,8 @@ type HandlerOptions struct {
 	Consumption       appconsumption.Service
 	ExportStoragePath string
 	ExportStore       fileexport.Store
+	MaxBodyBytes      int64
+	MaxBulkEvents     int
 }
 
 func NewHandler(service appusage.Service, options HandlerOptions) *Handler {
@@ -58,12 +62,22 @@ func NewHandler(service appusage.Service, options HandlerOptions) *Handler {
 	if store == nil {
 		store = fileexport.NewStore(exportStoragePath)
 	}
+	maxBodyBytes := options.MaxBodyBytes
+	if maxBodyBytes <= 0 {
+		maxBodyBytes = 1024 * 1024
+	}
+	maxBulkEvents := options.MaxBulkEvents
+	if maxBulkEvents <= 0 || maxBulkEvents > appusage.MaxBulkEvents {
+		maxBulkEvents = appusage.MaxBulkEvents
+	}
 	return &Handler{
-		service:      service,
-		alerts:       options.Alerts,
-		entitlements: options.Entitlements,
-		consumption:  options.Consumption,
-		exportStore:  store,
+		service:       service,
+		alerts:        options.Alerts,
+		entitlements:  options.Entitlements,
+		consumption:   options.Consumption,
+		exportStore:   store,
+		maxBodyBytes:  maxBodyBytes,
+		maxBulkEvents: maxBulkEvents,
 	}
 }
 
@@ -83,6 +97,7 @@ func NewHandler(service appusage.Service, options HandlerOptions) *Handler {
 // @Failure 500 {object} respond.ErrorResponse
 // @Router /v1/usages [post]
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, h.maxBodyBytes)
 	var req CreateRequest
 	if err := request.DecodeJSON(r.Body, &req); err != nil {
 		respond.ValidationError(w, err)
@@ -264,8 +279,9 @@ func (h *Handler) GetConsumptionDecision(w http.ResponseWriter, r *http.Request)
 // @Failure 500 {object} respond.ErrorResponse
 // @Router /v1/usages/bulk [post]
 func (h *Handler) CreateBulk(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, h.maxBodyBytes)
 	var req []CreateRequest
-	if err := request.DecodeJSONArray(r.Body, &req, func() int { return len(req) }, appusage.MaxBulkEvents, "bulk usage event"); err != nil {
+	if err := request.DecodeJSONArray(r.Body, &req, func() int { return len(req) }, h.maxBulkEvents, "bulk usage event"); err != nil {
 		respond.ValidationError(w, err)
 		return
 	}

@@ -33,10 +33,26 @@ type UsageServer struct {
 	alerts       alertEnqueuer
 	entitlements entitlementEnqueuer
 	authorizer   appauth.Authorizer
+	limits       IngestionLimits
 }
 
-func NewUsageServer(service appusage.Service, alerts alertEnqueuer, entitlements entitlementEnqueuer, authorizer appauth.Authorizer) *UsageServer {
-	return &UsageServer{service: service, alerts: alerts, entitlements: entitlements, authorizer: authorizer}
+type IngestionLimits struct {
+	MaxBulkEvents   int
+	MaxStreamEvents int
+}
+
+func NewUsageServer(service appusage.Service, alerts alertEnqueuer, entitlements entitlementEnqueuer, authorizer appauth.Authorizer, options ...IngestionLimits) *UsageServer {
+	limits := IngestionLimits{MaxBulkEvents: appusage.MaxBulkEvents, MaxStreamEvents: appusage.MaxBulkEvents}
+	if len(options) > 0 {
+		limits = options[0]
+	}
+	if limits.MaxBulkEvents <= 0 || limits.MaxBulkEvents > appusage.MaxBulkEvents {
+		limits.MaxBulkEvents = appusage.MaxBulkEvents
+	}
+	if limits.MaxStreamEvents <= 0 || limits.MaxStreamEvents > appusage.MaxBulkEvents {
+		limits.MaxStreamEvents = appusage.MaxBulkEvents
+	}
+	return &UsageServer{service: service, alerts: alerts, entitlements: entitlements, authorizer: authorizer, limits: limits}
 }
 
 func (s *UsageServer) CreateUsage(ctx context.Context, req *pb.CreateUsageRequest) (*pb.CreateUsageResponse, error) {
@@ -66,6 +82,9 @@ func (s *UsageServer) CreateUsage(ctx context.Context, req *pb.CreateUsageReques
 }
 
 func (s *UsageServer) CreateUsageBulk(ctx context.Context, req *pb.CreateUsageBulkRequest) (*pb.CreateUsageBulkResponse, error) {
+	if len(req.GetEvents()) > s.limits.MaxBulkEvents {
+		return nil, serviceError(fmt.Errorf("%w: bulk usage event limit is %d", domain.ErrInvalidInput, s.limits.MaxBulkEvents))
+	}
 	commands, err := commandsFromProto(req.GetEvents())
 	if err != nil {
 		return nil, serviceError(err)
@@ -106,8 +125,8 @@ func (s *UsageServer) StreamUsage(stream grpc.ClientStreamingServer[pb.StreamUsa
 			return serviceError(err)
 		}
 		commands = append(commands, cmd)
-		if len(commands) > appusage.MaxBulkEvents {
-			return serviceError(fmt.Errorf("%w: bulk usage event limit is %d", domain.ErrInvalidInput, appusage.MaxBulkEvents))
+		if len(commands) > s.limits.MaxStreamEvents {
+			return serviceError(fmt.Errorf("%w: stream usage event limit is %d", domain.ErrInvalidInput, s.limits.MaxStreamEvents))
 		}
 	}
 }

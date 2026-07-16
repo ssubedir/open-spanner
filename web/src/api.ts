@@ -64,6 +64,7 @@ export type SystemStats = {
 			issue?: string
 		}>
 	}
+	ingestion_safety: { accepted_events: number; rejected_events: number; throttled_events: number }
 }
 
 export type WorkerDeadLetter = {

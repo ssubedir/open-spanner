@@ -20,6 +20,11 @@ type Config struct {
 	SQLitePath                   string
 	PostgresDSN                  string
 	DBPool                       DBPoolConfig
+	IngestionMaxBodyBytes        int
+	IngestionMaxBulkEvents       int
+	IngestionMaxStreamEvents     int
+	IngestionRateLimitEvents     int
+	IngestionRateLimitWindow     time.Duration
 	ExportStoragePath            string
 	ExportStorageDriver          string
 	ExportS3Bucket               string
@@ -93,6 +98,26 @@ func Load() (Config, error) {
 	}
 
 	pool, err := loadDBPoolConfig()
+	if err != nil {
+		return Config{}, err
+	}
+	ingestionMaxBodyBytes, err := envInt("OPEN_SPANNER_INGESTION_MAX_BODY_BYTES", 1024*1024)
+	if err != nil {
+		return Config{}, err
+	}
+	ingestionMaxBulkEvents, err := envInt("OPEN_SPANNER_INGESTION_MAX_BULK_EVENTS", 1000)
+	if err != nil {
+		return Config{}, err
+	}
+	ingestionMaxStreamEvents, err := envInt("OPEN_SPANNER_INGESTION_MAX_STREAM_EVENTS", 1000)
+	if err != nil {
+		return Config{}, err
+	}
+	ingestionRateLimitEvents, err := envInt("OPEN_SPANNER_INGESTION_RATE_LIMIT_EVENTS", 10000)
+	if err != nil {
+		return Config{}, err
+	}
+	ingestionRateLimitWindow, err := envDuration("OPEN_SPANNER_INGESTION_RATE_LIMIT_WINDOW", time.Minute)
 	if err != nil {
 		return Config{}, err
 	}
@@ -251,6 +276,11 @@ func Load() (Config, error) {
 		SQLitePath:                   env("OPEN_SPANNER_SQLITE_PATH", "open-spanner.db"),
 		PostgresDSN:                  env("OPEN_SPANNER_POSTGRES_DSN", ""),
 		DBPool:                       pool,
+		IngestionMaxBodyBytes:        ingestionMaxBodyBytes,
+		IngestionMaxBulkEvents:       ingestionMaxBulkEvents,
+		IngestionMaxStreamEvents:     ingestionMaxStreamEvents,
+		IngestionRateLimitEvents:     ingestionRateLimitEvents,
+		IngestionRateLimitWindow:     ingestionRateLimitWindow,
 		ExportStoragePath:            env("OPEN_SPANNER_EXPORT_STORAGE_PATH", "open-spanner-exports"),
 		ExportStorageDriver:          strings.ToLower(env("OPEN_SPANNER_EXPORT_STORAGE_DRIVER", "filesystem")),
 		ExportS3Bucket:               env("OPEN_SPANNER_EXPORT_S3_BUCKET", ""),
@@ -350,6 +380,18 @@ func (cfg Config) Validate() error {
 	}
 	if cfg.DBPool.ConnMaxIdleTime < 0 {
 		return fmt.Errorf("OPEN_SPANNER_DB_CONN_MAX_IDLE_TIME cannot be negative")
+	}
+	if cfg.IngestionMaxBodyBytes <= 0 {
+		return fmt.Errorf("OPEN_SPANNER_INGESTION_MAX_BODY_BYTES must be greater than zero")
+	}
+	if cfg.IngestionMaxBulkEvents <= 0 || cfg.IngestionMaxBulkEvents > 1000 {
+		return fmt.Errorf("OPEN_SPANNER_INGESTION_MAX_BULK_EVENTS must be between 1 and 1000")
+	}
+	if cfg.IngestionMaxStreamEvents <= 0 || cfg.IngestionMaxStreamEvents > 1000 {
+		return fmt.Errorf("OPEN_SPANNER_INGESTION_MAX_STREAM_EVENTS must be between 1 and 1000")
+	}
+	if cfg.IngestionRateLimitEvents <= 0 || cfg.IngestionRateLimitWindow <= 0 {
+		return fmt.Errorf("ingestion rate limit and window must be greater than zero")
 	}
 	switch cfg.ExportStorageDriver {
 	case "filesystem":

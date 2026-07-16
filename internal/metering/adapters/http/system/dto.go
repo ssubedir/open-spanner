@@ -15,6 +15,13 @@ type StatsResponse struct {
 	ReconciliationHealth  ReconciliationHealthResponse  `json:"reconciliation_health"`
 	WorkerHealth          []WorkerHealthResponse        `json:"worker_health"`
 	RollupHealth          RollupHealthResponse          `json:"rollup_health"`
+	IngestionSafety       IngestionSafetyResponse       `json:"ingestion_safety"`
+}
+
+type IngestionSafetyResponse struct {
+	AcceptedEvents  int64 `json:"accepted_events"`
+	RejectedEvents  int64 `json:"rejected_events"`
+	ThrottledEvents int64 `json:"throttled_events"`
 }
 
 type RollupHealthResponse struct {

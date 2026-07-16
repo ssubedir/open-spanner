@@ -26,6 +26,9 @@ func TestLoadDefaultsToSQLite(t *testing.T) {
 	if cfg.ExportStorageDriver != "filesystem" {
 		t.Fatalf("export storage driver = %q, want filesystem", cfg.ExportStorageDriver)
 	}
+	if cfg.IngestionMaxBodyBytes != 1024*1024 || cfg.IngestionMaxBulkEvents != 1000 || cfg.IngestionMaxStreamEvents != 1000 || cfg.IngestionRateLimitEvents != 10000 || cfg.IngestionRateLimitWindow != time.Minute {
+		t.Fatalf("ingestion safety defaults = %#v", cfg)
+	}
 	if !cfg.RegistrationEnabled {
 		t.Fatal("registration should be enabled by default")
 	}
@@ -165,6 +168,11 @@ func clearEnv(t *testing.T) {
 		"OPEN_SPANNER_HTTP_ADDR",
 		"OPEN_SPANNER_GRPC_ADDR",
 		"OPEN_SPANNER_REGISTRATION_ENABLED",
+		"OPEN_SPANNER_INGESTION_MAX_BODY_BYTES",
+		"OPEN_SPANNER_INGESTION_MAX_BULK_EVENTS",
+		"OPEN_SPANNER_INGESTION_MAX_STREAM_EVENTS",
+		"OPEN_SPANNER_INGESTION_RATE_LIMIT_EVENTS",
+		"OPEN_SPANNER_INGESTION_RATE_LIMIT_WINDOW",
 		"OPEN_SPANNER_GITHUB_OAUTH_ENABLED",
 		"OPEN_SPANNER_GITHUB_OAUTH_CLIENT_ID",
 		"OPEN_SPANNER_GITHUB_OAUTH_CLIENT_SECRET",

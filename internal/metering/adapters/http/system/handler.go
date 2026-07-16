@@ -391,6 +391,7 @@ func statsResponseFromResult(stats appsystem.StatsResult) StatsResponse {
 		ReconciliationHealth:  reconciliationHealthResponse(stats.ReconciliationHealth),
 		WorkerHealth:          workerHealth,
 		RollupHealth:          rollupHealthResponse(stats.RollupHealth),
+		IngestionSafety:       IngestionSafetyResponse{AcceptedEvents: stats.IngestionSafety.AcceptedEvents, RejectedEvents: stats.IngestionSafety.RejectedEvents, ThrottledEvents: stats.IngestionSafety.ThrottledEvents},
 	}
 }
 

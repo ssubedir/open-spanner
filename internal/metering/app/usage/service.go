@@ -42,18 +42,33 @@ type service struct {
 	usageRepo  domainusage.Repository
 	transactor apptransaction.Transactor
 	now        func() time.Time
+	limits     IngestionLimits
 }
 
-func NewService(meterRepo domainmeter.Repository, usageRepo domainusage.Repository, transactor apptransaction.Transactor) Service {
+type IngestionLimits struct {
+	MaxBatchEvents int
+	RateEvents     int
+	RateWindow     time.Duration
+}
+
+func NewService(meterRepo domainmeter.Repository, usageRepo domainusage.Repository, transactor apptransaction.Transactor, options ...IngestionLimits) Service {
 	if transactor == nil {
 		panic("usage service requires a transactor")
 	}
 
+	limits := IngestionLimits{MaxBatchEvents: MaxBulkEvents}
+	if len(options) > 0 {
+		limits = options[0]
+		if limits.MaxBatchEvents <= 0 || limits.MaxBatchEvents > MaxBulkEvents {
+			limits.MaxBatchEvents = MaxBulkEvents
+		}
+	}
 	return &service{
 		meterRepo:  meterRepo,
 		usageRepo:  usageRepo,
 		transactor: transactor,
 		now:        func() time.Time { return time.Now().UTC() },
+		limits:     limits,
 	}
 }
 

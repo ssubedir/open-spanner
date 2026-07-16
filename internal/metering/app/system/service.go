@@ -166,6 +166,16 @@ type StatsResult struct {
 	ReconciliationHealth  ReconciliationHealth
 	WorkerHealth          []WorkerHealth
 	RollupHealth          RollupHealth
+	IngestionSafety       IngestionSafety
+}
+
+type IngestionSafetyRepository interface {
+	FindIngestionSafety(ctx context.Context) (IngestionSafety, error)
+}
+type IngestionSafety struct {
+	AcceptedEvents  int64
+	RejectedEvents  int64
+	ThrottledEvents int64
 }
 
 type RollupCoverageRepository interface {
@@ -318,6 +328,12 @@ func (s *service) Stats(ctx context.Context) (StatsResult, error) {
 			return StatsResult{}, err
 		}
 		stats.RollupHealth = rollupHealth(coverage, now, s.rollupStaleAfter)
+	}
+	if repo, ok := s.repo.(IngestionSafetyRepository); ok {
+		stats.IngestionSafety, err = repo.FindIngestionSafety(ctx)
+		if err != nil {
+			return StatsResult{}, err
+		}
 	}
 	return stats, nil
 }

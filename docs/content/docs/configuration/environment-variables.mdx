@@ -7,6 +7,11 @@ description: Runtime configuration for the Open Spanner service.
 | --- | --- | --- |
 | `OPEN_SPANNER_HTTP_ADDR` | `:18081` | API listen address. |
 | `OPEN_SPANNER_GRPC_ADDR` | `:18090` | gRPC listen address for backend usage ingestion. |
+| `OPEN_SPANNER_INGESTION_MAX_BODY_BYTES` | `1048576` | Maximum REST usage request body and gRPC receive message size in bytes. |
+| `OPEN_SPANNER_INGESTION_MAX_BULK_EVENTS` | `1000` | Maximum events in one REST or unary gRPC bulk ingestion request. |
+| `OPEN_SPANNER_INGESTION_MAX_STREAM_EVENTS` | `1000` | Maximum events accepted by one gRPC client stream. |
+| `OPEN_SPANNER_INGESTION_RATE_LIMIT_EVENTS` | `10000` | Events each workspace may submit during one ingestion rate window. |
+| `OPEN_SPANNER_INGESTION_RATE_LIMIT_WINDOW` | `1m` | Fixed window used by the database-backed, cross-replica ingestion limiter. |
 | `OPEN_SPANNER_REGISTRATION_ENABLED` | `true` | Allows new password and OAuth dashboard accounts. Existing users can still sign in when disabled. |
 | `OPEN_SPANNER_GITHUB_OAUTH_ENABLED` | `true` | Enables GitHub OAuth login when credentials are configured. |
 | `OPEN_SPANNER_GITHUB_OAUTH_CLIENT_ID` | | Enables GitHub OAuth login when set with `OPEN_SPANNER_GITHUB_OAUTH_CLIENT_SECRET`. |
@@ -121,6 +126,7 @@ These variables are read by `docker-compose.app.yml` before the Open Spanner con
 | --- | --- | --- |
 | `OPEN_SPANNER_HTTP_PORT` | `18081` | Host port published for the app container. |
 | `OPEN_SPANNER_GRPC_PORT` | `18090` | Host port published for the app container's gRPC listener. |
+| `OPEN_SPANNER_INGESTION_*` | service defaults | Passed through to the app container for ingestion size and rate limits. |
 | `OPEN_SPANNER_POSTGRES_PASSWORD` | `open_spanner` | Password for the bundled Postgres service and the app connection string. |
 | `OPEN_SPANNER_EXPORT_WORKER_INTERVAL` | `5s` | Passed through to the export worker container. |
 | `OPEN_SPANNER_EXPORT_STORAGE_DRIVER` | `filesystem` | Passed to both API and export worker containers. |

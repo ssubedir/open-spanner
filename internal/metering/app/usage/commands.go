@@ -36,6 +36,9 @@ type IngestionCommand struct {
 const MaxBulkEvents = 1000
 
 func (s *service) Create(ctx context.Context, cmd CreateCommand) (Result, error) {
+	if err := s.checkIngestionCapacity(ctx, 1); err != nil {
+		return Result{}, err
+	}
 	event, err := s.newEvent(ctx, cmd, map[string]domainmeter.Meter{})
 	if err != nil {
 		return Result{}, err
@@ -67,8 +70,11 @@ func (s *service) CreateBulk(ctx context.Context, idempotencyKey string, command
 	if len(commands) == 0 {
 		return BulkResult{}, fmt.Errorf("%w: at least one usage event is required", domain.ErrInvalidInput)
 	}
-	if len(commands) > MaxBulkEvents {
-		return BulkResult{}, fmt.Errorf("%w: bulk usage event limit is %d", domain.ErrInvalidInput, MaxBulkEvents)
+	if len(commands) > s.limits.MaxBatchEvents {
+		return BulkResult{}, fmt.Errorf("%w: bulk usage event limit is %d", domain.ErrInvalidInput, s.limits.MaxBatchEvents)
+	}
+	if err := s.checkIngestionCapacity(ctx, len(commands)); err != nil {
+		return BulkResult{}, err
 	}
 
 	meters := map[string]domainmeter.Meter{}

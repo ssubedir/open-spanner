@@ -307,9 +307,9 @@ function WorkspaceHealthCard({ latestIngestion, recentAccepted, recentFailures, 
         />
         <OverviewStatusItem
           icon={<GaugeCircle />}
-          label="Recent ingestion"
-          value={latestIngestion ? `${formatNumber(recentAccepted)} accepted, ${formatNumber(recentFailures)} failed` : 'No ingestion runs'}
-          variant={recentFailures > 0 ? 'warning' : latestIngestion ? 'success' : 'muted'}
+          label="Ingestion safety"
+          value={stats ? `${formatNumber(stats.ingestion_safety.accepted_events)} accepted, ${formatNumber(stats.ingestion_safety.rejected_events)} rejected, ${formatNumber(stats.ingestion_safety.throttled_events)} throttled` : latestIngestion ? `${formatNumber(recentAccepted)} accepted, ${formatNumber(recentFailures)} failed` : 'No ingestion runs'}
+          variant={(stats?.ingestion_safety.throttled_events ?? 0) > 0 || recentFailures > 0 ? 'warning' : latestIngestion ? 'success' : 'muted'}
         />
         <OverviewStatusItem
           icon={<Clock />}
