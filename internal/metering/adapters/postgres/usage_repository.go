@@ -151,21 +151,6 @@ func (r *UsageRepository) saveWithDuplicate(ctx context.Context, event domainusa
 	if err != nil {
 		return domainusage.Event{}, false, err
 	}
-	if _, err := r.findByID(ctx, event.ID()); err == nil {
-		return domainusage.Event{}, false, domain.ErrConflict
-	} else if err != sql.ErrNoRows {
-		return domainusage.Event{}, false, err
-	}
-
-	if event.IdempotencyKey() != "" {
-		existing, err := r.findByIdempotencyKey(ctx, event.IdempotencyKey())
-		if err == nil {
-			return existing, true, nil
-		}
-		if err != sql.ErrNoRows {
-			return domainusage.Event{}, false, err
-		}
-	}
 
 	metadata, err := json.Marshal(event.Metadata())
 	if err != nil {
