@@ -116,6 +116,8 @@ Use these endpoints from your orchestrator:
 
 The Docker Compose app stack uses `/ready` for the API container health check.
 
+Each worker binary exposes the same `/health` and `/ready` contract on its own probe address. Readiness verifies database connectivity and becomes unavailable before the worker drains during shutdown. The defaults are `:18082` for export, `:18083` for alert, and `:18084` for entitlement; use these endpoints for container or Kubernetes probes. Docker Compose health-checks every worker through `/ready`.
+
 During shutdown, the API marks `/ready` unavailable before it stops accepting traffic. It then drains in-flight HTTP requests and gRPC streams, stops API-owned workers and heartbeats, and closes database and telemetry resources last. Draining is bounded and connections that exceed the shutdown deadline are forced closed, so clients should retry interrupted ingestion with the same idempotency keys.
 
 Scrape `/metrics` from a trusted monitoring network. See [Observability](/docs/configuration/observability) for metric families, cardinality guarantees, and suggested alerts.

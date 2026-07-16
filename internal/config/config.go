@@ -36,18 +36,21 @@ type Config struct {
 	ExportS3Prefix               string
 	ExportS3ForcePathStyle       bool
 	ExportWorkerInterval         time.Duration
+	ExportWorkerHealthAddr       string
 	ExportWorkerLockTTL          time.Duration
 	ExportWorkerMaxAttempts      int
 	ExportRetention              time.Duration
 	ExportCleanupInterval        time.Duration
 	ExportCleanupBatchSize       int
 	AlertWorkerInterval          time.Duration
+	AlertWorkerHealthAddr        string
 	AlertWorkerLockTTL           time.Duration
 	AlertWorkerTimeout           time.Duration
 	AlertWorkerRetryAfter        time.Duration
 	AlertWorkerMaxAttempts       int
 	AlertWorkerBatchSize         int
 	EntitlementWorkerInterval    time.Duration
+	EntitlementWorkerHealthAddr  string
 	EntitlementWorkerLockTTL     time.Duration
 	EntitlementWorkerTimeout     time.Duration
 	EntitlementWorkerRetryAfter  time.Duration
@@ -292,18 +295,21 @@ func Load() (Config, error) {
 		ExportS3Prefix:               env("OPEN_SPANNER_EXPORT_S3_PREFIX", ""),
 		ExportS3ForcePathStyle:       exportS3ForcePathStyle,
 		ExportWorkerInterval:         exportWorkerInterval,
+		ExportWorkerHealthAddr:       env("OPEN_SPANNER_EXPORT_WORKER_HEALTH_ADDR", ":18082"),
 		ExportWorkerLockTTL:          exportWorkerLockTTL,
 		ExportWorkerMaxAttempts:      exportWorkerMaxAttempts,
 		ExportRetention:              exportRetention,
 		ExportCleanupInterval:        exportCleanupInterval,
 		ExportCleanupBatchSize:       exportCleanupBatchSize,
 		AlertWorkerInterval:          alertWorkerInterval,
+		AlertWorkerHealthAddr:        env("OPEN_SPANNER_ALERT_WORKER_HEALTH_ADDR", ":18083"),
 		AlertWorkerLockTTL:           alertWorkerLockTTL,
 		AlertWorkerTimeout:           alertWorkerTimeout,
 		AlertWorkerRetryAfter:        alertWorkerRetryAfter,
 		AlertWorkerMaxAttempts:       alertWorkerMaxAttempts,
 		AlertWorkerBatchSize:         alertWorkerBatchSize,
 		EntitlementWorkerInterval:    entitlementWorkerInterval,
+		EntitlementWorkerHealthAddr:  env("OPEN_SPANNER_ENTITLEMENT_WORKER_HEALTH_ADDR", ":18084"),
 		EntitlementWorkerLockTTL:     entitlementWorkerLockTTL,
 		EntitlementWorkerTimeout:     entitlementWorkerTimeout,
 		EntitlementWorkerRetryAfter:  entitlementWorkerRetryAfter,
@@ -354,6 +360,9 @@ func (cfg Config) Validate() error {
 	}
 	if strings.TrimSpace(cfg.GRPCAddr) == "" {
 		return fmt.Errorf("OPEN_SPANNER_GRPC_ADDR is required")
+	}
+	if strings.TrimSpace(cfg.ExportWorkerHealthAddr) == "" || strings.TrimSpace(cfg.AlertWorkerHealthAddr) == "" || strings.TrimSpace(cfg.EntitlementWorkerHealthAddr) == "" {
+		return fmt.Errorf("worker health addresses are required")
 	}
 
 	switch cfg.DBDriver {

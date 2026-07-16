@@ -63,6 +63,7 @@ services:
       OPEN_SPANNER_EXPORT_S3_PREFIX: ${OPEN_SPANNER_EXPORT_S3_PREFIX:-}
       OPEN_SPANNER_EXPORT_S3_FORCE_PATH_STYLE: ${OPEN_SPANNER_EXPORT_S3_FORCE_PATH_STYLE:-}
       OPEN_SPANNER_EXPORT_WORKER_INTERVAL: ${OPEN_SPANNER_EXPORT_WORKER_INTERVAL:-5s}
+      OPEN_SPANNER_EXPORT_WORKER_HEALTH_ADDR: :18082
       OPEN_SPANNER_EXPORT_WORKER_LOCK_TTL: ${OPEN_SPANNER_EXPORT_WORKER_LOCK_TTL:-5m}
       OPEN_SPANNER_EXPORT_WORKER_MAX_ATTEMPTS: ${OPEN_SPANNER_EXPORT_WORKER_MAX_ATTEMPTS:-3}
       OPEN_SPANNER_EXPORT_RETENTION: ${OPEN_SPANNER_EXPORT_RETENTION:-168h}
@@ -73,6 +74,12 @@ services:
         condition: service_healthy
     volumes:
       - open-spanner-app-exports:/data/exports
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:18082/ready || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
     restart: unless-stopped
 
   alert-worker:
@@ -85,6 +92,7 @@ services:
       OPEN_SPANNER_DB_DRIVER: postgres
       OPEN_SPANNER_POSTGRES_DSN: postgres://open_spanner:${OPEN_SPANNER_POSTGRES_PASSWORD:-open_spanner}@postgres:5432/open_spanner?sslmode=disable
       OPEN_SPANNER_ALERT_WORKER_INTERVAL: ${OPEN_SPANNER_ALERT_WORKER_INTERVAL:-5s}
+      OPEN_SPANNER_ALERT_WORKER_HEALTH_ADDR: :18083
       OPEN_SPANNER_ALERT_WORKER_LOCK_TTL: ${OPEN_SPANNER_ALERT_WORKER_LOCK_TTL:-5m}
       OPEN_SPANNER_ALERT_WORKER_TIMEOUT: ${OPEN_SPANNER_ALERT_WORKER_TIMEOUT:-1m}
       OPEN_SPANNER_ALERT_WORKER_RETRY_AFTER: ${OPEN_SPANNER_ALERT_WORKER_RETRY_AFTER:-30s}
@@ -93,6 +101,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:18083/ready || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
     restart: unless-stopped
 
   entitlement-worker:
@@ -105,6 +119,7 @@ services:
       OPEN_SPANNER_DB_DRIVER: postgres
       OPEN_SPANNER_POSTGRES_DSN: postgres://open_spanner:${OPEN_SPANNER_POSTGRES_PASSWORD:-open_spanner}@postgres:5432/open_spanner?sslmode=disable
       OPEN_SPANNER_ENTITLEMENT_WORKER_INTERVAL: ${OPEN_SPANNER_ENTITLEMENT_WORKER_INTERVAL:-5s}
+      OPEN_SPANNER_ENTITLEMENT_WORKER_HEALTH_ADDR: :18084
       OPEN_SPANNER_ENTITLEMENT_WORKER_LOCK_TTL: ${OPEN_SPANNER_ENTITLEMENT_WORKER_LOCK_TTL:-5m}
       OPEN_SPANNER_ENTITLEMENT_WORKER_TIMEOUT: ${OPEN_SPANNER_ENTITLEMENT_WORKER_TIMEOUT:-1m}
       OPEN_SPANNER_ENTITLEMENT_WORKER_RETRY_AFTER: ${OPEN_SPANNER_ENTITLEMENT_WORKER_RETRY_AFTER:-30s}
@@ -113,6 +128,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:18084/ready || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
     restart: unless-stopped
 
   postgres:

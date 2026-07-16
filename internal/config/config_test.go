@@ -23,6 +23,9 @@ func TestLoadDefaultsToSQLite(t *testing.T) {
 	if cfg.GRPCAddr != ":18090" {
 		t.Fatalf("grpc addr = %q, want :18090", cfg.GRPCAddr)
 	}
+	if cfg.ExportWorkerHealthAddr != ":18082" || cfg.AlertWorkerHealthAddr != ":18083" || cfg.EntitlementWorkerHealthAddr != ":18084" {
+		t.Fatalf("worker health addresses = %q %q %q", cfg.ExportWorkerHealthAddr, cfg.AlertWorkerHealthAddr, cfg.EntitlementWorkerHealthAddr)
+	}
 	if cfg.ExportStorageDriver != "filesystem" {
 		t.Fatalf("export storage driver = %q, want filesystem", cfg.ExportStorageDriver)
 	}
@@ -167,6 +170,9 @@ func clearEnv(t *testing.T) {
 	for _, key := range []string{
 		"OPEN_SPANNER_HTTP_ADDR",
 		"OPEN_SPANNER_GRPC_ADDR",
+		"OPEN_SPANNER_EXPORT_WORKER_HEALTH_ADDR",
+		"OPEN_SPANNER_ALERT_WORKER_HEALTH_ADDR",
+		"OPEN_SPANNER_ENTITLEMENT_WORKER_HEALTH_ADDR",
 		"OPEN_SPANNER_REGISTRATION_ENABLED",
 		"OPEN_SPANNER_INGESTION_MAX_BODY_BYTES",
 		"OPEN_SPANNER_INGESTION_MAX_BULK_EVENTS",

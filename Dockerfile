@@ -48,6 +48,6 @@ ENV OPEN_SPANNER_EXPORT_STORAGE_PATH=/data/exports
 
 USER open-spanner
 VOLUME ["/data"]
-EXPOSE 18081 18090
+EXPOSE 18081 18082 18083 18084 18090
 
 ENTRYPOINT ["/usr/local/bin/open-spanner"]
