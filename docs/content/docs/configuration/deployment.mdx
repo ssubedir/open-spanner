@@ -122,7 +122,7 @@ During shutdown, the API marks `/ready` unavailable before it stops accepting tr
 
 Scrape `/metrics` from a trusted monitoring network. See [Observability](/docs/configuration/observability) for metric families, cardinality guarantees, and suggested alerts.
 
-The authenticated `GET /v1/system/stats` response and Overview dashboard also report durable heartbeats for export, alert, entitlement, retention, and reconciliation workers. A worker is `healthy` when its heartbeat is less than 30 seconds old, `stale` after that threshold, `disabled` when its feature is turned off, and `not_started` when no heartbeat has been recorded. Use this view for operator diagnosis; external monitoring can poll the same API.
+The authenticated `GET /v1/system/stats` response and Overview dashboard also report durable heartbeats for export, alert, entitlement, retention, operational-history, and reconciliation workers. A worker is `healthy` when its heartbeat is less than 30 seconds old, `stale` after that threshold, `disabled` when its feature is turned off, and `not_started` when no heartbeat has been recorded. Use this view for operator diagnosis; external monitoring can poll the same API.
 
 The same system stats include retention rollup coverage for every retention-enabled meter. Coverage becomes `stale` when its finalized cutoff trails the current policy cutoff by more than twice the configured prune interval, and `degraded` when stored rollup invariants fail or raw events remain behind a finalized cutoff.
 

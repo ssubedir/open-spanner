@@ -25,3 +25,16 @@ OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION=720h
 The same worker removes atomic-consumption decisions after `OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION` (30 days by default). During that window, an idempotency key always replays its original accepted or rejected response. After expiration and pruning, the same key is evaluated as a new attempt. Choose a window longer than the maximum client retry period.
 
 Choose retention based on how long individual event audit data is needed. Aggregated reporting can outlive the raw-event window.
+
+## Operational History
+
+Open Spanner independently removes terminal operational history after 30 days by default. This always-on maintenance covers ingestion audit rows, completed and expired export jobs, delivered alert and reconciliation notifications, maintenance-run history, and superseded rollup-run records. Every table is pruned in bounded batches.
+
+Active and queued work, failed exports, unresolved dead letters, raw usage events, usage aggregates, entitlement state, and quota-repair audit records are never removed by this cleanup. The newest rollup-run record for every workspace and meter is also preserved for coverage diagnostics.
+
+```sh
+OPEN_SPANNER_OPERATIONAL_HISTORY_RETENTION=720h
+OPEN_SPANNER_OPERATIONAL_HISTORY_INTERVAL=1h
+OPEN_SPANNER_OPERATIONAL_HISTORY_TIMEOUT=5m
+OPEN_SPANNER_OPERATIONAL_HISTORY_BATCH_SIZE=1000
+```

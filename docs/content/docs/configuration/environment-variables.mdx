@@ -75,6 +75,10 @@ description: Runtime configuration for the Open Spanner service.
 | `OPEN_SPANNER_RECONCILIATION_WEBHOOK_URL` | empty | Optional reconciliation notification endpoint. |
 | `OPEN_SPANNER_RECONCILIATION_WEBHOOK_SECRET` | empty | Optional HMAC-SHA256 webhook signing secret. |
 | `OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION` | `720h` | Retention window for accepted and rejected consume decisions. |
+| `OPEN_SPANNER_OPERATIONAL_HISTORY_RETENTION` | `720h` | Retention window for terminal operational audit, job, delivery, and maintenance-run history. |
+| `OPEN_SPANNER_OPERATIONAL_HISTORY_INTERVAL` | `1h` | Interval between operational-history cleanup passes. |
+| `OPEN_SPANNER_OPERATIONAL_HISTORY_TIMEOUT` | `5m` | Maximum duration of one operational-history cleanup pass. |
+| `OPEN_SPANNER_OPERATIONAL_HISTORY_BATCH_SIZE` | `1000` | Maximum rows deleted from each eligible table per pass; range 1–10,000. |
 
 ## Social Login
 
@@ -157,6 +161,7 @@ These variables are read by `docker-compose.app.yml` before the Open Spanner con
 | `OPEN_SPANNER_ENTITLEMENT_WORKER_MAX_ATTEMPTS` | `3` | Passed through to the entitlement worker container. |
 | `OPEN_SPANNER_ENTITLEMENT_WORKER_BATCH_SIZE` | `100` | Passed through to the entitlement worker container. |
 | `OPEN_SPANNER_RETENTION_PRUNE_ENABLED` | `false` | Passed through to the app container. |
+| `OPEN_SPANNER_OPERATIONAL_HISTORY_*` | service defaults | Passed through to the app container for bounded operational maintenance. |
 | `OPEN_SPANNER_REGISTRATION_ENABLED` | `true` | Passed through to the app container. |
 
 ## Postgres Example

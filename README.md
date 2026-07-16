@@ -350,6 +350,10 @@ Common runtime variables:
 | `OPEN_SPANNER_RECONCILIATION_WEBHOOK_URL` | empty | Optional webhook for new drift episodes and scan failures. |
 | `OPEN_SPANNER_RECONCILIATION_WEBHOOK_SECRET` | empty | Optional HMAC-SHA256 signing secret for reconciliation webhooks. |
 | `OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION` | `720h` | Keeps consume idempotency decisions for 30 days before pruning. |
+| `OPEN_SPANNER_OPERATIONAL_HISTORY_RETENTION` | `720h` | Keeps terminal operational audit and job history for 30 days. |
+| `OPEN_SPANNER_OPERATIONAL_HISTORY_INTERVAL` | `1h` | Interval between bounded operational-history cleanup passes. |
+| `OPEN_SPANNER_OPERATIONAL_HISTORY_TIMEOUT` | `5m` | Maximum duration of one operational-history cleanup pass. |
+| `OPEN_SPANNER_OPERATIONAL_HISTORY_BATCH_SIZE` | `1000` | Maximum rows deleted from each operational table per pass. |
 
 See [Environment Variables](docs/content/docs/configuration/environment-variables.mdx) for the full list.
 

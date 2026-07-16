@@ -17,6 +17,7 @@ import (
 	grpcadapter "github.com/ssubedir/open-spanner/internal/metering/adapters/grpc"
 	"github.com/ssubedir/open-spanner/internal/metering/bootstrap"
 	"github.com/ssubedir/open-spanner/internal/metering/workers/heartbeat"
+	"github.com/ssubedir/open-spanner/internal/metering/workers/history"
 	"github.com/ssubedir/open-spanner/internal/metering/workers/reconciliation"
 	"github.com/ssubedir/open-spanner/internal/metering/workers/retention"
 	"github.com/ssubedir/open-spanner/internal/observability"
@@ -116,6 +117,9 @@ func main() {
 			WithDecisionPruner(app.ConsumptionService, cfg.ConsumptionDecisionRetention).
 			Start(runCtx)
 	}
+	stopHistoryHeartbeat := heartbeat.Start(runCtx, app.SystemService, "history", log.Printf)
+	log.Printf("operational history worker enabled: retention=%s interval=%s timeout=%s batch_size=%d", cfg.OperationalHistoryRetention, cfg.OperationalHistoryInterval, cfg.OperationalHistoryTimeout, cfg.OperationalHistoryBatchSize)
+	stopHistory := history.NewWorker(app.SystemService, cfg.OperationalHistoryRetention, cfg.OperationalHistoryInterval, cfg.OperationalHistoryTimeout, cfg.OperationalHistoryBatchSize, metrics, log.Printf).Start(runCtx)
 
 	stopReconciliation := func() {}
 	stopReconciliationHeartbeat := func() {}
@@ -143,7 +147,7 @@ func main() {
 		if grpcDrain.Wait(shutdownCtx) {
 			log.Printf("grpc graceful shutdown timed out; forced active streams to stop")
 		}
-		workerErr := stopFunctions(shutdownCtx, stopRetention, stopRetentionHeartbeat, stopReconciliation, stopReconciliationHeartbeat)
+		workerErr := stopFunctions(shutdownCtx, stopRetention, stopRetentionHeartbeat, stopHistory, stopHistoryHeartbeat, stopReconciliation, stopReconciliationHeartbeat)
 		appErr := app.Cleanup()
 		telemetryCtx, cancelTelemetry := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancelTelemetry()

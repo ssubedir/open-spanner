@@ -1,0 +1,9 @@
+DROP INDEX IF EXISTS idx_usage_rollup_runs_cleanup;
+DROP INDEX IF EXISTS idx_reconciliation_notifications_cleanup;
+DROP INDEX IF EXISTS idx_reconciliation_runs_cleanup;
+DROP INDEX IF EXISTS idx_alert_delivery_jobs_cleanup;
+DROP INDEX IF EXISTS idx_usage_export_jobs_cleanup;
+DROP INDEX IF EXISTS idx_usage_export_cleanup_runs_cleanup;
+DROP INDEX IF EXISTS idx_consumption_decision_prune_runs_cleanup;
+DROP INDEX IF EXISTS idx_usage_prune_runs_cleanup;
+DROP INDEX IF EXISTS idx_usage_ingestions_cleanup;

@@ -31,6 +31,8 @@ func TestMetricsExposeBoundedCoreSignals(t *testing.T) {
 	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/things/tenant-secret", nil))
 
 	metrics.RecordIngestion(context.Background(), "bulk", "accepted", 3)
+	metrics.RecordOperationalHistoryCleanup(context.Background(), 7)
+	metrics.RecordOperationalHistoryCleanupFailure(context.Background())
 	metrics.RecordTransactionRetry(context.Background(), "deadlock_detected")
 	metrics.RecordTransactionRetryExhausted(context.Background(), "serialization_failure")
 	if err := metrics.RegisterDBPool(func() sql.DBStats {
@@ -65,6 +67,8 @@ func TestMetricsExposeBoundedCoreSignals(t *testing.T) {
 		`rpc_grpc_status_code="InvalidArgument"`,
 		"open_spanner_ingestion_events_total",
 		`ingestion_outcome="accepted"`,
+		"open_spanner_operational_history_cleanup_rows_total",
+		"open_spanner_operational_history_cleanup_failures_total",
 		"open_spanner_db_client_connections",
 		`db_system="postgres"`,
 		"open_spanner_db_client_transaction_retries_total",

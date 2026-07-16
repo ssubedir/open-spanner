@@ -44,6 +44,9 @@ func TestLoadDefaultsToSQLite(t *testing.T) {
 	if cfg.ConsumptionDecisionRetention != 30*24*time.Hour {
 		t.Fatalf("decision retention = %s, want 720h", cfg.ConsumptionDecisionRetention)
 	}
+	if cfg.OperationalHistoryRetention != 30*24*time.Hour || cfg.OperationalHistoryInterval != time.Hour || cfg.OperationalHistoryTimeout != 5*time.Minute || cfg.OperationalHistoryBatchSize != 1000 {
+		t.Fatalf("operational history defaults = %#v", cfg)
+	}
 	if cfg.AlertWorkerInterval != 5*time.Second {
 		t.Fatalf("alert worker interval = %s, want 5s", cfg.AlertWorkerInterval)
 	}
@@ -209,6 +212,10 @@ func clearEnv(t *testing.T) {
 		"OPEN_SPANNER_RETENTION_PRUNE_INTERVAL",
 		"OPEN_SPANNER_RETENTION_PRUNE_TIMEOUT",
 		"OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION",
+		"OPEN_SPANNER_OPERATIONAL_HISTORY_RETENTION",
+		"OPEN_SPANNER_OPERATIONAL_HISTORY_INTERVAL",
+		"OPEN_SPANNER_OPERATIONAL_HISTORY_TIMEOUT",
+		"OPEN_SPANNER_OPERATIONAL_HISTORY_BATCH_SIZE",
 		"OPEN_SPANNER_EXPORT_STORAGE_PATH",
 		"OPEN_SPANNER_EXPORT_STORAGE_DRIVER",
 		"OPEN_SPANNER_EXPORT_S3_BUCKET",

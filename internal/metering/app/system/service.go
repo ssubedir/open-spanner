@@ -28,6 +28,11 @@ type Service interface {
 	RequeueReconciliationNotification(ctx context.Context, id string) error
 	ListWorkerDeadLetters(ctx context.Context, limit int) ([]WorkerDeadLetter, error)
 	RetryWorkerDeadLetter(ctx context.Context, id string) error
+	PruneOperationalHistory(ctx context.Context, before time.Time, batchSize int) (OperationalHistoryPruneResult, error)
+}
+
+type OperationalHistoryRepository interface {
+	PruneOperationalHistory(ctx context.Context, before time.Time, batchSize int) (OperationalHistoryPruneResult, error)
 }
 
 type service struct {
@@ -266,6 +271,23 @@ type LastExportCleanupRunResult struct {
 	CreatedAt      time.Time
 }
 
+type OperationalHistoryPruneResult struct {
+	IngestionAudits             int
+	UsagePruneRuns              int
+	DecisionPruneRuns           int
+	ExportCleanupRuns           int
+	ExportJobs                  int
+	AlertDeliveries             int
+	AlertDeliveryJobs           int
+	ReconciliationRuns          int
+	ReconciliationNotifications int
+	RollupRuns                  int
+}
+
+func (r OperationalHistoryPruneResult) Total() int {
+	return r.IngestionAudits + r.UsagePruneRuns + r.DecisionPruneRuns + r.ExportCleanupRuns + r.ExportJobs + r.AlertDeliveries + r.AlertDeliveryJobs + r.ReconciliationRuns + r.ReconciliationNotifications + r.RollupRuns
+}
+
 type ServiceOptions struct {
 	ReconciliationStaleAfter time.Duration
 	RollupStaleAfter         time.Duration
@@ -392,6 +414,26 @@ func (s *service) RecordWorkerHeartbeat(ctx context.Context, workerName string, 
 	return s.repo.UpsertWorkerHeartbeat(ctx, WorkerHeartbeat{Name: workerName, StartedAt: startedAt.UTC(), LastHeartbeatAt: heartbeatAt.UTC()})
 }
 
+func (s *service) PruneOperationalHistory(ctx context.Context, before time.Time, batchSize int) (OperationalHistoryPruneResult, error) {
+	if before.IsZero() {
+		return OperationalHistoryPruneResult{}, fmt.Errorf("%w: operational history cutoff is required", domain.ErrInvalidInput)
+	}
+	if batchSize < 1 || batchSize > 10000 {
+		return OperationalHistoryPruneResult{}, fmt.Errorf("%w: operational history batch size must be between 1 and 10000", domain.ErrInvalidInput)
+	}
+	var result OperationalHistoryPruneResult
+	err := s.transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
+		var err error
+		repo, ok := s.repo.(OperationalHistoryRepository)
+		if !ok {
+			return fmt.Errorf("operational history cleanup is not supported")
+		}
+		result, err = repo.PruneOperationalHistory(txCtx, before.UTC(), batchSize)
+		return err
+	})
+	return result, err
+}
+
 func workerHealth(enabled map[string]bool, heartbeats []WorkerHeartbeat, diagnostics []WorkerDiagnostics, now time.Time, staleAfter, backlogStaleAfter time.Duration) []WorkerHealth {
 	byName := map[string]WorkerHeartbeat{}
 	for _, heartbeat := range heartbeats {
@@ -401,7 +443,7 @@ func workerHealth(enabled map[string]bool, heartbeats []WorkerHeartbeat, diagnos
 	for _, diagnostic := range diagnostics {
 		diagnosticsByName[diagnostic.Name] = diagnostic
 	}
-	names := []string{"export", "alert", "entitlement", "retention", "reconciliation"}
+	names := []string{"export", "alert", "entitlement", "retention", "history", "reconciliation"}
 	result := make([]WorkerHealth, 0, len(names))
 	for _, name := range names {
 		item := WorkerHealth{Name: name, Status: "not_started"}

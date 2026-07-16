@@ -131,7 +131,7 @@ func NewAppWithMetrics(ctx context.Context, cfg config.Config, metrics appusage.
 	systemService := appsystem.NewService(repos.system, repos.transactor, appsystem.ServiceOptions{
 		ReconciliationStaleAfter: cfg.ReconciliationStaleAfter,
 		RollupStaleAfter:         2 * cfg.RetentionPruneInterval,
-		WorkerEnabled:            map[string]bool{"export": true, "alert": true, "entitlement": true, "retention": cfg.RetentionPruneEnabled, "reconciliation": cfg.ReconciliationEnabled},
+		WorkerEnabled:            map[string]bool{"export": true, "alert": true, "entitlement": true, "retention": cfg.RetentionPruneEnabled, "history": true, "reconciliation": cfg.ReconciliationEnabled},
 	})
 
 	return &App{

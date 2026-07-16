@@ -60,6 +60,10 @@ type Config struct {
 	RetentionPruneInterval       time.Duration
 	RetentionPruneTimeout        time.Duration
 	ConsumptionDecisionRetention time.Duration
+	OperationalHistoryRetention  time.Duration
+	OperationalHistoryInterval   time.Duration
+	OperationalHistoryTimeout    time.Duration
+	OperationalHistoryBatchSize  int
 	ReconciliationEnabled        bool
 	ReconciliationPollInterval   time.Duration
 	ReconciliationSchedule       time.Duration
@@ -137,6 +141,22 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	decisionRetention, err := envDuration("OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION", 30*24*time.Hour)
+	if err != nil {
+		return Config{}, err
+	}
+	operationalHistoryRetention, err := envDuration("OPEN_SPANNER_OPERATIONAL_HISTORY_RETENTION", 30*24*time.Hour)
+	if err != nil {
+		return Config{}, err
+	}
+	operationalHistoryInterval, err := envDuration("OPEN_SPANNER_OPERATIONAL_HISTORY_INTERVAL", time.Hour)
+	if err != nil {
+		return Config{}, err
+	}
+	operationalHistoryTimeout, err := envDuration("OPEN_SPANNER_OPERATIONAL_HISTORY_TIMEOUT", 5*time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	operationalHistoryBatchSize, err := envInt("OPEN_SPANNER_OPERATIONAL_HISTORY_BATCH_SIZE", 1000)
 	if err != nil {
 		return Config{}, err
 	}
@@ -319,6 +339,10 @@ func Load() (Config, error) {
 		RetentionPruneInterval:       retentionInterval,
 		RetentionPruneTimeout:        retentionTimeout,
 		ConsumptionDecisionRetention: decisionRetention,
+		OperationalHistoryRetention:  operationalHistoryRetention,
+		OperationalHistoryInterval:   operationalHistoryInterval,
+		OperationalHistoryTimeout:    operationalHistoryTimeout,
+		OperationalHistoryBatchSize:  operationalHistoryBatchSize,
 		ReconciliationEnabled:        reconciliationEnabled,
 		ReconciliationPollInterval:   reconciliationPoll,
 		ReconciliationSchedule:       reconciliationSchedule,
@@ -494,6 +518,12 @@ func (cfg Config) Validate() error {
 	}
 	if cfg.ConsumptionDecisionRetention <= 0 {
 		return fmt.Errorf("OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION must be greater than zero")
+	}
+	if cfg.OperationalHistoryRetention <= 0 || cfg.OperationalHistoryInterval <= 0 || cfg.OperationalHistoryTimeout <= 0 {
+		return fmt.Errorf("operational history retention, interval, and timeout must be greater than zero")
+	}
+	if cfg.OperationalHistoryBatchSize < 1 || cfg.OperationalHistoryBatchSize > 10000 {
+		return fmt.Errorf("OPEN_SPANNER_OPERATIONAL_HISTORY_BATCH_SIZE must be between 1 and 10000")
 	}
 	if cfg.ReconciliationPollInterval <= 0 || cfg.ReconciliationSchedule <= 0 || cfg.ReconciliationLockTTL <= 0 || cfg.ReconciliationTimeout <= 0 || cfg.ReconciliationRetryAfter <= 0 || cfg.ReconciliationStaleAfter <= 0 {
 		return fmt.Errorf("reconciliation durations must be greater than zero")

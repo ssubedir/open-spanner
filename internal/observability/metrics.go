@@ -35,6 +35,8 @@ type Metrics struct {
 	grpcRequests              metric.Int64Counter
 	grpcDuration              metric.Float64Histogram
 	ingestionEvents           metric.Int64Counter
+	historyCleanupRows        metric.Int64Counter
+	historyCleanupFailures    metric.Int64Counter
 	transactionRetries        metric.Int64Counter
 	transactionRetryExhausted metric.Int64Counter
 }
@@ -91,6 +93,14 @@ func New() (*Metrics, error) {
 	if err != nil {
 		return nil, errors.Join(err, provider.Shutdown(context.Background()))
 	}
+	historyCleanupRows, err := meter.Int64Counter("open_spanner.operational_history.cleanup.rows", metric.WithUnit("{row}"))
+	if err != nil {
+		return nil, errors.Join(err, provider.Shutdown(context.Background()))
+	}
+	historyCleanupFailures, err := meter.Int64Counter("open_spanner.operational_history.cleanup.failures", metric.WithUnit("{failure}"))
+	if err != nil {
+		return nil, errors.Join(err, provider.Shutdown(context.Background()))
+	}
 	transactionRetries, err := meter.Int64Counter("open_spanner.db.client.transaction.retries", metric.WithUnit("{retry}"))
 	if err != nil {
 		return nil, errors.Join(err, provider.Shutdown(context.Background()))
@@ -104,6 +114,7 @@ func New() (*Metrics, error) {
 		provider: provider, handler: promhttp.HandlerFor(registry, promhttp.HandlerOpts{}),
 		httpRequests: httpRequests, httpDuration: httpDuration,
 		grpcRequests: grpcRequests, grpcDuration: grpcDuration, ingestionEvents: ingestionEvents,
+		historyCleanupRows: historyCleanupRows, historyCleanupFailures: historyCleanupFailures,
 		transactionRetries: transactionRetries, transactionRetryExhausted: transactionRetryExhausted,
 	}, nil
 }
@@ -181,6 +192,20 @@ func (m *Metrics) RecordIngestion(ctx context.Context, kind, outcome string, cou
 		attribute.String("ingestion.kind", kind),
 		attribute.String("ingestion.outcome", outcome),
 	))
+}
+
+func (m *Metrics) RecordOperationalHistoryCleanup(ctx context.Context, rows int) {
+	if m == nil || rows <= 0 {
+		return
+	}
+	m.historyCleanupRows.Add(ctx, int64(rows))
+}
+
+func (m *Metrics) RecordOperationalHistoryCleanupFailure(ctx context.Context) {
+	if m == nil {
+		return
+	}
+	m.historyCleanupFailures.Add(ctx, 1)
 }
 
 // RecordTransactionRetry records one bounded retry of an aborted Postgres transaction.
