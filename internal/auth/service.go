@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -44,7 +45,7 @@ type Repository interface {
 	CreateAPIKey(ctx context.Context, key APIKey, event APIKeyEvent) (APIKey, error)
 	ListAPIKeys(ctx context.Context, userID string) ([]APIKey, error)
 	FindAPIKeyByID(ctx context.Context, userID string, id string) (APIKey, error)
-	FindAPIKeyByTokenHash(ctx context.Context, tokenHash string) (APIKey, error)
+	FindAPIKeyPrincipalByTokenHash(ctx context.Context, tokenHash string) (APIKey, User, error)
 	UpdateAPIKeyLastUsed(ctx context.Context, id string, lastUsedAt time.Time) error
 	RotateAPIKey(ctx context.Context, userID string, sourceID string, replacement APIKey, revokeAt time.Time, events []APIKeyEvent) (APIKey, error)
 	RevokeAPIKey(ctx context.Context, userID string, id string, revokedAt time.Time, event APIKeyEvent) error
@@ -212,6 +213,15 @@ type Service struct {
 	accessTokenTTL  time.Duration
 	refreshTokenTTL time.Duration
 	tokenBytes      int
+	apiKeyUsage     *apiKeyUsageTracker
+}
+
+const apiKeyLastUsedInterval = time.Minute
+
+type apiKeyUsageTracker struct {
+	mu          sync.Mutex
+	lastUpdates map[string]time.Time
+	lastCleanup time.Time
 }
 
 func NewService(repo Repository) Service {
@@ -221,6 +231,7 @@ func NewService(repo Repository) Service {
 		accessTokenTTL:  defaultAccessTokenTTL,
 		refreshTokenTTL: defaultRefreshTokenTTL,
 		tokenBytes:      defaultTokenBytes,
+		apiKeyUsage:     &apiKeyUsageTracker{lastUpdates: make(map[string]time.Time)},
 	}
 }
 
@@ -554,7 +565,7 @@ func (s Service) AuthenticateAPIKeyPrincipal(ctx context.Context, token string) 
 		return Principal{}, unauthorized()
 	}
 
-	key, err := s.repo.FindAPIKeyByTokenHash(ctx, HashToken(token))
+	key, user, err := s.repo.FindAPIKeyPrincipalByTokenHash(ctx, HashToken(token))
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return Principal{}, unauthorized()
@@ -569,16 +580,11 @@ func (s Service) AuthenticateAPIKeyPrincipal(ctx context.Context, token string) 
 	if key.ExpiresAt != nil && !key.ExpiresAt.After(now) {
 		return Principal{}, unauthorized()
 	}
-	if err := s.repo.UpdateAPIKeyLastUsed(ctx, key.ID, now); err != nil {
-		return Principal{}, err
-	}
-
-	user, err := s.repo.FindUserByID(ctx, key.UserID)
-	if err != nil {
-		if errors.Is(err, domain.ErrNotFound) {
-			return Principal{}, unauthorized()
+	if s.apiKeyUsage.shouldUpdate(key, now) {
+		if err := s.repo.UpdateAPIKeyLastUsed(ctx, key.ID, now); err != nil {
+			s.apiKeyUsage.release(key.ID, now)
+			return Principal{}, err
 		}
-		return Principal{}, err
 	}
 
 	result := userResult(user, key.WorkspaceID)
@@ -593,6 +599,36 @@ func (s Service) AuthenticateAPIKeyPrincipal(ctx context.Context, token string) 
 		ExpiresAt:     key.ExpiresAt,
 		RevokedAt:     key.RevokedAt,
 	}, nil
+}
+
+func (t *apiKeyUsageTracker) shouldUpdate(key APIKey, now time.Time) bool {
+	if key.LastUsedAt != nil && now.Sub(*key.LastUsedAt) < apiKeyLastUsedInterval {
+		return false
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if last, ok := t.lastUpdates[key.ID]; ok && now.Sub(last) < apiKeyLastUsedInterval {
+		return false
+	}
+	if t.lastCleanup.IsZero() || now.Sub(t.lastCleanup) >= apiKeyLastUsedInterval {
+		for id, updatedAt := range t.lastUpdates {
+			if now.Sub(updatedAt) >= apiKeyLastUsedInterval {
+				delete(t.lastUpdates, id)
+			}
+		}
+		t.lastCleanup = now
+	}
+	t.lastUpdates[key.ID] = now
+	return true
+}
+
+func (t *apiKeyUsageTracker) release(id string, reservedAt time.Time) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.lastUpdates[id].Equal(reservedAt) {
+		delete(t.lastUpdates, id)
+	}
 }
 
 func (s Service) RefreshSession(ctx context.Context, token string) (RefreshResult, error) {

@@ -73,10 +73,16 @@ WHERE user_id = ?
 	AND workspace_id = ?
 ORDER BY created_at DESC, id DESC;
 
--- name: FindAPIKeyByTokenHash :one
-SELECT id, user_id, workspace_id, name, token_hash, prefix, scopes, allowed_meters, expires_at, revoked_at, created_at, last_used_at
-FROM auth_api_keys
-WHERE token_hash = ?;
+-- name: FindAPIKeyPrincipalByTokenHash :one
+SELECT k.id AS key_id, k.user_id AS key_user_id, k.workspace_id AS key_workspace_id,
+	k.name AS key_name, k.token_hash AS key_token_hash, k.prefix AS key_prefix,
+	k.scopes AS key_scopes, k.allowed_meters AS key_allowed_meters,
+	k.expires_at AS key_expires_at, k.revoked_at AS key_revoked_at,
+	k.created_at AS key_created_at, k.last_used_at AS key_last_used_at,
+	u.id AS user_id, u.email AS user_email, u.created_at AS user_created_at
+FROM auth_api_keys k
+JOIN auth_users u ON u.id = k.user_id
+WHERE k.token_hash = ?;
 
 -- name: FindAPIKeyByID :one
 SELECT id, user_id, workspace_id, name, token_hash, prefix, scopes, allowed_meters, expires_at, revoked_at, created_at, last_used_at

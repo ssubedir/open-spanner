@@ -65,28 +65,55 @@ func (q *Queries) FindAPIKeyByID(ctx context.Context, arg FindAPIKeyByIDParams) 
 	return i, err
 }
 
-const findAPIKeyByTokenHash = `-- name: FindAPIKeyByTokenHash :one
-SELECT id, user_id, workspace_id, name, token_hash, prefix, scopes, allowed_meters, expires_at, revoked_at, created_at, last_used_at
-FROM auth_api_keys
-WHERE token_hash = $1
+const findAPIKeyPrincipalByTokenHash = `-- name: FindAPIKeyPrincipalByTokenHash :one
+SELECT k.id AS key_id, k.user_id AS key_user_id, k.workspace_id AS key_workspace_id,
+	k.name AS key_name, k.token_hash AS key_token_hash, k.prefix AS key_prefix,
+	k.scopes AS key_scopes, k.allowed_meters AS key_allowed_meters,
+	k.expires_at AS key_expires_at, k.revoked_at AS key_revoked_at,
+	k.created_at AS key_created_at, k.last_used_at AS key_last_used_at,
+	u.id AS user_id, u.email AS user_email, u.created_at AS user_created_at
+FROM auth_api_keys k
+JOIN auth_users u ON u.id = k.user_id
+WHERE k.token_hash = $1
 `
 
-func (q *Queries) FindAPIKeyByTokenHash(ctx context.Context, tokenHash string) (AuthApiKey, error) {
-	row := q.db.QueryRowContext(ctx, findAPIKeyByTokenHash, tokenHash)
-	var i AuthApiKey
+type FindAPIKeyPrincipalByTokenHashRow struct {
+	KeyID            string
+	KeyUserID        string
+	KeyWorkspaceID   string
+	KeyName          string
+	KeyTokenHash     string
+	KeyPrefix        string
+	KeyScopes        string
+	KeyAllowedMeters string
+	KeyExpiresAt     sql.NullString
+	KeyRevokedAt     sql.NullString
+	KeyCreatedAt     string
+	KeyLastUsedAt    sql.NullString
+	UserID           string
+	UserEmail        string
+	UserCreatedAt    string
+}
+
+func (q *Queries) FindAPIKeyPrincipalByTokenHash(ctx context.Context, tokenHash string) (FindAPIKeyPrincipalByTokenHashRow, error) {
+	row := q.db.QueryRowContext(ctx, findAPIKeyPrincipalByTokenHash, tokenHash)
+	var i FindAPIKeyPrincipalByTokenHashRow
 	err := row.Scan(
-		&i.ID,
+		&i.KeyID,
+		&i.KeyUserID,
+		&i.KeyWorkspaceID,
+		&i.KeyName,
+		&i.KeyTokenHash,
+		&i.KeyPrefix,
+		&i.KeyScopes,
+		&i.KeyAllowedMeters,
+		&i.KeyExpiresAt,
+		&i.KeyRevokedAt,
+		&i.KeyCreatedAt,
+		&i.KeyLastUsedAt,
 		&i.UserID,
-		&i.WorkspaceID,
-		&i.Name,
-		&i.TokenHash,
-		&i.Prefix,
-		&i.Scopes,
-		&i.AllowedMeters,
-		&i.ExpiresAt,
-		&i.RevokedAt,
-		&i.CreatedAt,
-		&i.LastUsedAt,
+		&i.UserEmail,
+		&i.UserCreatedAt,
 	)
 	return i, err
 }

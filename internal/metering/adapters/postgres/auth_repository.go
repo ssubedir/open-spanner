@@ -209,9 +209,14 @@ func (r *AuthRepository) ListAPIKeys(ctx context.Context, userID string) ([]appa
 	return keys, nil
 }
 
-func (r *AuthRepository) FindAPIKeyByTokenHash(ctx context.Context, tokenHash string) (appauth.APIKey, error) {
-	key, err := queriesFor(ctx, r.queries).FindAPIKeyByTokenHash(ctx, tokenHash)
-	return apiKeyFromFields(key.ID, key.UserID, key.WorkspaceID, key.Name, key.TokenHash, key.Prefix, key.Scopes, key.AllowedMeters, key.ExpiresAt, key.RevokedAt, key.CreatedAt, key.LastUsedAt, err)
+func (r *AuthRepository) FindAPIKeyPrincipalByTokenHash(ctx context.Context, tokenHash string) (appauth.APIKey, appauth.User, error) {
+	row, err := queriesFor(ctx, r.queries).FindAPIKeyPrincipalByTokenHash(ctx, tokenHash)
+	key, err := apiKeyFromFields(row.KeyID, row.KeyUserID, row.KeyWorkspaceID, row.KeyName, row.KeyTokenHash, row.KeyPrefix, row.KeyScopes, row.KeyAllowedMeters, row.KeyExpiresAt, row.KeyRevokedAt, row.KeyCreatedAt, row.KeyLastUsedAt, err)
+	if err != nil {
+		return appauth.APIKey{}, appauth.User{}, err
+	}
+	user, err := userFromFields(row.UserID, row.UserEmail, "", row.UserCreatedAt, nil)
+	return key, user, err
 }
 
 func (r *AuthRepository) FindAPIKeyByID(ctx context.Context, userID string, id string) (appauth.APIKey, error) {

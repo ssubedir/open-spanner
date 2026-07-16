@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -298,6 +300,99 @@ func TestAPIKeyAuthenticationRejectsExpiredKeys(t *testing.T) {
 	}
 }
 
+func TestAPIKeyAuthenticationCoalescesLastUsedUpdates(t *testing.T) {
+	ctx := context.Background()
+	repo := newFakeRepository()
+	service := NewService(repo)
+	now := time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+
+	user, err := service.CreateUser(ctx, CreateUserCommand{Email: "admin@example.com", Password: "strong-password"})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	ctx = WithWorkspaceID(ctx, user.WorkspaceID)
+	created, err := service.CreateAPIKey(ctx, CreateAPIKeyCommand{UserID: user.ID, Name: "sdk"})
+	if err != nil {
+		t.Fatalf("create api key: %v", err)
+	}
+
+	for range 3 {
+		if _, err := service.AuthenticateAPIKey(ctx, created.Key); err != nil {
+			t.Fatalf("authenticate api key: %v", err)
+		}
+	}
+	if repo.apiKeyPrincipalLookups != 3 {
+		t.Fatalf("principal lookups = %d, want 3", repo.apiKeyPrincipalLookups)
+	}
+	if repo.lastUsedUpdates != 1 {
+		t.Fatalf("last-used updates = %d, want 1", repo.lastUsedUpdates)
+	}
+
+	now = now.Add(apiKeyLastUsedInterval)
+	if _, err := service.AuthenticateAPIKey(ctx, created.Key); err != nil {
+		t.Fatalf("authenticate after interval: %v", err)
+	}
+	if repo.lastUsedUpdates != 2 {
+		t.Fatalf("last-used updates after interval = %d, want 2", repo.lastUsedUpdates)
+	}
+}
+
+func TestAPIKeyUsageTrackerCoalescesConcurrentUpdates(t *testing.T) {
+	tracker := &apiKeyUsageTracker{lastUpdates: make(map[string]time.Time)}
+	now := time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)
+	key := APIKey{ID: "key-1"}
+	var updates atomic.Int32
+	var wg sync.WaitGroup
+
+	for range 100 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if tracker.shouldUpdate(key, now) {
+				updates.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	if updates.Load() != 1 {
+		t.Fatalf("concurrent update reservations = %d, want 1", updates.Load())
+	}
+
+	tracker.release(key.ID, now)
+	if !tracker.shouldUpdate(key, now) {
+		t.Fatal("released reservation was not retryable")
+	}
+}
+
+func TestAPIKeyAuthenticationRetriesFailedLastUsedUpdate(t *testing.T) {
+	ctx := context.Background()
+	repo := newFakeRepository()
+	service := NewService(repo)
+	service.now = func() time.Time { return time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC) }
+
+	user, err := service.CreateUser(ctx, CreateUserCommand{Email: "admin@example.com", Password: "strong-password"})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	ctx = WithWorkspaceID(ctx, user.WorkspaceID)
+	created, err := service.CreateAPIKey(ctx, CreateAPIKeyCommand{UserID: user.ID, Name: "sdk"})
+	if err != nil {
+		t.Fatalf("create api key: %v", err)
+	}
+
+	repo.updateLastUsedError = errors.New("database unavailable")
+	if _, err := service.AuthenticateAPIKey(ctx, created.Key); err == nil {
+		t.Fatal("authenticate error = nil, want last-used update error")
+	}
+	if _, err := service.AuthenticateAPIKey(ctx, created.Key); err != nil {
+		t.Fatalf("retry authenticate api key: %v", err)
+	}
+	if repo.lastUsedUpdates != 2 {
+		t.Fatalf("last-used update attempts = %d, want 2", repo.lastUsedUpdates)
+	}
+}
+
 func TestCasbinAuthorizerEnforcesScopesAndMeters(t *testing.T) {
 	ctx := context.Background()
 	authorizer, err := NewCasbinAuthorizer()
@@ -339,16 +434,19 @@ func TestCasbinAuthorizerEnforcesScopesAndMeters(t *testing.T) {
 }
 
 type fakeRepository struct {
-	usersByID           map[string]User
-	userIDByEmail       map[string]string
-	workspacesByID      map[string]Workspace
-	membershipsByUserID map[string][]WorkspaceMembership
-	identitiesByKey     map[string]Identity
-	sessionsByHash      map[string]Session
-	apiKeysByID         map[string]APIKey
-	apiKeyIDByHash      map[string]string
-	apiKeyEvents        []APIKeyEvent
-	saveSessionError    error
+	usersByID              map[string]User
+	userIDByEmail          map[string]string
+	workspacesByID         map[string]Workspace
+	membershipsByUserID    map[string][]WorkspaceMembership
+	identitiesByKey        map[string]Identity
+	sessionsByHash         map[string]Session
+	apiKeysByID            map[string]APIKey
+	apiKeyIDByHash         map[string]string
+	apiKeyEvents           []APIKeyEvent
+	saveSessionError       error
+	apiKeyPrincipalLookups int
+	lastUsedUpdates        int
+	updateLastUsedError    error
 }
 
 func newFakeRepository() *fakeRepository {
@@ -463,12 +561,18 @@ func (r *fakeRepository) ListAPIKeys(ctx context.Context, userID string) ([]APIK
 	return keys, nil
 }
 
-func (r *fakeRepository) FindAPIKeyByTokenHash(_ context.Context, tokenHash string) (APIKey, error) {
+func (r *fakeRepository) FindAPIKeyPrincipalByTokenHash(_ context.Context, tokenHash string) (APIKey, User, error) {
+	r.apiKeyPrincipalLookups++
 	id, ok := r.apiKeyIDByHash[tokenHash]
 	if !ok {
-		return APIKey{}, domain.ErrNotFound
+		return APIKey{}, User{}, domain.ErrNotFound
 	}
-	return r.apiKeysByID[id], nil
+	key := r.apiKeysByID[id]
+	user, ok := r.usersByID[key.UserID]
+	if !ok {
+		return APIKey{}, User{}, domain.ErrNotFound
+	}
+	return key, user, nil
 }
 
 func (r *fakeRepository) FindAPIKeyByID(ctx context.Context, userID string, id string) (APIKey, error) {
@@ -484,6 +588,12 @@ func (r *fakeRepository) FindAPIKeyByID(ctx context.Context, userID string, id s
 }
 
 func (r *fakeRepository) UpdateAPIKeyLastUsed(_ context.Context, id string, lastUsedAt time.Time) error {
+	r.lastUsedUpdates++
+	if r.updateLastUsedError != nil {
+		err := r.updateLastUsedError
+		r.updateLastUsedError = nil
+		return err
+	}
 	key, ok := r.apiKeysByID[id]
 	if !ok {
 		return domain.ErrNotFound
