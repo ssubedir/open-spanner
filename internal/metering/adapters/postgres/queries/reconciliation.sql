@@ -34,10 +34,11 @@ WITH due AS (
 )
 UPDATE reconciliation_schedules s
 SET locked_until = sqlc.arg('locked_until')::timestamptz,
+	claim_token = sqlc.arg('claim_token'),
 	updated_at = sqlc.arg('now')::timestamptz
 FROM due
 WHERE s.workspace_id = due.workspace_id
-RETURNING s.workspace_id, s.last_fingerprint, s.last_notified_fingerprint, s.last_failure_fingerprint;
+RETURNING s.workspace_id, s.claim_token, s.last_fingerprint, s.last_notified_fingerprint, s.last_failure_fingerprint;
 
 -- name: SaveReconciliationRun :exec
 INSERT INTO reconciliation_runs (
@@ -50,23 +51,37 @@ INSERT INTO reconciliation_runs (
 	sqlc.arg('fingerprint'), sqlc.arg('issues'), sqlc.arg('error'), sqlc.arg('created_at')
 );
 
--- name: CompleteReconciliationSchedule :exec
+-- name: CompleteReconciliationSchedule :execrows
 UPDATE reconciliation_schedules
 SET next_run_at = sqlc.arg('next_run_at')::timestamptz,
 	locked_until = NULL,
+	claim_token = NULL,
 	last_fingerprint = sqlc.arg('fingerprint'),
 	last_notified_fingerprint = CASE WHEN sqlc.arg('fingerprint')::text = '' THEN '' ELSE last_notified_fingerprint END,
 	last_failure_fingerprint = '',
 	updated_at = sqlc.arg('updated_at')::timestamptz
-WHERE workspace_id = sqlc.arg('workspace_id');
+WHERE workspace_id = sqlc.arg('workspace_id') AND claim_token = sqlc.arg('claim_token');
 
--- name: FailReconciliationSchedule :exec
+-- name: FailReconciliationSchedule :execrows
 UPDATE reconciliation_schedules
 SET next_run_at = sqlc.arg('next_run_at')::timestamptz,
 	locked_until = NULL,
+	claim_token = NULL,
 	last_failure_fingerprint = sqlc.arg('failure_fingerprint'),
 	updated_at = sqlc.arg('updated_at')::timestamptz
-WHERE workspace_id = sqlc.arg('workspace_id');
+WHERE workspace_id = sqlc.arg('workspace_id') AND claim_token = sqlc.arg('claim_token');
+
+-- name: ClaimMaintenanceLease :one
+INSERT INTO system_maintenance_leases (worker_name, claim_token, locked_until, updated_at)
+VALUES (sqlc.arg('worker_name'), sqlc.arg('claim_token'), sqlc.arg('locked_until')::timestamptz, sqlc.arg('now')::timestamptz)
+ON CONFLICT (worker_name) DO UPDATE
+SET claim_token = EXCLUDED.claim_token, locked_until = EXCLUDED.locked_until, updated_at = EXCLUDED.updated_at
+WHERE system_maintenance_leases.locked_until <= sqlc.arg('now')::timestamptz
+RETURNING claim_token;
+
+-- name: ReleaseMaintenanceLease :execrows
+DELETE FROM system_maintenance_leases
+WHERE worker_name = sqlc.arg('worker_name') AND claim_token = sqlc.arg('claim_token');
 
 -- name: MarkReconciliationNotified :exec
 UPDATE reconciliation_schedules
@@ -105,18 +120,18 @@ WITH due AS (
 	LIMIT 1
 )
 UPDATE reconciliation_notifications n
-SET locked_until = sqlc.arg('locked_until')::timestamptz
+SET locked_until = sqlc.arg('locked_until')::timestamptz, claim_token = sqlc.arg('claim_token')
 FROM due
 WHERE n.id = due.id
 RETURNING n.id, n.workspace_id, n.event_type, n.fingerprint, n.payload,
-	n.status, n.attempts, n.next_attempt_at, n.last_error, n.created_at, n.delivered_at,
+	n.status, n.attempts, n.next_attempt_at, n.last_error, n.created_at, n.delivered_at, n.claim_token,
 	(SELECT COUNT(*) FROM reconciliation_notification_attempts a WHERE a.notification_id = n.id) AS total_attempts;
 
--- name: CompleteReconciliationNotification :exec
+-- name: CompleteReconciliationNotification :execrows
 UPDATE reconciliation_notifications
 SET status = 'delivered', attempts = attempts + 1, locked_until = NULL,
-	last_error = '', delivered_at = sqlc.arg('delivered_at')::timestamptz
-WHERE id = sqlc.arg('id');
+	last_error = '', delivered_at = sqlc.arg('delivered_at')::timestamptz, claim_token = NULL
+WHERE id = sqlc.arg('id') AND claim_token = sqlc.arg('claim_token');
 
 -- name: SaveReconciliationNotificationAttempt :exec
 INSERT INTO reconciliation_notification_attempts (id, notification_id, attempt, status, error, created_at)
@@ -128,12 +143,12 @@ FROM reconciliation_notification_attempts
 WHERE notification_id = sqlc.arg('notification_id')
 ORDER BY created_at, id;
 
--- name: RetryReconciliationNotification :exec
+-- name: RetryReconciliationNotification :execrows
 UPDATE reconciliation_notifications
 SET status = CASE WHEN attempts + 1 >= sqlc.arg('max_attempts')::int THEN 'dead_letter' ELSE 'pending' END,
 	attempts = attempts + 1, next_attempt_at = sqlc.arg('next_attempt_at')::timestamptz,
-	locked_until = NULL, last_error = sqlc.arg('last_error')
-WHERE id = sqlc.arg('id');
+	locked_until = NULL, last_error = sqlc.arg('last_error'), claim_token = NULL
+WHERE id = sqlc.arg('id') AND claim_token = sqlc.arg('claim_token');
 
 -- name: ListReconciliationNotifications :many
 SELECT id, event_type, fingerprint, payload, status, attempts, next_attempt_at,
@@ -146,7 +161,7 @@ LIMIT sqlc.arg('limit')::int;
 -- name: RequeueReconciliationNotification :execrows
 UPDATE reconciliation_notifications
 SET status = 'pending', attempts = 0, next_attempt_at = sqlc.arg('next_attempt_at')::timestamptz,
-	locked_until = NULL, last_error = '', delivered_at = NULL
+	locked_until = NULL, claim_token = NULL, last_error = '', delivered_at = NULL
 WHERE id = sqlc.arg('id') AND workspace_id = sqlc.arg('workspace_id') AND status = 'dead_letter';
 
 -- name: ListActiveEntitlementCounters :many

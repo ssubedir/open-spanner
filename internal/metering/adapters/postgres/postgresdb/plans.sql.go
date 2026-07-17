@@ -110,16 +110,23 @@ DELETE FROM entitlement_check_jobs
 WHERE workspace_id = $1::text
 	AND subject = $2::text
 	AND meter_name = $3::text
+	AND attempts = $4::int
 `
 
 type DeleteEntitlementCheckJobParams struct {
-	WorkspaceID string
-	Subject     string
-	MeterName   string
+	WorkspaceID      string
+	Subject          string
+	MeterName        string
+	ExpectedAttempts int32
 }
 
 func (q *Queries) DeleteEntitlementCheckJob(ctx context.Context, arg DeleteEntitlementCheckJobParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteEntitlementCheckJob, arg.WorkspaceID, arg.Subject, arg.MeterName)
+	result, err := q.db.ExecContext(ctx, deleteEntitlementCheckJob,
+		arg.WorkspaceID,
+		arg.Subject,
+		arg.MeterName,
+		arg.ExpectedAttempts,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -933,14 +940,16 @@ SET run_after = $1,
 WHERE workspace_id = $3::text
 	AND subject = $4::text
 	AND meter_name = $5::text
+	AND attempts = $6::int
 `
 
 type RequeueEntitlementCheckJobParams struct {
-	RunAfter    string
-	Now         string
-	WorkspaceID string
-	Subject     string
-	MeterName   string
+	RunAfter         string
+	Now              string
+	WorkspaceID      string
+	Subject          string
+	MeterName        string
+	ExpectedAttempts int32
 }
 
 func (q *Queries) RequeueEntitlementCheckJob(ctx context.Context, arg RequeueEntitlementCheckJobParams) (int64, error) {
@@ -950,6 +959,7 @@ func (q *Queries) RequeueEntitlementCheckJob(ctx context.Context, arg RequeueEnt
 		arg.WorkspaceID,
 		arg.Subject,
 		arg.MeterName,
+		arg.ExpectedAttempts,
 	)
 	if err != nil {
 		return 0, err

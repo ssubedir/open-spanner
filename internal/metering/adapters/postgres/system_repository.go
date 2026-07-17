@@ -196,14 +196,15 @@ func (r *SystemRepository) ClaimReconciliationSchedule(ctx context.Context, now,
 	if err := queriesFor(ctx, r.queries).EnsureReconciliationSchedules(ctx, now); err != nil {
 		return appsystem.ReconciliationClaim{}, false, err
 	}
-	row, err := queriesFor(ctx, r.queries).ClaimReconciliationSchedule(ctx, postgresdb.ClaimReconciliationScheduleParams{Now: now, LockedUntil: lockedUntil})
+	claimToken := uuid.Must(uuid.NewV7()).String()
+	row, err := queriesFor(ctx, r.queries).ClaimReconciliationSchedule(ctx, postgresdb.ClaimReconciliationScheduleParams{Now: now, LockedUntil: lockedUntil, ClaimToken: sql.NullString{String: claimToken, Valid: true}})
 	if errors.Is(err, sql.ErrNoRows) {
 		return appsystem.ReconciliationClaim{}, false, nil
 	}
 	if err != nil {
 		return appsystem.ReconciliationClaim{}, false, err
 	}
-	return appsystem.ReconciliationClaim{WorkspaceID: row.WorkspaceID, LastFingerprint: row.LastFingerprint, LastNotifiedFingerprint: row.LastNotifiedFingerprint, LastFailureFingerprint: row.LastFailureFingerprint}, true, nil
+	return appsystem.ReconciliationClaim{WorkspaceID: row.WorkspaceID, ClaimToken: row.ClaimToken.String, LastFingerprint: row.LastFingerprint, LastNotifiedFingerprint: row.LastNotifiedFingerprint, LastFailureFingerprint: row.LastFailureFingerprint}, true, nil
 }
 
 func (r *SystemRepository) SaveReconciliationRun(ctx context.Context, workspaceID string, run appsystem.ReconciliationRun) error {
@@ -219,12 +220,39 @@ func (r *SystemRepository) SaveReconciliationRun(ctx context.Context, workspaceI
 	})
 }
 
-func (r *SystemRepository) CompleteReconciliationSchedule(ctx context.Context, workspaceID, fingerprint string, nextRunAt time.Time) error {
-	return queriesFor(ctx, r.queries).CompleteReconciliationSchedule(ctx, postgresdb.CompleteReconciliationScheduleParams{WorkspaceID: workspaceID, Fingerprint: fingerprint, NextRunAt: nextRunAt, UpdatedAt: time.Now().UTC()})
+func (r *SystemRepository) CompleteReconciliationSchedule(ctx context.Context, claim appsystem.ReconciliationClaim, fingerprint string, nextRunAt time.Time) error {
+	rows, err := queriesFor(ctx, r.queries).CompleteReconciliationSchedule(ctx, postgresdb.CompleteReconciliationScheduleParams{WorkspaceID: claim.WorkspaceID, ClaimToken: sql.NullString{String: claim.ClaimToken, Valid: true}, Fingerprint: fingerprint, NextRunAt: nextRunAt, UpdatedAt: time.Now().UTC()})
+	if err == nil && rows == 0 {
+		return domain.ErrNotFound
+	}
+	return err
 }
 
-func (r *SystemRepository) FailReconciliationSchedule(ctx context.Context, workspaceID, failureFingerprint string, nextRunAt time.Time) error {
-	return queriesFor(ctx, r.queries).FailReconciliationSchedule(ctx, postgresdb.FailReconciliationScheduleParams{WorkspaceID: workspaceID, FailureFingerprint: failureFingerprint, NextRunAt: nextRunAt, UpdatedAt: time.Now().UTC()})
+func (r *SystemRepository) FailReconciliationSchedule(ctx context.Context, claim appsystem.ReconciliationClaim, failureFingerprint string, nextRunAt time.Time) error {
+	rows, err := queriesFor(ctx, r.queries).FailReconciliationSchedule(ctx, postgresdb.FailReconciliationScheduleParams{WorkspaceID: claim.WorkspaceID, ClaimToken: sql.NullString{String: claim.ClaimToken, Valid: true}, FailureFingerprint: failureFingerprint, NextRunAt: nextRunAt, UpdatedAt: time.Now().UTC()})
+	if err == nil && rows == 0 {
+		return domain.ErrNotFound
+	}
+	return err
+}
+
+func (r *SystemRepository) ClaimMaintenanceLease(ctx context.Context, workerName, claimToken string, now, lockedUntil time.Time) (appsystem.MaintenanceLease, bool, error) {
+	claimed, err := queriesFor(ctx, r.queries).ClaimMaintenanceLease(ctx, postgresdb.ClaimMaintenanceLeaseParams{WorkerName: workerName, ClaimToken: claimToken, Now: now, LockedUntil: lockedUntil})
+	if errors.Is(err, sql.ErrNoRows) {
+		return appsystem.MaintenanceLease{}, false, nil
+	}
+	if err != nil {
+		return appsystem.MaintenanceLease{}, false, err
+	}
+	return appsystem.MaintenanceLease{WorkerName: workerName, ClaimToken: claimed, LockedUntil: lockedUntil}, true, nil
+}
+
+func (r *SystemRepository) ReleaseMaintenanceLease(ctx context.Context, lease appsystem.MaintenanceLease) error {
+	rows, err := queriesFor(ctx, r.queries).ReleaseMaintenanceLease(ctx, postgresdb.ReleaseMaintenanceLeaseParams{WorkerName: lease.WorkerName, ClaimToken: lease.ClaimToken})
+	if err == nil && rows == 0 {
+		return domain.ErrNotFound
+	}
+	return err
 }
 
 func (r *SystemRepository) GetReconciliationSchedule(ctx context.Context) (appsystem.ReconciliationSchedule, bool, error) {
@@ -251,7 +279,8 @@ func (r *SystemRepository) SaveReconciliationNotification(ctx context.Context, n
 }
 
 func (r *SystemRepository) ClaimReconciliationNotification(ctx context.Context, now, lockedUntil time.Time) (appsystem.ReconciliationNotification, bool, error) {
-	row, err := queriesFor(ctx, r.queries).ClaimReconciliationNotification(ctx, postgresdb.ClaimReconciliationNotificationParams{Now: now, LockedUntil: lockedUntil})
+	claimToken := uuid.Must(uuid.NewV7()).String()
+	row, err := queriesFor(ctx, r.queries).ClaimReconciliationNotification(ctx, postgresdb.ClaimReconciliationNotificationParams{Now: now, LockedUntil: lockedUntil, ClaimToken: sql.NullString{String: claimToken, Valid: true}})
 	if errors.Is(err, sql.ErrNoRows) {
 		return appsystem.ReconciliationNotification{}, false, nil
 	}
@@ -262,15 +291,23 @@ func (r *SystemRepository) ClaimReconciliationNotification(ctx context.Context, 
 	if err := json.Unmarshal(row.Payload, &run); err != nil {
 		return appsystem.ReconciliationNotification{}, false, err
 	}
-	return appsystem.ReconciliationNotification{ID: row.ID, WorkspaceID: row.WorkspaceID, EventType: row.EventType, Fingerprint: row.Fingerprint, Run: run, Status: row.Status, Attempts: int(row.Attempts), TotalAttempts: int(row.TotalAttempts), NextAttemptAt: row.NextAttemptAt, LastError: row.LastError, CreatedAt: row.CreatedAt, DeliveredAt: row.DeliveredAt.Time}, true, nil
+	return appsystem.ReconciliationNotification{ID: row.ID, WorkspaceID: row.WorkspaceID, EventType: row.EventType, Fingerprint: row.Fingerprint, Run: run, Status: row.Status, Attempts: int(row.Attempts), TotalAttempts: int(row.TotalAttempts), NextAttemptAt: row.NextAttemptAt, LastError: row.LastError, CreatedAt: row.CreatedAt, DeliveredAt: row.DeliveredAt.Time, ClaimToken: row.ClaimToken.String}, true, nil
 }
 
 func (r *SystemRepository) CompleteReconciliationNotification(ctx context.Context, notification appsystem.ReconciliationNotification) error {
-	return queriesFor(ctx, r.queries).CompleteReconciliationNotification(ctx, postgresdb.CompleteReconciliationNotificationParams{ID: notification.ID, DeliveredAt: time.Now().UTC()})
+	rows, err := queriesFor(ctx, r.queries).CompleteReconciliationNotification(ctx, postgresdb.CompleteReconciliationNotificationParams{ID: notification.ID, DeliveredAt: time.Now().UTC(), ClaimToken: sql.NullString{String: notification.ClaimToken, Valid: true}})
+	if err == nil && rows == 0 {
+		return domain.ErrNotFound
+	}
+	return err
 }
 
 func (r *SystemRepository) RetryReconciliationNotification(ctx context.Context, notification appsystem.ReconciliationNotification, nextAttemptAt time.Time, maxAttempts int, deliveryErr error) error {
-	return queriesFor(ctx, r.queries).RetryReconciliationNotification(ctx, postgresdb.RetryReconciliationNotificationParams{ID: notification.ID, MaxAttempts: int32(maxAttempts), NextAttemptAt: nextAttemptAt, LastError: deliveryErr.Error()})
+	rows, err := queriesFor(ctx, r.queries).RetryReconciliationNotification(ctx, postgresdb.RetryReconciliationNotificationParams{ID: notification.ID, MaxAttempts: int32(maxAttempts), NextAttemptAt: nextAttemptAt, LastError: deliveryErr.Error(), ClaimToken: sql.NullString{String: notification.ClaimToken, Valid: true}})
+	if err == nil && rows == 0 {
+		return domain.ErrNotFound
+	}
+	return err
 }
 
 func (r *SystemRepository) ListReconciliationNotifications(ctx context.Context, limit int) ([]appsystem.ReconciliationNotification, error) {

@@ -769,6 +769,369 @@ func TestIntegrationPostgresWorkerReplicasClaimOnceAndRecoverLease(t *testing.T)
 		t.Fatalf("authenticate worker replica identity: %v", err)
 	}
 	workspaceCtx := appauth.WithWorkspaceID(ctx, principal.WorkspaceID)
+	for {
+		job, claimed, claimErr := app.AlertService.ClaimDeliveryJob(ctx, appalert.ClaimCommand{LockTTL: time.Minute, MaxAttempts: 100})
+		if claimErr != nil {
+			t.Fatalf("drain alert delivery job: %v", claimErr)
+		}
+		if !claimed {
+			break
+		}
+		jobCtx := appauth.WithWorkspaceID(ctx, job.WorkspaceID)
+		if err := app.AlertService.CompleteDeliveryJob(jobCtx, appalert.DeliveryJobCompleteCommand{ID: job.ID, Attempts: job.Attempts, Delivery: appalert.DeliveryCommand{EventID: job.EventID, TriggerType: "webhook", Status: "delivered", StatusCode: http.StatusNoContent}}); err != nil {
+			t.Fatalf("complete existing alert delivery job: %v", err)
+		}
+	}
+
+	// Alert evaluation leases are claimed once across replicas and an expired
+	// owner cannot complete work after another replica has reclaimed it.
+	for {
+		job, claimed, claimErr := app.AlertService.ClaimEvaluationJob(ctx, appalert.ClaimCommand{LockTTL: time.Minute, MaxAttempts: 100})
+		if claimErr != nil {
+			t.Fatalf("drain alert evaluation job: %v", claimErr)
+		}
+		if !claimed {
+			break
+		}
+		jobCtx := appauth.WithWorkspaceID(ctx, job.WorkspaceID)
+		if err := app.AlertService.CompleteEvaluationJob(jobCtx, appalert.CompleteCommand{RuleID: job.RuleID, Attempts: job.Attempts}); err != nil {
+			t.Fatalf("complete existing alert evaluation job: %v", err)
+		}
+	}
+	meterName := "replica_meter_" + suffix
+	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name": meterName, "description": "Replica claim test", "unit": "request", "aggregation": "sum", "dimensions": []any{},
+	}, identity.Headers, nil)
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create replica meter status=%d body=%s", createMeter.Code, createMeter.Body.String())
+	}
+	enabled := true
+	destination, err := app.AlertService.CreateDestination(workspaceCtx, appalert.DestinationSaveCommand{Name: "Replica webhook " + suffix, Type: "webhook", Enabled: &enabled, WebhookURL: "https://example.com/replica"})
+	if err != nil {
+		t.Fatalf("create replica alert destination: %v", err)
+	}
+	rule, err := app.AlertService.Create(workspaceCtx, appalert.SaveCommand{Name: "Replica alert " + suffix, MeterName: meterName, Enabled: &enabled, Window: time.Hour, Comparator: "gte", Threshold: 1, EvaluationInterval: time.Minute, DestinationID: destination.ID})
+	if err != nil {
+		t.Fatalf("create replica alert rule: %v", err)
+	}
+	type alertClaimResult struct {
+		job appalert.EvaluationJobResult
+		ok  bool
+		err error
+	}
+	alertStart := make(chan struct{})
+	alertClaims := make(chan alertClaimResult, 2)
+	for range 2 {
+		go func() {
+			<-alertStart
+			job, ok, claimErr := app.AlertService.ClaimEvaluationJob(ctx, appalert.ClaimCommand{LockTTL: 30 * time.Millisecond, MaxAttempts: 3})
+			alertClaims <- alertClaimResult{job: job, ok: ok, err: claimErr}
+		}()
+	}
+	close(alertStart)
+	var firstAlert appalert.EvaluationJobResult
+	alertClaimCount := 0
+	for range 2 {
+		result := <-alertClaims
+		if result.err != nil {
+			t.Fatalf("concurrent alert claim: %v", result.err)
+		}
+		if result.ok {
+			alertClaimCount++
+			firstAlert = result.job
+		}
+	}
+	if alertClaimCount != 1 || firstAlert.RuleID != rule.ID {
+		t.Fatalf("alert claims=%d job=%+v want rule=%s", alertClaimCount, firstAlert, rule.ID)
+	}
+	time.Sleep(40 * time.Millisecond)
+	recoveredAlert, ok, err := app.AlertService.ClaimEvaluationJob(ctx, appalert.ClaimCommand{LockTTL: time.Minute, MaxAttempts: 3})
+	if err != nil || !ok || recoveredAlert.RuleID != firstAlert.RuleID || recoveredAlert.Attempts != 2 {
+		t.Fatalf("recover alert lease: first=%+v recovered=%+v ok=%v err=%v", firstAlert, recoveredAlert, ok, err)
+	}
+	if err := app.AlertService.CompleteEvaluationJob(workspaceCtx, appalert.CompleteCommand{RuleID: firstAlert.RuleID, Attempts: firstAlert.Attempts}); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("stale alert completion error=%v want not found", err)
+	}
+	if err := app.AlertService.CompleteEvaluationJob(workspaceCtx, appalert.CompleteCommand{RuleID: recoveredAlert.RuleID, Attempts: recoveredAlert.Attempts}); err != nil {
+		t.Fatalf("complete recovered alert job: %v", err)
+	}
+	createAlertUsage := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages", map[string]any{
+		"idempotency_key": "replica-alert-" + suffix, "subject": "replica-alert-subject-" + suffix, "meter": meterName, "quantity": 2, "timestamp": time.Now().UTC().Format(time.RFC3339Nano),
+	}, identity.Headers, nil)
+	if createAlertUsage.Code != http.StatusCreated {
+		t.Fatalf("create replica alert usage status=%d body=%s", createAlertUsage.Code, createAlertUsage.Body.String())
+	}
+	evaluation, err := app.AlertService.Evaluate(workspaceCtx, appalert.EvaluateCommand{RuleID: rule.ID})
+	if err != nil || evaluation.Event == nil {
+		t.Fatalf("evaluate replica alert: evaluation=%+v err=%v", evaluation, err)
+	}
+	type deliveryClaimResult struct {
+		job appalert.DeliveryJobResult
+		ok  bool
+		err error
+	}
+	deliveryStart := make(chan struct{})
+	deliveryClaims := make(chan deliveryClaimResult, 2)
+	for range 2 {
+		go func() {
+			<-deliveryStart
+			job, ok, claimErr := app.AlertService.ClaimDeliveryJob(ctx, appalert.ClaimCommand{LockTTL: 30 * time.Millisecond, MaxAttempts: 3})
+			deliveryClaims <- deliveryClaimResult{job: job, ok: ok, err: claimErr}
+		}()
+	}
+	close(deliveryStart)
+	var firstDelivery appalert.DeliveryJobResult
+	deliveryClaimCount := 0
+	for range 2 {
+		result := <-deliveryClaims
+		if result.err != nil {
+			t.Fatalf("concurrent alert delivery claim: %v", result.err)
+		}
+		if result.ok {
+			deliveryClaimCount++
+			firstDelivery = result.job
+		}
+	}
+	if deliveryClaimCount != 1 || firstDelivery.EventID != evaluation.Event.ID {
+		t.Fatalf("delivery claims=%d job=%+v want event=%s", deliveryClaimCount, firstDelivery, evaluation.Event.ID)
+	}
+	time.Sleep(40 * time.Millisecond)
+	recoveredDelivery, ok, err := app.AlertService.ClaimDeliveryJob(ctx, appalert.ClaimCommand{LockTTL: time.Minute, MaxAttempts: 3})
+	if err != nil || !ok || recoveredDelivery.ID != firstDelivery.ID || recoveredDelivery.Attempts != 2 {
+		t.Fatalf("recover alert delivery lease: first=%+v recovered=%+v ok=%v err=%v", firstDelivery, recoveredDelivery, ok, err)
+	}
+	delivered := appalert.DeliveryCommand{EventID: recoveredDelivery.EventID, TriggerType: "webhook", Status: "delivered", StatusCode: http.StatusNoContent}
+	if err := app.AlertService.CompleteDeliveryJob(workspaceCtx, appalert.DeliveryJobCompleteCommand{ID: firstDelivery.ID, Attempts: firstDelivery.Attempts, Delivery: delivered}); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("stale alert delivery completion error=%v want not found", err)
+	}
+	if err := app.AlertService.CompleteDeliveryJob(workspaceCtx, appalert.DeliveryJobCompleteCommand{ID: recoveredDelivery.ID, Attempts: recoveredDelivery.Attempts, Delivery: delivered}); err != nil {
+		t.Fatalf("complete recovered alert delivery job: %v", err)
+	}
+
+	// Entitlement checks use the same attempt fence.
+	for {
+		job, claimed, claimErr := app.EntitlementService.ClaimCheckJob(ctx, appentitlement.ClaimCommand{LockTTL: time.Minute, MaxAttempts: 100})
+		if claimErr != nil {
+			t.Fatalf("drain entitlement job: %v", claimErr)
+		}
+		if !claimed {
+			break
+		}
+		jobCtx := appauth.WithWorkspaceID(ctx, job.Job.WorkspaceID)
+		if err := app.EntitlementService.CompleteCheckJob(jobCtx, appentitlement.CompleteCommand{Subject: job.Job.Subject, Meter: job.Job.MeterName, Attempts: job.Job.Attempts}); err != nil {
+			t.Fatalf("complete existing entitlement job: %v", err)
+		}
+	}
+	entitlementSubject := "replica_subject_" + suffix
+	if err := app.EntitlementService.EnqueueForUsageEvents(workspaceCtx, []appentitlement.UsageEvent{{Subject: entitlementSubject, Meter: meterName, Quantity: 1}}); err != nil {
+		t.Fatalf("enqueue replica entitlement job: %v", err)
+	}
+	type entitlementClaimResult struct {
+		job appentitlement.CheckJobResult
+		ok  bool
+		err error
+	}
+	entitlementStart := make(chan struct{})
+	entitlementClaims := make(chan entitlementClaimResult, 2)
+	for range 2 {
+		go func() {
+			<-entitlementStart
+			job, ok, claimErr := app.EntitlementService.ClaimCheckJob(ctx, appentitlement.ClaimCommand{LockTTL: 30 * time.Millisecond, MaxAttempts: 3})
+			entitlementClaims <- entitlementClaimResult{job: job, ok: ok, err: claimErr}
+		}()
+	}
+	close(entitlementStart)
+	var firstEntitlement appentitlement.CheckJobResult
+	entitlementClaimCount := 0
+	for range 2 {
+		result := <-entitlementClaims
+		if result.err != nil {
+			t.Fatalf("concurrent entitlement claim: %v", result.err)
+		}
+		if result.ok {
+			entitlementClaimCount++
+			firstEntitlement = result.job
+		}
+	}
+	if entitlementClaimCount != 1 || firstEntitlement.Job.Subject != entitlementSubject {
+		t.Fatalf("entitlement claims=%d job=%+v", entitlementClaimCount, firstEntitlement)
+	}
+	time.Sleep(40 * time.Millisecond)
+	recoveredEntitlement, ok, err := app.EntitlementService.ClaimCheckJob(ctx, appentitlement.ClaimCommand{LockTTL: time.Minute, MaxAttempts: 3})
+	if err != nil || !ok || recoveredEntitlement.Job.Subject != entitlementSubject || recoveredEntitlement.Job.Attempts != 2 {
+		t.Fatalf("recover entitlement lease: first=%+v recovered=%+v ok=%v err=%v", firstEntitlement, recoveredEntitlement, ok, err)
+	}
+	if err := app.EntitlementService.CompleteCheckJob(workspaceCtx, appentitlement.CompleteCommand{Subject: firstEntitlement.Job.Subject, Meter: firstEntitlement.Job.MeterName, Attempts: firstEntitlement.Job.Attempts}); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("stale entitlement completion error=%v want not found", err)
+	}
+	if err := app.EntitlementService.CompleteCheckJob(workspaceCtx, appentitlement.CompleteCommand{Subject: recoveredEntitlement.Job.Subject, Meter: recoveredEntitlement.Job.MeterName, Attempts: recoveredEntitlement.Job.Attempts}); err != nil {
+		t.Fatalf("complete recovered entitlement job: %v", err)
+	}
+
+	// Named maintenance leases serialize singleton pruning across API replicas.
+	type maintenanceClaimResult struct {
+		lease appsystem.MaintenanceLease
+		ok    bool
+		err   error
+	}
+	maintenanceStart := make(chan struct{})
+	maintenanceClaims := make(chan maintenanceClaimResult, 2)
+	maintenanceNow := time.Now().UTC()
+	for range 2 {
+		go func() {
+			<-maintenanceStart
+			lease, ok, claimErr := app.SystemService.ClaimMaintenanceLease(ctx, "replica-maintenance-"+suffix, maintenanceNow, maintenanceNow.Add(100*time.Millisecond))
+			maintenanceClaims <- maintenanceClaimResult{lease: lease, ok: ok, err: claimErr}
+		}()
+	}
+	close(maintenanceStart)
+	var firstMaintenance appsystem.MaintenanceLease
+	maintenanceClaimCount := 0
+	for range 2 {
+		result := <-maintenanceClaims
+		if result.err != nil {
+			t.Fatalf("concurrent maintenance claim: %v", result.err)
+		}
+		if result.ok {
+			maintenanceClaimCount++
+			firstMaintenance = result.lease
+		}
+	}
+	if maintenanceClaimCount != 1 {
+		t.Fatalf("maintenance claims=%d want 1", maintenanceClaimCount)
+	}
+	time.Sleep(150 * time.Millisecond)
+	recoveredMaintenance, ok, err := app.SystemService.ClaimMaintenanceLease(ctx, "replica-maintenance-"+suffix, time.Now().UTC(), time.Now().UTC().Add(time.Minute))
+	if err != nil || !ok || recoveredMaintenance.ClaimToken == firstMaintenance.ClaimToken {
+		t.Fatalf("recover maintenance lease: first=%+v recovered=%+v ok=%v err=%v", firstMaintenance, recoveredMaintenance, ok, err)
+	}
+	if err := app.SystemService.ReleaseMaintenanceLease(ctx, firstMaintenance); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("stale maintenance release error=%v want not found", err)
+	}
+	if err := app.SystemService.ReleaseMaintenanceLease(ctx, recoveredMaintenance); err != nil {
+		t.Fatalf("release recovered maintenance lease: %v", err)
+	}
+
+	// Reconciliation schedule claims carry a unique token, so a timed-out scan
+	// cannot commit after another replica takes over.
+	controlStore, err := postgresadapter.NewStore(ctx, dsn, config.DBPoolConfig{MaxOpenConns: 2})
+	if err != nil {
+		t.Fatalf("open reconciliation control store: %v", err)
+	}
+	defer controlStore.Close()
+	if _, err := controlStore.ExecContext(ctx, "INSERT INTO reconciliation_schedules (workspace_id, next_run_at, updated_at) SELECT id, $1, $1 FROM auth_workspaces ON CONFLICT (workspace_id) DO UPDATE SET next_run_at = EXCLUDED.next_run_at, locked_until = NULL, claim_token = NULL, updated_at = EXCLUDED.updated_at", time.Now().UTC().Add(time.Hour)); err != nil {
+		t.Fatalf("park reconciliation schedules: %v", err)
+	}
+	if _, err := controlStore.ExecContext(ctx, "INSERT INTO reconciliation_schedules (workspace_id, next_run_at, updated_at) VALUES ($1, $2, $2) ON CONFLICT (workspace_id) DO UPDATE SET next_run_at = EXCLUDED.next_run_at, locked_until = NULL, claim_token = NULL, updated_at = EXCLUDED.updated_at", principal.WorkspaceID, time.Now().UTC().Add(-time.Minute)); err != nil {
+		t.Fatalf("prepare reconciliation schedule: %v", err)
+	}
+	type reconciliationClaimResult struct {
+		claim appsystem.ReconciliationClaim
+		ok    bool
+		err   error
+	}
+	reconciliationStart := make(chan struct{})
+	reconciliationClaims := make(chan reconciliationClaimResult, 2)
+	for range 2 {
+		go func() {
+			<-reconciliationStart
+			now := time.Now().UTC()
+			claim, ok, claimErr := app.SystemService.ClaimScheduledReconciliation(ctx, now, now.Add(100*time.Millisecond))
+			reconciliationClaims <- reconciliationClaimResult{claim: claim, ok: ok, err: claimErr}
+		}()
+	}
+	close(reconciliationStart)
+	var firstReconciliation appsystem.ReconciliationClaim
+	reconciliationClaimCount := 0
+	for range 2 {
+		result := <-reconciliationClaims
+		if result.err != nil {
+			t.Fatalf("concurrent reconciliation claim: %v", result.err)
+		}
+		if result.ok {
+			reconciliationClaimCount++
+			firstReconciliation = result.claim
+		}
+	}
+	if reconciliationClaimCount != 1 || firstReconciliation.WorkspaceID != principal.WorkspaceID || firstReconciliation.ClaimToken == "" {
+		t.Fatalf("reconciliation claims=%d claim=%+v", reconciliationClaimCount, firstReconciliation)
+	}
+	time.Sleep(150 * time.Millisecond)
+	reconciliationNow := time.Now().UTC()
+	recoveredReconciliation, ok, err := app.SystemService.ClaimScheduledReconciliation(ctx, reconciliationNow, reconciliationNow.Add(time.Minute))
+	if err != nil || !ok || recoveredReconciliation.WorkspaceID != firstReconciliation.WorkspaceID || recoveredReconciliation.ClaimToken == firstReconciliation.ClaimToken {
+		t.Fatalf("recover reconciliation lease: first=%+v recovered=%+v ok=%v err=%v", firstReconciliation, recoveredReconciliation, ok, err)
+	}
+	if err := app.systemRepo.CompleteReconciliationSchedule(ctx, firstReconciliation, "", reconciliationNow.Add(time.Hour)); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("stale reconciliation completion error=%v want not found", err)
+	}
+	if err := app.systemRepo.CompleteReconciliationSchedule(ctx, recoveredReconciliation, "", reconciliationNow.Add(time.Hour)); err != nil {
+		t.Fatalf("complete recovered reconciliation schedule: %v", err)
+	}
+	if _, err := controlStore.ExecContext(ctx, "UPDATE reconciliation_schedules SET next_run_at = $1, locked_until = NULL, claim_token = NULL", time.Now().UTC()); err != nil {
+		t.Fatalf("restore reconciliation schedules: %v", err)
+	}
+	for {
+		notification, claimed, claimErr := app.SystemService.ClaimReconciliationNotification(ctx, time.Now().UTC(), time.Now().UTC().Add(time.Minute))
+		if claimErr != nil {
+			t.Fatalf("drain reconciliation notification: %v", claimErr)
+		}
+		if !claimed {
+			break
+		}
+		if err := app.SystemService.CompleteReconciliationNotification(ctx, notification); err != nil {
+			t.Fatalf("complete existing reconciliation notification: %v", err)
+		}
+	}
+	notificationNow := time.Now().UTC()
+	targetNotification := appsystem.ReconciliationNotification{ID: uuid.Must(uuid.NewV7()).String(), WorkspaceID: principal.WorkspaceID, EventType: "scan_failed", Fingerprint: "replica-notification-" + suffix, Run: appsystem.ReconciliationRun{ID: uuid.Must(uuid.NewV7()).String(), Status: "failed", CreatedAt: notificationNow}, NextAttemptAt: notificationNow, CreatedAt: notificationNow}
+	if err := app.systemRepo.SaveReconciliationNotification(ctx, targetNotification); err != nil {
+		t.Fatalf("save replica reconciliation notification: %v", err)
+	}
+	type notificationClaimResult struct {
+		notification appsystem.ReconciliationNotification
+		ok           bool
+		err          error
+	}
+	notificationStart := make(chan struct{})
+	notificationClaims := make(chan notificationClaimResult, 2)
+	for range 2 {
+		go func() {
+			<-notificationStart
+			now := time.Now().UTC()
+			notification, ok, claimErr := app.SystemService.ClaimReconciliationNotification(ctx, now, now.Add(100*time.Millisecond))
+			notificationClaims <- notificationClaimResult{notification: notification, ok: ok, err: claimErr}
+		}()
+	}
+	close(notificationStart)
+	var firstNotification appsystem.ReconciliationNotification
+	notificationClaimCount := 0
+	for range 2 {
+		result := <-notificationClaims
+		if result.err != nil {
+			t.Fatalf("concurrent reconciliation notification claim: %v", result.err)
+		}
+		if result.ok {
+			notificationClaimCount++
+			firstNotification = result.notification
+		}
+	}
+	if notificationClaimCount != 1 || firstNotification.ID != targetNotification.ID || firstNotification.ClaimToken == "" {
+		t.Fatalf("reconciliation notification claims=%d notification=%+v", notificationClaimCount, firstNotification)
+	}
+	time.Sleep(150 * time.Millisecond)
+	notificationRecoveryNow := time.Now().UTC()
+	recoveredNotification, ok, err := app.SystemService.ClaimReconciliationNotification(ctx, notificationRecoveryNow, notificationRecoveryNow.Add(time.Minute))
+	if err != nil || !ok || recoveredNotification.ID != firstNotification.ID || recoveredNotification.ClaimToken == firstNotification.ClaimToken {
+		t.Fatalf("recover reconciliation notification: first=%+v recovered=%+v ok=%v err=%v", firstNotification, recoveredNotification, ok, err)
+	}
+	if err := app.SystemService.CompleteReconciliationNotification(ctx, firstNotification); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("stale reconciliation notification completion error=%v want not found", err)
+	}
+	if err := app.SystemService.CompleteReconciliationNotification(ctx, recoveredNotification); err != nil {
+		t.Fatalf("complete recovered reconciliation notification: %v", err)
+	}
+
 	queued, err := app.UsageService.CreateExportJob(workspaceCtx, appusage.ExportJobCreateCommand{Kind: "usage_buckets", Format: "csv", QueryJSON: `{}`})
 	if err != nil {
 		t.Fatalf("create replica contention export: %v", err)
@@ -2406,7 +2769,7 @@ func runIntegrationPlanEntitlementFlow(t *testing.T, cfg config.Config, namespac
 			failedJob = candidate
 			break
 		}
-		if err := app.EntitlementService.FailCheckJob(candidateCtx, appentitlement.FailCommand{Subject: candidate.Job.Subject, Meter: candidate.Job.MeterName, RetryAfter: time.Minute, Error: "deferred by integration test"}); err != nil {
+		if err := app.EntitlementService.FailCheckJob(candidateCtx, appentitlement.FailCommand{Subject: candidate.Job.Subject, Meter: candidate.Job.MeterName, Attempts: candidate.Job.Attempts, RetryAfter: time.Minute, Error: "deferred by integration test"}); err != nil {
 			t.Fatalf("release foreign entitlement job: %v", err)
 		}
 	}
@@ -2414,7 +2777,7 @@ func runIntegrationPlanEntitlementFlow(t *testing.T, cfg config.Config, namespac
 		t.Fatal("did not claim entitlement job for test workspace")
 	}
 	workerCtx := appauth.WithWorkspaceID(context.Background(), failedJob.Job.WorkspaceID)
-	if err := app.EntitlementService.DeadLetterCheckJob(workerCtx, appentitlement.DeadLetterCommand{Subject: failedJob.Job.Subject, Meter: failedJob.Job.MeterName, Attempts: 3, Error: "synthetic terminal entitlement failure"}); err != nil {
+	if err := app.EntitlementService.DeadLetterCheckJob(workerCtx, appentitlement.DeadLetterCommand{Subject: failedJob.Job.Subject, Meter: failedJob.Job.MeterName, Attempts: failedJob.Job.Attempts, Error: "synthetic terminal entitlement failure"}); err != nil {
 		t.Fatalf("dead-letter entitlement job: %v", err)
 	}
 	deadLetters := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/system/workers/dead-letters", nil, identity.Headers, nil)
@@ -2777,7 +3140,7 @@ func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handl
 			failedJob = candidate
 			break
 		}
-		if err := app.AlertService.FailEvaluationJob(candidateCtx, appalert.FailCommand{RuleID: candidate.RuleID, RetryAfter: time.Minute, Error: "deferred by integration test"}); err != nil {
+		if err := app.AlertService.FailEvaluationJob(candidateCtx, appalert.FailCommand{RuleID: candidate.RuleID, Attempts: candidate.Attempts, RetryAfter: time.Minute, Error: "deferred by integration test"}); err != nil {
 			t.Fatalf("release foreign alert job: %v", err)
 		}
 	}
@@ -2785,7 +3148,7 @@ func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handl
 		t.Fatal("did not claim alert job for test workspace")
 	}
 	workerCtx := appauth.WithWorkspaceID(context.Background(), failedJob.WorkspaceID)
-	if err := app.AlertService.DeadLetterEvaluationJob(workerCtx, appalert.DeadLetterCommand{RuleID: failedJob.RuleID, Attempts: 3, Error: "synthetic terminal alert failure"}); err != nil {
+	if err := app.AlertService.DeadLetterEvaluationJob(workerCtx, appalert.DeadLetterCommand{RuleID: failedJob.RuleID, Attempts: failedJob.Attempts, Error: "synthetic terminal alert failure"}); err != nil {
 		t.Fatalf("dead-letter alert job: %v", err)
 	}
 	deadLetters := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/system/workers/dead-letters", nil, authHeaders, nil)

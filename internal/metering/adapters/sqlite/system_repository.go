@@ -7,6 +7,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/google/uuid"
+
 	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/sqlite/sqlitedb"
 	appsystem "github.com/ssubedir/open-spanner/internal/metering/app/system"
@@ -214,14 +216,15 @@ func (r *SystemRepository) ClaimReconciliationSchedule(ctx context.Context, now,
 	if err := queriesFor(ctx, r.queries).EnsureReconciliationSchedules(ctx, formattedNow); err != nil {
 		return appsystem.ReconciliationClaim{}, false, err
 	}
-	row, err := queriesFor(ctx, r.queries).ClaimReconciliationSchedule(ctx, sqlitedb.ClaimReconciliationScheduleParams{Now: formattedNow, LockedUntil: sql.NullString{String: formatTime(lockedUntil), Valid: true}})
+	claimToken := uuid.Must(uuid.NewV7()).String()
+	row, err := queriesFor(ctx, r.queries).ClaimReconciliationSchedule(ctx, sqlitedb.ClaimReconciliationScheduleParams{Now: formattedNow, LockedUntil: sql.NullString{String: formatTime(lockedUntil), Valid: true}, ClaimToken: sql.NullString{String: claimToken, Valid: true}})
 	if errors.Is(err, sql.ErrNoRows) {
 		return appsystem.ReconciliationClaim{}, false, nil
 	}
 	if err != nil {
 		return appsystem.ReconciliationClaim{}, false, err
 	}
-	return appsystem.ReconciliationClaim{WorkspaceID: row.WorkspaceID, LastFingerprint: row.LastFingerprint, LastNotifiedFingerprint: row.LastNotifiedFingerprint, LastFailureFingerprint: row.LastFailureFingerprint}, true, nil
+	return appsystem.ReconciliationClaim{WorkspaceID: row.WorkspaceID, ClaimToken: row.ClaimToken.String, LastFingerprint: row.LastFingerprint, LastNotifiedFingerprint: row.LastNotifiedFingerprint, LastFailureFingerprint: row.LastFailureFingerprint}, true, nil
 }
 
 func (r *SystemRepository) SaveReconciliationRun(ctx context.Context, workspaceID string, run appsystem.ReconciliationRun) error {
@@ -237,12 +240,39 @@ func (r *SystemRepository) SaveReconciliationRun(ctx context.Context, workspaceI
 	})
 }
 
-func (r *SystemRepository) CompleteReconciliationSchedule(ctx context.Context, workspaceID, fingerprint string, nextRunAt time.Time) error {
-	return queriesFor(ctx, r.queries).CompleteReconciliationSchedule(ctx, sqlitedb.CompleteReconciliationScheduleParams{WorkspaceID: workspaceID, Fingerprint: fingerprint, NextRunAt: formatTime(nextRunAt), UpdatedAt: formatTime(time.Now().UTC())})
+func (r *SystemRepository) CompleteReconciliationSchedule(ctx context.Context, claim appsystem.ReconciliationClaim, fingerprint string, nextRunAt time.Time) error {
+	rows, err := queriesFor(ctx, r.queries).CompleteReconciliationSchedule(ctx, sqlitedb.CompleteReconciliationScheduleParams{WorkspaceID: claim.WorkspaceID, ClaimToken: sql.NullString{String: claim.ClaimToken, Valid: true}, Fingerprint: fingerprint, NextRunAt: formatTime(nextRunAt), UpdatedAt: formatTime(time.Now().UTC())})
+	if err == nil && rows == 0 {
+		return domain.ErrNotFound
+	}
+	return err
 }
 
-func (r *SystemRepository) FailReconciliationSchedule(ctx context.Context, workspaceID, failureFingerprint string, nextRunAt time.Time) error {
-	return queriesFor(ctx, r.queries).FailReconciliationSchedule(ctx, sqlitedb.FailReconciliationScheduleParams{WorkspaceID: workspaceID, FailureFingerprint: failureFingerprint, NextRunAt: formatTime(nextRunAt), UpdatedAt: formatTime(time.Now().UTC())})
+func (r *SystemRepository) FailReconciliationSchedule(ctx context.Context, claim appsystem.ReconciliationClaim, failureFingerprint string, nextRunAt time.Time) error {
+	rows, err := queriesFor(ctx, r.queries).FailReconciliationSchedule(ctx, sqlitedb.FailReconciliationScheduleParams{WorkspaceID: claim.WorkspaceID, ClaimToken: sql.NullString{String: claim.ClaimToken, Valid: true}, FailureFingerprint: failureFingerprint, NextRunAt: formatTime(nextRunAt), UpdatedAt: formatTime(time.Now().UTC())})
+	if err == nil && rows == 0 {
+		return domain.ErrNotFound
+	}
+	return err
+}
+
+func (r *SystemRepository) ClaimMaintenanceLease(ctx context.Context, workerName, claimToken string, now, lockedUntil time.Time) (appsystem.MaintenanceLease, bool, error) {
+	claimed, err := queriesFor(ctx, r.queries).ClaimMaintenanceLease(ctx, sqlitedb.ClaimMaintenanceLeaseParams{WorkerName: workerName, ClaimToken: claimToken, Now: formatTime(now), LockedUntil: formatTime(lockedUntil)})
+	if errors.Is(err, sql.ErrNoRows) {
+		return appsystem.MaintenanceLease{}, false, nil
+	}
+	if err != nil {
+		return appsystem.MaintenanceLease{}, false, err
+	}
+	return appsystem.MaintenanceLease{WorkerName: workerName, ClaimToken: claimed, LockedUntil: lockedUntil}, true, nil
+}
+
+func (r *SystemRepository) ReleaseMaintenanceLease(ctx context.Context, lease appsystem.MaintenanceLease) error {
+	rows, err := queriesFor(ctx, r.queries).ReleaseMaintenanceLease(ctx, sqlitedb.ReleaseMaintenanceLeaseParams{WorkerName: lease.WorkerName, ClaimToken: lease.ClaimToken})
+	if err == nil && rows == 0 {
+		return domain.ErrNotFound
+	}
+	return err
 }
 
 func (r *SystemRepository) GetReconciliationSchedule(ctx context.Context) (appsystem.ReconciliationSchedule, bool, error) {
@@ -275,7 +305,8 @@ func (r *SystemRepository) SaveReconciliationNotification(ctx context.Context, n
 }
 
 func (r *SystemRepository) ClaimReconciliationNotification(ctx context.Context, now, lockedUntil time.Time) (appsystem.ReconciliationNotification, bool, error) {
-	row, err := queriesFor(ctx, r.queries).ClaimReconciliationNotification(ctx, sqlitedb.ClaimReconciliationNotificationParams{Now: formatTime(now), LockedUntil: sql.NullString{String: formatTime(lockedUntil), Valid: true}})
+	claimToken := uuid.Must(uuid.NewV7()).String()
+	row, err := queriesFor(ctx, r.queries).ClaimReconciliationNotification(ctx, sqlitedb.ClaimReconciliationNotificationParams{Now: formatTime(now), LockedUntil: sql.NullString{String: formatTime(lockedUntil), Valid: true}, ClaimToken: sql.NullString{String: claimToken, Valid: true}})
 	if errors.Is(err, sql.ErrNoRows) {
 		return appsystem.ReconciliationNotification{}, false, nil
 	}
@@ -289,15 +320,23 @@ func (r *SystemRepository) ClaimReconciliationNotification(ctx context.Context, 
 	if err := errors.Join(json.Unmarshal([]byte(row.Payload), &run), e1, e2, e3); err != nil {
 		return appsystem.ReconciliationNotification{}, false, err
 	}
-	return appsystem.ReconciliationNotification{ID: row.ID, WorkspaceID: row.WorkspaceID, EventType: row.EventType, Fingerprint: row.Fingerprint, Run: run, Status: row.Status, Attempts: int(row.Attempts), TotalAttempts: int(row.Count), NextAttemptAt: next, LastError: row.LastError, CreatedAt: created, DeliveredAt: delivered}, true, nil
+	return appsystem.ReconciliationNotification{ID: row.ID, WorkspaceID: row.WorkspaceID, EventType: row.EventType, Fingerprint: row.Fingerprint, Run: run, Status: row.Status, Attempts: int(row.Attempts), TotalAttempts: int(row.Count), NextAttemptAt: next, LastError: row.LastError, CreatedAt: created, DeliveredAt: delivered, ClaimToken: row.ClaimToken.String}, true, nil
 }
 
 func (r *SystemRepository) CompleteReconciliationNotification(ctx context.Context, notification appsystem.ReconciliationNotification) error {
-	return queriesFor(ctx, r.queries).CompleteReconciliationNotification(ctx, sqlitedb.CompleteReconciliationNotificationParams{ID: notification.ID, DeliveredAt: sql.NullString{String: formatTime(time.Now().UTC()), Valid: true}})
+	rows, err := queriesFor(ctx, r.queries).CompleteReconciliationNotification(ctx, sqlitedb.CompleteReconciliationNotificationParams{ID: notification.ID, DeliveredAt: sql.NullString{String: formatTime(time.Now().UTC()), Valid: true}, ClaimToken: sql.NullString{String: notification.ClaimToken, Valid: true}})
+	if err == nil && rows == 0 {
+		return domain.ErrNotFound
+	}
+	return err
 }
 
 func (r *SystemRepository) RetryReconciliationNotification(ctx context.Context, notification appsystem.ReconciliationNotification, nextAttemptAt time.Time, maxAttempts int, deliveryErr error) error {
-	return queriesFor(ctx, r.queries).RetryReconciliationNotification(ctx, sqlitedb.RetryReconciliationNotificationParams{ID: notification.ID, MaxAttempts: int64(maxAttempts), NextAttemptAt: formatTime(nextAttemptAt), LastError: deliveryErr.Error()})
+	rows, err := queriesFor(ctx, r.queries).RetryReconciliationNotification(ctx, sqlitedb.RetryReconciliationNotificationParams{ID: notification.ID, MaxAttempts: int64(maxAttempts), NextAttemptAt: formatTime(nextAttemptAt), LastError: deliveryErr.Error(), ClaimToken: sql.NullString{String: notification.ClaimToken, Valid: true}})
+	if err == nil && rows == 0 {
+		return domain.ErrNotFound
+	}
+	return err
 }
 
 func (r *SystemRepository) ListReconciliationNotifications(ctx context.Context, limit int) ([]appsystem.ReconciliationNotification, error) {

@@ -10,6 +10,7 @@ import (
 
 	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	appconsumption "github.com/ssubedir/open-spanner/internal/metering/app/consumption"
+	appsystem "github.com/ssubedir/open-spanner/internal/metering/app/system"
 	appusage "github.com/ssubedir/open-spanner/internal/metering/app/usage"
 )
 
@@ -25,6 +26,11 @@ type WorkspaceLister interface {
 	ListWorkspaceIDs(ctx context.Context) ([]string, error)
 }
 
+type LeaseCoordinator interface {
+	ClaimMaintenanceLease(context.Context, string, time.Time, time.Time) (appsystem.MaintenanceLease, bool, error)
+	ReleaseMaintenanceLease(context.Context, appsystem.MaintenanceLease) error
+}
+
 type Logger func(format string, args ...any)
 
 type Worker struct {
@@ -35,6 +41,7 @@ type Worker struct {
 	decisionPruner    DecisionPruner
 	decisionRetention time.Duration
 	workspaceLister   WorkspaceLister
+	leaseCoordinator  LeaseCoordinator
 }
 
 type pruneResult struct {
@@ -53,6 +60,11 @@ func (w *Worker) WithDecisionPruner(pruner DecisionPruner, retention time.Durati
 
 func (w *Worker) WithWorkspaceLister(lister WorkspaceLister) *Worker {
 	w.workspaceLister = lister
+	return w
+}
+
+func (w *Worker) WithLeaseCoordinator(coordinator LeaseCoordinator) *Worker {
+	w.leaseCoordinator = coordinator
 	return w
 }
 
@@ -143,6 +155,21 @@ func (w *Worker) run(ctx context.Context) {
 
 func (w *Worker) prune(ctx context.Context) pruneResult {
 	startedAt := time.Now()
+	if w.leaseCoordinator != nil {
+		now := time.Now().UTC()
+		leaseTTL := 15 * time.Minute
+		if w.timeout > 0 {
+			leaseTTL = w.timeout + 30*time.Second
+		}
+		lease, claimed, err := w.leaseCoordinator.ClaimMaintenanceLease(ctx, "retention", now, now.Add(leaseTTL))
+		if err != nil {
+			return pruneResult{duration: time.Since(startedAt), err: err}
+		}
+		if !claimed {
+			return pruneResult{duration: time.Since(startedAt)}
+		}
+		defer func() { _ = w.leaseCoordinator.ReleaseMaintenanceLease(context.WithoutCancel(ctx), lease) }()
+	}
 	workspaceIDs := []string{""}
 	if w.workspaceLister != nil {
 		var err error

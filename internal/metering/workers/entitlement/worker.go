@@ -127,7 +127,7 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 	})
 	duration := time.Since(startedAt).Round(time.Millisecond)
 	if err == nil {
-		if err := w.service.CompleteCheckJob(baseCtx, appentitlement.CompleteCommand{Subject: job.Subject, Meter: job.MeterName}); err != nil && !errors.Is(err, domain.ErrNotFound) {
+		if err := w.service.CompleteCheckJob(baseCtx, appentitlement.CompleteCommand{Subject: job.Subject, Meter: job.MeterName, Attempts: job.Attempts}); err != nil && !errors.Is(err, domain.ErrNotFound) {
 			return true, err
 		}
 		w.logSuccess(job, evaluation, duration)
@@ -150,6 +150,7 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 	if failErr := w.service.FailCheckJob(failCtx, appentitlement.FailCommand{
 		Subject:    job.Subject,
 		Meter:      job.MeterName,
+		Attempts:   job.Attempts,
 		RetryAfter: w.retryAfter,
 		Error:      err.Error(),
 	}); failErr != nil && !errors.Is(failErr, domain.ErrNotFound) {

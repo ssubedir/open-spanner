@@ -234,13 +234,15 @@ SET run_after = sqlc.arg('run_after'),
 	updated_at = sqlc.arg('now')
 WHERE workspace_id = sqlc.arg('workspace_id')
 	AND subject = sqlc.arg('subject')
-	AND meter_name = sqlc.arg('meter_name');
+	AND meter_name = sqlc.arg('meter_name')
+	AND attempts = sqlc.arg('expected_attempts');
 
 -- name: DeleteEntitlementCheckJob :execrows
 DELETE FROM entitlement_check_jobs
 WHERE workspace_id = sqlc.arg('workspace_id')
 	AND subject = sqlc.arg('subject')
-	AND meter_name = sqlc.arg('meter_name');
+	AND meter_name = sqlc.arg('meter_name')
+	AND attempts = sqlc.arg('expected_attempts');
 
 -- name: SaveEntitlementWorkerDeadLetter :exec
 INSERT INTO system_worker_dead_letters (

@@ -14,26 +14,55 @@ import (
 	"github.com/google/uuid"
 )
 
+const claimMaintenanceLease = `-- name: ClaimMaintenanceLease :one
+INSERT INTO system_maintenance_leases (worker_name, claim_token, locked_until, updated_at)
+VALUES ($1, $2, $3::timestamptz, $4::timestamptz)
+ON CONFLICT (worker_name) DO UPDATE
+SET claim_token = EXCLUDED.claim_token, locked_until = EXCLUDED.locked_until, updated_at = EXCLUDED.updated_at
+WHERE system_maintenance_leases.locked_until <= $4::timestamptz
+RETURNING claim_token
+`
+
+type ClaimMaintenanceLeaseParams struct {
+	WorkerName  string
+	ClaimToken  string
+	LockedUntil time.Time
+	Now         time.Time
+}
+
+func (q *Queries) ClaimMaintenanceLease(ctx context.Context, arg ClaimMaintenanceLeaseParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, claimMaintenanceLease,
+		arg.WorkerName,
+		arg.ClaimToken,
+		arg.LockedUntil,
+		arg.Now,
+	)
+	var claim_token string
+	err := row.Scan(&claim_token)
+	return claim_token, err
+}
+
 const claimReconciliationNotification = `-- name: ClaimReconciliationNotification :one
 WITH due AS (
 	SELECT id FROM reconciliation_notifications
-	WHERE status = 'pending' AND next_attempt_at <= $2::timestamptz
-		AND (locked_until IS NULL OR locked_until <= $2::timestamptz)
+	WHERE status = 'pending' AND next_attempt_at <= $3::timestamptz
+		AND (locked_until IS NULL OR locked_until <= $3::timestamptz)
 	ORDER BY next_attempt_at, id
 	FOR UPDATE SKIP LOCKED
 	LIMIT 1
 )
 UPDATE reconciliation_notifications n
-SET locked_until = $1::timestamptz
+SET locked_until = $1::timestamptz, claim_token = $2
 FROM due
 WHERE n.id = due.id
 RETURNING n.id, n.workspace_id, n.event_type, n.fingerprint, n.payload,
-	n.status, n.attempts, n.next_attempt_at, n.last_error, n.created_at, n.delivered_at,
+	n.status, n.attempts, n.next_attempt_at, n.last_error, n.created_at, n.delivered_at, n.claim_token,
 	(SELECT COUNT(*) FROM reconciliation_notification_attempts a WHERE a.notification_id = n.id) AS total_attempts
 `
 
 type ClaimReconciliationNotificationParams struct {
 	LockedUntil time.Time
+	ClaimToken  sql.NullString
 	Now         time.Time
 }
 
@@ -49,11 +78,12 @@ type ClaimReconciliationNotificationRow struct {
 	LastError     string
 	CreatedAt     time.Time
 	DeliveredAt   sql.NullTime
+	ClaimToken    sql.NullString
 	TotalAttempts int64
 }
 
 func (q *Queries) ClaimReconciliationNotification(ctx context.Context, arg ClaimReconciliationNotificationParams) (ClaimReconciliationNotificationRow, error) {
-	row := q.db.QueryRowContext(ctx, claimReconciliationNotification, arg.LockedUntil, arg.Now)
+	row := q.db.QueryRowContext(ctx, claimReconciliationNotification, arg.LockedUntil, arg.ClaimToken, arg.Now)
 	var i ClaimReconciliationNotificationRow
 	err := row.Scan(
 		&i.ID,
@@ -67,6 +97,7 @@ func (q *Queries) ClaimReconciliationNotification(ctx context.Context, arg Claim
 		&i.LastError,
 		&i.CreatedAt,
 		&i.DeliveredAt,
+		&i.ClaimToken,
 		&i.TotalAttempts,
 	)
 	return i, err
@@ -76,37 +107,41 @@ const claimReconciliationSchedule = `-- name: ClaimReconciliationSchedule :one
 WITH due AS (
 	SELECT workspace_id
 	FROM reconciliation_schedules
-	WHERE next_run_at <= $2::timestamptz
-		AND (locked_until IS NULL OR locked_until <= $2::timestamptz)
+	WHERE next_run_at <= $3::timestamptz
+		AND (locked_until IS NULL OR locked_until <= $3::timestamptz)
 	ORDER BY next_run_at, workspace_id
 	FOR UPDATE SKIP LOCKED
 	LIMIT 1
 )
 UPDATE reconciliation_schedules s
 SET locked_until = $1::timestamptz,
-	updated_at = $2::timestamptz
+	claim_token = $2,
+	updated_at = $3::timestamptz
 FROM due
 WHERE s.workspace_id = due.workspace_id
-RETURNING s.workspace_id, s.last_fingerprint, s.last_notified_fingerprint, s.last_failure_fingerprint
+RETURNING s.workspace_id, s.claim_token, s.last_fingerprint, s.last_notified_fingerprint, s.last_failure_fingerprint
 `
 
 type ClaimReconciliationScheduleParams struct {
 	LockedUntil time.Time
+	ClaimToken  sql.NullString
 	Now         time.Time
 }
 
 type ClaimReconciliationScheduleRow struct {
 	WorkspaceID             string
+	ClaimToken              sql.NullString
 	LastFingerprint         string
 	LastNotifiedFingerprint string
 	LastFailureFingerprint  string
 }
 
 func (q *Queries) ClaimReconciliationSchedule(ctx context.Context, arg ClaimReconciliationScheduleParams) (ClaimReconciliationScheduleRow, error) {
-	row := q.db.QueryRowContext(ctx, claimReconciliationSchedule, arg.LockedUntil, arg.Now)
+	row := q.db.QueryRowContext(ctx, claimReconciliationSchedule, arg.LockedUntil, arg.ClaimToken, arg.Now)
 	var i ClaimReconciliationScheduleRow
 	err := row.Scan(
 		&i.WorkspaceID,
+		&i.ClaimToken,
 		&i.LastFingerprint,
 		&i.LastNotifiedFingerprint,
 		&i.LastFailureFingerprint,
@@ -114,32 +149,37 @@ func (q *Queries) ClaimReconciliationSchedule(ctx context.Context, arg ClaimReco
 	return i, err
 }
 
-const completeReconciliationNotification = `-- name: CompleteReconciliationNotification :exec
+const completeReconciliationNotification = `-- name: CompleteReconciliationNotification :execrows
 UPDATE reconciliation_notifications
 SET status = 'delivered', attempts = attempts + 1, locked_until = NULL,
-	last_error = '', delivered_at = $1::timestamptz
-WHERE id = $2
+	last_error = '', delivered_at = $1::timestamptz, claim_token = NULL
+WHERE id = $2 AND claim_token = $3
 `
 
 type CompleteReconciliationNotificationParams struct {
 	DeliveredAt time.Time
 	ID          string
+	ClaimToken  sql.NullString
 }
 
-func (q *Queries) CompleteReconciliationNotification(ctx context.Context, arg CompleteReconciliationNotificationParams) error {
-	_, err := q.db.ExecContext(ctx, completeReconciliationNotification, arg.DeliveredAt, arg.ID)
-	return err
+func (q *Queries) CompleteReconciliationNotification(ctx context.Context, arg CompleteReconciliationNotificationParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, completeReconciliationNotification, arg.DeliveredAt, arg.ID, arg.ClaimToken)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
-const completeReconciliationSchedule = `-- name: CompleteReconciliationSchedule :exec
+const completeReconciliationSchedule = `-- name: CompleteReconciliationSchedule :execrows
 UPDATE reconciliation_schedules
 SET next_run_at = $1::timestamptz,
 	locked_until = NULL,
+	claim_token = NULL,
 	last_fingerprint = $2,
 	last_notified_fingerprint = CASE WHEN $2::text = '' THEN '' ELSE last_notified_fingerprint END,
 	last_failure_fingerprint = '',
 	updated_at = $3::timestamptz
-WHERE workspace_id = $4
+WHERE workspace_id = $4 AND claim_token = $5
 `
 
 type CompleteReconciliationScheduleParams struct {
@@ -147,16 +187,21 @@ type CompleteReconciliationScheduleParams struct {
 	Fingerprint string
 	UpdatedAt   time.Time
 	WorkspaceID string
+	ClaimToken  sql.NullString
 }
 
-func (q *Queries) CompleteReconciliationSchedule(ctx context.Context, arg CompleteReconciliationScheduleParams) error {
-	_, err := q.db.ExecContext(ctx, completeReconciliationSchedule,
+func (q *Queries) CompleteReconciliationSchedule(ctx context.Context, arg CompleteReconciliationScheduleParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, completeReconciliationSchedule,
 		arg.NextRunAt,
 		arg.Fingerprint,
 		arg.UpdatedAt,
 		arg.WorkspaceID,
+		arg.ClaimToken,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const countReconciliationNotificationStates = `-- name: CountReconciliationNotificationStates :one
@@ -299,13 +344,14 @@ func (q *Queries) EnsureReconciliationSchedules(ctx context.Context, now time.Ti
 	return err
 }
 
-const failReconciliationSchedule = `-- name: FailReconciliationSchedule :exec
+const failReconciliationSchedule = `-- name: FailReconciliationSchedule :execrows
 UPDATE reconciliation_schedules
 SET next_run_at = $1::timestamptz,
 	locked_until = NULL,
+	claim_token = NULL,
 	last_failure_fingerprint = $2,
 	updated_at = $3::timestamptz
-WHERE workspace_id = $4
+WHERE workspace_id = $4 AND claim_token = $5
 `
 
 type FailReconciliationScheduleParams struct {
@@ -313,16 +359,21 @@ type FailReconciliationScheduleParams struct {
 	FailureFingerprint string
 	UpdatedAt          time.Time
 	WorkspaceID        string
+	ClaimToken         sql.NullString
 }
 
-func (q *Queries) FailReconciliationSchedule(ctx context.Context, arg FailReconciliationScheduleParams) error {
-	_, err := q.db.ExecContext(ctx, failReconciliationSchedule,
+func (q *Queries) FailReconciliationSchedule(ctx context.Context, arg FailReconciliationScheduleParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, failReconciliationSchedule,
 		arg.NextRunAt,
 		arg.FailureFingerprint,
 		arg.UpdatedAt,
 		arg.WorkspaceID,
+		arg.ClaimToken,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const getEntitlementCounterForRepair = `-- name: GetEntitlementCounterForRepair :one
@@ -1183,10 +1234,28 @@ func (q *Queries) MarkWorkerDeadLetterRequeued(ctx context.Context, arg MarkWork
 	return result.RowsAffected()
 }
 
+const releaseMaintenanceLease = `-- name: ReleaseMaintenanceLease :execrows
+DELETE FROM system_maintenance_leases
+WHERE worker_name = $1 AND claim_token = $2
+`
+
+type ReleaseMaintenanceLeaseParams struct {
+	WorkerName string
+	ClaimToken string
+}
+
+func (q *Queries) ReleaseMaintenanceLease(ctx context.Context, arg ReleaseMaintenanceLeaseParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, releaseMaintenanceLease, arg.WorkerName, arg.ClaimToken)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const requeueReconciliationNotification = `-- name: RequeueReconciliationNotification :execrows
 UPDATE reconciliation_notifications
 SET status = 'pending', attempts = 0, next_attempt_at = $1::timestamptz,
-	locked_until = NULL, last_error = '', delivered_at = NULL
+	locked_until = NULL, claim_token = NULL, last_error = '', delivered_at = NULL
 WHERE id = $2 AND workspace_id = $3 AND status = 'dead_letter'
 `
 
@@ -1204,12 +1273,12 @@ func (q *Queries) RequeueReconciliationNotification(ctx context.Context, arg Req
 	return result.RowsAffected()
 }
 
-const retryReconciliationNotification = `-- name: RetryReconciliationNotification :exec
+const retryReconciliationNotification = `-- name: RetryReconciliationNotification :execrows
 UPDATE reconciliation_notifications
 SET status = CASE WHEN attempts + 1 >= $1::int THEN 'dead_letter' ELSE 'pending' END,
 	attempts = attempts + 1, next_attempt_at = $2::timestamptz,
-	locked_until = NULL, last_error = $3
-WHERE id = $4
+	locked_until = NULL, last_error = $3, claim_token = NULL
+WHERE id = $4 AND claim_token = $5
 `
 
 type RetryReconciliationNotificationParams struct {
@@ -1217,16 +1286,21 @@ type RetryReconciliationNotificationParams struct {
 	NextAttemptAt time.Time
 	LastError     string
 	ID            string
+	ClaimToken    sql.NullString
 }
 
-func (q *Queries) RetryReconciliationNotification(ctx context.Context, arg RetryReconciliationNotificationParams) error {
-	_, err := q.db.ExecContext(ctx, retryReconciliationNotification,
+func (q *Queries) RetryReconciliationNotification(ctx context.Context, arg RetryReconciliationNotificationParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, retryReconciliationNotification,
 		arg.MaxAttempts,
 		arg.NextAttemptAt,
 		arg.LastError,
 		arg.ID,
+		arg.ClaimToken,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const saveQuotaCounterRepairRun = `-- name: SaveQuotaCounterRepairRun :exec

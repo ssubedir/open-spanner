@@ -18,9 +18,16 @@ const maxReconciliationRunLimit = 200
 
 type ReconciliationClaim struct {
 	WorkspaceID             string
+	ClaimToken              string
 	LastFingerprint         string
 	LastNotifiedFingerprint string
 	LastFailureFingerprint  string
+}
+
+type MaintenanceLease struct {
+	WorkerName  string
+	ClaimToken  string
+	LockedUntil time.Time
 }
 
 type ReconciliationSchedule struct {
@@ -57,6 +64,7 @@ type ReconciliationNotification struct {
 	LastError      string
 	CreatedAt      time.Time
 	DeliveredAt    time.Time
+	ClaimToken     string
 	AttemptHistory []ReconciliationNotificationAttempt
 }
 
@@ -110,7 +118,7 @@ func (s *service) RunScheduledReconciliation(ctx context.Context, claim Reconcil
 				return err
 			}
 		}
-		return s.repo.CompleteReconciliationSchedule(txCtx, claim.WorkspaceID, run.Fingerprint, run.CreatedAt.Add(scheduleInterval))
+		return s.repo.CompleteReconciliationSchedule(txCtx, claim, run.Fingerprint, run.CreatedAt.Add(scheduleInterval))
 	}); err != nil {
 		return ReconciliationRun{}, false, err
 	}
@@ -131,8 +139,22 @@ func (s *service) FailScheduledReconciliation(ctx context.Context, claim Reconci
 				return err
 			}
 		}
-		return s.repo.FailReconciliationSchedule(txCtx, claim.WorkspaceID, fingerprint, retryAt.UTC())
+		return s.repo.FailReconciliationSchedule(txCtx, claim, fingerprint, retryAt.UTC())
 	})
+}
+
+func (s *service) ClaimMaintenanceLease(ctx context.Context, workerName string, now, lockedUntil time.Time) (MaintenanceLease, bool, error) {
+	if workerName == "" || !lockedUntil.After(now) {
+		return MaintenanceLease{}, false, domain.ErrInvalidInput
+	}
+	return s.repo.ClaimMaintenanceLease(ctx, workerName, uuid.Must(uuid.NewV7()).String(), now.UTC(), lockedUntil.UTC())
+}
+
+func (s *service) ReleaseMaintenanceLease(ctx context.Context, lease MaintenanceLease) error {
+	if lease.WorkerName == "" || lease.ClaimToken == "" {
+		return domain.ErrInvalidInput
+	}
+	return s.repo.ReleaseMaintenanceLease(ctx, lease)
 }
 
 func (s *service) ClaimReconciliationNotification(ctx context.Context, now, lockedUntil time.Time) (ReconciliationNotification, bool, error) {

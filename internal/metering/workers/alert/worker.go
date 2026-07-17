@@ -142,7 +142,7 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 	result, err := w.service.Evaluate(jobCtx, appalert.EvaluateCommand{RuleID: job.RuleID})
 	duration := time.Since(startedAt).Round(time.Millisecond)
 	if err == nil {
-		if err := w.service.CompleteEvaluationJob(baseCtx, appalert.CompleteCommand{RuleID: job.RuleID}); err != nil && !errors.Is(err, domain.ErrNotFound) {
+		if err := w.service.CompleteEvaluationJob(baseCtx, appalert.CompleteCommand{RuleID: job.RuleID, Attempts: job.Attempts}); err != nil && !errors.Is(err, domain.ErrNotFound) {
 			return true, err
 		}
 		w.logger("alert evaluation completed: rule_id=%s status=%s value=%.4f duration=%s", job.RuleID, result.State.Status, result.State.Value, duration)
@@ -164,6 +164,7 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 	}
 	if failErr := w.service.FailEvaluationJob(failCtx, appalert.FailCommand{
 		RuleID:     job.RuleID,
+		Attempts:   job.Attempts,
 		RetryAfter: w.retryAfter,
 		Error:      err.Error(),
 	}); failErr != nil && !errors.Is(failErr, domain.ErrNotFound) {
@@ -188,7 +189,7 @@ func (w *Worker) processDeliveryOnce(ctx context.Context) (bool, error) {
 	attempt := deliverWebhookJob(jobCtx, job)
 	delivery := appalert.DeliveryCommand{EventID: job.EventID, TriggerType: string(appalert.TriggerWebhook), Status: string(attempt.status), StatusCode: attempt.statusCode, Error: attempt.message, Duration: attempt.duration, AttemptedAt: attempt.attemptedAt}
 	if attempt.status == appalert.DeliveryDelivered {
-		if err := w.service.CompleteDeliveryJob(baseCtx, appalert.DeliveryJobCompleteCommand{ID: job.ID, Delivery: delivery}); err != nil && !errors.Is(err, domain.ErrNotFound) {
+		if err := w.service.CompleteDeliveryJob(baseCtx, appalert.DeliveryJobCompleteCommand{ID: job.ID, Attempts: job.Attempts, Delivery: delivery}); err != nil && !errors.Is(err, domain.ErrNotFound) {
 			return true, err
 		}
 		w.logger("alert delivery completed: delivery_id=%s event_id=%s attempts=%d", job.ID, job.EventID, job.Attempts)

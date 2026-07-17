@@ -47,11 +47,14 @@ func (s *service) CompleteDeliveryJob(ctx context.Context, cmd DeliveryJobComple
 	if err != nil {
 		return err
 	}
+	if cmd.Attempts < 1 {
+		return domain.ErrInvalidInput
+	}
 	return s.transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
 		if _, err := s.RecordDelivery(txCtx, cmd.Delivery); err != nil {
 			return err
 		}
-		return s.repo.CompleteDeliveryJob(txCtx, id, s.now())
+		return s.repo.CompleteDeliveryJob(txCtx, id, cmd.Attempts, s.now())
 	})
 }
 
@@ -71,7 +74,7 @@ func (s *service) FailDeliveryJob(ctx context.Context, cmd DeliveryJobFailComman
 		if _, err := s.RecordDelivery(txCtx, cmd.Delivery); err != nil {
 			return err
 		}
-		return s.repo.RetryDeliveryJob(txCtx, id, now.Add(deliveryRetryDelay(cmd.RetryAfter, cmd.Attempts)), cmd.MaxAttempts, cmd.Delivery.Error, now)
+		return s.repo.RetryDeliveryJob(txCtx, id, cmd.Attempts, now.Add(deliveryRetryDelay(cmd.RetryAfter, cmd.Attempts)), cmd.MaxAttempts, cmd.Delivery.Error, now)
 	})
 }
 

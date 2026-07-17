@@ -106,17 +106,24 @@ func (q *Queries) ClaimAlertEvaluationJob(ctx context.Context, arg ClaimAlertEva
 const completeAlertDeliveryJob = `-- name: CompleteAlertDeliveryJob :execrows
 UPDATE alert_delivery_jobs
 SET status = 'delivered', locked_until = NULL, last_error = '', delivered_at = $1::timestamptz, updated_at = $1::timestamptz
-WHERE public_id = $2::uuid AND workspace_id = $3::text AND status = 'running'
+WHERE public_id = $2::uuid AND workspace_id = $3::text
+	AND status = 'running' AND attempts = $4::int
 `
 
 type CompleteAlertDeliveryJobParams struct {
-	Now         time.Time
-	PublicID    uuid.UUID
-	WorkspaceID string
+	Now              time.Time
+	PublicID         uuid.UUID
+	WorkspaceID      string
+	ExpectedAttempts int32
 }
 
 func (q *Queries) CompleteAlertDeliveryJob(ctx context.Context, arg CompleteAlertDeliveryJobParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, completeAlertDeliveryJob, arg.Now, arg.PublicID, arg.WorkspaceID)
+	result, err := q.db.ExecContext(ctx, completeAlertDeliveryJob,
+		arg.Now,
+		arg.PublicID,
+		arg.WorkspaceID,
+		arg.ExpectedAttempts,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -145,10 +152,16 @@ func (q *Queries) DeleteAlertDestination(ctx context.Context, arg DeleteAlertDes
 const deleteAlertEvaluationJob = `-- name: DeleteAlertEvaluationJob :execrows
 DELETE FROM alert_evaluation_jobs
 WHERE rule_id = $1
+	AND attempts = $2::int
 `
 
-func (q *Queries) DeleteAlertEvaluationJob(ctx context.Context, ruleID string) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteAlertEvaluationJob, ruleID)
+type DeleteAlertEvaluationJobParams struct {
+	RuleID           string
+	ExpectedAttempts int32
+}
+
+func (q *Queries) DeleteAlertEvaluationJob(ctx context.Context, arg DeleteAlertEvaluationJobParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteAlertEvaluationJob, arg.RuleID, arg.ExpectedAttempts)
 	if err != nil {
 		return 0, err
 	}
@@ -754,16 +767,23 @@ SET run_after = $1,
 	locked_until = NULL,
 	updated_at = $2
 WHERE rule_id = $3
+	AND attempts = $4::int
 `
 
 type RequeueAlertEvaluationJobParams struct {
-	RunAfter string
-	Now      string
-	RuleID   string
+	RunAfter         string
+	Now              string
+	RuleID           string
+	ExpectedAttempts int32
 }
 
 func (q *Queries) RequeueAlertEvaluationJob(ctx context.Context, arg RequeueAlertEvaluationJobParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, requeueAlertEvaluationJob, arg.RunAfter, arg.Now, arg.RuleID)
+	result, err := q.db.ExecContext(ctx, requeueAlertEvaluationJob,
+		arg.RunAfter,
+		arg.Now,
+		arg.RuleID,
+		arg.ExpectedAttempts,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -775,16 +795,18 @@ UPDATE alert_delivery_jobs
 SET status = CASE WHEN attempts >= $1::int THEN 'dead_letter' ELSE 'pending' END,
 	next_attempt_at = $2::timestamptz, locked_until = NULL,
 	last_error = $3::text, updated_at = $4::timestamptz
-WHERE public_id = $5::uuid AND workspace_id = $6::text AND status = 'running'
+WHERE public_id = $5::uuid AND workspace_id = $6::text
+	AND status = 'running' AND attempts = $7::int
 `
 
 type RetryAlertDeliveryJobParams struct {
-	MaxAttempts   int32
-	NextAttemptAt time.Time
-	LastError     string
-	Now           time.Time
-	PublicID      uuid.UUID
-	WorkspaceID   string
+	MaxAttempts      int32
+	NextAttemptAt    time.Time
+	LastError        string
+	Now              time.Time
+	PublicID         uuid.UUID
+	WorkspaceID      string
+	ExpectedAttempts int32
 }
 
 func (q *Queries) RetryAlertDeliveryJob(ctx context.Context, arg RetryAlertDeliveryJobParams) (int64, error) {
@@ -795,6 +817,7 @@ func (q *Queries) RetryAlertDeliveryJob(ctx context.Context, arg RetryAlertDeliv
 		arg.Now,
 		arg.PublicID,
 		arg.WorkspaceID,
+		arg.ExpectedAttempts,
 	)
 	if err != nil {
 		return 0, err

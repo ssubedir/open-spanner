@@ -114,6 +114,7 @@ func main() {
 		stopRetention = retention.NewWorker(app.UsageService, cfg.RetentionPruneInterval, cfg.RetentionPruneTimeout, log.Printf).
 			WithDecisionPruner(app.ConsumptionService, cfg.ConsumptionDecisionRetention).
 			WithWorkspaceLister(app).
+			WithLeaseCoordinator(app.SystemService).
 			Start(runCtx)
 	}
 	stopHistoryHeartbeat := heartbeat.Start(runCtx, app.SystemService, "history", log.Printf)

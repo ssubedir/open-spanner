@@ -574,11 +574,12 @@ func (r *EntitlementRepository) RequeueEntitlementCheckJob(ctx context.Context, 
 	}
 	now := time.Now().UTC()
 	rows, err := queriesFor(ctx, r.queries).RequeueEntitlementCheckJob(ctx, sqlitedb.RequeueEntitlementCheckJobParams{
-		RunAfter:    formatTime(now.Add(cmd.RetryAfter)),
-		Now:         formatTime(now),
-		WorkspaceID: workspaceID,
-		Subject:     cmd.Subject,
-		MeterName:   cmd.Meter,
+		RunAfter:         formatTime(now.Add(cmd.RetryAfter)),
+		Now:              formatTime(now),
+		WorkspaceID:      workspaceID,
+		Subject:          cmd.Subject,
+		MeterName:        cmd.Meter,
+		ExpectedAttempts: int64(cmd.Attempts),
 	})
 	if err != nil {
 		return err
@@ -595,9 +596,10 @@ func (r *EntitlementRepository) DeleteEntitlementCheckJob(ctx context.Context, c
 		return err
 	}
 	rows, err := queriesFor(ctx, r.queries).DeleteEntitlementCheckJob(ctx, sqlitedb.DeleteEntitlementCheckJobParams{
-		WorkspaceID: workspaceID,
-		Subject:     cmd.Subject,
-		MeterName:   cmd.Meter,
+		WorkspaceID:      workspaceID,
+		Subject:          cmd.Subject,
+		MeterName:        cmd.Meter,
+		ExpectedAttempts: int64(cmd.Attempts),
 	})
 	if err != nil {
 		return err

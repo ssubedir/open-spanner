@@ -448,13 +448,15 @@ type EvaluateCommand struct {
 }
 
 type CompleteCommand struct {
-	Subject string
-	Meter   string
+	Subject  string
+	Meter    string
+	Attempts int
 }
 
 type FailCommand struct {
 	Subject    string
 	Meter      string
+	Attempts   int
 	RetryAfter time.Duration
 	Error      string
 }
@@ -1309,6 +1311,9 @@ func (s *service) CompleteCheckJob(ctx context.Context, cmd CompleteCommand) err
 	if cmd.Meter == "" {
 		return fmt.Errorf("%w: meter is required", domain.ErrInvalidInput)
 	}
+	if cmd.Attempts < 1 {
+		return fmt.Errorf("%w: attempts must be greater than zero", domain.ErrInvalidInput)
+	}
 	return s.repo.DeleteEntitlementCheckJob(ctx, cmd)
 }
 
@@ -1321,6 +1326,9 @@ func (s *service) FailCheckJob(ctx context.Context, cmd FailCommand) error {
 	cmd.Meter = strings.TrimSpace(cmd.Meter)
 	if cmd.Meter == "" {
 		return fmt.Errorf("%w: meter is required", domain.ErrInvalidInput)
+	}
+	if cmd.Attempts < 1 {
+		return fmt.Errorf("%w: attempts must be greater than zero", domain.ErrInvalidInput)
 	}
 	if cmd.RetryAfter <= 0 {
 		return fmt.Errorf("%w: retry after must be greater than zero", domain.ErrInvalidInput)
@@ -1341,7 +1349,7 @@ func (s *service) DeadLetterCheckJob(ctx context.Context, cmd DeadLetterCommand)
 		if err := s.repo.SaveCheckDeadLetter(txCtx, CheckDeadLetter{ID: uuid.NewString(), Subject: subject, MeterName: meterName, Attempts: cmd.Attempts, Error: cmd.Error, CreatedAt: s.now()}); err != nil {
 			return err
 		}
-		return s.repo.DeleteEntitlementCheckJob(txCtx, CompleteCommand{Subject: subject, Meter: meterName})
+		return s.repo.DeleteEntitlementCheckJob(txCtx, CompleteCommand{Subject: subject, Meter: meterName, Attempts: cmd.Attempts})
 	})
 }
 

@@ -30,6 +30,8 @@ type Service interface {
 	ListWorkerDeadLetters(ctx context.Context, limit int) ([]WorkerDeadLetter, error)
 	RetryWorkerDeadLetter(ctx context.Context, id string) error
 	PruneOperationalHistory(ctx context.Context, before time.Time, batchSize int) (OperationalHistoryPruneResult, error)
+	ClaimMaintenanceLease(ctx context.Context, workerName string, now, lockedUntil time.Time) (MaintenanceLease, bool, error)
+	ReleaseMaintenanceLease(ctx context.Context, lease MaintenanceLease) error
 }
 
 type OperationalHistoryRepository interface {
@@ -57,8 +59,10 @@ type Repository interface {
 	FindLatestMeterPruneCutoff(ctx context.Context, meterName string) (time.Time, error)
 	ClaimReconciliationSchedule(ctx context.Context, now, lockedUntil time.Time) (ReconciliationClaim, bool, error)
 	SaveReconciliationRun(ctx context.Context, workspaceID string, run ReconciliationRun) error
-	CompleteReconciliationSchedule(ctx context.Context, workspaceID, fingerprint string, nextRunAt time.Time) error
-	FailReconciliationSchedule(ctx context.Context, workspaceID, failureFingerprint string, nextRunAt time.Time) error
+	CompleteReconciliationSchedule(ctx context.Context, claim ReconciliationClaim, fingerprint string, nextRunAt time.Time) error
+	FailReconciliationSchedule(ctx context.Context, claim ReconciliationClaim, failureFingerprint string, nextRunAt time.Time) error
+	ClaimMaintenanceLease(ctx context.Context, workerName, claimToken string, now, lockedUntil time.Time) (MaintenanceLease, bool, error)
+	ReleaseMaintenanceLease(ctx context.Context, lease MaintenanceLease) error
 	MarkReconciliationNotified(ctx context.Context, workspaceID, fingerprint string) error
 	ListReconciliationRuns(ctx context.Context, limit int) ([]ReconciliationRun, error)
 	GetReconciliationSchedule(ctx context.Context) (ReconciliationSchedule, bool, error)

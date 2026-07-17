@@ -130,10 +130,16 @@ func (r *reconciliationRepository) ClaimReconciliationSchedule(context.Context, 
 func (r *reconciliationRepository) SaveReconciliationRun(context.Context, string, ReconciliationRun) error {
 	return nil
 }
-func (r *reconciliationRepository) CompleteReconciliationSchedule(context.Context, string, string, time.Time) error {
+func (r *reconciliationRepository) CompleteReconciliationSchedule(context.Context, ReconciliationClaim, string, time.Time) error {
 	return nil
 }
-func (r *reconciliationRepository) FailReconciliationSchedule(context.Context, string, string, time.Time) error {
+func (r *reconciliationRepository) FailReconciliationSchedule(context.Context, ReconciliationClaim, string, time.Time) error {
+	return nil
+}
+func (r *reconciliationRepository) ClaimMaintenanceLease(context.Context, string, string, time.Time, time.Time) (MaintenanceLease, bool, error) {
+	return MaintenanceLease{}, false, nil
+}
+func (r *reconciliationRepository) ReleaseMaintenanceLease(context.Context, MaintenanceLease) error {
 	return nil
 }
 func (r *reconciliationRepository) GetReconciliationSchedule(context.Context) (ReconciliationSchedule, bool, error) {

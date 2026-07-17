@@ -182,14 +182,16 @@ WHERE e.id = sqlc.arg('event_id')::text AND r.workspace_id = sqlc.arg('workspace
 -- name: CompleteAlertDeliveryJob :execrows
 UPDATE alert_delivery_jobs
 SET status = 'delivered', locked_until = NULL, last_error = '', delivered_at = sqlc.arg('now')::timestamptz, updated_at = sqlc.arg('now')::timestamptz
-WHERE public_id = sqlc.arg('public_id')::uuid AND workspace_id = sqlc.arg('workspace_id')::text AND status = 'running';
+WHERE public_id = sqlc.arg('public_id')::uuid AND workspace_id = sqlc.arg('workspace_id')::text
+	AND status = 'running' AND attempts = sqlc.arg('expected_attempts')::int;
 
 -- name: RetryAlertDeliveryJob :execrows
 UPDATE alert_delivery_jobs
 SET status = CASE WHEN attempts >= sqlc.arg('max_attempts')::int THEN 'dead_letter' ELSE 'pending' END,
 	next_attempt_at = sqlc.arg('next_attempt_at')::timestamptz, locked_until = NULL,
 	last_error = sqlc.arg('last_error')::text, updated_at = sqlc.arg('now')::timestamptz
-WHERE public_id = sqlc.arg('public_id')::uuid AND workspace_id = sqlc.arg('workspace_id')::text AND status = 'running';
+WHERE public_id = sqlc.arg('public_id')::uuid AND workspace_id = sqlc.arg('workspace_id')::text
+	AND status = 'running' AND attempts = sqlc.arg('expected_attempts')::int;
 
 -- name: RequeueAlertDeliveryJob :execrows
 UPDATE alert_delivery_jobs
@@ -303,11 +305,13 @@ UPDATE alert_evaluation_jobs
 SET run_after = sqlc.arg('run_after'),
 	locked_until = NULL,
 	updated_at = sqlc.arg('now')
-WHERE rule_id = sqlc.arg('rule_id');
+WHERE rule_id = sqlc.arg('rule_id')
+	AND attempts = sqlc.arg('expected_attempts')::int;
 
 -- name: DeleteAlertEvaluationJob :execrows
 DELETE FROM alert_evaluation_jobs
-WHERE rule_id = $1;
+WHERE rule_id = sqlc.arg('rule_id')
+	AND attempts = sqlc.arg('expected_attempts')::int;
 
 -- name: SaveAlertWorkerDeadLetter :exec
 INSERT INTO system_worker_dead_letters (

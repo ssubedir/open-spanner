@@ -13,6 +13,11 @@ type Service interface {
 	PruneOperationalHistory(context.Context, time.Time, int) (appsystem.OperationalHistoryPruneResult, error)
 }
 
+type LeaseCoordinator interface {
+	ClaimMaintenanceLease(context.Context, string, time.Time, time.Time) (appsystem.MaintenanceLease, bool, error)
+	ReleaseMaintenanceLease(context.Context, appsystem.MaintenanceLease) error
+}
+
 type Metrics interface {
 	RecordOperationalHistoryCleanup(context.Context, int)
 	RecordOperationalHistoryCleanupFailure(context.Context)
@@ -75,6 +80,18 @@ func (w *Worker) run(ctx context.Context) {
 }
 
 func (w *Worker) ProcessOnce(ctx context.Context) (appsystem.OperationalHistoryPruneResult, error) {
+	if coordinator, ok := w.service.(LeaseCoordinator); ok {
+		now := time.Now().UTC()
+		leaseTTL := 15 * time.Minute
+		if w.timeout > 0 {
+			leaseTTL = w.timeout + 30*time.Second
+		}
+		lease, claimed, err := coordinator.ClaimMaintenanceLease(ctx, "operational-history", now, now.Add(leaseTTL))
+		if err != nil || !claimed {
+			return appsystem.OperationalHistoryPruneResult{}, err
+		}
+		defer func() { _ = coordinator.ReleaseMaintenanceLease(context.WithoutCancel(ctx), lease) }()
+	}
 	runCtx := ctx
 	cancel := func() {}
 	if w.timeout > 0 {

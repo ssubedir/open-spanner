@@ -293,12 +293,12 @@ func (r *AlertRepository) ClaimDeliveryJob(ctx context.Context, now, lockedUntil
 	return appalert.DeliveryJob{ID: row.PublicID, WorkspaceID: row.WorkspaceID, EventID: row.EventID, DestinationID: row.DestinationID, Payload: []byte(row.Payload), Status: "running", Attempts: int(row.Attempts), CreatedAt: createdAt, UpdatedAt: now}, nil
 }
 
-func (r *AlertRepository) CompleteDeliveryJob(ctx context.Context, id string, now time.Time) error {
+func (r *AlertRepository) CompleteDeliveryJob(ctx context.Context, id string, attempts int, now time.Time) error {
 	workspaceID, err := appauth.RequireWorkspaceID(ctx)
 	if err != nil {
 		return err
 	}
-	rows, err := queriesFor(ctx, r.queries).CompleteAlertDeliveryJob(ctx, sqlitedb.CompleteAlertDeliveryJobParams{Now: alertTimeValue(now), PublicID: id, WorkspaceID: workspaceID})
+	rows, err := queriesFor(ctx, r.queries).CompleteAlertDeliveryJob(ctx, sqlitedb.CompleteAlertDeliveryJobParams{Now: alertTimeValue(now), PublicID: id, WorkspaceID: workspaceID, ExpectedAttempts: int64(attempts)})
 	if err != nil {
 		return err
 	}
@@ -308,12 +308,12 @@ func (r *AlertRepository) CompleteDeliveryJob(ctx context.Context, id string, no
 	return nil
 }
 
-func (r *AlertRepository) RetryDeliveryJob(ctx context.Context, id string, next time.Time, maxAttempts int, lastError string, now time.Time) error {
+func (r *AlertRepository) RetryDeliveryJob(ctx context.Context, id string, attempts int, next time.Time, maxAttempts int, lastError string, now time.Time) error {
 	workspaceID, err := appauth.RequireWorkspaceID(ctx)
 	if err != nil {
 		return err
 	}
-	rows, err := queriesFor(ctx, r.queries).RetryAlertDeliveryJob(ctx, sqlitedb.RetryAlertDeliveryJobParams{MaxAttempts: int64(maxAttempts), NextAttemptAt: formatTime(next), LastError: lastError, Now: formatTime(now), PublicID: id, WorkspaceID: workspaceID})
+	rows, err := queriesFor(ctx, r.queries).RetryAlertDeliveryJob(ctx, sqlitedb.RetryAlertDeliveryJobParams{MaxAttempts: int64(maxAttempts), NextAttemptAt: formatTime(next), LastError: lastError, Now: formatTime(now), PublicID: id, WorkspaceID: workspaceID, ExpectedAttempts: int64(attempts)})
 	if err != nil {
 		return err
 	}
@@ -448,8 +448,8 @@ func (r *AlertRepository) ClaimEvaluationJob(ctx context.Context, now time.Time,
 	return sqliteAlertEvaluationJob(row, workspaceID)
 }
 
-func (r *AlertRepository) CompleteEvaluationJob(ctx context.Context, ruleID string) error {
-	rows, err := queriesFor(ctx, r.queries).DeleteAlertEvaluationJob(ctx, ruleID)
+func (r *AlertRepository) CompleteEvaluationJob(ctx context.Context, ruleID string, attempts int) error {
+	rows, err := queriesFor(ctx, r.queries).DeleteAlertEvaluationJob(ctx, sqlitedb.DeleteAlertEvaluationJobParams{RuleID: ruleID, ExpectedAttempts: int64(attempts)})
 	if err != nil {
 		return err
 	}
@@ -459,11 +459,12 @@ func (r *AlertRepository) CompleteEvaluationJob(ctx context.Context, ruleID stri
 	return nil
 }
 
-func (r *AlertRepository) RequeueEvaluationJob(ctx context.Context, ruleID string, runAfter time.Time, now time.Time) error {
+func (r *AlertRepository) RequeueEvaluationJob(ctx context.Context, ruleID string, attempts int, runAfter time.Time, now time.Time) error {
 	rows, err := queriesFor(ctx, r.queries).RequeueAlertEvaluationJob(ctx, sqlitedb.RequeueAlertEvaluationJobParams{
-		RuleID:   ruleID,
-		RunAfter: formatTime(runAfter),
-		Now:      formatTime(now),
+		RuleID:           ruleID,
+		RunAfter:         formatTime(runAfter),
+		Now:              formatTime(now),
+		ExpectedAttempts: int64(attempts),
 	})
 	if err != nil {
 		return err

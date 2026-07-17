@@ -99,16 +99,16 @@ type Repository interface {
 	SaveDelivery(ctx context.Context, delivery Delivery) (Delivery, error)
 	SaveDeliveryJob(ctx context.Context, job DeliveryJob) error
 	ClaimDeliveryJob(ctx context.Context, now time.Time, lockedUntil time.Time, maxAttempts int) (DeliveryJob, error)
-	CompleteDeliveryJob(ctx context.Context, id string, now time.Time) error
-	RetryDeliveryJob(ctx context.Context, id string, nextAttemptAt time.Time, maxAttempts int, lastError string, now time.Time) error
+	CompleteDeliveryJob(ctx context.Context, id string, attempts int, now time.Time) error
+	RetryDeliveryJob(ctx context.Context, id string, attempts int, nextAttemptAt time.Time, maxAttempts int, lastError string, now time.Time) error
 	ListDeliveryJobs(ctx context.Context, limit int) ([]DeliveryJob, error)
 	RequeueDeliveryJob(ctx context.Context, id string, now time.Time) error
 	FindDeliveryJobStatus(ctx context.Context, id string) (string, error)
 	EnqueueEvaluationJob(ctx context.Context, ruleID string, runAfter time.Time, now time.Time) error
 	EnqueueDueEvaluationJobs(ctx context.Context, now time.Time, limit int) (int, error)
 	ClaimEvaluationJob(ctx context.Context, now time.Time, lockedUntil time.Time, maxAttempts int) (EvaluationJob, error)
-	CompleteEvaluationJob(ctx context.Context, ruleID string) error
-	RequeueEvaluationJob(ctx context.Context, ruleID string, runAfter time.Time, now time.Time) error
+	CompleteEvaluationJob(ctx context.Context, ruleID string, attempts int) error
+	RequeueEvaluationJob(ctx context.Context, ruleID string, attempts int, runAfter time.Time, now time.Time) error
 	SaveEvaluationDeadLetter(ctx context.Context, deadLetter EvaluationDeadLetter) error
 	UpdateRuleNextEvaluation(ctx context.Context, id string, nextEvaluateAt time.Time, updatedAt time.Time) error
 }
@@ -369,11 +369,13 @@ type ClaimCommand struct {
 }
 
 type CompleteCommand struct {
-	RuleID string
+	RuleID   string
+	Attempts int
 }
 
 type FailCommand struct {
 	RuleID      string
+	Attempts    int
 	RetryAfter  time.Duration
 	MaxAttempts int
 	Error       string
@@ -409,6 +411,7 @@ type DeliveryCommand struct {
 
 type DeliveryJobCompleteCommand struct {
 	ID       string
+	Attempts int
 	Delivery DeliveryCommand
 }
 
@@ -896,7 +899,10 @@ func (s *service) CompleteEvaluationJob(ctx context.Context, cmd CompleteCommand
 	if err != nil {
 		return err
 	}
-	return s.repo.CompleteEvaluationJob(ctx, id)
+	if cmd.Attempts < 1 {
+		return domain.ErrInvalidInput
+	}
+	return s.repo.CompleteEvaluationJob(ctx, id, cmd.Attempts)
 }
 
 func (s *service) FailEvaluationJob(ctx context.Context, cmd FailCommand) error {
@@ -907,8 +913,11 @@ func (s *service) FailEvaluationJob(ctx context.Context, cmd FailCommand) error 
 	if cmd.RetryAfter <= 0 {
 		cmd.RetryAfter = time.Minute
 	}
+	if cmd.Attempts < 1 {
+		return domain.ErrInvalidInput
+	}
 	now := s.now()
-	return s.repo.RequeueEvaluationJob(ctx, id, now.Add(cmd.RetryAfter), now)
+	return s.repo.RequeueEvaluationJob(ctx, id, cmd.Attempts, now.Add(cmd.RetryAfter), now)
 }
 
 func (s *service) DeadLetterEvaluationJob(ctx context.Context, cmd DeadLetterCommand) error {
@@ -923,7 +932,7 @@ func (s *service) DeadLetterEvaluationJob(ctx context.Context, cmd DeadLetterCom
 		if err := s.repo.SaveEvaluationDeadLetter(txCtx, EvaluationDeadLetter{ID: uuid.NewString(), RuleID: id, Attempts: cmd.Attempts, Error: cmd.Error, CreatedAt: s.now()}); err != nil {
 			return err
 		}
-		return s.repo.CompleteEvaluationJob(txCtx, id)
+		return s.repo.CompleteEvaluationJob(txCtx, id, cmd.Attempts)
 	})
 }
 
