@@ -120,6 +120,38 @@ services:
       start_period: 5s
     restart: unless-stopped
 
+  usage-worker:
+    image: open-spanner:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api-runtime
+    entrypoint: ["/usr/local/bin/open-spanner-usage-worker"]
+    environment:
+      OPEN_SPANNER_DB_DRIVER: postgres
+      OPEN_SPANNER_POSTGRES_DSN: postgres://open_spanner:${OPEN_SPANNER_POSTGRES_PASSWORD:-open_spanner}@postgres:5432/open_spanner?sslmode=disable
+      OPEN_SPANNER_DB_MAX_OPEN_CONNS: ${OPEN_SPANNER_USAGE_DB_MAX_OPEN_CONNS:-5}
+      OPEN_SPANNER_DB_MAX_IDLE_CONNS: ${OPEN_SPANNER_USAGE_DB_MAX_IDLE_CONNS:-2}
+      OPEN_SPANNER_DB_CONN_MAX_LIFETIME: ${OPEN_SPANNER_DB_CONN_MAX_LIFETIME:-30m}
+      OPEN_SPANNER_DB_CONN_MAX_IDLE_TIME: ${OPEN_SPANNER_DB_CONN_MAX_IDLE_TIME:-5m}
+      OPEN_SPANNER_USAGE_WORKER_INTERVAL: ${OPEN_SPANNER_USAGE_WORKER_INTERVAL:-1s}
+      OPEN_SPANNER_USAGE_WORKER_HEALTH_ADDR: :18085
+      OPEN_SPANNER_USAGE_WORKER_LOCK_TTL: ${OPEN_SPANNER_USAGE_WORKER_LOCK_TTL:-1m}
+      OPEN_SPANNER_USAGE_WORKER_TIMEOUT: ${OPEN_SPANNER_USAGE_WORKER_TIMEOUT:-30s}
+      OPEN_SPANNER_USAGE_WORKER_RETRY_AFTER: ${OPEN_SPANNER_USAGE_WORKER_RETRY_AFTER:-5s}
+      OPEN_SPANNER_USAGE_WORKER_MAX_ATTEMPTS: ${OPEN_SPANNER_USAGE_WORKER_MAX_ATTEMPTS:-10}
+      OPEN_SPANNER_USAGE_WORKER_BATCH_SIZE: ${OPEN_SPANNER_USAGE_WORKER_BATCH_SIZE:-100}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:18085/ready || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
   alert-worker:
     image: open-spanner:local
     build:

@@ -217,7 +217,7 @@ func startEnvironment(ctx context.Context, opts options) (_ *environment, err er
 	if err != nil {
 		return nil, fmt.Errorf("listen gRPC: %w", err)
 	}
-	env.grpcServer = grpcadapter.NewInstrumentedServerWithIngestionLimits(app.UsageService, app.AlertService, app.EntitlementService, app.AuthService, app.Authorizer, grpcadapter.IngestionLimits{MaxBulkEvents: 1000, MaxStreamEvents: 1000}, metrics)
+	env.grpcServer = grpcadapter.NewInstrumentedServerWithIngestionLimits(app.UsageService, app.AuthService, app.Authorizer, grpcadapter.IngestionLimits{MaxBulkEvents: 1000, MaxStreamEvents: 1000}, metrics)
 	go func() { _ = env.grpcServer.Serve(grpcListener) }()
 	env.grpcConn, err = grpc.NewClient(grpcListener.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {

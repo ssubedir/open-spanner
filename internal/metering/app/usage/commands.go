@@ -54,24 +54,27 @@ func (s *service) create(ctx context.Context, kind string, cmd CreateCommand) (R
 
 	requestedEventID := event.ID()
 	var run domainusage.IngestionRun
-	if kind == "" {
-		event, err = s.usageRepo.Save(ctx, event)
-	} else {
-		err = s.transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
-			var saveErr error
-			event, saveErr = s.usageRepo.Save(txCtx, event)
-			if saveErr != nil {
+	err = s.transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
+		var saveErr error
+		event, saveErr = s.usageRepo.Save(txCtx, event)
+		if saveErr != nil {
+			return saveErr
+		}
+		replayed := event.ID() != requestedEventID
+		if !replayed {
+			if saveErr = s.usageRepo.EnqueueOutbox(txCtx, []domainusage.Event{event}, s.now()); saveErr != nil {
 				return saveErr
 			}
-			replayed := event.ID() != requestedEventID
+		}
+		if kind != "" {
 			run, saveErr = s.saveIngestionRun(txCtx, IngestionCommand{
 				Kind: kind, Accepted: boolInt(!replayed), Duplicates: boolInt(replayed),
 			})
-			return saveErr
-		})
-		if err == nil {
-			s.recordIngestionMetrics(ctx, run)
 		}
+		return saveErr
+	})
+	if err == nil && kind != "" {
+		s.recordIngestionMetrics(ctx, run)
 	}
 	if err != nil {
 		return Result{}, err
@@ -146,15 +149,18 @@ func (s *service) createBulk(ctx context.Context, kind string, idempotencyKey st
 	var saved domainusage.BulkSaveResult
 	var run domainusage.IngestionRun
 	var err error
-	if kind == "" {
-		saved, err = s.usageRepo.SaveBulk(ctx, idempotencyKey, events)
-	} else {
-		err = s.transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
-			var saveErr error
-			saved, saveErr = s.usageRepo.SaveBulk(txCtx, idempotencyKey, events)
-			if saveErr != nil {
+	err = s.transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
+		var saveErr error
+		saved, saveErr = s.usageRepo.SaveBulk(txCtx, idempotencyKey, events)
+		if saveErr != nil {
+			return saveErr
+		}
+		if !saved.Replayed() {
+			if saveErr = s.usageRepo.EnqueueOutbox(txCtx, saved.Accepted(), s.now()); saveErr != nil {
 				return saveErr
 			}
+		}
+		if kind != "" {
 			accepted, duplicates := len(saved.Accepted()), len(saved.Duplicates())
 			if saved.Replayed() {
 				accepted, duplicates = 0, len(saved.Events())
@@ -162,11 +168,11 @@ func (s *service) createBulk(ctx context.Context, kind string, idempotencyKey st
 			run, saveErr = s.saveIngestionRun(txCtx, IngestionCommand{
 				Kind: kind, Accepted: accepted, Duplicates: duplicates, Failed: initialFailures + len(failures),
 			})
-			return saveErr
-		})
-		if err == nil {
-			s.recordIngestionMetrics(ctx, run)
 		}
+		return saveErr
+	})
+	if err == nil && kind != "" {
+		s.recordIngestionMetrics(ctx, run)
 	}
 	if err != nil {
 		return BulkResult{}, err

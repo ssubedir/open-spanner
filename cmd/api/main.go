@@ -96,7 +96,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to listen for grpc: %v", err)
 	}
-	grpcServer := grpcadapter.NewInstrumentedServerWithIngestionLimits(app.UsageService, app.AlertService, app.EntitlementService, app.AuthService, app.Authorizer, grpcadapter.IngestionLimits{MaxBulkEvents: cfg.IngestionMaxBulkEvents, MaxStreamEvents: cfg.IngestionMaxStreamEvents}, metrics, grpc.MaxRecvMsgSize(cfg.IngestionMaxBodyBytes))
+	grpcServer := grpcadapter.NewInstrumentedServerWithIngestionLimits(app.UsageService, app.AuthService, app.Authorizer, grpcadapter.IngestionLimits{MaxBulkEvents: cfg.IngestionMaxBulkEvents, MaxStreamEvents: cfg.IngestionMaxStreamEvents}, metrics, grpc.MaxRecvMsgSize(cfg.IngestionMaxBodyBytes))
 	go func() {
 		log.Printf("grpc listening on %s", cfg.GRPCAddr)
 		if err := grpcServer.Serve(grpcListener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {

@@ -68,7 +68,7 @@ func runIntegrationGRPCUsageFlow(t *testing.T, cfg config.Config, namespace stri
 	})
 
 	listener := bufconn.Listen(1024 * 1024)
-	grpcServer := grpcadapter.NewServer(app.UsageService, app.AlertService, app.EntitlementService, app.AuthService, app.Authorizer)
+	grpcServer := grpcadapter.NewServer(app.UsageService, app.AuthService, app.Authorizer)
 	go func() {
 		_ = grpcServer.Serve(listener)
 	}()
@@ -185,6 +185,7 @@ func runIntegrationGRPCUsageFlow(t *testing.T, cfg config.Config, namespace stri
 		t.Fatalf("grpc stream result = accepted %d duplicate %d failed %d, want 1/0/0", streamResult.GetAcceptedCount(), streamResult.GetDuplicateCount(), streamResult.GetFailedCount())
 	}
 
+	drainUsageOutbox(t, app)
 	entitlementWorker := entitlementworker.NewWorker(app.EntitlementService, time.Millisecond, time.Minute, time.Minute, time.Second, 3, 10, t.Logf)
 	var states entitlementStateListTestResponse
 	processedAny := false

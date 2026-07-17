@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/internal/usagebatch"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/sqlite/sqlitedb"
@@ -53,6 +55,61 @@ type pruneRunMeterSnapshot struct {
 
 func NewUsageRepository(store *Store) *UsageRepository {
 	return &UsageRepository{store: store, queries: sqlitedb.New(store)}
+}
+
+func (r *UsageRepository) EnqueueOutbox(ctx context.Context, events []domainusage.Event, now time.Time) error {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return err
+	}
+	for _, event := range events {
+		metadata, err := json.Marshal(event.Metadata())
+		if err != nil {
+			return err
+		}
+		if err := queriesFor(ctx, r.queries).EnqueueUsageEventOutbox(ctx, sqlitedb.EnqueueUsageEventOutboxParams{
+			PublicID: uuid.Must(uuid.NewV7()).String(), WorkspaceID: workspaceID, EventID: event.ID(), Subject: event.Subject(),
+			MeterName: event.MeterName(), Quantity: event.Quantity(), Metadata: string(metadata), Now: formatTime(now),
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *UsageRepository) ClaimOutbox(ctx context.Context, now, lockedUntil time.Time, claimToken string, maxAttempts int) (domainusage.OutboxMessage, error) {
+	row, err := queriesFor(ctx, r.queries).ClaimUsageEventOutbox(ctx, sqlitedb.ClaimUsageEventOutboxParams{Now: formatTime(now), LockedUntil: sql.NullString{String: formatTime(lockedUntil), Valid: true}, ClaimToken: sql.NullString{String: claimToken, Valid: true}, MaxAttempts: int64(maxAttempts)})
+	if errors.Is(err, sql.ErrNoRows) {
+		return domainusage.OutboxMessage{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domainusage.OutboxMessage{}, err
+	}
+	metadata := map[string]any{}
+	if err := json.Unmarshal([]byte(row.Metadata), &metadata); err != nil {
+		return domainusage.OutboxMessage{}, err
+	}
+	createdAt, err := parseEntitlementTime(row.CreatedAt)
+	if err != nil {
+		return domainusage.OutboxMessage{}, err
+	}
+	return domainusage.OutboxMessage{ID: row.PublicID, WorkspaceID: row.WorkspaceID, EventID: row.EventID, Subject: row.Subject, MeterName: row.MeterName, Quantity: row.Quantity, Metadata: metadata, Attempts: int(row.Attempts), ClaimToken: row.ClaimToken.String, CreatedAt: createdAt}, nil
+}
+
+func (r *UsageRepository) CompleteOutbox(ctx context.Context, id, claimToken string, _ time.Time) error {
+	rows, err := queriesFor(ctx, r.queries).CompleteUsageEventOutbox(ctx, sqlitedb.CompleteUsageEventOutboxParams{PublicID: id, ClaimToken: sql.NullString{String: claimToken, Valid: true}})
+	if err == nil && rows == 0 {
+		return domain.ErrNotFound
+	}
+	return err
+}
+
+func (r *UsageRepository) RetryOutbox(ctx context.Context, id, claimToken string, nextAttemptAt time.Time, maxAttempts int, lastError string, now time.Time) error {
+	rows, err := queriesFor(ctx, r.queries).RetryUsageEventOutbox(ctx, sqlitedb.RetryUsageEventOutboxParams{PublicID: id, ClaimToken: sql.NullString{String: claimToken, Valid: true}, NextAttemptAt: formatTime(nextAttemptAt), MaxAttempts: int64(maxAttempts), LastError: lastError, Now: formatTime(now)})
+	if err == nil && rows == 0 {
+		return domain.ErrNotFound
+	}
+	return err
 }
 
 func (r *UsageRepository) Save(ctx context.Context, event domainusage.Event) (domainusage.Event, error) {

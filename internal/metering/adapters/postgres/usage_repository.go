@@ -61,6 +61,77 @@ func NewUsageRepository(store *Store) *UsageRepository {
 	return &UsageRepository{store: store, queries: postgresdb.New(store)}
 }
 
+func (r *UsageRepository) EnqueueOutbox(ctx context.Context, events []domainusage.Event, now time.Time) error {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return err
+	}
+	for _, event := range events {
+		metadata, err := json.Marshal(event.Metadata())
+		if err != nil {
+			return err
+		}
+		if err := queriesFor(ctx, r.queries).EnqueueUsageEventOutbox(ctx, postgresdb.EnqueueUsageEventOutboxParams{
+			PublicID: uuid.Must(uuid.NewV7()), WorkspaceID: workspaceID, EventID: event.ID(), Subject: event.Subject(),
+			MeterName: event.MeterName(), Quantity: event.Quantity(), Metadata: metadata, Now: now,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *UsageRepository) ClaimOutbox(ctx context.Context, now, lockedUntil time.Time, claimToken string, maxAttempts int) (domainusage.OutboxMessage, error) {
+	token, err := uuid.Parse(claimToken)
+	if err != nil {
+		return domainusage.OutboxMessage{}, err
+	}
+	row, err := queriesFor(ctx, r.queries).ClaimUsageEventOutbox(ctx, postgresdb.ClaimUsageEventOutboxParams{Now: now, LockedUntil: lockedUntil, ClaimToken: token, MaxAttempts: int32(maxAttempts)})
+	if errors.Is(err, sql.ErrNoRows) {
+		return domainusage.OutboxMessage{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domainusage.OutboxMessage{}, err
+	}
+	metadata := map[string]any{}
+	if err := json.Unmarshal(row.Metadata, &metadata); err != nil {
+		return domainusage.OutboxMessage{}, err
+	}
+	return domainusage.OutboxMessage{ID: row.PublicID.String(), WorkspaceID: row.WorkspaceID, EventID: row.EventID, Subject: row.Subject, MeterName: row.MeterName, Quantity: row.Quantity, Metadata: metadata, Attempts: int(row.Attempts), ClaimToken: row.ClaimToken.UUID.String(), CreatedAt: row.CreatedAt}, nil
+}
+
+func (r *UsageRepository) CompleteOutbox(ctx context.Context, id, claimToken string, _ time.Time) error {
+	publicID, err := uuid.Parse(id)
+	if err != nil {
+		return err
+	}
+	token, err := uuid.Parse(claimToken)
+	if err != nil {
+		return err
+	}
+	rows, err := queriesFor(ctx, r.queries).CompleteUsageEventOutbox(ctx, postgresdb.CompleteUsageEventOutboxParams{PublicID: publicID, ClaimToken: token})
+	if err == nil && rows == 0 {
+		return domain.ErrNotFound
+	}
+	return err
+}
+
+func (r *UsageRepository) RetryOutbox(ctx context.Context, id, claimToken string, nextAttemptAt time.Time, maxAttempts int, lastError string, now time.Time) error {
+	publicID, err := uuid.Parse(id)
+	if err != nil {
+		return err
+	}
+	token, err := uuid.Parse(claimToken)
+	if err != nil {
+		return err
+	}
+	rows, err := queriesFor(ctx, r.queries).RetryUsageEventOutbox(ctx, postgresdb.RetryUsageEventOutboxParams{PublicID: publicID, ClaimToken: token, NextAttemptAt: nextAttemptAt, MaxAttempts: int32(maxAttempts), LastError: lastError, Now: now})
+	if err == nil && rows == 0 {
+		return domain.ErrNotFound
+	}
+	return err
+}
+
 func (r *UsageRepository) Save(ctx context.Context, event domainusage.Event) (domainusage.Event, error) {
 	return r.save(ctx, event)
 }

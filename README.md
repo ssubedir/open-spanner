@@ -113,6 +113,7 @@ The API image includes the API and worker binaries:
 /usr/local/bin/open-spanner-export-worker
 /usr/local/bin/open-spanner-alert-worker
 /usr/local/bin/open-spanner-entitlement-worker
+/usr/local/bin/open-spanner-usage-worker
 ```
 
 The web image runs the Next.js dashboard on port `18081` and forwards `/v1` requests to `OPEN_SPANNER_API_PROXY_URL`. Use `docker-compose.app.yml` for a complete local stack with the correct private API wiring.
@@ -131,12 +132,13 @@ Run the Next.js dashboard in another terminal. It listens on `18081` and proxies
 task admin:dev
 ```
 
-Run workers in separate terminals when you want queued exports, alerts, and async entitlement state updates processed:
+Run workers in separate terminals when you want queued exports, durable usage fanout, alerts, and async entitlement state updates processed:
 
 ```sh
 task run:export-worker
 task run:alert-worker
 task run:entitlement-worker
+task run:usage-worker
 ```
 
 Run with Postgres:
@@ -147,6 +149,7 @@ task run:postgres
 task run:export-worker:postgres
 task run:alert-worker:postgres
 task run:entitlement-worker:postgres
+task run:usage-worker:postgres
 ```
 
 ## First Usage Flow
@@ -281,7 +284,7 @@ SDKs are for trusted backend code. Do not put Open Spanner API keys in browser o
 
 ## Production Notes
 
-For production, run Open Spanner with Postgres and separate API, export worker, alert worker, and entitlement worker processes. The API and workers must share the same database. Queued exports also require shared export storage so workers can write files and the API can serve downloads.
+For production, run Open Spanner with Postgres and separate API, usage-outbox, export, alert, and entitlement worker processes. The API and workers must share the same database. Queued exports also require shared export storage so workers can write files and the API can serve downloads.
 
 Recommended production shape:
 
@@ -292,6 +295,7 @@ Recommended production shape:
 | Export worker | Run separately from the API when queued exports are enabled. |
 | Alert worker | Run separately from the API when alert rules are enabled. |
 | Entitlement worker | Run separately from the API when plans and quota state are enabled. |
+| Usage worker | Required to deliver accepted usage durably to alert and entitlement queues. Safe to replicate with Postgres. |
 | TLS | Terminate TLS at your ingress, load balancer, or reverse proxy. |
 | gRPC | Expose only to trusted backend services that emit usage. |
 | Secrets | Protect Postgres credentials, scoped API keys, and webhook signing secrets. |
@@ -309,6 +313,7 @@ Common runtime variables:
 | `OPEN_SPANNER_EXPORT_WORKER_HEALTH_ADDR` | `:18082` | Export-worker liveness and readiness listen address. |
 | `OPEN_SPANNER_ALERT_WORKER_HEALTH_ADDR` | `:18083` | Alert-worker liveness and readiness listen address. |
 | `OPEN_SPANNER_ENTITLEMENT_WORKER_HEALTH_ADDR` | `:18084` | Entitlement-worker liveness and readiness listen address. |
+| `OPEN_SPANNER_USAGE_WORKER_HEALTH_ADDR` | `:18085` | Usage-outbox-worker liveness and readiness listen address. |
 | `OPEN_SPANNER_WORKER_INSTANCE_ID` | `<hostname>-<pid>` | Stable replica identity recorded in worker heartbeats. Set this to the Kubernetes pod name for replicated workers. |
 | `OPEN_SPANNER_INGESTION_MAX_BODY_BYTES` | `1048576` | Maximum REST request body and gRPC receive message size. |
 | `OPEN_SPANNER_INGESTION_MAX_BULK_EVENTS` | `1000` | Maximum events in one REST or unary gRPC bulk write. |
@@ -338,6 +343,12 @@ Common runtime variables:
 | `OPEN_SPANNER_EXPORT_CLEANUP_INTERVAL` | `1h` | Export artifact cleanup interval. |
 | `OPEN_SPANNER_ALERT_WORKER_INTERVAL` | `5s` | Alert worker polling interval. |
 | `OPEN_SPANNER_ENTITLEMENT_WORKER_INTERVAL` | `5s` | Entitlement worker polling interval. |
+| `OPEN_SPANNER_USAGE_WORKER_INTERVAL` | `1s` | Usage outbox polling interval. |
+| `OPEN_SPANNER_USAGE_WORKER_LOCK_TTL` | `1m` | Duration a claimed usage message remains owned before another replica may recover it. |
+| `OPEN_SPANNER_USAGE_WORKER_TIMEOUT` | `30s` | Maximum time for one usage fanout attempt. |
+| `OPEN_SPANNER_USAGE_WORKER_RETRY_AFTER` | `5s` | Initial retry delay for a failed usage fanout. |
+| `OPEN_SPANNER_USAGE_WORKER_MAX_ATTEMPTS` | `10` | Attempts before a usage message enters dead-letter state. |
+| `OPEN_SPANNER_USAGE_WORKER_BATCH_SIZE` | `100` | Maximum messages drained per polling pass. |
 | `OPEN_SPANNER_RETENTION_PRUNE_ENABLED` | `false` | Enables automatic retention pruning. |
 | `OPEN_SPANNER_RECONCILIATION_ENABLED` | `false` | Enables scheduled, read-only quota reconciliation in the API process. |
 | `OPEN_SPANNER_RECONCILIATION_SCHEDULE` | `15m` | Interval between scans for each workspace. |
@@ -455,6 +466,7 @@ cmd/api                 API entrypoint
 cmd/export-worker       Queued export worker entrypoint
 cmd/alert-worker        Alert evaluation worker entrypoint
 cmd/entitlement-worker  Entitlement state worker entrypoint
+cmd/usage-worker        Transactional usage outbox worker entrypoint
 internal/config         Runtime configuration
 internal/server/http    HTTP server wiring
 internal/metering       Domain, app services, adapters, and workers

@@ -43,6 +43,7 @@ The API image contains the API binary and worker binaries:
 /usr/local/bin/open-spanner-export-worker
 /usr/local/bin/open-spanner-alert-worker
 /usr/local/bin/open-spanner-entitlement-worker
+/usr/local/bin/open-spanner-usage-worker
 ```
 
 ## API Process
@@ -108,13 +109,20 @@ docker run --detach \
   --env OPEN_SPANNER_POSTGRES_DSN="postgres://open_spanner:change-me@postgres.example.com:5432/open_spanner?sslmode=require" \
   --entrypoint /usr/local/bin/open-spanner-entitlement-worker \
   ssubedir/open-spanner:0.1.12
+
+docker run --detach \
+  --name open-spanner-usage-worker \
+  --env OPEN_SPANNER_DB_DRIVER=postgres \
+  --env OPEN_SPANNER_POSTGRES_DSN="postgres://open_spanner:change-me@postgres.example.com:5432/open_spanner?sslmode=require" \
+  --entrypoint /usr/local/bin/open-spanner-usage-worker \
+  ssubedir/open-spanner:0.1.12
 ```
 
 Queued exports need shared artifact storage. In a single-host Docker setup, the default shared Docker volume is enough. Multi-host deployments should set `OPEN_SPANNER_EXPORT_STORAGE_DRIVER=s3` on both the API and every export worker, with the same bucket, region, endpoint, and prefix. AWS S3 uses the default AWS credential chain when Open Spanner-specific static credentials are omitted; custom S3-compatible endpoints default to path-style addressing.
 
 Use a dedicated bucket or prefix. Retention deletes the current object version; when bucket versioning is enabled, configure a bucket lifecycle rule to remove noncurrent versions if physical storage reclamation is required.
 
-With Postgres, multiple export, alert, and entitlement workers can run at the same time. Jobs are claimed through database locks so replicas can share the queue.
+With Postgres, multiple usage, export, alert, and entitlement workers can run at the same time. Jobs are claimed through database locks so replicas can share the queue. The usage worker is required: accepted events and their outbox records commit atomically, then this worker durably fans each event into the alert and entitlement queues.
 
 ## Network And TLS
 

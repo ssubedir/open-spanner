@@ -6,6 +6,10 @@ import "time"
 type Repository interface {
 	Save(ctx context.Context, event Event) (Event, error)
 	SaveBulk(ctx context.Context, idempotencyKey string, events []Event) (BulkSaveResult, error)
+	EnqueueOutbox(ctx context.Context, events []Event, now time.Time) error
+	ClaimOutbox(ctx context.Context, now, lockedUntil time.Time, claimToken string, maxAttempts int) (OutboxMessage, error)
+	CompleteOutbox(ctx context.Context, id, claimToken string, now time.Time) error
+	RetryOutbox(ctx context.Context, id, claimToken string, nextAttemptAt time.Time, maxAttempts int, lastError string, now time.Time) error
 	FindEventByIdempotencyKey(ctx context.Context, idempotencyKey string) (Event, error)
 	Query(ctx context.Context, query Query) ([]Bucket, error)
 	Aggregate(ctx context.Context, query AggregateQuery) (Aggregate, error)

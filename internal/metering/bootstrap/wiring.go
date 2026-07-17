@@ -145,7 +145,7 @@ func NewAppWithMetrics(ctx context.Context, cfg config.Config, metrics appusage.
 	systemService := appsystem.NewService(repos.system, repos.transactor, appsystem.ServiceOptions{
 		ReconciliationStaleAfter: cfg.ReconciliationStaleAfter,
 		RollupStaleAfter:         2 * cfg.RetentionPruneInterval,
-		WorkerEnabled:            map[string]bool{"export": true, "alert": true, "entitlement": true, "retention": cfg.RetentionPruneEnabled, "history": true, "reconciliation": cfg.ReconciliationEnabled},
+		WorkerEnabled:            map[string]bool{"export": true, "alert": true, "entitlement": true, "usage-outbox": true, "retention": cfg.RetentionPruneEnabled, "history": true, "reconciliation": cfg.ReconciliationEnabled},
 	})
 
 	return &App{
@@ -198,8 +198,6 @@ func RegisterRoutesWithMetrics(ctx context.Context, router chi.Router, cfg confi
 			httpmeter.NewHandler(app.meterService).RegisterRoutes(protected, app.Authorizer)
 			httpsubject.NewHandler(app.subjectService).RegisterRoutes(protected, app.Authorizer)
 			httpusage.NewHandler(app.UsageService, httpusage.HandlerOptions{
-				Alerts:            app.AlertService,
-				Entitlements:      app.EntitlementService,
 				Consumption:       app.ConsumptionService,
 				ExportStoragePath: cfg.ExportStoragePath,
 				ExportStore:       exportStore,

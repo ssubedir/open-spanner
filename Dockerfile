@@ -14,6 +14,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldfl
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/open-spanner-export-worker ./cmd/export-worker
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/open-spanner-alert-worker ./cmd/alert-worker
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/open-spanner-entitlement-worker ./cmd/entitlement-worker
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/open-spanner-usage-worker ./cmd/usage-worker
 
 FROM node:22-alpine AS web-build
 WORKDIR /src/web_v2
@@ -37,6 +38,7 @@ COPY --from=api-build /out/open-spanner /usr/local/bin/open-spanner
 COPY --from=api-build /out/open-spanner-export-worker /usr/local/bin/open-spanner-export-worker
 COPY --from=api-build /out/open-spanner-alert-worker /usr/local/bin/open-spanner-alert-worker
 COPY --from=api-build /out/open-spanner-entitlement-worker /usr/local/bin/open-spanner-entitlement-worker
+COPY --from=api-build /out/open-spanner-usage-worker /usr/local/bin/open-spanner-usage-worker
 
 ENV OPEN_SPANNER_HTTP_ADDR=:18080
 ENV OPEN_SPANNER_GRPC_ADDR=:18090
@@ -45,7 +47,7 @@ ENV OPEN_SPANNER_SQLITE_PATH=/data/open-spanner.db
 ENV OPEN_SPANNER_EXPORT_STORAGE_PATH=/data/exports
 USER open-spanner
 VOLUME ["/data"]
-EXPOSE 18080 18082 18083 18084 18090
+EXPOSE 18080 18082 18083 18084 18085 18090
 
 ENTRYPOINT ["/usr/local/bin/open-spanner"]
 

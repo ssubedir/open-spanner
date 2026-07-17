@@ -1,12 +1,10 @@
 package usage
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"sort"
 	"strconv"
@@ -17,9 +15,7 @@ import (
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/fileexport"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/http/internal/request"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/http/internal/respond"
-	appalert "github.com/ssubedir/open-spanner/internal/metering/app/alert"
 	appconsumption "github.com/ssubedir/open-spanner/internal/metering/app/consumption"
-	appentitlement "github.com/ssubedir/open-spanner/internal/metering/app/entitlement"
 	appusage "github.com/ssubedir/open-spanner/internal/metering/app/usage"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
 	domainusage "github.com/ssubedir/open-spanner/internal/metering/domain/usage"
@@ -27,25 +23,13 @@ import (
 
 type Handler struct {
 	service       appusage.Service
-	alerts        AlertEnqueuer
-	entitlements  EntitlementEnqueuer
 	consumption   appconsumption.Service
 	exportStore   fileexport.Store
 	maxBodyBytes  int64
 	maxBulkEvents int
 }
 
-type AlertEnqueuer interface {
-	EnqueueForUsageEvents(ctx context.Context, events []appalert.UsageEvent) error
-}
-
-type EntitlementEnqueuer interface {
-	EnqueueForUsageEvents(ctx context.Context, events []appentitlement.UsageEvent) error
-}
-
 type HandlerOptions struct {
-	Alerts            AlertEnqueuer
-	Entitlements      EntitlementEnqueuer
 	Consumption       appconsumption.Service
 	ExportStoragePath string
 	ExportStore       fileexport.Store
@@ -72,8 +56,6 @@ func NewHandler(service appusage.Service, options HandlerOptions) *Handler {
 	}
 	return &Handler{
 		service:       service,
-		alerts:        options.Alerts,
-		entitlements:  options.Entitlements,
 		consumption:   options.Consumption,
 		exportStore:   store,
 		maxBodyBytes:  maxBodyBytes,
@@ -123,11 +105,6 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		respond.ServiceError(w, err)
 		return
-	}
-
-	if !event.Replayed {
-		h.enqueueAlerts(r.Context(), []appusage.Result{event})
-		h.enqueueEntitlements(r.Context(), []appusage.Result{event})
 	}
 
 	respond.JSON(w, http.StatusCreated, responseFromResult(event))
@@ -184,10 +161,6 @@ func (h *Handler) Consume(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		respond.ServiceError(w, err)
 		return
-	}
-	if !result.Replayed {
-		h.enqueueAlerts(r.Context(), []appusage.Result{result.Event})
-		h.enqueueEntitlements(r.Context(), []appusage.Result{result.Event})
 	}
 	respond.JSON(w, http.StatusCreated, consumeResponse(result))
 }
@@ -336,9 +309,6 @@ func (h *Handler) CreateBulk(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	h.enqueueAlerts(r.Context(), result.NewlyAccepted())
-	h.enqueueEntitlements(r.Context(), result.NewlyAccepted())
-
 	respond.JSON(w, status, bulkResponseFromResult(result))
 }
 
@@ -1154,40 +1124,6 @@ func writeEventCSV(w http.ResponseWriter, events []appusage.Result) {
 	w.WriteHeader(http.StatusOK)
 
 	_ = appusage.WriteEventCSV(w, events)
-}
-
-func (h *Handler) enqueueAlerts(ctx context.Context, events []appusage.Result) {
-	if h.alerts == nil || len(events) == 0 {
-		return
-	}
-	alertEvents := make([]appalert.UsageEvent, 0, len(events))
-	for _, event := range events {
-		alertEvents = append(alertEvents, appalert.UsageEvent{
-			Subject:  event.Subject,
-			Meter:    event.MeterName,
-			Metadata: event.Metadata,
-		})
-	}
-	if err := h.alerts.EnqueueForUsageEvents(ctx, alertEvents); err != nil {
-		log.Printf("alert enqueue failed: %v", err)
-	}
-}
-
-func (h *Handler) enqueueEntitlements(ctx context.Context, events []appusage.Result) {
-	if h.entitlements == nil || len(events) == 0 {
-		return
-	}
-	entitlementEvents := make([]appentitlement.UsageEvent, 0, len(events))
-	for _, event := range events {
-		entitlementEvents = append(entitlementEvents, appentitlement.UsageEvent{
-			Subject:  event.Subject,
-			Meter:    event.MeterName,
-			Quantity: event.Quantity,
-		})
-	}
-	if err := h.entitlements.EnqueueForUsageEvents(ctx, entitlementEvents); err != nil {
-		log.Printf("entitlement enqueue failed: %v", err)
-	}
 }
 
 func validateDirectExportLimit(limit int) error {

@@ -25,6 +25,13 @@ type Config struct {
 	IngestionMaxStreamEvents     int
 	IngestionRateLimitEvents     int
 	IngestionRateLimitWindow     time.Duration
+	UsageWorkerInterval          time.Duration
+	UsageWorkerHealthAddr        string
+	UsageWorkerLockTTL           time.Duration
+	UsageWorkerTimeout           time.Duration
+	UsageWorkerRetryAfter        time.Duration
+	UsageWorkerMaxAttempts       int
+	UsageWorkerBatchSize         int
 	ExportStoragePath            string
 	ExportStorageDriver          string
 	ExportS3Bucket               string
@@ -124,6 +131,30 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	ingestionRateLimitWindow, err := envDuration("OPEN_SPANNER_INGESTION_RATE_LIMIT_WINDOW", time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	usageWorkerInterval, err := envDuration("OPEN_SPANNER_USAGE_WORKER_INTERVAL", time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	usageWorkerLockTTL, err := envDuration("OPEN_SPANNER_USAGE_WORKER_LOCK_TTL", time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	usageWorkerTimeout, err := envDuration("OPEN_SPANNER_USAGE_WORKER_TIMEOUT", 30*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	usageWorkerRetryAfter, err := envDuration("OPEN_SPANNER_USAGE_WORKER_RETRY_AFTER", 5*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	usageWorkerMaxAttempts, err := envInt("OPEN_SPANNER_USAGE_WORKER_MAX_ATTEMPTS", 10)
+	if err != nil {
+		return Config{}, err
+	}
+	usageWorkerBatchSize, err := envInt("OPEN_SPANNER_USAGE_WORKER_BATCH_SIZE", 100)
 	if err != nil {
 		return Config{}, err
 	}
@@ -303,6 +334,13 @@ func Load() (Config, error) {
 		IngestionMaxStreamEvents:     ingestionMaxStreamEvents,
 		IngestionRateLimitEvents:     ingestionRateLimitEvents,
 		IngestionRateLimitWindow:     ingestionRateLimitWindow,
+		UsageWorkerInterval:          usageWorkerInterval,
+		UsageWorkerHealthAddr:        env("OPEN_SPANNER_USAGE_WORKER_HEALTH_ADDR", ":18085"),
+		UsageWorkerLockTTL:           usageWorkerLockTTL,
+		UsageWorkerTimeout:           usageWorkerTimeout,
+		UsageWorkerRetryAfter:        usageWorkerRetryAfter,
+		UsageWorkerMaxAttempts:       usageWorkerMaxAttempts,
+		UsageWorkerBatchSize:         usageWorkerBatchSize,
 		ExportStoragePath:            env("OPEN_SPANNER_EXPORT_STORAGE_PATH", "open-spanner-exports"),
 		ExportStorageDriver:          strings.ToLower(env("OPEN_SPANNER_EXPORT_STORAGE_DRIVER", "filesystem")),
 		ExportS3Bucket:               env("OPEN_SPANNER_EXPORT_S3_BUCKET", ""),
@@ -490,6 +528,12 @@ func (cfg Config) Validate() error {
 	}
 	if cfg.AlertWorkerBatchSize <= 0 {
 		return fmt.Errorf("OPEN_SPANNER_ALERT_WORKER_BATCH_SIZE must be greater than zero")
+	}
+	if cfg.UsageWorkerInterval <= 0 || cfg.UsageWorkerLockTTL <= 0 || cfg.UsageWorkerTimeout <= 0 || cfg.UsageWorkerRetryAfter <= 0 {
+		return fmt.Errorf("usage worker durations must be greater than zero")
+	}
+	if cfg.UsageWorkerMaxAttempts <= 0 || cfg.UsageWorkerBatchSize <= 0 {
+		return fmt.Errorf("usage worker attempts and batch size must be greater than zero")
 	}
 	if cfg.EntitlementWorkerInterval <= 0 {
 		return fmt.Errorf("OPEN_SPANNER_ENTITLEMENT_WORKER_INTERVAL must be greater than zero")

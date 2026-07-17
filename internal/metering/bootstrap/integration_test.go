@@ -42,8 +42,26 @@ import (
 	alertworker "github.com/ssubedir/open-spanner/internal/metering/workers/alert"
 	entitlementworker "github.com/ssubedir/open-spanner/internal/metering/workers/entitlement"
 	exportworker "github.com/ssubedir/open-spanner/internal/metering/workers/export"
+	outboxworker "github.com/ssubedir/open-spanner/internal/metering/workers/outbox"
 	reconciliationworker "github.com/ssubedir/open-spanner/internal/metering/workers/reconciliation"
 )
+
+func drainUsageOutbox(t *testing.T, app *App) {
+	t.Helper()
+	worker := outboxworker.NewWorker(app.UsageService, app.AlertService, app.EntitlementService, outboxworker.Options{
+		PollInterval: time.Millisecond, LockTTL: time.Minute, Timeout: time.Minute,
+		RetryAfter: time.Second, MaxAttempts: 3, BatchSize: 100, Logger: t.Logf,
+	})
+	for {
+		processed, err := worker.ProcessOnce(context.Background())
+		if err != nil {
+			t.Fatalf("dispatch usage outbox: %v", err)
+		}
+		if !processed {
+			return
+		}
+	}
+}
 
 func TestIntegrationAuthGuardsSDKAndDashboardRoutes(t *testing.T) {
 	ctx := context.Background()
@@ -1954,6 +1972,24 @@ func runIntegrationConcurrentUsageIdempotency(t *testing.T, cfg config.Config, n
 		t.Fatalf("stored concurrent usage events = %d, want three: %#v", len(events.Items), events.Items)
 	}
 
+	dispatchedEventIDs := map[string]struct{}{}
+	for range 3 {
+		message, ok, err := app.UsageService.ClaimOutbox(ctx, appusage.OutboxClaimCommand{LockTTL: time.Minute, MaxAttempts: 3})
+		if err != nil || !ok {
+			t.Fatalf("claim concurrent usage outbox ok=%v err=%v", ok, err)
+		}
+		dispatchedEventIDs[message.EventID] = struct{}{}
+		if err := app.UsageService.CompleteOutbox(ctx, appusage.OutboxCompleteCommand{ID: message.ID, ClaimToken: message.ClaimToken}); err != nil {
+			t.Fatalf("complete concurrent usage outbox: %v", err)
+		}
+	}
+	if len(dispatchedEventIDs) != 3 {
+		t.Fatalf("usage outbox has %d unique events, want three: %#v", len(dispatchedEventIDs), dispatchedEventIDs)
+	}
+	if _, ok, err := app.UsageService.ClaimOutbox(ctx, appusage.OutboxClaimCommand{LockTTL: time.Minute, MaxAttempts: 3}); err != nil || ok {
+		t.Fatalf("extra usage outbox claim ok=%v err=%v, want empty", ok, err)
+	}
+
 	statsRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/system/stats", nil, authHeaders, nil)
 	if statsRes.Code != http.StatusOK {
 		t.Fatalf("concurrent usage stats status = %d, want %d: %s", statsRes.Code, http.StatusOK, statsRes.Body.String())
@@ -2763,6 +2799,7 @@ func runIntegrationPlanEntitlementFlow(t *testing.T, cfg config.Config, namespac
 		t.Fatalf("replay entitlement usage status = %d, want %d: %s", replayUsage.Code, http.StatusCreated, replayUsage.Body.String())
 	}
 
+	drainUsageOutbox(t, app)
 	principal, err := app.AuthService.AuthenticateAPIKeyPrincipal(context.Background(), identity.APIKey)
 	if err != nil {
 		t.Fatalf("authenticate entitlement worker principal: %v", err)
@@ -3134,6 +3171,7 @@ func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handl
 		t.Fatalf("create low alert usage status = %d, want %d: %s", createLowUsage.Code, http.StatusCreated, createLowUsage.Body.String())
 	}
 
+	drainUsageOutbox(t, app)
 	principal, err := app.AuthService.AuthenticateAPIKeyPrincipal(context.Background(), strings.TrimPrefix(authHeaders["Authorization"], "Bearer "))
 	if err != nil {
 		t.Fatalf("authenticate alert worker principal: %v", err)

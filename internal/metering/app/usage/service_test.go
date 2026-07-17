@@ -1162,6 +1162,95 @@ func TestCreateIngestionRollsBackWhenAuditFails(t *testing.T) {
 	}
 }
 
+func TestCreatePersistsOneOutboxMessageAcrossReplay(t *testing.T) {
+	ctx := testContext()
+	service, _, _ := newIngestionTestService(t, ctx)
+	cmd := CreateCommand{
+		IdempotencyKey: "outbox-replay-1", Subject: "org", MeterName: "api_calls", Quantity: 4,
+		Metadata: map[string]any{"region": "us-east-1"},
+	}
+
+	first, err := service.Create(ctx, cmd)
+	if err != nil {
+		t.Fatalf("create usage: %v", err)
+	}
+	replayed, err := service.Create(ctx, cmd)
+	if err != nil {
+		t.Fatalf("replay usage: %v", err)
+	}
+	if first.ID != replayed.ID {
+		t.Fatalf("replay ID=%q, want %q", replayed.ID, first.ID)
+	}
+
+	message, ok, err := service.ClaimOutbox(ctx, OutboxClaimCommand{LockTTL: time.Minute, MaxAttempts: 3})
+	if err != nil || !ok {
+		t.Fatalf("claim outbox ok=%v err=%v", ok, err)
+	}
+	if message.EventID != first.ID || message.WorkspaceID != appauth.DefaultWorkspaceID || message.Subject != "org" || message.MeterName != "api_calls" || message.Quantity != 4 || message.Metadata["region"] != "us-east-1" {
+		t.Fatalf("outbox message=%#v", message)
+	}
+	if err := service.CompleteOutbox(ctx, OutboxCompleteCommand{ID: message.ID, ClaimToken: "00000000-0000-4000-8000-000000000001"}); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("stale completion error=%v, want ErrNotFound", err)
+	}
+	if err := service.CompleteOutbox(ctx, OutboxCompleteCommand{ID: message.ID, ClaimToken: message.ClaimToken}); err != nil {
+		t.Fatalf("complete outbox: %v", err)
+	}
+	if _, ok, err := service.ClaimOutbox(ctx, OutboxClaimCommand{LockTTL: time.Minute, MaxAttempts: 3}); err != nil || ok {
+		t.Fatalf("second claim ok=%v err=%v, want empty", ok, err)
+	}
+}
+
+func TestCreateRollsBackWhenOutboxInsertFails(t *testing.T) {
+	ctx := testContext()
+	service, usageRepo, store := newIngestionTestService(t, ctx)
+	if _, err := store.ExecContext(ctx, `CREATE TRIGGER fail_usage_outbox BEFORE INSERT ON usage_event_outbox
+		BEGIN SELECT RAISE(FAIL, 'synthetic outbox failure'); END`); err != nil {
+		t.Fatalf("create failure trigger: %v", err)
+	}
+
+	_, err := service.Create(ctx, CreateCommand{
+		IdempotencyKey: "outbox-rollback-1", Subject: "org", MeterName: "api_calls", Quantity: 1,
+	})
+	if err == nil || !strings.Contains(err.Error(), "synthetic outbox failure") {
+		t.Fatalf("create usage error=%v, want synthetic outbox failure", err)
+	}
+	count, countErr := usageRepo.CountEvents(ctx)
+	if countErr != nil || count != 0 {
+		t.Fatalf("stored events after outbox failure=%d err=%v, want 0", count, countErr)
+	}
+}
+
+func TestExpiredOutboxLeaseIsReclaimedAndFenced(t *testing.T) {
+	ctx := testContext()
+	service, usageRepo, _ := newIngestionTestService(t, ctx)
+	if _, err := service.Create(ctx, CreateCommand{
+		IdempotencyKey: "outbox-lease-1", Subject: "org", MeterName: "api_calls", Quantity: 1,
+	}); err != nil {
+		t.Fatalf("create usage: %v", err)
+	}
+
+	now := time.Now().UTC().Add(time.Hour)
+	firstToken := "00000000-0000-4000-8000-000000000001"
+	first, err := usageRepo.ClaimOutbox(ctx, now, now.Add(time.Second), firstToken, 3)
+	if err != nil {
+		t.Fatalf("first claim: %v", err)
+	}
+	secondToken := "00000000-0000-4000-8000-000000000002"
+	second, err := usageRepo.ClaimOutbox(ctx, now.Add(2*time.Second), now.Add(time.Minute), secondToken, 3)
+	if err != nil {
+		t.Fatalf("reclaim expired lease: %v", err)
+	}
+	if first.ID != second.ID || first.Attempts != 1 || second.Attempts != 2 || second.ClaimToken != secondToken {
+		t.Fatalf("first=%#v second=%#v", first, second)
+	}
+	if err := usageRepo.CompleteOutbox(ctx, first.ID, firstToken, now); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("stale owner completion error=%v, want ErrNotFound", err)
+	}
+	if err := usageRepo.CompleteOutbox(ctx, second.ID, secondToken, now); err != nil {
+		t.Fatalf("current owner completion: %v", err)
+	}
+}
+
 func newIngestionTestService(t *testing.T, ctx context.Context) (Service, *sqlite.UsageRepository, *sqlite.Store) {
 	t.Helper()
 	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
