@@ -45,6 +45,16 @@ Feature: Alerts and exports
     And the generated CSV can be downloaded
 
   @ui_covered @api_covered
+  Scenario: A user cancels and retries an export job
+    Given a queued usage export exists
+    When the export is canceled
+    Then the canceled export cannot be downloaded
+    And an API key without export write access cannot cancel or retry it
+    When the user retries the canceled export
+    Then the worker completes the same export job
+    And the generated CSV can be downloaded
+
+  @ui_covered @api_covered
   Scenario: Failed exports are visible without blocking other jobs
     Given one export job fails
     When the user opens the exports page
