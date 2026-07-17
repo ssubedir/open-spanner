@@ -212,7 +212,7 @@ export function APIKeysPage() {
             <Label className="grid gap-1.5">
               Expires after
               <Select defaultValue={neverExpiresSelectValue} name="expires_after">
-                <SelectTrigger className="min-h-[38px] w-full">
+                <SelectTrigger aria-label="Expires after" className="min-h-[38px] w-full">
                   <SelectValue placeholder="Select expiry" />
                 </SelectTrigger>
                 <SelectContent position="popper">
@@ -248,7 +248,7 @@ export function APIKeysPage() {
           <form className="modal-form" onSubmit={(event) => void submitRotation(event)}>
             <div className="modal-copy">Create a replacement for <strong>{rotating.name}</strong> with the same scopes, meter access, and expiry.</div>
             <Label className="grid gap-1.5">Old key grace period
-              <Select defaultValue="3600" name="grace_period_seconds"><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent position="popper">
+              <Select defaultValue="3600" name="grace_period_seconds"><SelectTrigger aria-label="Old key grace period" className="w-full"><SelectValue /></SelectTrigger><SelectContent position="popper">
                 <SelectItem value="0">Revoke immediately</SelectItem><SelectItem value="300">5 minutes</SelectItem><SelectItem value="3600">1 hour</SelectItem><SelectItem value="86400">24 hours</SelectItem>
               </SelectContent></Select>
             </Label>

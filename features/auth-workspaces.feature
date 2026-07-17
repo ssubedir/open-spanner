@@ -32,6 +32,20 @@ Feature: Authenticated workspace access
     When the same service writes usage for another meter
     Then the request is denied
 
+  @ui_covered @api_covered
+  Scenario: A user manages the complete API key lifecycle
+    When the user creates an expiring API key
+    Then the key can authenticate and its expiration is recorded
+    When the user rotates the key with a grace period
+    Then both keys can authenticate during the grace period
+    And revoking the old key leaves only the replacement able to authenticate
+    And the rotation appears in lifecycle history
+    When another API key reaches its expiration
+    Then the expired key cannot authenticate and is marked expired
+    When the user revokes the replacement key
+    Then the replacement key cannot authenticate
+    And the revocation appears in lifecycle history
+
   @ui_covered
   Scenario: Dashboard users see clean auth failures
     Given a dashboard session has expired
