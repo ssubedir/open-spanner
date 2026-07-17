@@ -86,7 +86,7 @@ export function PlanModal({ meters, onClose, onPreview, onSubmit, plan, previewE
               <Label className="col-span-full grid min-w-0 gap-1.5 lg:col-span-1">
                 Meter
                 <Select onValueChange={(value) => updateLimit(limit.id, { meter: value })} required value={limit.meter || undefined}>
-                  <SelectTrigger className="min-h-[38px] w-full">
+                  <SelectTrigger aria-label="Meter" className="min-h-[38px] w-full">
                     <SelectValue placeholder="Select meter" />
                   </SelectTrigger>
                   <SelectContent position="popper">

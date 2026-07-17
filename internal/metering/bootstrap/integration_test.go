@@ -510,6 +510,24 @@ func TestIntegrationS3ExportUsageFlow(t *testing.T) {
 	}, "s3")
 }
 
+func TestIntegrationPostgresS3ExportUsageFlow(t *testing.T) {
+	endpoint := os.Getenv("OPEN_SPANNER_TEST_S3_ENDPOINT")
+	if endpoint == "" {
+		t.Skip("set OPEN_SPANNER_TEST_S3_ENDPOINT to run S3 export integration tests")
+	}
+	dsn := os.Getenv("OPEN_SPANNER_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set OPEN_SPANNER_TEST_POSTGRES_DSN to run Postgres S3 export integration tests")
+	}
+	accessKey, secretKey := "minioadmin", "minioadmin"
+	bucket := createIntegrationS3Bucket(t, endpoint, accessKey, secretKey)
+	runIntegrationSDKUsageFlow(t, config.Config{
+		DBDriver: "postgres", PostgresDSN: dsn, DBPool: config.DBPoolConfig{MaxOpenConns: 5}, RegistrationEnabled: true,
+		ExportStorageDriver: "s3", ExportS3Bucket: bucket, ExportS3Region: "us-east-1", ExportS3Endpoint: endpoint,
+		ExportS3AccessKeyID: accessKey, ExportS3SecretAccessKey: secretKey, ExportS3Prefix: "integration", ExportS3ForcePathStyle: true,
+	}, "postgres_s3")
+}
+
 func createIntegrationS3Bucket(t *testing.T, endpoint, accessKey, secretKey string) string {
 	t.Helper()
 	ctx := context.Background()

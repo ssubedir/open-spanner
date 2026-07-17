@@ -283,7 +283,8 @@ async function fillPlanLimit(
   warningPercent: string,
 ) {
   const row = dialog.getByRole('button', { name: 'Remove limit' }).nth(index).locator('xpath=..')
-  await row.getByRole('combobox').first().click({ force: true })
+  const meterSelect = row.getByRole('combobox', { name: 'Meter' })
+  await meterSelect.click()
   await page.getByRole('option', { name: meter, exact: true }).click()
   await row.locator('input[type="number"]').nth(0).fill(limit)
   await row.locator('input[type="number"]').nth(1).fill(warningPercent)

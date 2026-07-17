@@ -40,13 +40,16 @@ tasks:
       OPEN_SPANNER_LOAD_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/open_spanner_load?sslmode=disable
 
   test:s3:
-    desc: Run S3-compatible export storage integration tests
+    desc: Run S3-compatible export tests with SQLite and Postgres
     cmds:
       - task: s3:up
+      - task: postgres:up
+      - task: _test:s3:postgres:reset
       - go test ./internal/metering/adapters/fileexport -run TestS3CompatibleIntegration -count=1
-      - go test ./internal/metering/bootstrap -run TestIntegrationS3ExportUsageFlow -count=1
+      - go test ./internal/metering/bootstrap -run 'TestIntegration(S3|PostgresS3)ExportUsageFlow' -count=1
     env:
       OPEN_SPANNER_TEST_S3_ENDPOINT: http://localhost:19000
+      OPEN_SPANNER_TEST_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/open_spanner_s3?sslmode=disable
 
   test:e2e:
     desc: Run browser E2E tests across supported storage backends
@@ -386,6 +389,13 @@ tasks:
       - docker compose exec -T postgres psql -U postgres -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'open_spanner_test';"
       - docker compose exec -T postgres psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS open_spanner_test;"
       - docker compose exec -T postgres psql -U postgres -d postgres -c "CREATE DATABASE open_spanner_test;"
+
+  _test:s3:postgres:reset:
+    internal: true
+    cmds:
+      - docker compose exec -T postgres psql -U postgres -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'open_spanner_s3';"
+      - docker compose exec -T postgres psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS open_spanner_s3;"
+      - docker compose exec -T postgres psql -U postgres -d postgres -c "CREATE DATABASE open_spanner_s3;"
 
   _test:load:reset:
     internal: true
