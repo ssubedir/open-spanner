@@ -1183,7 +1183,7 @@ export const appStoreActions = {
     try {
       await deleteSubjectPlanAssignmentRequest(subject)
       setPlansState((state) => ({
-        assignmentHistory: state.assignmentHistory.map((item) => item.subject === subject && item.active ? { ...item, active: false, unassigned_at: new Date().toISOString() } : item),
+        assignmentHistory: state.assignmentHistory.map((item) => item.subject === subject && item.status !== 'ended' ? { ...item, active: false, status: 'ended', unassigned_at: new Date().toISOString() } : item),
         assignments: state.assignments.filter((item) => item.subject !== subject),
         entitlementEvents: state.entitlementEvents.filter((item) => item.subject !== subject),
         entitlementPeriodSnapshots: state.entitlementPeriodSnapshots.filter((item) => item.subject !== subject),

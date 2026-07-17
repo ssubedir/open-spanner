@@ -330,7 +330,7 @@ export function PlanDetailPage({ planId }: { planId: string }) {
             <Label className="grid gap-1.5">
               Effective
               <Select onValueChange={(value) => setAssignmentTiming(value as 'now' | 'scheduled')} value={assignmentTiming}>
-                <SelectTrigger>
+                <SelectTrigger aria-label="Effective">
                   <SelectValue placeholder="Choose timing" />
                 </SelectTrigger>
                 <SelectContent>
@@ -342,7 +342,7 @@ export function PlanDetailPage({ planId }: { planId: string }) {
             {assignmentTiming === 'scheduled' ? (
               <Label className="grid gap-1.5">
                 Effective at
-                <Input name="effective_at" required type="datetime-local" />
+                <Input name="effective_at" required step="1" type="datetime-local" />
               </Label>
             ) : null}
             <div className="modal-actions">

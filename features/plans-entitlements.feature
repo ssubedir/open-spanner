@@ -20,6 +20,20 @@ Feature: Plans and entitlements
     And the subject is evaluated against the plan's limits
 
   @ui_covered @api_covered
+  Scenario: A user schedules a subject plan change
+    Given a subject has an active plan
+    When the user schedules another plan for a future time
+    Then the future assignment is shown as scheduled
+    And the current plan remains effective before that time
+    And another workspace cannot see the scheduled assignment
+    When the effective time arrives
+    Then the future plan becomes active
+    And the previous assignment appears as ended in history
+    When the user removes the active assignment
+    Then the subject is no longer entitled by either plan
+    And the removed assignment appears as ended in history
+
+  @ui_covered @api_covered
   Scenario: Usage updates entitlement state
     Given a subject is assigned to a plan
     When usage is reported for a limited meter
