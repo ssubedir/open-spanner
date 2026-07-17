@@ -139,7 +139,7 @@ Use these private API endpoints from your orchestrator:
 
 The Docker Compose app stack uses `/ready` for the API container health check.
 
-The web container uses `/login` for its own liveness check. Public REST availability depends on both the web and API readiness checks.
+The web container uses `/ready` for its health check. That endpoint returns success only when the Next.js server can reach the private API and the API can reach its configured database, so it represents end-to-end public REST readiness. The API also exposes its private `/health` liveness and `/ready` storage-readiness endpoints for direct orchestration probes.
 
 Each worker binary exposes the same `/health` and `/ready` contract on its own probe address. Readiness verifies database connectivity and becomes unavailable before the worker drains during shutdown. The defaults are `:18082` for export, `:18083` for alert, and `:18084` for entitlement; use these endpoints for container or Kubernetes probes. Docker Compose health-checks every worker through `/ready`.
 

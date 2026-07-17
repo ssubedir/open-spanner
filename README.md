@@ -74,6 +74,7 @@ Useful local endpoints:
 | Endpoint | Purpose |
 | --- | --- |
 | `http://localhost:18081/login` | Dashboard login |
+| `http://localhost:18081/ready` | End-to-end dashboard, API, and database readiness |
 | `http://localhost:18081/v1/*` | REST API through the dashboard proxy |
 | `localhost:18090` | gRPC usage ingestion |
 
