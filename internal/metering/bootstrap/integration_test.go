@@ -1147,7 +1147,7 @@ func TestIntegrationPostgresWorkerReplicasClaimOnceAndRecoverLease(t *testing.T)
 	for range 2 {
 		go func() {
 			<-start
-			job, claimed, err := app.UsageService.ClaimExportJob(ctx, appusage.ExportJobClaimCommand{LockTTL: 30 * time.Millisecond, MaxAttempts: 3})
+			job, claimed, err := app.UsageService.ClaimExportJob(ctx, appusage.ExportJobClaimCommand{LockTTL: 100 * time.Millisecond, MaxAttempts: 3})
 			claims <- claimResult{job: job, claimed: claimed, err: err}
 		}()
 	}
@@ -1167,7 +1167,16 @@ func TestIntegrationPostgresWorkerReplicasClaimOnceAndRecoverLease(t *testing.T)
 		t.Fatalf("concurrent replica claims = %+v, want exactly export %s", claimed, queued.ID)
 	}
 
-	time.Sleep(40 * time.Millisecond)
+	if err := app.UsageService.RenewExportJobLease(workspaceCtx, appusage.ExportJobRenewCommand{ID: claimed[0].ID, ClaimToken: claimed[0].ClaimToken, LockTTL: 300 * time.Millisecond}); err != nil {
+		t.Fatalf("renew claimed export lease: %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if unexpected, ok, err := app.UsageService.ClaimExportJob(ctx, appusage.ExportJobClaimCommand{LockTTL: time.Minute, MaxAttempts: 3}); err != nil || ok {
+		t.Fatalf("renewed export was reclaimable: job=%+v claimed=%v err=%v", unexpected, ok, err)
+	}
+
+	// Once the owner stops renewing, another replica can recover the job.
+	time.Sleep(250 * time.Millisecond)
 	recovered, ok, err := app.UsageService.ClaimExportJob(ctx, appusage.ExportJobClaimCommand{LockTTL: time.Minute, MaxAttempts: 3})
 	if err != nil || !ok {
 		t.Fatalf("recover abandoned export lease: job=%+v claimed=%v err=%v", recovered, ok, err)
