@@ -3,7 +3,7 @@ title: Technical Overview
 description: How Open Spanner receives, stores, and queries usage.
 ---
 
-Open Spanner runs as a Go API process with an embedded React dashboard. It stores metering data in SQLite or Postgres, exposes REST for the dashboard and SDK control-plane operations, and exposes gRPC for trusted backend usage ingestion.
+Open Spanner runs a Next.js dashboard in front of a private Go API. The dashboard owns the public HTTP endpoint and proxies `/v1` requests to the API at runtime. The API stores metering data in SQLite or Postgres, exposes REST for dashboard and SDK control-plane operations, and exposes gRPC for trusted backend usage ingestion.
 
 Queued work is handled by separate worker binaries:
 
@@ -43,7 +43,8 @@ For production, treat the API and workers as separate processes that share one P
 
 | Process | Main work |
 | --- | --- |
-| API | Dashboard, REST, gRPC ingestion, auth, migrations, and readiness. |
+| Web | Next.js dashboard and public REST proxy. |
+| API | REST, gRPC ingestion, auth, migrations, metrics, and readiness. |
 | Export worker | CSV export jobs and artifact writes. |
 | Alert worker | Alert rule evaluation and webhook delivery. |
 | Entitlement worker | Quota state refresh, entitlement events, and period snapshots. |

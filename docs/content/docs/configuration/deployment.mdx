@@ -11,7 +11,8 @@ Run Open Spanner as separate processes against the same Postgres database:
 
 | Process | Purpose | Required when |
 | --- | --- | --- |
-| API | Serves the dashboard, REST API, and gRPC usage ingestion. | Always |
+| Web | Serves the Next.js dashboard and proxies public `/v1` REST requests. | Always |
+| API | Serves private REST, gRPC usage ingestion, migrations, metrics, and health probes. | Always |
 | Export worker | Claims queued export jobs and writes CSV artifacts. | Dashboard export jobs are enabled |
 | Alert worker | Evaluates alert rules and delivers webhooks. | Alerts are enabled |
 | Entitlement worker | Refreshes quota state, entitlement events, and period snapshots. | Plans and entitlements are enabled |
@@ -21,19 +22,21 @@ SQLite is useful for demos and small single-node installs. Use Postgres when you
 
 ## Container Image
 
-Release images are published to Docker Hub:
+Release images are published to Docker Hub as separate API and web images:
 
 ```sh
 docker pull ssubedir/open-spanner:latest
+docker pull ssubedir/open-spanner-web:latest
 ```
 
 Use `latest` for a quick trial. Pin a version tag for production:
 
 ```sh
 docker pull ssubedir/open-spanner:0.1.12
+docker pull ssubedir/open-spanner-web:0.1.12
 ```
 
-The image contains the API binary and worker binaries:
+The API image contains the API binary and worker binaries:
 
 ```text
 /usr/local/bin/open-spanner
@@ -44,12 +47,15 @@ The image contains the API binary and worker binaries:
 
 ## API Process
 
-Point the API at Postgres and publish HTTP plus gRPC only where your backend services need access:
+Point the API at Postgres. Keep HTTP on `18080` private to the deployment network and publish gRPC only where trusted backend services need it:
 
 ```sh
+docker network create open-spanner
+
 docker run --detach \
-  --name open-spanner \
-  --publish 18081:18081 \
+  --name open-spanner-api \
+  --network open-spanner \
+  --env OPEN_SPANNER_HTTP_ADDR=:18080 \
   --publish 18090:18090 \
   --env OPEN_SPANNER_DB_DRIVER=postgres \
   --env OPEN_SPANNER_POSTGRES_DSN="postgres://open_spanner:change-me@postgres.example.com:5432/open_spanner?sslmode=require" \
@@ -59,6 +65,21 @@ docker run --detach \
 ```
 
 The API runs database migrations on startup. Back up Postgres before upgrading across releases, especially while Open Spanner is pre-1.0.
+
+## Web Process
+
+Run the matching web image on the public HTTP port and point its runtime proxy at the private API service:
+
+```sh
+docker run --detach \
+  --name open-spanner-web \
+  --network open-spanner \
+  --publish 18081:18081 \
+  --env OPEN_SPANNER_API_PROXY_URL=http://open-spanner-api:18080 \
+  ssubedir/open-spanner-web:0.1.12
+```
+
+The web process forwards every `/v1` request without buffering response bodies, so SDK calls, CSV downloads, dashboard sessions, and OAuth callbacks use the same public origin. Do not expose the private API HTTP port through the ingress.
 
 ## Worker Processes
 
@@ -99,14 +120,16 @@ With Postgres, multiple export, alert, and entitlement workers can run at the sa
 
 Keep Postgres private to the deployment network. Expose:
 
-- HTTP for dashboard, REST, health checks, and readiness checks.
+- Web HTTP for the dashboard and proxied REST API.
 - gRPC only to trusted backend services that use stream ingestion.
+
+Keep API HTTP, worker probes, and metrics private to the deployment or monitoring network.
 
 Open Spanner does not terminate TLS itself. Put it behind your platform ingress, load balancer, or reverse proxy and terminate TLS there. If you expose gRPC outside a private network, use a proxy that supports gRPC over HTTP/2.
 
 ## Health Checks
 
-Use these endpoints from your orchestrator:
+Use these private API endpoints from your orchestrator:
 
 | Endpoint | Use |
 | --- | --- |
@@ -115,6 +138,8 @@ Use these endpoints from your orchestrator:
 | `/metrics` | OpenTelemetry operational metrics in Prometheus format. |
 
 The Docker Compose app stack uses `/ready` for the API container health check.
+
+The web container uses `/login` for its own liveness check. Public REST availability depends on both the web and API readiness checks.
 
 Each worker binary exposes the same `/health` and `/ready` contract on its own probe address. Readiness verifies database connectivity and becomes unavailable before the worker drains during shutdown. The defaults are `:18082` for export, `:18083` for alert, and `:18084` for entitlement; use these endpoints for container or Kubernetes probes. Docker Compose health-checks every worker through `/ready`.
 
@@ -150,7 +175,8 @@ Before upgrading a production deployment:
 
 1. Pin the target image tag instead of using `latest`.
 2. Back up Postgres.
-3. Confirm API, export worker, alert worker, and entitlement worker containers use the same image version.
+3. Confirm web, API, export worker, alert worker, and entitlement worker containers use the same release version.
 4. Start the API and wait for `/ready`.
 5. Restart workers after the API has completed migrations.
-6. Check the dashboard, queued exports, and alert events after the rollout.
+6. Start the web deployment and wait for `/login`.
+7. Check the dashboard, queued exports, and alert events after the rollout.

@@ -22,7 +22,6 @@ import (
 	"github.com/ssubedir/open-spanner/internal/metering/workers/retention"
 	"github.com/ssubedir/open-spanner/internal/observability"
 	serverhttp "github.com/ssubedir/open-spanner/internal/server/http"
-	"github.com/ssubedir/open-spanner/internal/ui"
 	"google.golang.org/grpc"
 )
 
@@ -48,9 +47,6 @@ func main() {
 	router.Use(metrics.HTTPMiddleware)
 	router.Get("/health", health)
 	router.Handle("/metrics", metrics.Handler())
-	if cfg.EmbeddedUIEnabled {
-		ui.RegisterRoutes(router)
-	}
 	app, err := bootstrap.RegisterRoutesWithMetrics(runCtx, router, cfg, metrics)
 	if err != nil {
 		_ = metrics.Shutdown(context.Background())

@@ -83,7 +83,7 @@ jobs:
           SHARED='^\.github/workflows/ci\.yml$|^Taskfile\.yml$|^taskfiles/|^scripts/'
           BACKEND='^cmd/|^internal/|^go\.mod$|^go\.sum$|^sqlc\.yaml$|^openapi/|^docker-compose.*\.yml$|^Dockerfile$'
           SDKS='^sdk/|^examples/|^openapi/|^dotnet-tools\.json$'
-          ADMIN='^web_v2/|^internal/ui/'
+          ADMIN='^web_v2/'
           DOCS='^docs/'
 
           set_area api "$SHARED|$BACKEND"
@@ -269,6 +269,52 @@ jobs:
 
       - name: Run browser E2E with Postgres
         run: task test:e2e:web:postgres
+
+  packaging:
+    name: Container packaging
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.api == 'true' || needs.changes.outputs.admin == 'true'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build release images
+        run: |
+          docker build --target api-runtime --tag open-spanner-api:ci .
+          docker build --target web-runtime --tag open-spanner-web:ci .
+
+      - name: Smoke test web-to-API topology
+        shell: bash
+        run: |
+          set -euo pipefail
+          network=open-spanner-ci
+          api=open-spanner-api-ci
+          web=open-spanner-web-ci
+          cleanup() {
+            docker rm --force "$web" "$api" >/dev/null 2>&1 || true
+            docker network rm "$network" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          docker network create "$network"
+          docker run --detach --name "$api" --network "$network" open-spanner-api:ci
+          for attempt in {1..30}; do
+            if docker exec "$api" wget -q -O /dev/null http://127.0.0.1:18080/ready; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              docker logs "$api"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          docker run --detach --name "$web" --network "$network" --publish 19181:18081 \
+            --env OPEN_SPANNER_API_PROXY_URL="http://$api:18080" open-spanner-web:ci
+          curl --fail --retry 30 --retry-delay 1 --retry-connrefused http://127.0.0.1:19181/login >/dev/null
+          curl --fail http://127.0.0.1:19181/v1/auth/providers | grep --quiet 'registration_enabled'
 
   docs:
     name: Docs build

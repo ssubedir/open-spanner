@@ -9,7 +9,7 @@ The API exposes OpenTelemetry metrics in Prometheus format at `GET /metrics`. Th
 scrape_configs:
   - job_name: open-spanner
     static_configs:
-      - targets: ["open-spanner:18081"]
+      - targets: ["open-spanner-api:18080"]
 ```
 
 Keep `/metrics` on a trusted network or protect it at your ingress. It contains operational counts and process information, but never workspace IDs, subjects, meters, idempotency keys, or raw URL parameters.

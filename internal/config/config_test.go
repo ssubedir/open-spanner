@@ -23,6 +23,9 @@ func TestLoadDefaultsToSQLite(t *testing.T) {
 	if cfg.GRPCAddr != ":18090" {
 		t.Fatalf("grpc addr = %q, want :18090", cfg.GRPCAddr)
 	}
+	if cfg.HTTPAddr != ":18080" {
+		t.Fatalf("http addr = %q, want :18080", cfg.HTTPAddr)
+	}
 	if cfg.ExportWorkerHealthAddr != ":18082" || cfg.AlertWorkerHealthAddr != ":18083" || cfg.EntitlementWorkerHealthAddr != ":18084" {
 		t.Fatalf("worker health addresses = %q %q %q", cfg.ExportWorkerHealthAddr, cfg.AlertWorkerHealthAddr, cfg.EntitlementWorkerHealthAddr)
 	}
@@ -34,9 +37,6 @@ func TestLoadDefaultsToSQLite(t *testing.T) {
 	}
 	if !cfg.RegistrationEnabled {
 		t.Fatal("registration should be enabled by default")
-	}
-	if !cfg.EmbeddedUIEnabled {
-		t.Fatal("embedded UI should be enabled by default")
 	}
 	if cfg.RetentionPruneInterval != time.Hour {
 		t.Fatalf("retention interval = %s, want 1h", cfg.RetentionPruneInterval)
@@ -190,7 +190,6 @@ func clearEnv(t *testing.T) {
 		"OPEN_SPANNER_EXPORT_WORKER_HEALTH_ADDR",
 		"OPEN_SPANNER_ALERT_WORKER_HEALTH_ADDR",
 		"OPEN_SPANNER_ENTITLEMENT_WORKER_HEALTH_ADDR",
-		"OPEN_SPANNER_EMBEDDED_UI_ENABLED",
 		"OPEN_SPANNER_REGISTRATION_ENABLED",
 		"OPEN_SPANNER_INGESTION_MAX_BODY_BYTES",
 		"OPEN_SPANNER_INGESTION_MAX_BULK_EVENTS",

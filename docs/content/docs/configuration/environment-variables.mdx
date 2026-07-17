@@ -5,7 +5,7 @@ description: Runtime configuration for the Open Spanner service.
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `OPEN_SPANNER_HTTP_ADDR` | `:18081` | API listen address. |
+| `OPEN_SPANNER_HTTP_ADDR` | `:18080` | Internal API, health, readiness, and metrics listen address. |
 | `OPEN_SPANNER_GRPC_ADDR` | `:18090` | gRPC listen address for backend usage ingestion. |
 | `OPEN_SPANNER_EXPORT_WORKER_HEALTH_ADDR` | `:18082` | Export-worker liveness and readiness listen address. |
 | `OPEN_SPANNER_ALERT_WORKER_HEALTH_ADDR` | `:18083` | Alert-worker liveness and readiness listen address. |
@@ -80,6 +80,12 @@ description: Runtime configuration for the Open Spanner service.
 | `OPEN_SPANNER_OPERATIONAL_HISTORY_TIMEOUT` | `5m` | Maximum duration of one operational-history cleanup pass. |
 | `OPEN_SPANNER_OPERATIONAL_HISTORY_BATCH_SIZE` | `1000` | Maximum rows deleted from each eligible table per pass; range 1–10,000. |
 
+The Next.js web process uses one runtime variable:
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `OPEN_SPANNER_API_PROXY_URL` | `http://127.0.0.1:18080` | Private API origin used for `/v1` requests. Do not point this at the public web origin. |
+
 ## Social Login
 
 Open Spanner supports dashboard sign-in with email/password and configured OAuth providers. Google and GitHub are built in today, and each provider follows the same variable pattern:
@@ -109,13 +115,6 @@ http://localhost:18081/v1/auth/oauth/google/callback
 http://localhost:18081/v1/auth/oauth/github/callback
 ```
 
-When using the Vite dashboard dev server, also add:
-
-```text
-http://localhost:5173/v1/auth/oauth/google/callback
-http://localhost:5173/v1/auth/oauth/github/callback
-```
-
 Set explicit redirect URLs when the public browser URL differs from the API listen address:
 
 ```sh
@@ -131,7 +130,7 @@ These variables are read by `docker-compose.app.yml` before the Open Spanner con
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `OPEN_SPANNER_HTTP_PORT` | `18081` | Host port published for the app container. |
+| `OPEN_SPANNER_HTTP_PORT` | `18081` | Host port published for the web dashboard and REST proxy. |
 | `OPEN_SPANNER_GRPC_PORT` | `18090` | Host port published for the app container's gRPC listener. |
 | `OPEN_SPANNER_INGESTION_*` | service defaults | Passed through to the app container for ingestion size and rate limits. |
 | `OPEN_SPANNER_POSTGRES_PASSWORD` | `open_spanner` | Password for the bundled Postgres service and the app connection string. |

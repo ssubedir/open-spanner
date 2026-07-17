@@ -90,14 +90,35 @@ jobs:
             type=raw,value=${{ steps.release.outputs.version }}
             type=raw,value=latest
 
-      - name: Build and push Docker image
+      - name: Web Docker image metadata
+        id: docker-web
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/open-spanner-web
+          tags: |
+            type=raw,value=${{ steps.release.outputs.tag }}
+            type=raw,value=${{ steps.release.outputs.version }}
+            type=raw,value=latest
+
+      - name: Build and push API image
         uses: docker/build-push-action@v6
         with:
           context: .
+          target: api-runtime
           push: true
           platforms: linux/amd64
           tags: ${{ steps.docker.outputs.tags }}
           labels: ${{ steps.docker.outputs.labels }}
+
+      - name: Build and push web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: web-runtime
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.docker-web.outputs.tags }}
+          labels: ${{ steps.docker-web.outputs.labels }}
 
       - name: Create GitHub Release
         env:

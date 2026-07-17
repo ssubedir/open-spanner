@@ -50,7 +50,8 @@ Backend services are the data plane:
 
 For production, run Postgres as the system of record and run workers beside the API:
 
-- The API serves the dashboard, REST API, gRPC ingestion, health checks, and readiness checks.
+- The web process serves the dashboard and proxies public REST requests.
+- The private API serves REST, gRPC ingestion, metrics, health checks, and readiness checks.
 - The export worker processes queued CSV jobs.
 - The alert worker evaluates alert rules and sends webhook notifications.
 - The entitlement worker updates stored quota state, events, and period snapshots after usage changes.

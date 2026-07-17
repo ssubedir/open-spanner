@@ -3,8 +3,10 @@ version: '3'
 tasks:
   admin:dev:
     desc: Run the Next.js admin UI dev server
+    env:
+      OPEN_SPANNER_API_PROXY_URL: http://127.0.0.1:18080
     cmds:
-      - cd web_v2; npm run dev
+      - cd web_v2; npm run dev -- --hostname 127.0.0.1 --port 18081
 
   admin:build:
     desc: Build the standalone Next.js admin UI

@@ -48,7 +48,7 @@ Read the hosted docs at [ssubedir.github.io/open-spanner/docs](https://ssubedir.
 - Dashboard auth with HttpOnly cookies plus scoped API keys with audited rotation and revocation.
 - Workspace isolation so each dashboard user sees their own meters, usage, plans, alerts, exports, and keys.
 - SQLite and Postgres storage, including Postgres JSONB metadata filtering.
-- Embedded React dashboard.
+- Standalone Next.js dashboard with a runtime proxy to the internal API.
 - OpenTelemetry instrumentation with a Prometheus-compatible `/metrics` endpoint for HTTP, gRPC, ingestion, SQL pool, runtime, and worker health signals.
 - Generated REST SDKs for Go, TypeScript, Python, and C#.
 - Go stream SDK for gRPC usage ingestion.
@@ -74,9 +74,7 @@ Useful local endpoints:
 | Endpoint | Purpose |
 | --- | --- |
 | `http://localhost:18081/login` | Dashboard login |
-| `http://localhost:18081/health` | Liveness |
-| `http://localhost:18081/ready` | Readiness |
-| `http://localhost:18081/metrics` | OpenTelemetry metrics in Prometheus format |
+| `http://localhost:18081/v1/*` | REST API through the dashboard proxy |
 | `localhost:18090` | gRPC usage ingestion |
 
 Stop the stack:
@@ -93,19 +91,21 @@ docker compose -f docker-compose.app.yml down -v
 
 ## Docker Image
 
-Release images are published to Docker Hub:
+Release images are published to Docker Hub as separate API and dashboard images:
 
 ```sh
 docker pull ssubedir/open-spanner:latest
+docker pull ssubedir/open-spanner-web:latest
 ```
 
 Use `latest` for trials. Pin a version tag for production:
 
 ```sh
 docker pull ssubedir/open-spanner:0.1.12
+docker pull ssubedir/open-spanner-web:0.1.12
 ```
 
-The image includes the API and worker binaries:
+The API image includes the API and worker binaries:
 
 ```text
 /usr/local/bin/open-spanner
@@ -114,18 +114,7 @@ The image includes the API and worker binaries:
 /usr/local/bin/open-spanner-entitlement-worker
 ```
 
-For a small SQLite-backed trial:
-
-```sh
-docker volume create open-spanner-data
-
-docker run --detach \
-  --name open-spanner \
-  --publish 18081:18081 \
-  --publish 18090:18090 \
-  --volume open-spanner-data:/data \
-  ssubedir/open-spanner:latest
-```
+The web image runs the Next.js dashboard on port `18081` and forwards `/v1` requests to `OPEN_SPANNER_API_PROXY_URL`. Use `docker-compose.app.yml` for a complete local stack with the correct private API wiring.
 
 ## From Source
 
@@ -133,6 +122,12 @@ Install [Task](https://taskfile.dev/) and run the API with SQLite:
 
 ```sh
 task run:sqlite
+```
+
+Run the Next.js dashboard in another terminal. It listens on `18081` and proxies API requests to the internal API on `18080`:
+
+```sh
+task admin:dev
 ```
 
 Run workers in separate terminals when you want queued exports, alerts, and async entitlement state updates processed:
@@ -308,9 +303,8 @@ Common runtime variables:
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `OPEN_SPANNER_HTTP_ADDR` | `:18081` | HTTP dashboard, REST API, and health endpoints. |
+| `OPEN_SPANNER_HTTP_ADDR` | `:18080` | Internal API, health, readiness, and metrics listen address. |
 | `OPEN_SPANNER_GRPC_ADDR` | `:18090` | gRPC usage ingestion listen address. |
-| `OPEN_SPANNER_EMBEDDED_UI_ENABLED` | `true` | Serves the bundled dashboard from the API process. Disable when a separate frontend such as `web_v2` is deployed. |
 | `OPEN_SPANNER_EXPORT_WORKER_HEALTH_ADDR` | `:18082` | Export-worker liveness and readiness listen address. |
 | `OPEN_SPANNER_ALERT_WORKER_HEALTH_ADDR` | `:18083` | Alert-worker liveness and readiness listen address. |
 | `OPEN_SPANNER_ENTITLEMENT_WORKER_HEALTH_ADDR` | `:18084` | Entitlement-worker liveness and readiness listen address. |
@@ -378,11 +372,11 @@ http://localhost:18081/v1/auth/oauth/google/callback
 http://localhost:18081/v1/auth/oauth/github/callback
 ```
 
-For Vite dashboard development, also allow:
+For a separately hosted dashboard, configure the public callback URL explicitly:
 
 ```text
-http://localhost:5173/v1/auth/oauth/google/callback
-http://localhost:5173/v1/auth/oauth/github/callback
+OPEN_SPANNER_GOOGLE_OAUTH_REDIRECT_URL=https://open-spanner.example.com/v1/auth/oauth/google/callback
+OPEN_SPANNER_GITHUB_OAUTH_REDIRECT_URL=https://open-spanner.example.com/v1/auth/oauth/github/callback
 ```
 
 Disable a configured provider without removing credentials:
@@ -461,9 +455,8 @@ cmd/alert-worker        Alert evaluation worker entrypoint
 cmd/entitlement-worker  Entitlement state worker entrypoint
 internal/config         Runtime configuration
 internal/server/http    HTTP server wiring
-internal/ui             Embedded dashboard routes and assets
 internal/metering       Domain, app services, adapters, and workers
-web                     React dashboard source
+web_v2                  Next.js dashboard and runtime API proxy
 docs                    Fumadocs documentation site
 openapi                 Generated Swagger/OpenAPI artifacts
 sdk                     Generated SDKs

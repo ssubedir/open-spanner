@@ -15,7 +15,17 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldfl
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/open-spanner-alert-worker ./cmd/alert-worker
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/open-spanner-entitlement-worker ./cmd/entitlement-worker
 
-FROM alpine:3.22
+FROM node:22-alpine AS web-build
+WORKDIR /src/web_v2
+
+COPY web_v2/package.json web_v2/package-lock.json ./
+RUN npm install --global npm@11.6.2 \
+    && npm ci
+
+COPY web_v2 ./
+RUN npm run build
+
+FROM alpine:3.22 AS api-runtime
 
 RUN apk add --no-cache ca-certificates \
     && addgroup -S open-spanner \
@@ -28,15 +38,35 @@ COPY --from=api-build /out/open-spanner-export-worker /usr/local/bin/open-spanne
 COPY --from=api-build /out/open-spanner-alert-worker /usr/local/bin/open-spanner-alert-worker
 COPY --from=api-build /out/open-spanner-entitlement-worker /usr/local/bin/open-spanner-entitlement-worker
 
-ENV OPEN_SPANNER_HTTP_ADDR=:18081
+ENV OPEN_SPANNER_HTTP_ADDR=:18080
 ENV OPEN_SPANNER_GRPC_ADDR=:18090
 ENV OPEN_SPANNER_DB_DRIVER=sqlite
 ENV OPEN_SPANNER_SQLITE_PATH=/data/open-spanner.db
 ENV OPEN_SPANNER_EXPORT_STORAGE_PATH=/data/exports
-ENV OPEN_SPANNER_EMBEDDED_UI_ENABLED=false
-
 USER open-spanner
 VOLUME ["/data"]
-EXPOSE 18081 18082 18083 18084 18090
+EXPOSE 18080 18082 18083 18084 18090
 
 ENTRYPOINT ["/usr/local/bin/open-spanner"]
+
+FROM node:22-alpine AS web-runtime
+
+RUN apk add --no-cache ca-certificates \
+    && addgroup -S open-spanner \
+    && adduser -S -G open-spanner open-spanner
+
+WORKDIR /opt/open-spanner-web
+
+COPY --from=web-build --chown=open-spanner:open-spanner /src/web_v2/.next/standalone ./
+COPY --from=web-build --chown=open-spanner:open-spanner /src/web_v2/.next/static ./.next/static
+
+ENV HOSTNAME=0.0.0.0
+ENV PORT=18081
+ENV OPEN_SPANNER_API_PROXY_URL=http://open-spanner-api:18080
+
+USER open-spanner
+EXPOSE 18081
+
+CMD ["node", "server.js"]
+
+FROM api-runtime AS final

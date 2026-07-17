@@ -735,7 +735,7 @@ func setAuthCookie(w http.ResponseWriter, r *http.Request, name string, token st
 		Path:     "/",
 		Expires:  expiresAt,
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   requestIsSecure(r),
 		SameSite: http.SameSiteLaxMode,
 	})
 }
@@ -747,7 +747,7 @@ func setOAuthStateCookie(w http.ResponseWriter, r *http.Request, state string) {
 		Path:     "/v1/auth/oauth",
 		MaxAge:   int((10 * time.Minute).Seconds()),
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   requestIsSecure(r),
 		SameSite: http.SameSiteLaxMode,
 	})
 }
@@ -759,7 +759,7 @@ func setOAuthRedirectCookie(w http.ResponseWriter, r *http.Request, redirectURL 
 		Path:     "/v1/auth/oauth",
 		MaxAge:   int((10 * time.Minute).Seconds()),
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   requestIsSecure(r),
 		SameSite: http.SameSiteLaxMode,
 	})
 }
@@ -772,7 +772,7 @@ func clearOAuthStateCookie(w http.ResponseWriter, r *http.Request) {
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   requestIsSecure(r),
 		SameSite: http.SameSiteLaxMode,
 	})
 }
@@ -785,7 +785,7 @@ func clearOAuthRedirectCookie(w http.ResponseWriter, r *http.Request) {
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   requestIsSecure(r),
 		SameSite: http.SameSiteLaxMode,
 	})
 }
@@ -798,7 +798,15 @@ func clearAuthCookie(w http.ResponseWriter, r *http.Request, name string) {
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   requestIsSecure(r),
 		SameSite: http.SameSiteLaxMode,
 	})
+}
+
+func requestIsSecure(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	forwardedProto, _, _ := strings.Cut(r.Header.Get("X-Forwarded-Proto"), ",")
+	return strings.EqualFold(strings.TrimSpace(forwardedProto), "https")
 }

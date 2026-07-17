@@ -1,11 +1,35 @@
 services:
+  web:
+    image: open-spanner-web:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: web-runtime
+    environment:
+      HOSTNAME: 0.0.0.0
+      PORT: 18081
+      OPEN_SPANNER_API_PROXY_URL: http://app:18080
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:18081/login || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    ports:
+      - "${OPEN_SPANNER_HTTP_PORT:-18081}:18081"
+    restart: unless-stopped
+
   app:
     image: open-spanner:local
     build:
       context: .
       dockerfile: Dockerfile
+      target: api-runtime
     environment:
-      OPEN_SPANNER_HTTP_ADDR: :18081
+      OPEN_SPANNER_HTTP_ADDR: :18080
       OPEN_SPANNER_GRPC_ADDR: :18090
       OPEN_SPANNER_INGESTION_MAX_BODY_BYTES: ${OPEN_SPANNER_INGESTION_MAX_BODY_BYTES:-1048576}
       OPEN_SPANNER_INGESTION_MAX_BULK_EVENTS: ${OPEN_SPANNER_INGESTION_MAX_BULK_EVENTS:-1000}
@@ -41,14 +65,15 @@ services:
     volumes:
       - open-spanner-app-exports:/data/exports
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:18081/ready || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:18080/ready || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 12
       start_period: 5s
     ports:
-      - "${OPEN_SPANNER_HTTP_PORT:-18081}:18081"
       - "${OPEN_SPANNER_GRPC_PORT:-18090}:18090"
+    expose:
+      - "18080"
     restart: unless-stopped
 
   export-worker:
@@ -56,6 +81,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: api-runtime
     entrypoint: ["/usr/local/bin/open-spanner-export-worker"]
     environment:
       OPEN_SPANNER_DB_DRIVER: postgres
@@ -99,6 +125,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: api-runtime
     entrypoint: ["/usr/local/bin/open-spanner-alert-worker"]
     environment:
       OPEN_SPANNER_DB_DRIVER: postgres
@@ -130,6 +157,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: api-runtime
     entrypoint: ["/usr/local/bin/open-spanner-entitlement-worker"]
     environment:
       OPEN_SPANNER_DB_DRIVER: postgres

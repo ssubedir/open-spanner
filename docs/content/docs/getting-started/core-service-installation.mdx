@@ -3,65 +3,11 @@ title: Core Service Installation
 description: Run Open Spanner and send the first usage event.
 ---
 
-Open Spanner can run as a single container with SQLite or as an API, workers, and Postgres stack with Docker Compose.
+Open Spanner runs the Next.js dashboard, Go API, workers, and Postgres as explicit processes. Docker Compose is the smallest supported full installation because it wires the public dashboard to the private API correctly.
 
-Use Docker Run when you want the smallest local instance. Use Docker Compose when you want the API, export worker, alert worker, entitlement worker, Postgres, and shared export storage started together.
+## Option 1: Docker Compose
 
-## Option 1: Docker Run
-
-This starts one Open Spanner container using SQLite storage persisted in a Docker volume.
-
-```sh
-IMAGE=ssubedir/open-spanner:latest
-docker volume create open-spanner-data
-docker run --detach \
-  --name open-spanner \
-  --publish 18081:18081 \
-  --publish 18090:18090 \
-  --volume open-spanner-data:/data \
-  "$IMAGE"
-```
-
-Open the dashboard at `http://localhost:18081/register`.
-
-Use `latest` for a quick trial. For production, pin a release tag such as `ssubedir/open-spanner:0.1.12`.
-
-Queued export jobs, alerts, and entitlement state updates use worker processes. Start workers against the same Docker volume when you want dashboard export jobs to produce downloadable files, alert rules to evaluate, or quota state history to refresh outside the API process:
-
-```sh
-docker run --detach \
-  --name open-spanner-export-worker \
-  --volume open-spanner-data:/data \
-  --entrypoint /usr/local/bin/open-spanner-export-worker \
-  "$IMAGE"
-
-docker run --detach \
-  --name open-spanner-alert-worker \
-  --volume open-spanner-data:/data \
-  --entrypoint /usr/local/bin/open-spanner-alert-worker \
-  "$IMAGE"
-
-docker run --detach \
-  --name open-spanner-entitlement-worker \
-  --volume open-spanner-data:/data \
-  --entrypoint /usr/local/bin/open-spanner-entitlement-worker \
-  "$IMAGE"
-```
-
-Stop and remove the container:
-
-```sh
-docker rm -f open-spanner-export-worker
-docker rm -f open-spanner-alert-worker
-docker rm -f open-spanner-entitlement-worker
-docker rm -f open-spanner
-```
-
-The data stays in the `open-spanner-data` volume until you remove that volume.
-
-## Option 2: Docker Compose
-
-This starts the Open Spanner API, export worker, alert worker, entitlement worker, and Postgres together. Postgres is private to the Compose network and is not published on host port `5432`.
+This starts the dashboard, API, export worker, alert worker, entitlement worker, and Postgres together. Only the dashboard/REST proxy on `18081` and gRPC on `18090` are published. The API and Postgres remain private to the Compose network.
 
 ```sh
 git clone https://github.com/ssubedir/open-spanner.git
@@ -98,7 +44,7 @@ Remove the Postgres data volume as well:
 docker compose -f docker-compose.app.yml down -v
 ```
 
-## Option 3: Run From Source
+## Option 2: Run From Source
 
 Use Task when you want to run the service directly from the repository.
 
@@ -132,6 +78,12 @@ Run with SQLite:
 git clone https://github.com/ssubedir/open-spanner.git
 cd open-spanner
 task run:sqlite
+```
+
+Run the dashboard in another terminal. It listens on `18081` and proxies `/v1` to the API on `18080`:
+
+```sh
+task admin:dev
 ```
 
 Run workers in separate terminals when you want queued export jobs, alert rules, and entitlement state updates processed outside the API:
