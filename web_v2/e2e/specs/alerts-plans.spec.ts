@@ -109,7 +109,7 @@ test.describe('Feature: Alerts, plans, and entitlements', () => {
       await page.goto(`/alerts/${rule.id}`)
       await expect(page.getByRole('heading', { name: alertName })).toBeVisible()
       await expect(page.locator('main')).toContainText('Delivered')
-      await page.getByRole('button', { name: 'View triggered alert event' }).click()
+      await page.getByRole('button', { name: 'View triggered alert event' }).first().click()
 
       const eventDialog = page.getByRole('dialog', { name: 'Alert Event' })
       await expect(eventDialog).toContainText(alertName)

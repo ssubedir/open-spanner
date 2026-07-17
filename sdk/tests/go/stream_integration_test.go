@@ -92,6 +92,11 @@ func startOpenSpanner(t *testing.T, httpAddr string, grpcAddr string) string {
 		workerName += ".exe"
 	}
 	workerPath := filepath.Join(tempDir, workerName)
+	usageWorkerName := "open-spanner-usage-worker-test"
+	if runtime.GOOS == "windows" {
+		usageWorkerName += ".exe"
+	}
+	usageWorkerPath := filepath.Join(tempDir, usageWorkerName)
 	dbPath := filepath.Join(tempDir, "open-spanner.db")
 
 	var buildLog bytes.Buffer
@@ -109,6 +114,14 @@ func startOpenSpanner(t *testing.T, httpAddr string, grpcAddr string) string {
 	buildWorker.Stderr = &buildLog
 	if err := buildWorker.Run(); err != nil {
 		t.Fatalf("build entitlement worker binary: %v\n%s", err, buildLog.String())
+	}
+	buildLog.Reset()
+	buildUsageWorker := exec.Command("go", "build", "-o", usageWorkerPath, "./cmd/usage-worker")
+	buildUsageWorker.Dir = repoRoot
+	buildUsageWorker.Stdout = &buildLog
+	buildUsageWorker.Stderr = &buildLog
+	if err := buildUsageWorker.Run(); err != nil {
+		t.Fatalf("build usage worker binary: %v\n%s", err, buildLog.String())
 	}
 
 	var serverLog bytes.Buffer
@@ -177,6 +190,38 @@ func startOpenSpanner(t *testing.T, httpAddr string, grpcAddr string) string {
 		}
 	})
 	waitForReady(t, "http://"+workerHealthAddr, workerDone, &workerLog)
+
+	usageWorkerHealthAddr := freeTCPAddr(t)
+	var usageWorkerLog bytes.Buffer
+	usageWorker := exec.Command(usageWorkerPath)
+	usageWorker.Dir = repoRoot
+	usageWorker.Stdout = &usageWorkerLog
+	usageWorker.Stderr = &usageWorkerLog
+	usageWorker.Env = append(os.Environ(),
+		"OPEN_SPANNER_DB_DRIVER=sqlite",
+		"OPEN_SPANNER_SQLITE_PATH="+dbPath,
+		"OPEN_SPANNER_USAGE_WORKER_HEALTH_ADDR="+usageWorkerHealthAddr,
+		"OPEN_SPANNER_USAGE_WORKER_INTERVAL=50ms",
+	)
+	if err := usageWorker.Start(); err != nil {
+		t.Fatalf("start usage worker: %v", err)
+	}
+	usageWorkerDone := make(chan error, 1)
+	go func() {
+		usageWorkerDone <- usageWorker.Wait()
+	}()
+	t.Cleanup(func() {
+		if usageWorker.ProcessState != nil && usageWorker.ProcessState.Exited() {
+			return
+		}
+		_ = usageWorker.Process.Kill()
+		select {
+		case <-usageWorkerDone:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("usage worker did not exit after kill")
+		}
+	})
+	waitForReady(t, "http://"+usageWorkerHealthAddr, usageWorkerDone, &usageWorkerLog)
 	return baseURL
 }
 
