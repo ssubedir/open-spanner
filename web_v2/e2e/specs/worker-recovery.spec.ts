@@ -15,7 +15,9 @@ type AlertDeliveryJob = {
 type SystemStats = {
   worker_health: Array<{
     failed_jobs: number
+    healthy_replicas: number
     name: string
+    replica_count: number
     status: string
   }>
 }
@@ -46,8 +48,10 @@ test.describe('Feature: Operational reliability', () => {
 
       await page.goto('/overview')
       const healthCard = cardNamed(page, 'Operations Health')
+      await expect(healthCard.getByRole('columnheader', { name: 'Replicas' })).toBeVisible()
       const alertHealthRow = healthCard.getByRole('row').filter({ hasText: 'alert' })
       await expect(alertHealthRow).toContainText('degraded')
+      await expect(alertHealthRow).toContainText('1 / 1')
       await expect(alertHealthRow).toContainText('1')
 
       const outbox = cardNamed(page, 'Alert Delivery Outbox')
@@ -75,6 +79,7 @@ test.describe('Feature: Operational reliability', () => {
       await page.reload()
       const recoveredHealthRow = cardNamed(page, 'Operations Health').getByRole('row').filter({ hasText: 'alert' })
       await expect(recoveredHealthRow).toContainText('healthy')
+      await expect(recoveredHealthRow).toContainText('1 / 1')
       const deliveredRow = cardNamed(page, 'Alert Delivery Outbox').getByRole('row').filter({ hasText: job.event_id })
       await expect(deliveredRow).toContainText('delivered')
       await expect(deliveredRow.getByRole('button', { name: 'Retry' })).toHaveCount(0)

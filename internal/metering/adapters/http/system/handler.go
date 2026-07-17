@@ -358,7 +358,10 @@ func statsResponseFromResult(stats appsystem.StatsResult) StatsResponse {
 	}
 	workerHealth := make([]WorkerHealthResponse, 0, len(stats.WorkerHealth))
 	for _, worker := range stats.WorkerHealth {
-		item := WorkerHealthResponse{Name: worker.Name, Status: worker.Status, PendingJobs: worker.PendingJobs, RunningJobs: worker.RunningJobs, FailedJobs: worker.FailedJobs}
+		item := WorkerHealthResponse{Name: worker.Name, Status: worker.Status, PendingJobs: worker.PendingJobs, RunningJobs: worker.RunningJobs, FailedJobs: worker.FailedJobs, ReplicaCount: worker.ReplicaCount, HealthyReplicas: worker.HealthyReplicas, StaleReplicas: worker.StaleReplicas, Instances: make([]WorkerInstanceHealthResponse, 0, len(worker.Instances))}
+		for _, instance := range worker.Instances {
+			item.Instances = append(item.Instances, WorkerInstanceHealthResponse{InstanceID: instance.InstanceID, Status: instance.Status, StartedAt: instance.StartedAt.Format(time.RFC3339Nano), LastHeartbeatAt: instance.LastHeartbeatAt.Format(time.RFC3339Nano)})
+		}
 		if !worker.StartedAt.IsZero() {
 			item.StartedAt = worker.StartedAt.Format(time.RFC3339Nano)
 		}

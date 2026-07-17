@@ -309,6 +309,7 @@ Common runtime variables:
 | `OPEN_SPANNER_EXPORT_WORKER_HEALTH_ADDR` | `:18082` | Export-worker liveness and readiness listen address. |
 | `OPEN_SPANNER_ALERT_WORKER_HEALTH_ADDR` | `:18083` | Alert-worker liveness and readiness listen address. |
 | `OPEN_SPANNER_ENTITLEMENT_WORKER_HEALTH_ADDR` | `:18084` | Entitlement-worker liveness and readiness listen address. |
+| `OPEN_SPANNER_WORKER_INSTANCE_ID` | `<hostname>-<pid>` | Stable replica identity recorded in worker heartbeats. Set this to the Kubernetes pod name for replicated workers. |
 | `OPEN_SPANNER_INGESTION_MAX_BODY_BYTES` | `1048576` | Maximum REST request body and gRPC receive message size. |
 | `OPEN_SPANNER_INGESTION_MAX_BULK_EVENTS` | `1000` | Maximum events in one REST or unary gRPC bulk write. |
 | `OPEN_SPANNER_INGESTION_MAX_STREAM_EVENTS` | `1000` | Maximum events accepted by one gRPC client stream. |

@@ -6210,6 +6210,15 @@ const docTemplate = `{
                 "failed_jobs": {
                     "type": "integer"
                 },
+                "healthy_replicas": {
+                    "type": "integer"
+                },
+                "instances": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_system.WorkerInstanceHealthResponse"
+                    }
+                },
                 "last_failure_at": {
                     "type": "string"
                 },
@@ -6228,8 +6237,31 @@ const docTemplate = `{
                 "pending_jobs": {
                     "type": "integer"
                 },
+                "replica_count": {
+                    "type": "integer"
+                },
                 "running_jobs": {
                     "type": "integer"
+                },
+                "stale_replicas": {
+                    "type": "integer"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_system.WorkerInstanceHealthResponse": {
+            "type": "object",
+            "properties": {
+                "instance_id": {
+                    "type": "string"
+                },
+                "last_heartbeat_at": {
+                    "type": "string"
                 },
                 "started_at": {
                     "type": "string"

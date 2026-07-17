@@ -12,7 +12,8 @@ import (
 
 type Service interface {
 	Stats(ctx context.Context) (StatsResult, error)
-	RecordWorkerHeartbeat(ctx context.Context, workerName string, startedAt, heartbeatAt time.Time) error
+	RecordWorkerHeartbeat(ctx context.Context, workerName, instanceID string, startedAt, heartbeatAt time.Time) error
+	RemoveWorkerHeartbeat(ctx context.Context, workerName, instanceID string) error
 	Reconcile(ctx context.Context, query ReconciliationQuery) (ReconciliationResult, error)
 	RepairCounter(ctx context.Context, cmd RepairCounterCommand) (CounterRepairResult, error)
 	ListCounterRepairRuns(ctx context.Context, limit int) ([]CounterRepairResult, error)
@@ -71,6 +72,7 @@ type Repository interface {
 	SaveReconciliationNotificationAttempt(ctx context.Context, attempt ReconciliationNotificationAttempt) error
 	ListReconciliationNotificationAttempts(ctx context.Context, notificationID string) ([]ReconciliationNotificationAttempt, error)
 	UpsertWorkerHeartbeat(ctx context.Context, heartbeat WorkerHeartbeat) error
+	DeleteWorkerHeartbeat(ctx context.Context, workerName, instanceID string) error
 	ListWorkerHeartbeats(ctx context.Context) ([]WorkerHeartbeat, error)
 	ListWorkerDiagnostics(ctx context.Context, now time.Time) ([]WorkerDiagnostics, error)
 	ListWorkerDeadLetters(ctx context.Context, limit int) ([]WorkerDeadLetter, error)
@@ -220,6 +222,7 @@ type RollupMeterHealth struct {
 
 type WorkerHeartbeat struct {
 	Name            string
+	InstanceID      string
 	StartedAt       time.Time
 	LastHeartbeatAt time.Time
 }
@@ -235,6 +238,17 @@ type WorkerHealth struct {
 	OldestPendingAt time.Time
 	LastSuccessAt   time.Time
 	LastFailureAt   time.Time
+	ReplicaCount    int
+	HealthyReplicas int
+	StaleReplicas   int
+	Instances       []WorkerInstanceHealth
+}
+
+type WorkerInstanceHealth struct {
+	InstanceID      string
+	Status          string
+	StartedAt       time.Time
+	LastHeartbeatAt time.Time
 }
 
 type WorkerDiagnostics struct {
@@ -407,11 +421,21 @@ func rollupHealth(coverage []RollupMeterCoverage, now time.Time, staleAfter time
 	return health
 }
 
-func (s *service) RecordWorkerHeartbeat(ctx context.Context, workerName string, startedAt, heartbeatAt time.Time) error {
+func (s *service) RecordWorkerHeartbeat(ctx context.Context, workerName, instanceID string, startedAt, heartbeatAt time.Time) error {
 	if workerName == "" {
 		return fmt.Errorf("%w: worker name is required", domain.ErrInvalidInput)
 	}
-	return s.repo.UpsertWorkerHeartbeat(ctx, WorkerHeartbeat{Name: workerName, StartedAt: startedAt.UTC(), LastHeartbeatAt: heartbeatAt.UTC()})
+	if instanceID == "" {
+		return fmt.Errorf("%w: worker instance id is required", domain.ErrInvalidInput)
+	}
+	return s.repo.UpsertWorkerHeartbeat(ctx, WorkerHeartbeat{Name: workerName, InstanceID: instanceID, StartedAt: startedAt.UTC(), LastHeartbeatAt: heartbeatAt.UTC()})
+}
+
+func (s *service) RemoveWorkerHeartbeat(ctx context.Context, workerName, instanceID string) error {
+	if workerName == "" || instanceID == "" {
+		return fmt.Errorf("%w: worker name and instance id are required", domain.ErrInvalidInput)
+	}
+	return s.repo.DeleteWorkerHeartbeat(ctx, workerName, instanceID)
 }
 
 func (s *service) PruneOperationalHistory(ctx context.Context, before time.Time, batchSize int) (OperationalHistoryPruneResult, error) {
@@ -435,9 +459,9 @@ func (s *service) PruneOperationalHistory(ctx context.Context, before time.Time,
 }
 
 func workerHealth(enabled map[string]bool, heartbeats []WorkerHeartbeat, diagnostics []WorkerDiagnostics, now time.Time, staleAfter, backlogStaleAfter time.Duration) []WorkerHealth {
-	byName := map[string]WorkerHeartbeat{}
+	byName := map[string][]WorkerHeartbeat{}
 	for _, heartbeat := range heartbeats {
-		byName[heartbeat.Name] = heartbeat
+		byName[heartbeat.Name] = append(byName[heartbeat.Name], heartbeat)
 	}
 	diagnosticsByName := map[string]WorkerDiagnostics{}
 	for _, diagnostic := range diagnostics {
@@ -460,13 +484,29 @@ func workerHealth(enabled map[string]bool, heartbeats []WorkerHeartbeat, diagnos
 			result = append(result, item)
 			continue
 		}
-		if heartbeat, ok := byName[name]; ok {
-			item.StartedAt = heartbeat.StartedAt
-			item.LastHeartbeatAt = heartbeat.LastHeartbeatAt
+		if heartbeats := byName[name]; len(heartbeats) > 0 {
+			item.ReplicaCount = len(heartbeats)
+			item.Instances = make([]WorkerInstanceHealth, 0, len(heartbeats))
+			for _, heartbeat := range heartbeats {
+				instance := WorkerInstanceHealth{InstanceID: heartbeat.InstanceID, Status: "healthy", StartedAt: heartbeat.StartedAt, LastHeartbeatAt: heartbeat.LastHeartbeatAt}
+				if now.Sub(heartbeat.LastHeartbeatAt) > staleAfter {
+					instance.Status = "stale"
+					item.StaleReplicas++
+				} else {
+					item.HealthyReplicas++
+				}
+				if item.StartedAt.IsZero() || heartbeat.StartedAt.Before(item.StartedAt) {
+					item.StartedAt = heartbeat.StartedAt
+				}
+				if heartbeat.LastHeartbeatAt.After(item.LastHeartbeatAt) {
+					item.LastHeartbeatAt = heartbeat.LastHeartbeatAt
+				}
+				item.Instances = append(item.Instances, instance)
+			}
 			item.Status = "healthy"
-			if now.Sub(heartbeat.LastHeartbeatAt) > staleAfter {
+			if item.HealthyReplicas == 0 {
 				item.Status = "stale"
-			} else if item.FailedJobs > 0 || (!item.OldestPendingAt.IsZero() && now.Sub(item.OldestPendingAt) > backlogStaleAfter) {
+			} else if item.StaleReplicas > 0 || item.FailedJobs > 0 || (!item.OldestPendingAt.IsZero() && now.Sub(item.OldestPendingAt) > backlogStaleAfter) {
 				item.Status = "degraded"
 			}
 		}

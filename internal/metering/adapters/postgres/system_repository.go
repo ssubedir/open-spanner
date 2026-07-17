@@ -44,7 +44,15 @@ func (r *SystemRepository) ListWorkspaceIDs(ctx context.Context) ([]string, erro
 }
 
 func (r *SystemRepository) UpsertWorkerHeartbeat(ctx context.Context, heartbeat appsystem.WorkerHeartbeat) error {
-	return queriesFor(ctx, r.queries).UpsertWorkerHeartbeat(ctx, postgresdb.UpsertWorkerHeartbeatParams{WorkerName: heartbeat.Name, StartedAt: heartbeat.StartedAt, LastHeartbeatAt: heartbeat.LastHeartbeatAt})
+	queries := queriesFor(ctx, r.queries)
+	if err := queries.DeleteExpiredWorkerHeartbeats(ctx, heartbeat.LastHeartbeatAt.Add(-24*time.Hour)); err != nil {
+		return err
+	}
+	return queries.UpsertWorkerHeartbeat(ctx, postgresdb.UpsertWorkerHeartbeatParams{WorkerName: heartbeat.Name, InstanceID: heartbeat.InstanceID, StartedAt: heartbeat.StartedAt, LastHeartbeatAt: heartbeat.LastHeartbeatAt})
+}
+
+func (r *SystemRepository) DeleteWorkerHeartbeat(ctx context.Context, workerName, instanceID string) error {
+	return queriesFor(ctx, r.queries).DeleteWorkerHeartbeat(ctx, postgresdb.DeleteWorkerHeartbeatParams{WorkerName: workerName, InstanceID: instanceID})
 }
 
 func (r *SystemRepository) ListWorkerHeartbeats(ctx context.Context) ([]appsystem.WorkerHeartbeat, error) {
@@ -54,7 +62,7 @@ func (r *SystemRepository) ListWorkerHeartbeats(ctx context.Context) ([]appsyste
 	}
 	items := make([]appsystem.WorkerHeartbeat, 0, len(rows))
 	for _, row := range rows {
-		items = append(items, appsystem.WorkerHeartbeat{Name: row.WorkerName, StartedAt: row.StartedAt, LastHeartbeatAt: row.LastHeartbeatAt})
+		items = append(items, appsystem.WorkerHeartbeat{Name: row.WorkerName, InstanceID: row.InstanceID, StartedAt: row.StartedAt, LastHeartbeatAt: row.LastHeartbeatAt})
 	}
 	return items, nil
 }

@@ -236,14 +236,23 @@ WHERE workspace_id = sqlc.arg('workspace_id')::text
 ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg('limit')::int;
 -- name: UpsertWorkerHeartbeat :exec
-INSERT INTO system_worker_heartbeats (worker_name, started_at, last_heartbeat_at)
-VALUES ($1, $2, $3)
-ON CONFLICT(worker_name) DO UPDATE SET started_at = EXCLUDED.started_at, last_heartbeat_at = EXCLUDED.last_heartbeat_at;
+INSERT INTO system_worker_heartbeats (worker_name, instance_id, started_at, last_heartbeat_at)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT(worker_name, instance_id) DO UPDATE SET started_at = EXCLUDED.started_at, last_heartbeat_at = EXCLUDED.last_heartbeat_at;
 
 -- name: ListWorkerHeartbeats :many
-SELECT worker_name, started_at, last_heartbeat_at
+SELECT worker_name, instance_id, started_at, last_heartbeat_at
 FROM system_worker_heartbeats
-ORDER BY worker_name ASC;
+ORDER BY worker_name ASC, instance_id ASC;
+
+-- name: DeleteExpiredWorkerHeartbeats :exec
+DELETE FROM system_worker_heartbeats
+WHERE last_heartbeat_at < sqlc.arg('cutoff')::timestamptz;
+
+-- name: DeleteWorkerHeartbeat :exec
+DELETE FROM system_worker_heartbeats
+WHERE worker_name = sqlc.arg('worker_name')
+	AND instance_id = sqlc.arg('instance_id');
 
 -- name: ListWorkerDiagnostics :many
 SELECT 'export'::text AS worker_name,

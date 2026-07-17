@@ -54,16 +54,27 @@ type LastExportCleanupRunResponse struct {
 }
 
 type WorkerHealthResponse struct {
-	Name            string `json:"name"`
+	Name            string                         `json:"name"`
+	Status          string                         `json:"status"`
+	StartedAt       string                         `json:"started_at,omitempty"`
+	LastHeartbeatAt string                         `json:"last_heartbeat_at,omitempty"`
+	PendingJobs     int                            `json:"pending_jobs"`
+	RunningJobs     int                            `json:"running_jobs"`
+	FailedJobs      int                            `json:"failed_jobs"`
+	OldestPendingAt string                         `json:"oldest_pending_at,omitempty"`
+	LastSuccessAt   string                         `json:"last_success_at,omitempty"`
+	LastFailureAt   string                         `json:"last_failure_at,omitempty"`
+	ReplicaCount    int                            `json:"replica_count"`
+	HealthyReplicas int                            `json:"healthy_replicas"`
+	StaleReplicas   int                            `json:"stale_replicas"`
+	Instances       []WorkerInstanceHealthResponse `json:"instances"`
+}
+
+type WorkerInstanceHealthResponse struct {
+	InstanceID      string `json:"instance_id"`
 	Status          string `json:"status"`
-	StartedAt       string `json:"started_at,omitempty"`
-	LastHeartbeatAt string `json:"last_heartbeat_at,omitempty"`
-	PendingJobs     int    `json:"pending_jobs"`
-	RunningJobs     int    `json:"running_jobs"`
-	FailedJobs      int    `json:"failed_jobs"`
-	OldestPendingAt string `json:"oldest_pending_at,omitempty"`
-	LastSuccessAt   string `json:"last_success_at,omitempty"`
-	LastFailureAt   string `json:"last_failure_at,omitempty"`
+	StartedAt       string `json:"started_at"`
+	LastHeartbeatAt string `json:"last_heartbeat_at"`
 }
 
 type WorkerDeadLetterResponse struct {

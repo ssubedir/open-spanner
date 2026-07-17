@@ -46,6 +46,15 @@ export type SystemStats = {
 		oldest_pending_at?: string
 		last_success_at?: string
 		last_failure_at?: string
+		replica_count: number
+		healthy_replicas: number
+		stale_replicas: number
+		instances: Array<{
+			instance_id: string
+			status: 'healthy' | 'stale'
+			started_at: string
+			last_heartbeat_at: string
+		}>
 	}>
 	rollup_health: {
 		status: 'healthy' | 'degraded' | 'stale' | 'not_started'

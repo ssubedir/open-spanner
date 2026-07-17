@@ -178,12 +178,6 @@ type EntitlementUsageCounter struct {
 	UpdatedAt      string
 }
 
-type SystemWorkerHeartbeat struct {
-	WorkerName      string
-	StartedAt       time.Time
-	LastHeartbeatAt time.Time
-}
-
 type UsageSavedQuery struct {
 	ID          string
 	UserID      string

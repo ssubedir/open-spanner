@@ -25,6 +25,15 @@ func (r *reconciliationRepository) UpsertWorkerHeartbeat(_ context.Context, hear
 	r.heartbeats = append(r.heartbeats, heartbeat)
 	return nil
 }
+func (r *reconciliationRepository) DeleteWorkerHeartbeat(_ context.Context, workerName, instanceID string) error {
+	for index, heartbeat := range r.heartbeats {
+		if heartbeat.Name == workerName && heartbeat.InstanceID == instanceID {
+			r.heartbeats = append(r.heartbeats[:index], r.heartbeats[index+1:]...)
+			break
+		}
+	}
+	return nil
+}
 func (r *reconciliationRepository) ListWorkerHeartbeats(context.Context) ([]WorkerHeartbeat, error) {
 	return r.heartbeats, nil
 }
@@ -59,8 +68,8 @@ func (r *reconciliationRepository) MarkWorkerDeadLetterRequeued(_ context.Contex
 func TestWorkerHealthDegradesForOldBacklogAndFailures(t *testing.T) {
 	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
 	heartbeats := []WorkerHeartbeat{
-		{Name: "export", StartedAt: now.Add(-time.Hour), LastHeartbeatAt: now.Add(-time.Second)},
-		{Name: "alert", StartedAt: now.Add(-time.Hour), LastHeartbeatAt: now.Add(-time.Second)},
+		{Name: "export", InstanceID: "export-pod-1", StartedAt: now.Add(-time.Hour), LastHeartbeatAt: now.Add(-time.Second)},
+		{Name: "alert", InstanceID: "alert-pod-1", StartedAt: now.Add(-time.Hour), LastHeartbeatAt: now.Add(-time.Second)},
 	}
 	diagnostics := []WorkerDiagnostics{
 		{Name: "export", PendingJobs: 2, OldestPendingAt: now.Add(-6 * time.Minute)},
@@ -78,9 +87,25 @@ func TestWorkerHealthDegradesForOldBacklogAndFailures(t *testing.T) {
 
 func TestWorkerHealthStaleTakesPriorityOverDiagnostics(t *testing.T) {
 	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
-	result := workerHealth(map[string]bool{}, []WorkerHeartbeat{{Name: "export", LastHeartbeatAt: now.Add(-time.Minute)}}, []WorkerDiagnostics{{Name: "export", FailedJobs: 1}}, now, 30*time.Second, 5*time.Minute)
+	result := workerHealth(map[string]bool{}, []WorkerHeartbeat{{Name: "export", InstanceID: "export-pod-1", LastHeartbeatAt: now.Add(-time.Minute)}}, []WorkerDiagnostics{{Name: "export", FailedJobs: 1}}, now, 30*time.Second, 5*time.Minute)
 	if result[0].Status != "stale" {
 		t.Fatalf("expected stale status, got %q", result[0].Status)
+	}
+}
+
+func TestWorkerHealthAggregatesReplicaLiveness(t *testing.T) {
+	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+	result := workerHealth(map[string]bool{}, []WorkerHeartbeat{
+		{Name: "export", InstanceID: "export-pod-1", StartedAt: now.Add(-time.Hour), LastHeartbeatAt: now.Add(-time.Second)},
+		{Name: "export", InstanceID: "export-pod-2", StartedAt: now.Add(-2 * time.Hour), LastHeartbeatAt: now.Add(-time.Minute)},
+	}, nil, now, 30*time.Second, 5*time.Minute)
+
+	export := result[0]
+	if export.Status != "degraded" || export.ReplicaCount != 2 || export.HealthyReplicas != 1 || export.StaleReplicas != 1 {
+		t.Fatalf("export replica health = %+v", export)
+	}
+	if len(export.Instances) != 2 || export.Instances[0].InstanceID != "export-pod-1" || export.Instances[0].Status != "healthy" || export.Instances[1].Status != "stale" {
+		t.Fatalf("export instances = %+v", export.Instances)
 	}
 }
 

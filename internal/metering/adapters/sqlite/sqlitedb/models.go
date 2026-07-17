@@ -178,6 +178,7 @@ type EntitlementUsageCounter struct {
 
 type SystemWorkerHeartbeat struct {
 	WorkerName      string
+	InstanceID      string
 	StartedAt       string
 	LastHeartbeatAt string
 }

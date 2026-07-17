@@ -1380,6 +1380,12 @@ definitions:
     properties:
       failed_jobs:
         type: integer
+      healthy_replicas:
+        type: integer
+      instances:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_system.WorkerInstanceHealthResponse'
+        type: array
       last_failure_at:
         type: string
       last_heartbeat_at:
@@ -1392,8 +1398,23 @@ definitions:
         type: string
       pending_jobs:
         type: integer
+      replica_count:
+        type: integer
       running_jobs:
         type: integer
+      stale_replicas:
+        type: integer
+      started_at:
+        type: string
+      status:
+        type: string
+    type: object
+  internal_metering_adapters_http_system.WorkerInstanceHealthResponse:
+    properties:
+      instance_id:
+        type: string
+      last_heartbeat_at:
+        type: string
       started_at:
         type: string
       status:

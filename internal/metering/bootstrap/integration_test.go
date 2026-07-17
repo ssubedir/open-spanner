@@ -286,12 +286,32 @@ func runIntegrationAPIKeyRotation(t *testing.T, cfg config.Config, namespace str
 	suffix := namespace + "-rotation-" + strconv.FormatInt(time.Now().UTC().UnixNano(), 36)
 	identity := createTestDashboardIdentity(t, router, "rotation-"+suffix+"@example.com")
 	heartbeatAt := time.Now().UTC()
-	if err := app.SystemService.RecordWorkerHeartbeat(context.Background(), "export", heartbeatAt.Add(-time.Minute), heartbeatAt); err != nil {
+	if err := app.SystemService.RecordWorkerHeartbeat(context.Background(), "export", "export-pod-1", heartbeatAt.Add(-time.Minute), heartbeatAt); err != nil {
 		t.Fatalf("record worker heartbeat: %v", err)
 	}
 	health := requestJSON(t, router, http.MethodGet, "/v1/system/stats", nil, identity.Cookies)
-	if health.Code != http.StatusOK || !strings.Contains(health.Body.String(), `"name":"export","status":"healthy"`) {
+	if health.Code != http.StatusOK || !strings.Contains(health.Body.String(), `"name":"export"`) {
 		t.Fatalf("worker health status=%d body=%s", health.Code, health.Body.String())
+	}
+	var healthStats struct {
+		WorkerHealth []struct {
+			Name            string `json:"name"`
+			ReplicaCount    int    `json:"replica_count"`
+			HealthyReplicas int    `json:"healthy_replicas"`
+			Instances       []struct {
+				InstanceID string `json:"instance_id"`
+			} `json:"instances"`
+		} `json:"worker_health"`
+	}
+	decodeJSON(t, health, &healthStats)
+	foundInstance := false
+	if len(healthStats.WorkerHealth) > 0 {
+		for _, instance := range healthStats.WorkerHealth[0].Instances {
+			foundInstance = foundInstance || instance.InstanceID == "export-pod-1"
+		}
+	}
+	if len(healthStats.WorkerHealth) == 0 || healthStats.WorkerHealth[0].Name != "export" || healthStats.WorkerHealth[0].ReplicaCount < 1 || healthStats.WorkerHealth[0].HealthyReplicas < 1 || !foundInstance {
+		t.Fatalf("worker replica response = %+v", healthStats.WorkerHealth)
 	}
 	created := requestJSON(t, router, http.MethodPost, "/v1/auth/api-keys", fullAccessAPIKeyPayload("rotating-"+suffix), identity.Cookies)
 	if created.Code != http.StatusCreated {
@@ -703,6 +723,119 @@ func TestIntegrationPostgresTransactionDeadlockRetryExactlyOnce(t *testing.T) {
 	}
 	if metrics.retries.Load() != 1 || metrics.exhausted.Load() != 0 {
 		t.Fatalf("retry metrics retries=%d exhausted=%d", metrics.retries.Load(), metrics.exhausted.Load())
+	}
+}
+
+func TestIntegrationPostgresWorkerReplicasClaimOnceAndRecoverLease(t *testing.T) {
+	dsn := os.Getenv("OPEN_SPANNER_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set OPEN_SPANNER_TEST_POSTGRES_DSN to run Postgres worker replica integration tests")
+	}
+
+	ctx := context.Background()
+	router := chi.NewRouter()
+	app, err := RegisterRoutes(ctx, router, config.Config{
+		DBDriver: "postgres", PostgresDSN: dsn, DBPool: config.DBPoolConfig{MaxOpenConns: 8}, RegistrationEnabled: true,
+	})
+	if err != nil {
+		t.Fatalf("register routes: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := app.Cleanup(); err != nil {
+			t.Fatalf("cleanup: %v", err)
+		}
+	})
+
+	// Leave the shared integration database with no claimable export work so the
+	// contention below targets exactly one job created by this test.
+	for {
+		job, claimed, err := app.UsageService.ClaimExportJob(ctx, appusage.ExportJobClaimCommand{LockTTL: time.Minute, MaxAttempts: 100})
+		if err != nil {
+			t.Fatalf("drain existing export job: %v", err)
+		}
+		if !claimed {
+			break
+		}
+		jobCtx := appauth.WithWorkspaceID(ctx, job.WorkspaceID)
+		if _, err := app.UsageService.CompleteExportJob(jobCtx, appusage.ExportJobCompleteCommand{ID: job.ID, ClaimToken: job.ClaimToken, ArtifactPath: "integration-drain.csv"}); err != nil {
+			t.Fatalf("complete existing export job: %v", err)
+		}
+	}
+
+	suffix := strconv.FormatInt(time.Now().UTC().UnixNano(), 36)
+	identity := createTestDashboardIdentity(t, router, "replicas+"+suffix+"@example.com")
+	principal, err := app.AuthService.AuthenticateAPIKeyPrincipal(ctx, identity.APIKey)
+	if err != nil {
+		t.Fatalf("authenticate worker replica identity: %v", err)
+	}
+	workspaceCtx := appauth.WithWorkspaceID(ctx, principal.WorkspaceID)
+	queued, err := app.UsageService.CreateExportJob(workspaceCtx, appusage.ExportJobCreateCommand{Kind: "usage_buckets", Format: "csv", QueryJSON: `{}`})
+	if err != nil {
+		t.Fatalf("create replica contention export: %v", err)
+	}
+
+	type claimResult struct {
+		job     appusage.ExportJobResult
+		claimed bool
+		err     error
+	}
+	start := make(chan struct{})
+	claims := make(chan claimResult, 2)
+	for range 2 {
+		go func() {
+			<-start
+			job, claimed, err := app.UsageService.ClaimExportJob(ctx, appusage.ExportJobClaimCommand{LockTTL: 30 * time.Millisecond, MaxAttempts: 3})
+			claims <- claimResult{job: job, claimed: claimed, err: err}
+		}()
+	}
+	close(start)
+
+	claimed := make([]appusage.ExportJobResult, 0, 1)
+	for range 2 {
+		result := <-claims
+		if result.err != nil {
+			t.Fatalf("concurrent replica claim: %v", result.err)
+		}
+		if result.claimed {
+			claimed = append(claimed, result.job)
+		}
+	}
+	if len(claimed) != 1 || claimed[0].ID != queued.ID {
+		t.Fatalf("concurrent replica claims = %+v, want exactly export %s", claimed, queued.ID)
+	}
+
+	time.Sleep(40 * time.Millisecond)
+	recovered, ok, err := app.UsageService.ClaimExportJob(ctx, appusage.ExportJobClaimCommand{LockTTL: time.Minute, MaxAttempts: 3})
+	if err != nil || !ok {
+		t.Fatalf("recover abandoned export lease: job=%+v claimed=%v err=%v", recovered, ok, err)
+	}
+	if recovered.ID != queued.ID || recovered.ClaimToken == claimed[0].ClaimToken || recovered.Attempts != 2 {
+		t.Fatalf("recovered export = %+v, first claim = %+v", recovered, claimed[0])
+	}
+	if _, err := app.UsageService.CompleteExportJob(workspaceCtx, appusage.ExportJobCompleteCommand{ID: recovered.ID, ClaimToken: recovered.ClaimToken, ArtifactPath: "replica-recovered.csv"}); err != nil {
+		t.Fatalf("complete recovered export: %v", err)
+	}
+
+	now := time.Now().UTC()
+	t.Cleanup(func() {
+		for _, instanceID := range []string{"export-pod-1", "export-pod-2"} {
+			if err := app.SystemService.RemoveWorkerHeartbeat(context.Background(), "export", instanceID); err != nil {
+				t.Errorf("remove %s heartbeat: %v", instanceID, err)
+			}
+		}
+	})
+	if err := app.SystemService.RecordWorkerHeartbeat(ctx, "export", "export-pod-1", now.Add(-time.Hour), now); err != nil {
+		t.Fatalf("record healthy replica heartbeat: %v", err)
+	}
+	if err := app.SystemService.RecordWorkerHeartbeat(ctx, "export", "export-pod-2", now.Add(-time.Hour), now.Add(-time.Minute)); err != nil {
+		t.Fatalf("record stale replica heartbeat: %v", err)
+	}
+	stats, err := app.SystemService.Stats(workspaceCtx)
+	if err != nil {
+		t.Fatalf("read replica worker health: %v", err)
+	}
+	if len(stats.WorkerHealth) == 0 || stats.WorkerHealth[0].Status != "degraded" || stats.WorkerHealth[0].ReplicaCount != 2 || stats.WorkerHealth[0].HealthyReplicas != 1 || stats.WorkerHealth[0].StaleReplicas != 1 {
+		t.Fatalf("export replica health = %+v", stats.WorkerHealth)
 	}
 }
 

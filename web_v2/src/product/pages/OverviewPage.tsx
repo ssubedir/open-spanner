@@ -89,9 +89,10 @@ export function OverviewPage() {
       <Card className="mb-4 min-w-0">
         <CardHeader className="!px-4 !py-3"><div><CardTitle>Operations Health</CardTitle><CardDescription>Worker liveness, active work, and durable queue backlog. Backlogs older than five minutes are degraded.</CardDescription></div></CardHeader>
         <CardContent>
-          <DataTable emptyLabel="Worker health is unavailable" headers={['Worker', 'Status', 'Pending', 'Running', 'Failed', 'Oldest pending', 'Last result', 'Last heartbeat']} rows={(stats?.worker_health ?? []).map((worker) => [
+          <DataTable emptyLabel="Worker health is unavailable" headers={['Worker', 'Status', 'Replicas', 'Pending', 'Running', 'Failed', 'Oldest pending', 'Last result', 'Last heartbeat']} rows={(stats?.worker_health ?? []).map((worker) => [
             <strong className="capitalize">{worker.name}</strong>,
             <Badge variant={worker.status === 'healthy' ? 'success' : worker.status === 'stale' || worker.status === 'degraded' ? 'warning' : 'muted'}>{worker.status.replace('_', ' ')}</Badge>,
+            worker.replica_count > 0 ? <span title={worker.instances.map((instance) => `${instance.instance_id}: ${instance.status}`).join('\n')}><strong>{worker.healthy_replicas}</strong> / {worker.replica_count}{worker.stale_replicas > 0 ? ` (${worker.stale_replicas} stale)` : ''}</span> : <span className="muted">—</span>,
             worker.pending_jobs,
             worker.running_jobs,
             worker.failed_jobs > 0 ? <strong>{worker.failed_jobs}</strong> : 0,

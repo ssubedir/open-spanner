@@ -213,6 +213,32 @@ func (q *Queries) DeleteEntitlementCounterForRepair(ctx context.Context, arg Del
 	return result.RowsAffected()
 }
 
+const deleteExpiredWorkerHeartbeats = `-- name: DeleteExpiredWorkerHeartbeats :exec
+DELETE FROM system_worker_heartbeats
+WHERE last_heartbeat_at < $1::timestamptz
+`
+
+func (q *Queries) DeleteExpiredWorkerHeartbeats(ctx context.Context, cutoff time.Time) error {
+	_, err := q.db.ExecContext(ctx, deleteExpiredWorkerHeartbeats, cutoff)
+	return err
+}
+
+const deleteWorkerHeartbeat = `-- name: DeleteWorkerHeartbeat :exec
+DELETE FROM system_worker_heartbeats
+WHERE worker_name = $1
+	AND instance_id = $2
+`
+
+type DeleteWorkerHeartbeatParams struct {
+	WorkerName string
+	InstanceID string
+}
+
+func (q *Queries) DeleteWorkerHeartbeat(ctx context.Context, arg DeleteWorkerHeartbeatParams) error {
+	_, err := q.db.ExecContext(ctx, deleteWorkerHeartbeat, arg.WorkerName, arg.InstanceID)
+	return err
+}
+
 const enqueueAlertWorkerDeadLetter = `-- name: EnqueueAlertWorkerDeadLetter :execrows
 INSERT INTO alert_evaluation_jobs (rule_id, run_after, locked_until, attempts, created_at, updated_at)
 SELECT d.rule_id, $1::text, NULL, 0, $1::text, $1::text
@@ -1080,21 +1106,33 @@ func (q *Queries) ListWorkerDiagnostics(ctx context.Context, arg ListWorkerDiagn
 }
 
 const listWorkerHeartbeats = `-- name: ListWorkerHeartbeats :many
-SELECT worker_name, started_at, last_heartbeat_at
+SELECT worker_name, instance_id, started_at, last_heartbeat_at
 FROM system_worker_heartbeats
-ORDER BY worker_name ASC
+ORDER BY worker_name ASC, instance_id ASC
 `
 
-func (q *Queries) ListWorkerHeartbeats(ctx context.Context) ([]SystemWorkerHeartbeat, error) {
+type ListWorkerHeartbeatsRow struct {
+	WorkerName      string
+	InstanceID      string
+	StartedAt       time.Time
+	LastHeartbeatAt time.Time
+}
+
+func (q *Queries) ListWorkerHeartbeats(ctx context.Context) ([]ListWorkerHeartbeatsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listWorkerHeartbeats)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []SystemWorkerHeartbeat{}
+	items := []ListWorkerHeartbeatsRow{}
 	for rows.Next() {
-		var i SystemWorkerHeartbeat
-		if err := rows.Scan(&i.WorkerName, &i.StartedAt, &i.LastHeartbeatAt); err != nil {
+		var i ListWorkerHeartbeatsRow
+		if err := rows.Scan(
+			&i.WorkerName,
+			&i.InstanceID,
+			&i.StartedAt,
+			&i.LastHeartbeatAt,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -1402,18 +1440,24 @@ func (q *Queries) UpdateEntitlementCounterForRepair(ctx context.Context, arg Upd
 }
 
 const upsertWorkerHeartbeat = `-- name: UpsertWorkerHeartbeat :exec
-INSERT INTO system_worker_heartbeats (worker_name, started_at, last_heartbeat_at)
-VALUES ($1, $2, $3)
-ON CONFLICT(worker_name) DO UPDATE SET started_at = EXCLUDED.started_at, last_heartbeat_at = EXCLUDED.last_heartbeat_at
+INSERT INTO system_worker_heartbeats (worker_name, instance_id, started_at, last_heartbeat_at)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT(worker_name, instance_id) DO UPDATE SET started_at = EXCLUDED.started_at, last_heartbeat_at = EXCLUDED.last_heartbeat_at
 `
 
 type UpsertWorkerHeartbeatParams struct {
 	WorkerName      string
+	InstanceID      string
 	StartedAt       time.Time
 	LastHeartbeatAt time.Time
 }
 
 func (q *Queries) UpsertWorkerHeartbeat(ctx context.Context, arg UpsertWorkerHeartbeatParams) error {
-	_, err := q.db.ExecContext(ctx, upsertWorkerHeartbeat, arg.WorkerName, arg.StartedAt, arg.LastHeartbeatAt)
+	_, err := q.db.ExecContext(ctx, upsertWorkerHeartbeat,
+		arg.WorkerName,
+		arg.InstanceID,
+		arg.StartedAt,
+		arg.LastHeartbeatAt,
+	)
 	return err
 }

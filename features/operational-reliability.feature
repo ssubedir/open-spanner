@@ -15,3 +15,13 @@ Feature: Operational reliability
     Then the alert worker delivers the same job
     And duplicate retries are rejected
     And the overview reports healthy alert worker status
+
+  @ui_covered @api_covered
+  Scenario: Replicated workers remain observable and claim jobs once
+    Given two replicas of the same worker are registered
+    Then the overview shows healthy and stale replica counts
+    And each replica identity is available for inspection
+    When both replicas try to claim one queued job at the same time
+    Then exactly one replica claims the job
+    When the winning replica stops before completing the job
+    Then another replica reclaims the job after its lease expires
