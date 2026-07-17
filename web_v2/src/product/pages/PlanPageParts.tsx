@@ -62,7 +62,7 @@ export function PlanModal({ meters, onClose, onPreview, onSubmit, plan, previewE
   }
 
   return (
-    <Modal className="!w-full !max-w-[780px]" title={title} onClose={onClose}>
+    <Modal className="!w-full !max-w-[960px]" title={title} onClose={onClose}>
       <form ref={formRef} className="grid max-h-[calc(100vh-128px)] min-w-0 grid-cols-2 gap-2.5 overflow-auto p-4 max-md:grid-cols-1" onSubmit={(event) => void submit(event)}>
         <Label className="grid min-w-0 gap-1.5">
           Name
@@ -81,8 +81,8 @@ export function PlanModal({ meters, onClose, onPreview, onSubmit, plan, previewE
               Add limit
             </Button>
           </div>
-          {limits.map((limit) => (
-            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_36px] items-end gap-2 rounded-md border border-border bg-card p-2 lg:grid-cols-[minmax(150px,1fr)_minmax(95px,115px)_minmax(95px,115px)_minmax(90px,110px)_minmax(110px,130px)_minmax(120px,140px)_36px]" key={limit.id}>
+          {limits.map((limit, index) => (
+            <div aria-label={`Limit ${index + 1}`} className="grid min-w-0 grid-cols-[minmax(0,1fr)_36px] items-end gap-2 rounded-md border border-border bg-card p-2 lg:grid-cols-[minmax(150px,1fr)_minmax(95px,115px)_minmax(95px,115px)_minmax(90px,110px)_minmax(110px,130px)_minmax(120px,140px)_36px]" key={limit.id} role="group">
               <Label className="col-span-full grid min-w-0 gap-1.5 lg:col-span-1">
                 Meter
                 <Select onValueChange={(value) => updateLimit(limit.id, { meter: value })} required value={limit.meter || undefined}>

@@ -282,7 +282,7 @@ async function fillPlanLimit(
   limit: string,
   warningPercent: string,
 ) {
-  const row = dialog.getByRole('button', { name: 'Remove limit' }).nth(index).locator('xpath=..')
+  const row = dialog.getByRole('group', { name: `Limit ${index + 1}` })
   const meterSelect = row.getByRole('combobox', { name: 'Meter' })
   await meterSelect.click()
   await page.getByRole('option', { name: meter, exact: true }).click()
