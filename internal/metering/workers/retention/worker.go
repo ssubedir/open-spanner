@@ -2,10 +2,13 @@ package retention
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"sync"
 	"time"
 
+	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	appconsumption "github.com/ssubedir/open-spanner/internal/metering/app/consumption"
 	appusage "github.com/ssubedir/open-spanner/internal/metering/app/usage"
 )
@@ -18,6 +21,10 @@ type DecisionPruner interface {
 	PruneDecisions(ctx context.Context, cmd appconsumption.PruneCommand) (appconsumption.PruneResult, error)
 }
 
+type WorkspaceLister interface {
+	ListWorkspaceIDs(ctx context.Context) ([]string, error)
+}
+
 type Logger func(format string, args ...any)
 
 type Worker struct {
@@ -27,11 +34,25 @@ type Worker struct {
 	logger            Logger
 	decisionPruner    DecisionPruner
 	decisionRetention time.Duration
+	workspaceLister   WorkspaceLister
+}
+
+type pruneResult struct {
+	eventsDeleted    int
+	decisionsDeleted int
+	workspaces       int
+	duration         time.Duration
+	err              error
 }
 
 func (w *Worker) WithDecisionPruner(pruner DecisionPruner, retention time.Duration) *Worker {
 	w.decisionPruner = pruner
 	w.decisionRetention = retention
+	return w
+}
+
+func (w *Worker) WithWorkspaceLister(lister WorkspaceLister) *Worker {
+	w.workspaceLister = lister
 	return w
 }
 
@@ -76,13 +97,6 @@ func (w *Worker) run(ctx context.Context) {
 	w.logger("retention prune worker started: interval=%s timeout=%s", w.interval, w.timeout)
 	defer w.logger("retention prune worker stopped")
 
-	type pruneResult struct {
-		result    appusage.PruneResult
-		decisions appconsumption.PruneResult
-		duration  time.Duration
-		err       error
-	}
-
 	finished := make(chan pruneResult, 1)
 	var wg sync.WaitGroup
 	running := false
@@ -100,18 +114,7 @@ func (w *Worker) run(ctx context.Context) {
 			}
 			defer cancel()
 
-			startedAt := time.Now()
-			result, err := w.pruner.PruneEvents(runCtx, appusage.PruneCommand{})
-			var decisions appconsumption.PruneResult
-			if err == nil && w.decisionPruner != nil && w.decisionRetention > 0 {
-				decisions, err = w.decisionPruner.PruneDecisions(runCtx, appconsumption.PruneCommand{Before: time.Now().UTC().Add(-w.decisionRetention)})
-			}
-			finished <- pruneResult{
-				result:    result,
-				decisions: decisions,
-				duration:  time.Since(startedAt),
-				err:       err,
-			}
+			finished <- w.prune(runCtx)
 		}()
 	}
 
@@ -127,7 +130,7 @@ func (w *Worker) run(ctx context.Context) {
 				w.logger("retention prune failed: duration=%s error=%v", result.duration.Round(time.Millisecond), result.err)
 				continue
 			}
-			w.logger("retention prune completed: duration=%s events_deleted=%d decisions_deleted=%d run_id=%s decision_run_id=%s", result.duration.Round(time.Millisecond), result.result.Deleted, result.decisions.Deleted, result.result.ID, result.decisions.ID)
+			w.logger("retention prune completed: duration=%s workspaces=%d events_deleted=%d decisions_deleted=%d", result.duration.Round(time.Millisecond), result.workspaces, result.eventsDeleted, result.decisionsDeleted)
 		case <-ticker.C:
 			if running {
 				w.logger("retention prune skipped: previous run still active")
@@ -136,4 +139,40 @@ func (w *Worker) run(ctx context.Context) {
 			startPrune()
 		}
 	}
+}
+
+func (w *Worker) prune(ctx context.Context) pruneResult {
+	startedAt := time.Now()
+	workspaceIDs := []string{""}
+	if w.workspaceLister != nil {
+		var err error
+		workspaceIDs, err = w.workspaceLister.ListWorkspaceIDs(ctx)
+		if err != nil {
+			return pruneResult{duration: time.Since(startedAt), err: err}
+		}
+	}
+
+	result := pruneResult{workspaces: len(workspaceIDs)}
+	for _, workspaceID := range workspaceIDs {
+		workspaceCtx := ctx
+		if workspaceID != "" {
+			workspaceCtx = appauth.WithWorkspaceID(ctx, workspaceID)
+		}
+		pruned, err := w.pruner.PruneEvents(workspaceCtx, appusage.PruneCommand{})
+		if err != nil {
+			result.err = errors.Join(result.err, fmt.Errorf("workspace %s: %w", workspaceID, err))
+			continue
+		}
+		result.eventsDeleted += pruned.Deleted
+		if w.decisionPruner != nil && w.decisionRetention > 0 {
+			decisions, err := w.decisionPruner.PruneDecisions(workspaceCtx, appconsumption.PruneCommand{Before: time.Now().UTC().Add(-w.decisionRetention)})
+			if err != nil {
+				result.err = errors.Join(result.err, fmt.Errorf("workspace %s decisions: %w", workspaceID, err))
+				continue
+			}
+			result.decisionsDeleted += decisions.Deleted
+		}
+	}
+	result.duration = time.Since(startedAt)
+	return result
 }

@@ -113,6 +113,7 @@ func main() {
 		log.Printf("retention prune worker enabled: interval=%s timeout=%s", cfg.RetentionPruneInterval, cfg.RetentionPruneTimeout)
 		stopRetention = retention.NewWorker(app.UsageService, cfg.RetentionPruneInterval, cfg.RetentionPruneTimeout, log.Printf).
 			WithDecisionPruner(app.ConsumptionService, cfg.ConsumptionDecisionRetention).
+			WithWorkspaceLister(app).
 			Start(runCtx)
 	}
 	stopHistoryHeartbeat := heartbeat.Start(runCtx, app.SystemService, "history", log.Printf)

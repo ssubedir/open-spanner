@@ -971,19 +971,19 @@ SELECT 'export' AS worker_name,
 FROM usage_export_jobs e
 UNION ALL
 SELECT 'alert',
-	(SELECT COUNT(*) FROM alert_evaluation_jobs WHERE locked_until IS NULL OR locked_until < ?1)
-		+ (SELECT COUNT(*) FROM alert_delivery_jobs WHERE status = 'pending' OR (status = 'running' AND (locked_until IS NULL OR locked_until < ?1))),
-	(SELECT COUNT(*) FROM alert_evaluation_jobs WHERE locked_until >= ?1)
-		+ (SELECT COUNT(*) FROM alert_delivery_jobs WHERE status = 'running' AND locked_until >= ?1),
-	(SELECT COUNT(*) FROM system_worker_dead_letters WHERE worker_name = 'alert' AND status = 'dead_letter')
-		+ (SELECT COUNT(*) FROM alert_delivery_jobs WHERE status = 'dead_letter'),
+	(SELECT COUNT(*) FROM alert_evaluation_jobs j JOIN alert_rules r ON r.id = j.rule_id WHERE (j.locked_until IS NULL OR j.locked_until < ?1) AND (?2 = '' OR r.workspace_id = ?2))
+		+ (SELECT COUNT(*) FROM alert_delivery_jobs WHERE (status = 'pending' OR (status = 'running' AND (locked_until IS NULL OR locked_until < ?1))) AND (?2 = '' OR workspace_id = ?2)),
+	(SELECT COUNT(*) FROM alert_evaluation_jobs j JOIN alert_rules r ON r.id = j.rule_id WHERE j.locked_until >= ?1 AND (?2 = '' OR r.workspace_id = ?2))
+		+ (SELECT COUNT(*) FROM alert_delivery_jobs WHERE status = 'running' AND locked_until >= ?1 AND (?2 = '' OR workspace_id = ?2)),
+	(SELECT COUNT(*) FROM system_worker_dead_letters WHERE worker_name = 'alert' AND status = 'dead_letter' AND (?2 = '' OR workspace_id = ?2))
+		+ (SELECT COUNT(*) FROM alert_delivery_jobs WHERE status = 'dead_letter' AND (?2 = '' OR workspace_id = ?2)),
 	COALESCE((SELECT MIN(pending_at) FROM (
-		SELECT created_at AS pending_at FROM alert_evaluation_jobs WHERE locked_until IS NULL OR locked_until < ?1
+		SELECT j.created_at AS pending_at FROM alert_evaluation_jobs j JOIN alert_rules r ON r.id = j.rule_id WHERE (j.locked_until IS NULL OR j.locked_until < ?1) AND (?2 = '' OR r.workspace_id = ?2)
 		UNION ALL
-		SELECT created_at FROM alert_delivery_jobs WHERE status = 'pending' OR (status = 'running' AND (locked_until IS NULL OR locked_until < ?1))
+		SELECT created_at FROM alert_delivery_jobs WHERE (status = 'pending' OR (status = 'running' AND (locked_until IS NULL OR locked_until < ?1))) AND (?2 = '' OR workspace_id = ?2)
 	)), ''),
-	MAX(COALESCE((SELECT MAX(evaluated_at) FROM alert_states), ''), COALESCE((SELECT MAX(delivered_at) FROM alert_delivery_jobs), '')),
-	MAX(COALESCE((SELECT MAX(created_at) FROM system_worker_dead_letters WHERE worker_name = 'alert' AND status = 'dead_letter'), ''), COALESCE((SELECT MAX(updated_at) FROM alert_delivery_jobs WHERE status = 'dead_letter'), ''))
+	MAX(COALESCE((SELECT MAX(s.evaluated_at) FROM alert_states s JOIN alert_rules r ON r.id = s.rule_id WHERE ?2 = '' OR r.workspace_id = ?2), ''), COALESCE((SELECT MAX(delivered_at) FROM alert_delivery_jobs WHERE ?2 = '' OR workspace_id = ?2), '')),
+	MAX(COALESCE((SELECT MAX(created_at) FROM system_worker_dead_letters WHERE worker_name = 'alert' AND status = 'dead_letter' AND (?2 = '' OR workspace_id = ?2)), ''), COALESCE((SELECT MAX(updated_at) FROM alert_delivery_jobs WHERE status = 'dead_letter' AND (?2 = '' OR workspace_id = ?2)), ''))
 UNION ALL
 SELECT 'entitlement',
 	COALESCE(SUM(CASE WHEN e.locked_until IS NULL OR e.locked_until < ?1 THEN 1 ELSE 0 END), 0),
@@ -1025,6 +1025,11 @@ CROSS JOIN (
 )
 `
 
+type ListWorkerDiagnosticsParams struct {
+	Now         sql.NullString
+	WorkspaceID interface{}
+}
+
 type ListWorkerDiagnosticsRow struct {
 	WorkerName      string
 	PendingJobs     interface{}
@@ -1035,8 +1040,8 @@ type ListWorkerDiagnosticsRow struct {
 	LastFailureAt   interface{}
 }
 
-func (q *Queries) ListWorkerDiagnostics(ctx context.Context, now sql.NullString) ([]ListWorkerDiagnosticsRow, error) {
-	rows, err := q.db.QueryContext(ctx, listWorkerDiagnostics, now)
+func (q *Queries) ListWorkerDiagnostics(ctx context.Context, arg ListWorkerDiagnosticsParams) ([]ListWorkerDiagnosticsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listWorkerDiagnostics, arg.Now, arg.WorkspaceID)
 	if err != nil {
 		return nil, err
 	}

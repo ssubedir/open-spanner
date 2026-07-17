@@ -256,19 +256,19 @@ SELECT 'export'::text AS worker_name,
 FROM usage_export_jobs
 UNION ALL
 SELECT 'alert',
-	(SELECT COUNT(*) FROM alert_evaluation_jobs WHERE locked_until IS NULL OR locked_until::timestamptz < sqlc.arg('now')::timestamptz)
-		+ (SELECT COUNT(*) FROM alert_delivery_jobs WHERE status = 'pending' OR (status = 'running' AND (locked_until IS NULL OR locked_until < sqlc.arg('now')::timestamptz))),
-	(SELECT COUNT(*) FROM alert_evaluation_jobs WHERE locked_until::timestamptz >= sqlc.arg('now')::timestamptz)
-		+ (SELECT COUNT(*) FROM alert_delivery_jobs WHERE status = 'running' AND locked_until >= sqlc.arg('now')::timestamptz),
-	(SELECT COUNT(*) FROM system_worker_dead_letters WHERE worker_name = 'alert' AND status = 'dead_letter')
-		+ (SELECT COUNT(*) FROM alert_delivery_jobs WHERE status = 'dead_letter'),
+	(SELECT COUNT(*) FROM alert_evaluation_jobs j JOIN alert_rules r ON r.id = j.rule_id WHERE (j.locked_until IS NULL OR j.locked_until::timestamptz < sqlc.arg('now')::timestamptz) AND (sqlc.arg('workspace_id')::text = '' OR r.workspace_id = sqlc.arg('workspace_id')::text))
+		+ (SELECT COUNT(*) FROM alert_delivery_jobs WHERE (status = 'pending' OR (status = 'running' AND (locked_until IS NULL OR locked_until < sqlc.arg('now')::timestamptz))) AND (sqlc.arg('workspace_id')::text = '' OR workspace_id = sqlc.arg('workspace_id')::text)),
+	(SELECT COUNT(*) FROM alert_evaluation_jobs j JOIN alert_rules r ON r.id = j.rule_id WHERE j.locked_until::timestamptz >= sqlc.arg('now')::timestamptz AND (sqlc.arg('workspace_id')::text = '' OR r.workspace_id = sqlc.arg('workspace_id')::text))
+		+ (SELECT COUNT(*) FROM alert_delivery_jobs WHERE status = 'running' AND locked_until >= sqlc.arg('now')::timestamptz AND (sqlc.arg('workspace_id')::text = '' OR workspace_id = sqlc.arg('workspace_id')::text)),
+	(SELECT COUNT(*) FROM system_worker_dead_letters WHERE worker_name = 'alert' AND status = 'dead_letter' AND (sqlc.arg('workspace_id')::text = '' OR workspace_id = sqlc.arg('workspace_id')::text))
+		+ (SELECT COUNT(*) FROM alert_delivery_jobs WHERE status = 'dead_letter' AND (sqlc.arg('workspace_id')::text = '' OR workspace_id = sqlc.arg('workspace_id')::text)),
 	COALESCE((SELECT MIN(pending_at) FROM (
-		SELECT created_at AS pending_at FROM alert_evaluation_jobs WHERE locked_until IS NULL OR locked_until::timestamptz < sqlc.arg('now')::timestamptz
+		SELECT j.created_at AS pending_at FROM alert_evaluation_jobs j JOIN alert_rules r ON r.id = j.rule_id WHERE (j.locked_until IS NULL OR j.locked_until::timestamptz < sqlc.arg('now')::timestamptz) AND (sqlc.arg('workspace_id')::text = '' OR r.workspace_id = sqlc.arg('workspace_id')::text)
 		UNION ALL
-		SELECT created_at::text FROM alert_delivery_jobs WHERE status = 'pending' OR (status = 'running' AND (locked_until IS NULL OR locked_until < sqlc.arg('now')::timestamptz))
+		SELECT created_at::text FROM alert_delivery_jobs WHERE (status = 'pending' OR (status = 'running' AND (locked_until IS NULL OR locked_until < sqlc.arg('now')::timestamptz))) AND (sqlc.arg('workspace_id')::text = '' OR workspace_id = sqlc.arg('workspace_id')::text)
 	) pending), ''),
-	GREATEST(COALESCE((SELECT MAX(evaluated_at) FROM alert_states), ''), COALESCE((SELECT MAX(delivered_at)::text FROM alert_delivery_jobs), '')),
-	GREATEST(COALESCE((SELECT MAX(created_at)::text FROM system_worker_dead_letters WHERE worker_name = 'alert' AND status = 'dead_letter'), ''), COALESCE((SELECT MAX(updated_at)::text FROM alert_delivery_jobs WHERE status = 'dead_letter'), ''))
+	GREATEST(COALESCE((SELECT MAX(s.evaluated_at) FROM alert_states s JOIN alert_rules r ON r.id = s.rule_id WHERE sqlc.arg('workspace_id')::text = '' OR r.workspace_id = sqlc.arg('workspace_id')::text), ''), COALESCE((SELECT MAX(delivered_at)::text FROM alert_delivery_jobs WHERE sqlc.arg('workspace_id')::text = '' OR workspace_id = sqlc.arg('workspace_id')::text), '')),
+	GREATEST(COALESCE((SELECT MAX(created_at)::text FROM system_worker_dead_letters WHERE worker_name = 'alert' AND status = 'dead_letter' AND (sqlc.arg('workspace_id')::text = '' OR workspace_id = sqlc.arg('workspace_id')::text)), ''), COALESCE((SELECT MAX(updated_at)::text FROM alert_delivery_jobs WHERE status = 'dead_letter' AND (sqlc.arg('workspace_id')::text = '' OR workspace_id = sqlc.arg('workspace_id')::text)), ''))
 UNION ALL
 SELECT 'entitlement',
 	COUNT(*) FILTER (WHERE locked_until IS NULL OR locked_until::timestamptz < sqlc.arg('now')::timestamptz),

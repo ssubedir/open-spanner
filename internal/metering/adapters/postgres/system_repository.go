@@ -26,6 +26,23 @@ func NewSystemRepository(store *Store) *SystemRepository {
 	return &SystemRepository{store: store, queries: postgresdb.New(store)}
 }
 
+func (r *SystemRepository) ListWorkspaceIDs(ctx context.Context) ([]string, error) {
+	rows, err := r.store.QueryContext(ctx, `SELECT id FROM auth_workspaces ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	workspaceIDs := []string{}
+	for rows.Next() {
+		var workspaceID string
+		if err := rows.Scan(&workspaceID); err != nil {
+			return nil, err
+		}
+		workspaceIDs = append(workspaceIDs, workspaceID)
+	}
+	return workspaceIDs, rows.Err()
+}
+
 func (r *SystemRepository) UpsertWorkerHeartbeat(ctx context.Context, heartbeat appsystem.WorkerHeartbeat) error {
 	return queriesFor(ctx, r.queries).UpsertWorkerHeartbeat(ctx, postgresdb.UpsertWorkerHeartbeatParams{WorkerName: heartbeat.Name, StartedAt: heartbeat.StartedAt, LastHeartbeatAt: heartbeat.LastHeartbeatAt})
 }
@@ -43,7 +60,8 @@ func (r *SystemRepository) ListWorkerHeartbeats(ctx context.Context) ([]appsyste
 }
 
 func (r *SystemRepository) ListWorkerDiagnostics(ctx context.Context, now time.Time) ([]appsystem.WorkerDiagnostics, error) {
-	rows, err := queriesFor(ctx, r.queries).ListWorkerDiagnostics(ctx, now)
+	workspaceID, _ := appauth.WorkspaceIDFromContext(ctx)
+	rows, err := queriesFor(ctx, r.queries).ListWorkerDiagnostics(ctx, postgresdb.ListWorkerDiagnosticsParams{Now: now, WorkspaceID: workspaceID})
 	if err != nil {
 		return nil, err
 	}

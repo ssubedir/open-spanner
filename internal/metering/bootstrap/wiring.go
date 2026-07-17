@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -100,6 +101,19 @@ func (a *App) WorkerTelemetry(ctx context.Context) ([]appsystem.WorkerHeartbeat,
 	}
 	diagnostics, err := a.systemRepo.ListWorkerDiagnostics(ctx, time.Now().UTC())
 	return heartbeats, diagnostics, err
+}
+
+func (a *App) ListWorkspaceIDs(ctx context.Context) ([]string, error) {
+	if a == nil || a.systemRepo == nil {
+		return nil, errors.New("system repository is not configured")
+	}
+	lister, ok := a.systemRepo.(interface {
+		ListWorkspaceIDs(context.Context) ([]string, error)
+	})
+	if !ok {
+		return nil, errors.New("workspace listing is not supported")
+	}
+	return lister.ListWorkspaceIDs(ctx)
 }
 
 func NewApp(ctx context.Context, cfg config.Config) (*App, error) {

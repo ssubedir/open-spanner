@@ -988,19 +988,19 @@ SELECT 'export'::text AS worker_name,
 FROM usage_export_jobs
 UNION ALL
 SELECT 'alert',
-	(SELECT COUNT(*) FROM alert_evaluation_jobs WHERE locked_until IS NULL OR locked_until::timestamptz < $1::timestamptz)
-		+ (SELECT COUNT(*) FROM alert_delivery_jobs WHERE status = 'pending' OR (status = 'running' AND (locked_until IS NULL OR locked_until < $1::timestamptz))),
-	(SELECT COUNT(*) FROM alert_evaluation_jobs WHERE locked_until::timestamptz >= $1::timestamptz)
-		+ (SELECT COUNT(*) FROM alert_delivery_jobs WHERE status = 'running' AND locked_until >= $1::timestamptz),
-	(SELECT COUNT(*) FROM system_worker_dead_letters WHERE worker_name = 'alert' AND status = 'dead_letter')
-		+ (SELECT COUNT(*) FROM alert_delivery_jobs WHERE status = 'dead_letter'),
+	(SELECT COUNT(*) FROM alert_evaluation_jobs j JOIN alert_rules r ON r.id = j.rule_id WHERE (j.locked_until IS NULL OR j.locked_until::timestamptz < $1::timestamptz) AND ($2::text = '' OR r.workspace_id = $2::text))
+		+ (SELECT COUNT(*) FROM alert_delivery_jobs WHERE (status = 'pending' OR (status = 'running' AND (locked_until IS NULL OR locked_until < $1::timestamptz))) AND ($2::text = '' OR workspace_id = $2::text)),
+	(SELECT COUNT(*) FROM alert_evaluation_jobs j JOIN alert_rules r ON r.id = j.rule_id WHERE j.locked_until::timestamptz >= $1::timestamptz AND ($2::text = '' OR r.workspace_id = $2::text))
+		+ (SELECT COUNT(*) FROM alert_delivery_jobs WHERE status = 'running' AND locked_until >= $1::timestamptz AND ($2::text = '' OR workspace_id = $2::text)),
+	(SELECT COUNT(*) FROM system_worker_dead_letters WHERE worker_name = 'alert' AND status = 'dead_letter' AND ($2::text = '' OR workspace_id = $2::text))
+		+ (SELECT COUNT(*) FROM alert_delivery_jobs WHERE status = 'dead_letter' AND ($2::text = '' OR workspace_id = $2::text)),
 	COALESCE((SELECT MIN(pending_at) FROM (
-		SELECT created_at AS pending_at FROM alert_evaluation_jobs WHERE locked_until IS NULL OR locked_until::timestamptz < $1::timestamptz
+		SELECT j.created_at AS pending_at FROM alert_evaluation_jobs j JOIN alert_rules r ON r.id = j.rule_id WHERE (j.locked_until IS NULL OR j.locked_until::timestamptz < $1::timestamptz) AND ($2::text = '' OR r.workspace_id = $2::text)
 		UNION ALL
-		SELECT created_at::text FROM alert_delivery_jobs WHERE status = 'pending' OR (status = 'running' AND (locked_until IS NULL OR locked_until < $1::timestamptz))
+		SELECT created_at::text FROM alert_delivery_jobs WHERE (status = 'pending' OR (status = 'running' AND (locked_until IS NULL OR locked_until < $1::timestamptz))) AND ($2::text = '' OR workspace_id = $2::text)
 	) pending), ''),
-	GREATEST(COALESCE((SELECT MAX(evaluated_at) FROM alert_states), ''), COALESCE((SELECT MAX(delivered_at)::text FROM alert_delivery_jobs), '')),
-	GREATEST(COALESCE((SELECT MAX(created_at)::text FROM system_worker_dead_letters WHERE worker_name = 'alert' AND status = 'dead_letter'), ''), COALESCE((SELECT MAX(updated_at)::text FROM alert_delivery_jobs WHERE status = 'dead_letter'), ''))
+	GREATEST(COALESCE((SELECT MAX(s.evaluated_at) FROM alert_states s JOIN alert_rules r ON r.id = s.rule_id WHERE $2::text = '' OR r.workspace_id = $2::text), ''), COALESCE((SELECT MAX(delivered_at)::text FROM alert_delivery_jobs WHERE $2::text = '' OR workspace_id = $2::text), '')),
+	GREATEST(COALESCE((SELECT MAX(created_at)::text FROM system_worker_dead_letters WHERE worker_name = 'alert' AND status = 'dead_letter' AND ($2::text = '' OR workspace_id = $2::text)), ''), COALESCE((SELECT MAX(updated_at)::text FROM alert_delivery_jobs WHERE status = 'dead_letter' AND ($2::text = '' OR workspace_id = $2::text)), ''))
 UNION ALL
 SELECT 'entitlement',
 	COUNT(*) FILTER (WHERE locked_until IS NULL OR locked_until::timestamptz < $1::timestamptz),
@@ -1033,6 +1033,11 @@ SELECT 'reconciliation',
 FROM reconciliation_notifications
 `
 
+type ListWorkerDiagnosticsParams struct {
+	Now         time.Time
+	WorkspaceID string
+}
+
 type ListWorkerDiagnosticsRow struct {
 	WorkerName      string
 	PendingJobs     int64
@@ -1043,8 +1048,8 @@ type ListWorkerDiagnosticsRow struct {
 	LastFailureAt   interface{}
 }
 
-func (q *Queries) ListWorkerDiagnostics(ctx context.Context, now time.Time) ([]ListWorkerDiagnosticsRow, error) {
-	rows, err := q.db.QueryContext(ctx, listWorkerDiagnostics, now)
+func (q *Queries) ListWorkerDiagnostics(ctx context.Context, arg ListWorkerDiagnosticsParams) ([]ListWorkerDiagnosticsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listWorkerDiagnostics, arg.Now, arg.WorkspaceID)
 	if err != nil {
 		return nil, err
 	}
