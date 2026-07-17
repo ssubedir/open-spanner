@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -97,7 +98,15 @@ func (s *service) RequeueDeliveryJob(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	return s.repo.RequeueDeliveryJob(ctx, id, s.now())
+	err = s.repo.RequeueDeliveryJob(ctx, id, s.now())
+	if !errors.Is(err, domain.ErrNotFound) {
+		return err
+	}
+	status, statusErr := s.repo.FindDeliveryJobStatus(ctx, id)
+	if statusErr != nil {
+		return statusErr
+	}
+	return errors.Join(domain.ErrConflict, fmt.Errorf("alert delivery job is %s", status))
 }
 
 func deliveryRetryDelay(base time.Duration, attempts int) time.Duration {

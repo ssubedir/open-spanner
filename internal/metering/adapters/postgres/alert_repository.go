@@ -352,6 +352,22 @@ func (r *AlertRepository) RequeueDeliveryJob(ctx context.Context, id string, now
 	return nil
 }
 
+func (r *AlertRepository) FindDeliveryJobStatus(ctx context.Context, id string) (string, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return "", err
+	}
+	publicID, err := uuid.Parse(id)
+	if err != nil {
+		return "", err
+	}
+	status, err := queriesFor(ctx, r.queries).GetAlertDeliveryJobStatus(ctx, postgresdb.GetAlertDeliveryJobStatusParams{PublicID: publicID, WorkspaceID: workspaceID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", domain.ErrNotFound
+	}
+	return status, err
+}
+
 func (r *AlertRepository) ListDeliveryJobs(ctx context.Context, limit int) ([]appalert.DeliveryJob, error) {
 	workspaceID, err := appauth.RequireWorkspaceID(ctx)
 	if err != nil {

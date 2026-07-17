@@ -310,6 +310,24 @@ func (q *Queries) FindWorkspaceIDForAlertRule(ctx context.Context, id string) (s
 	return workspace_id, err
 }
 
+const getAlertDeliveryJobStatus = `-- name: GetAlertDeliveryJobStatus :one
+SELECT status
+FROM alert_delivery_jobs
+WHERE public_id = ?1 AND workspace_id = ?2
+`
+
+type GetAlertDeliveryJobStatusParams struct {
+	PublicID    string
+	WorkspaceID string
+}
+
+func (q *Queries) GetAlertDeliveryJobStatus(ctx context.Context, arg GetAlertDeliveryJobStatusParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getAlertDeliveryJobStatus, arg.PublicID, arg.WorkspaceID)
+	var status string
+	err := row.Scan(&status)
+	return status, err
+}
+
 const listAlertDeliveryJobs = `-- name: ListAlertDeliveryJobs :many
 SELECT public_id, event_id, destination_id, status, attempts, next_attempt_at, last_error, created_at, updated_at, delivered_at
 FROM alert_delivery_jobs

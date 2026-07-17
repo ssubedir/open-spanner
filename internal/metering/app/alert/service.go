@@ -103,6 +103,7 @@ type Repository interface {
 	RetryDeliveryJob(ctx context.Context, id string, nextAttemptAt time.Time, maxAttempts int, lastError string, now time.Time) error
 	ListDeliveryJobs(ctx context.Context, limit int) ([]DeliveryJob, error)
 	RequeueDeliveryJob(ctx context.Context, id string, now time.Time) error
+	FindDeliveryJobStatus(ctx context.Context, id string) (string, error)
 	EnqueueEvaluationJob(ctx context.Context, ruleID string, runAfter time.Time, now time.Time) error
 	EnqueueDueEvaluationJobs(ctx context.Context, now time.Time, limit int) (int, error)
 	ClaimEvaluationJob(ctx context.Context, now time.Time, lockedUntil time.Time, maxAttempts int) (EvaluationJob, error)

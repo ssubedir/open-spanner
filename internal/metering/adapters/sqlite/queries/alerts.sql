@@ -174,6 +174,11 @@ SET status = 'pending', attempts = 0, next_attempt_at = sqlc.arg('now'), locked_
 	last_error = '', delivered_at = NULL, updated_at = sqlc.arg('now')
 WHERE public_id = sqlc.arg('public_id') AND workspace_id = sqlc.arg('workspace_id') AND status = 'dead_letter';
 
+-- name: GetAlertDeliveryJobStatus :one
+SELECT status
+FROM alert_delivery_jobs
+WHERE public_id = sqlc.arg('public_id') AND workspace_id = sqlc.arg('workspace_id');
+
 -- name: ListAlertDeliveryJobs :many
 SELECT public_id, event_id, destination_id, status, attempts, next_attempt_at, last_error, created_at, updated_at, delivered_at
 FROM alert_delivery_jobs
