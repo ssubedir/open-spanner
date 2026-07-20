@@ -60,14 +60,14 @@ tasks:
   test:e2e:web:
     desc: Run Playwright browser E2E tests for the v2 admin UI with SQLite
     cmds:
-      - cd web_v2; npm run e2e
+      - cd web; npm run e2e
 
   test:e2e:web:postgres:
     desc: Run Playwright browser E2E tests for the v2 admin UI with Postgres
     cmds:
       - task: postgres:up
       - task: _test:e2e:postgres:reset
-      - cd web_v2; npm run e2e
+      - cd web; npm run e2e
     env:
       OPEN_SPANNER_E2E_DB_DRIVER: postgres
       OPEN_SPANNER_E2E_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/open_spanner_e2e?sslmode=disable
@@ -75,7 +75,7 @@ tasks:
   test:e2e:web:install:
     desc: Install Playwright browser dependencies for v2 admin UI E2E tests
     cmds:
-      - cd web_v2; npm run e2e:install
+      - cd web; npm run e2e:install
 
   test:examples:
     desc: Verify local SDK examples compile and build without calling the API

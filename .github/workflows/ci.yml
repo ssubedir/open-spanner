@@ -83,7 +83,7 @@ jobs:
           SHARED='^\.github/workflows/ci\.yml$|^Taskfile\.yml$|^taskfiles/|^scripts/'
           BACKEND='^cmd/|^internal/|^go\.mod$|^go\.sum$|^sqlc\.yaml$|^openapi/|^docker-compose.*\.yml$|^Dockerfile$'
           SDKS='^sdk/|^examples/|^openapi/|^dotnet-tools\.json$'
-          ADMIN='^web_v2/'
+          ADMIN='^web/'
           DOCS='^docs/'
 
           set_area api "$SHARED|$BACKEND"
@@ -217,17 +217,17 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: web_v2/package-lock.json
+          cache-dependency-path: web/package-lock.json
 
       - name: Use locked npm version
         run: npm install --global npm@11.6.2
 
       - name: Install dependencies
-        working-directory: web_v2
+        working-directory: web
         run: npm ci
 
       - name: Build admin UI
-        working-directory: web_v2
+        working-directory: web
         run: npm run build
 
   browser:
@@ -251,7 +251,7 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: web_v2/package-lock.json
+          cache-dependency-path: web/package-lock.json
 
       - name: Use locked npm version
         run: npm install --global npm@11.6.2
@@ -260,11 +260,11 @@ jobs:
         run: npm install --global @go-task/cli
 
       - name: Install dependencies
-        working-directory: web_v2
+        working-directory: web
         run: npm ci
 
       - name: Install Playwright browsers
-        working-directory: web_v2
+        working-directory: web
         run: npx playwright install --with-deps chromium
 
       - name: Run browser E2E

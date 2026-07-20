@@ -16,8 +16,8 @@ open-spanner-exports
 
 docs/.next
 docs/out
-web_v2/.next
-web_v2/.next-e2e
+web/.next
+web/.next-e2e
 sdk/typescript/dist
 
 coverage

@@ -17,13 +17,13 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldfl
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/open-spanner-usage-worker ./cmd/usage-worker
 
 FROM node:22-alpine AS web-build
-WORKDIR /src/web_v2
+WORKDIR /src/web
 
-COPY web_v2/package.json web_v2/package-lock.json ./
+COPY web/package.json web/package-lock.json ./
 RUN npm install --global npm@11.6.2 \
     && npm ci
 
-COPY web_v2 ./
+COPY web ./
 RUN npm run build
 
 FROM alpine:3.22 AS api-runtime
@@ -59,8 +59,8 @@ RUN apk add --no-cache ca-certificates \
 
 WORKDIR /opt/open-spanner-web
 
-COPY --from=web-build --chown=open-spanner:open-spanner /src/web_v2/.next/standalone ./
-COPY --from=web-build --chown=open-spanner:open-spanner /src/web_v2/.next/static ./.next/static
+COPY --from=web-build --chown=open-spanner:open-spanner /src/web/.next/standalone ./
+COPY --from=web-build --chown=open-spanner:open-spanner /src/web/.next/static ./.next/static
 
 ENV HOSTNAME=0.0.0.0
 ENV PORT=18081

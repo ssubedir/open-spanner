@@ -470,7 +470,7 @@ cmd/usage-worker        Transactional usage outbox worker entrypoint
 internal/config         Runtime configuration
 internal/server/http    HTTP server wiring
 internal/metering       Domain, app services, adapters, and workers
-web_v2                  Next.js dashboard and runtime API proxy
+web                     Next.js dashboard and runtime API proxy
 docs                    Fumadocs documentation site
 openapi                 Generated Swagger/OpenAPI artifacts
 sdk                     Generated SDKs

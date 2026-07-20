@@ -29,6 +29,6 @@ The practical loop is:
 
 1. Add or update a `.feature` scenario.
 2. Implement the behavior.
-3. Add or update the Playwright test in `web_v2/e2e/specs` or the relevant
+3. Add or update the Playwright test in `web/e2e/specs` or the relevant
    API/service integration test that proves it.
 4. Mark the scenario `@ui_covered`, `@api_covered`, or both.
