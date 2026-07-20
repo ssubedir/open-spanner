@@ -92,6 +92,20 @@ type AuthWorkspace struct {
 	CreatedAt string
 }
 
+type AuthWorkspaceInvitation struct {
+	ID               string
+	WorkspaceID      string
+	Email            string
+	Role             string
+	TokenHash        string
+	InvitedByUserID  string
+	ExpiresAt        string
+	AcceptedAt       sql.NullString
+	AcceptedByUserID sql.NullString
+	RevokedAt        sql.NullString
+	CreatedAt        string
+}
+
 type EntitlementCheckJob struct {
 	WorkspaceID string
 	Subject     string

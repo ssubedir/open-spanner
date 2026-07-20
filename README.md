@@ -46,7 +46,7 @@ Read the hosted docs at [ssubedir.github.io/open-spanner/docs](https://ssubedir.
 - Direct CSV exports for focused requests and queued export jobs for larger files.
 - Alert rules that watch usage windows and deliver webhook notifications.
 - Dashboard auth with HttpOnly cookies plus scoped API keys with audited rotation and revocation.
-- Workspace isolation so each dashboard user sees their own meters, usage, plans, alerts, exports, and keys.
+- Workspace isolation with shared memberships, owner/admin/viewer roles, secure invitation links, and workspace switching.
 - SQLite and Postgres storage, including Postgres JSONB metadata filtering.
 - Standalone Next.js dashboard with a runtime proxy to the internal API.
 - OpenTelemetry instrumentation with a Prometheus-compatible `/metrics` endpoint for HTTP, gRPC, ingestion, SQL pool, runtime, and worker health signals.

@@ -5,6 +5,7 @@ import {
   FileDown,
   Gauge,
   KeyRound,
+  Settings,
   Layers3,
   ListChecks,
   ScanSearch,
@@ -40,6 +41,7 @@ export const navigation = [
     label: "Access",
     items: [
       { label: "API keys", href: "/api-keys", icon: KeyRound },
+      { label: "Workspace", href: "/settings/workspace", icon: Settings },
     ],
   },
 ];

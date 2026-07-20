@@ -22,9 +22,57 @@ type RotateAPIKeyRequest struct {
 }
 
 type UserResponse struct {
+	ID            string `json:"id"`
+	Email         string `json:"email"`
+	WorkspaceID   string `json:"workspace_id"`
+	WorkspaceName string `json:"workspace_name"`
+	Role          string `json:"role"`
+	CreatedAt     string `json:"created_at"`
+}
+
+type SwitchWorkspaceRequest struct {
+	WorkspaceID string `json:"workspace_id"`
+}
+type CreateWorkspaceInvitationRequest struct {
+	Email string `json:"email"`
+	Role  string `json:"role"`
+}
+type UpdateWorkspaceMemberRequest struct {
+	Role string `json:"role"`
+}
+
+type WorkspaceResponse struct {
 	ID        string `json:"id"`
-	Email     string `json:"email"`
+	Name      string `json:"name"`
+	Role      string `json:"role"`
 	CreatedAt string `json:"created_at"`
+	JoinedAt  string `json:"joined_at"`
+}
+type WorkspaceListResponse struct {
+	Items []WorkspaceResponse `json:"items"`
+}
+type WorkspaceMemberResponse struct {
+	UserID    string `json:"user_id"`
+	Email     string `json:"email"`
+	Role      string `json:"role"`
+	CreatedAt string `json:"created_at"`
+}
+type WorkspaceMemberListResponse struct {
+	Items []WorkspaceMemberResponse `json:"items"`
+}
+type WorkspaceInvitationResponse struct {
+	ID            string `json:"id"`
+	WorkspaceID   string `json:"workspace_id"`
+	WorkspaceName string `json:"workspace_name"`
+	Email         string `json:"email"`
+	Role          string `json:"role"`
+	Status        string `json:"status"`
+	ExpiresAt     string `json:"expires_at"`
+	CreatedAt     string `json:"created_at"`
+	Token         string `json:"token,omitempty"`
+}
+type WorkspaceInvitationListResponse struct {
+	Items []WorkspaceInvitationResponse `json:"items"`
 }
 
 type LoginResponse struct {

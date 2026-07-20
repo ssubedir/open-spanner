@@ -708,6 +708,9 @@ export type SavedUsageQueryRequest = {
 export type AuthUser = {
   id: string
   email: string
+  workspace_id: string
+  workspace_name: string
+  role: 'owner' | 'admin' | 'viewer'
   created_at: string
 }
 
@@ -715,6 +718,10 @@ export type AuthSession = {
   expires_at: string
   user: AuthUser
 }
+
+export type Workspace = { id: string; name: string; role: 'owner' | 'admin' | 'viewer'; created_at: string; joined_at: string }
+export type WorkspaceMember = { user_id: string; email: string; role: 'owner' | 'admin' | 'viewer'; created_at: string }
+export type WorkspaceInvitation = { id: string; workspace_id: string; workspace_name: string; email: string; role: 'admin' | 'viewer'; status: 'pending' | 'accepted' | 'expired' | 'revoked'; expires_at: string; created_at: string; token?: string }
 
 export type OAuthProvider = {
   enabled: boolean
@@ -987,6 +994,46 @@ export async function createAuthSession(input: { email: string; password: string
     body: JSON.stringify(input),
     method: 'POST',
   })
+}
+
+export async function listWorkspaces() {
+  return request<{ items: Workspace[] }>('/v1/auth/workspaces')
+}
+
+export async function switchWorkspace(workspaceID: string) {
+  return request<AuthSession>('/v1/auth/session/workspace', { body: JSON.stringify({ workspace_id: workspaceID }), method: 'POST' })
+}
+
+export async function listWorkspaceMembers() {
+  return request<{ items: WorkspaceMember[] }>('/v1/auth/workspace/members')
+}
+
+export async function updateWorkspaceMember(userID: string, role: WorkspaceMember['role']) {
+  await request<void>(`/v1/auth/workspace/members/${encodeURIComponent(userID)}`, { body: JSON.stringify({ role }), method: 'PATCH' })
+}
+
+export async function deleteWorkspaceMember(userID: string) {
+  await request<void>(`/v1/auth/workspace/members/${encodeURIComponent(userID)}`, { method: 'DELETE' })
+}
+
+export async function listWorkspaceInvitations() {
+  return request<{ items: WorkspaceInvitation[] }>('/v1/auth/workspace/invitations')
+}
+
+export async function createWorkspaceInvitation(input: { email: string; role: 'admin' | 'viewer' }) {
+  return request<WorkspaceInvitation>('/v1/auth/workspace/invitations', { body: JSON.stringify(input), method: 'POST' })
+}
+
+export async function deleteWorkspaceInvitation(id: string) {
+  await request<void>(`/v1/auth/workspace/invitations/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export async function previewWorkspaceInvitation(token: string) {
+  return request<WorkspaceInvitation>(`/v1/auth/workspace-invitations/${encodeURIComponent(token)}`)
+}
+
+export async function acceptWorkspaceInvitation(token: string) {
+  return request<AuthSession>(`/v1/auth/workspace-invitations/${encodeURIComponent(token)}/accept`, { method: 'POST' })
 }
 
 export async function listOAuthProviders() {

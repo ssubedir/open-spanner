@@ -81,6 +81,134 @@ func (r *AuthRepository) FindDefaultWorkspaceByUserID(ctx context.Context, userI
 	return workspaceFromFields(workspace.ID, workspace.Name, workspace.CreatedAt, err)
 }
 
+func (r *AuthRepository) ListWorkspaceAccessByUserID(ctx context.Context, userID string) ([]appauth.WorkspaceAccess, error) {
+	rows, err := queriesFor(ctx, r.queries).ListWorkspaceAccessByUserID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]appauth.WorkspaceAccess, 0, len(rows))
+	for _, row := range rows {
+		item, err := workspaceAccessFromFields(row.WorkspaceID, row.WorkspaceName, row.WorkspaceCreatedAt, row.UserID, row.Role, row.MembershipCreatedAt, nil)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+func (r *AuthRepository) FindWorkspaceAccess(ctx context.Context, workspaceID string, userID string) (appauth.WorkspaceAccess, error) {
+	row, err := queriesFor(ctx, r.queries).FindWorkspaceAccess(ctx, sqlitedb.FindWorkspaceAccessParams{WorkspaceID: workspaceID, UserID: userID})
+	return workspaceAccessFromFields(row.WorkspaceID, row.WorkspaceName, row.WorkspaceCreatedAt, row.UserID, row.Role, row.MembershipCreatedAt, err)
+}
+
+func (r *AuthRepository) ListWorkspaceMembers(ctx context.Context, workspaceID string) ([]appauth.WorkspaceMember, error) {
+	rows, err := queriesFor(ctx, r.queries).ListWorkspaceMembers(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]appauth.WorkspaceMember, 0, len(rows))
+	for _, row := range rows {
+		createdAt, err := time.Parse(time.RFC3339Nano, row.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, appauth.WorkspaceMember{WorkspaceID: row.WorkspaceID, UserID: row.UserID, Email: row.Email, Role: row.Role, CreatedAt: createdAt})
+	}
+	return items, nil
+}
+
+func (r *AuthRepository) CountWorkspaceOwners(ctx context.Context, workspaceID string) (int, error) {
+	count, err := queriesFor(ctx, r.queries).CountWorkspaceOwners(ctx, workspaceID)
+	return int(count), err
+}
+
+func (r *AuthRepository) UpdateWorkspaceMembershipRole(ctx context.Context, workspaceID string, userID string, role string) error {
+	rows, err := queriesFor(ctx, r.queries).UpdateWorkspaceMembershipRole(ctx, sqlitedb.UpdateWorkspaceMembershipRoleParams{Role: role, WorkspaceID: workspaceID, UserID: userID})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (r *AuthRepository) DeleteWorkspaceMembership(ctx context.Context, workspaceID string, userID string) error {
+	rows, err := queriesFor(ctx, r.queries).DeleteWorkspaceMembership(ctx, sqlitedb.DeleteWorkspaceMembershipParams{WorkspaceID: workspaceID, UserID: userID})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (r *AuthRepository) SaveWorkspaceInvitation(ctx context.Context, invitation appauth.WorkspaceInvitation) (appauth.WorkspaceInvitation, error) {
+	err := queriesFor(ctx, r.queries).SaveWorkspaceInvitation(ctx, workspaceInvitationParamsSQLite(invitation))
+	if err != nil {
+		if isUniqueConstraint(err) {
+			return appauth.WorkspaceInvitation{}, errors.Join(domain.ErrConflict, err)
+		}
+		return appauth.WorkspaceInvitation{}, err
+	}
+	return invitation, nil
+}
+
+func (r *AuthRepository) ListWorkspaceInvitations(ctx context.Context, workspaceID string) ([]appauth.WorkspaceInvitation, error) {
+	rows, err := queriesFor(ctx, r.queries).ListWorkspaceInvitations(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]appauth.WorkspaceInvitation, 0, len(rows))
+	for _, row := range rows {
+		item, err := workspaceInvitationFromFields(row.ID, row.WorkspaceID, "", row.Email, row.Role, row.TokenHash, row.InvitedByUserID, row.ExpiresAt, row.AcceptedAt, row.AcceptedByUserID, row.RevokedAt, row.CreatedAt, nil)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+func (r *AuthRepository) FindWorkspaceInvitationByTokenHash(ctx context.Context, tokenHash string) (appauth.WorkspaceInvitation, error) {
+	row, err := queriesFor(ctx, r.queries).FindWorkspaceInvitationByTokenHash(ctx, tokenHash)
+	return workspaceInvitationFromFields(row.ID, row.WorkspaceID, row.WorkspaceName, row.Email, row.Role, row.TokenHash, row.InvitedByUserID, row.ExpiresAt, row.AcceptedAt, row.AcceptedByUserID, row.RevokedAt, row.CreatedAt, err)
+}
+
+func (r *AuthRepository) AcceptWorkspaceInvitation(ctx context.Context, invitation appauth.WorkspaceInvitation, membership appauth.WorkspaceMembership, acceptedAt time.Time) error {
+	return r.store.WithinTransaction(ctx, func(txCtx context.Context) error {
+		q := queriesFor(txCtx, r.queries)
+		if err := q.SaveWorkspaceMembership(txCtx, sqlitedb.SaveWorkspaceMembershipParams{WorkspaceID: membership.WorkspaceID, UserID: membership.UserID, Role: membership.Role, CreatedAt: formatTime(membership.CreatedAt)}); err != nil {
+			if isUniqueConstraint(err) {
+				return errors.Join(domain.ErrConflict, err)
+			}
+			return err
+		}
+		value := formatOptionalTime(&acceptedAt)
+		rows, err := q.AcceptWorkspaceInvitation(txCtx, sqlitedb.AcceptWorkspaceInvitationParams{AcceptedAt: value, AcceptedByUserID: sql.NullString{String: membership.UserID, Valid: true}, ID: invitation.ID, ExpiresAt: formatTime(acceptedAt)})
+		if err != nil {
+			return err
+		}
+		if rows == 0 {
+			return errors.Join(domain.ErrConflict, errors.New("workspace invitation is no longer active"))
+		}
+		return nil
+	})
+}
+
+func (r *AuthRepository) RevokeWorkspaceInvitation(ctx context.Context, workspaceID string, id string, revokedAt time.Time) error {
+	rows, err := queriesFor(ctx, r.queries).RevokeWorkspaceInvitation(ctx, sqlitedb.RevokeWorkspaceInvitationParams{RevokedAt: formatOptionalTime(&revokedAt), ID: id, WorkspaceID: workspaceID})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
 func (r *AuthRepository) FindUserByID(ctx context.Context, id string) (appauth.User, error) {
 	user, err := queriesFor(ctx, r.queries).FindUserByID(ctx, id)
 	return userFromFields(user.ID, user.Email, user.PasswordHash, user.CreatedAt, err)
@@ -464,6 +592,54 @@ func parseOptionalTime(value sql.NullString) (*time.Time, error) {
 		return nil, err
 	}
 	return &parsed, nil
+}
+
+func workspaceAccessFromFields(workspaceID string, workspaceName string, workspaceCreatedAt string, userID string, role string, membershipCreatedAt string, queryErr error) (appauth.WorkspaceAccess, error) {
+	if queryErr != nil {
+		if errors.Is(queryErr, sql.ErrNoRows) {
+			return appauth.WorkspaceAccess{}, domain.ErrNotFound
+		}
+		return appauth.WorkspaceAccess{}, queryErr
+	}
+	workspaceCreated, err := time.Parse(time.RFC3339Nano, workspaceCreatedAt)
+	if err != nil {
+		return appauth.WorkspaceAccess{}, err
+	}
+	membershipCreated, err := time.Parse(time.RFC3339Nano, membershipCreatedAt)
+	if err != nil {
+		return appauth.WorkspaceAccess{}, err
+	}
+	return appauth.WorkspaceAccess{Workspace: appauth.Workspace{ID: workspaceID, Name: workspaceName, CreatedAt: workspaceCreated}, Membership: appauth.WorkspaceMembership{WorkspaceID: workspaceID, UserID: userID, Role: role, CreatedAt: membershipCreated}}, nil
+}
+
+func workspaceInvitationParamsSQLite(invitation appauth.WorkspaceInvitation) sqlitedb.SaveWorkspaceInvitationParams {
+	return sqlitedb.SaveWorkspaceInvitationParams{ID: invitation.ID, WorkspaceID: invitation.WorkspaceID, Email: invitation.Email, Role: invitation.Role, TokenHash: invitation.TokenHash, InvitedByUserID: invitation.InvitedByUserID, ExpiresAt: formatTime(invitation.ExpiresAt), AcceptedAt: formatOptionalTime(invitation.AcceptedAt), AcceptedByUserID: sql.NullString{String: invitation.AcceptedByUserID, Valid: invitation.AcceptedByUserID != ""}, RevokedAt: formatOptionalTime(invitation.RevokedAt), CreatedAt: formatTime(invitation.CreatedAt)}
+}
+
+func workspaceInvitationFromFields(id string, workspaceID string, workspaceName string, email string, role string, tokenHash string, invitedByUserID string, expiresAt string, acceptedAt sql.NullString, acceptedByUserID sql.NullString, revokedAt sql.NullString, createdAt string, queryErr error) (appauth.WorkspaceInvitation, error) {
+	if queryErr != nil {
+		if errors.Is(queryErr, sql.ErrNoRows) {
+			return appauth.WorkspaceInvitation{}, domain.ErrNotFound
+		}
+		return appauth.WorkspaceInvitation{}, queryErr
+	}
+	expires, err := time.Parse(time.RFC3339Nano, expiresAt)
+	if err != nil {
+		return appauth.WorkspaceInvitation{}, err
+	}
+	created, err := time.Parse(time.RFC3339Nano, createdAt)
+	if err != nil {
+		return appauth.WorkspaceInvitation{}, err
+	}
+	accepted, err := parseOptionalTime(acceptedAt)
+	if err != nil {
+		return appauth.WorkspaceInvitation{}, err
+	}
+	revoked, err := parseOptionalTime(revokedAt)
+	if err != nil {
+		return appauth.WorkspaceInvitation{}, err
+	}
+	return appauth.WorkspaceInvitation{ID: id, WorkspaceID: workspaceID, WorkspaceName: workspaceName, Email: email, Role: role, TokenHash: tokenHash, InvitedByUserID: invitedByUserID, ExpiresAt: expires, AcceptedAt: accepted, AcceptedByUserID: acceptedByUserID.String, RevokedAt: revoked, CreatedAt: created}, nil
 }
 
 func formatStringArray(values []string) string {

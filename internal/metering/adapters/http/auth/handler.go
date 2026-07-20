@@ -329,6 +329,10 @@ func (h *Handler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 		respond.ServiceError(w, err)
 		return
 	}
+	if err := appauth.RequireWorkspaceAdmin(principal); err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
 
 	var req CreateAPIKeyRequest
 	if err := request.DecodeJSON(r.Body, &req); err != nil {
@@ -382,6 +386,10 @@ func (h *Handler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) RotateAPIKey(w http.ResponseWriter, r *http.Request) {
 	principal, err := h.currentPrincipal(r)
 	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	if err := appauth.RequireWorkspaceAdmin(principal); err != nil {
 		respond.ServiceError(w, err)
 		return
 	}
@@ -451,6 +459,10 @@ func (h *Handler) ListAPIKeyEvents(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteAPIKey(w http.ResponseWriter, r *http.Request) {
 	principal, err := h.currentPrincipal(r)
 	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	if err := appauth.RequireWorkspaceAdmin(principal); err != nil {
 		respond.ServiceError(w, err)
 		return
 	}
@@ -563,9 +575,12 @@ func (h *Handler) currentPrincipal(r *http.Request) (appauth.Principal, error) {
 
 func userResponse(user appauth.UserResult) UserResponse {
 	return UserResponse{
-		ID:        user.ID,
-		Email:     user.Email,
-		CreatedAt: user.CreatedAt.Format(time.RFC3339),
+		ID:            user.ID,
+		Email:         user.Email,
+		WorkspaceID:   user.WorkspaceID,
+		WorkspaceName: user.WorkspaceName,
+		Role:          user.Role,
+		CreatedAt:     user.CreatedAt.Format(time.RFC3339),
 	}
 }
 

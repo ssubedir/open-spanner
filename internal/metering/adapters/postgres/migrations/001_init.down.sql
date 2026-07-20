@@ -103,6 +103,7 @@ DROP TABLE IF EXISTS meters;
 DROP TABLE IF EXISTS auth_api_keys;
 DROP TABLE IF EXISTS auth_sessions;
 DROP TABLE IF EXISTS auth_identities;
+DROP TABLE IF EXISTS auth_workspace_invitations;
 DROP TABLE IF EXISTS auth_workspace_memberships;
 DROP TABLE IF EXISTS auth_users;
 DROP TABLE IF EXISTS auth_workspaces;

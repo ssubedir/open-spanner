@@ -81,6 +81,7 @@ type Principal struct {
 	ID            string
 	User          UserResult
 	WorkspaceID   string
+	Role          string
 	APIKeyID      string
 	Scopes        []string
 	AllowedMeters []string
@@ -164,7 +165,26 @@ func (a *CasbinAuthorizer) Can(_ context.Context, principal Principal, action Ac
 	}
 
 	if principal.Kind == PrincipalKindSession {
-		return nil
+		switch principal.Role {
+		case "owner", "admin":
+			return nil
+		case "viewer":
+			if strings.HasSuffix(string(action), ":read") {
+				return nil
+			}
+			return forbidden(action, resource)
+		default:
+			return errors.Join(domain.ErrForbidden, errors.New("workspace membership is required"))
+		}
+	}
+	switch principal.Role {
+	case RoleOwner, RoleAdmin:
+	case RoleViewer:
+		if !strings.HasSuffix(string(action), ":read") {
+			return forbidden(action, resource)
+		}
+	default:
+		return errors.Join(domain.ErrForbidden, errors.New("workspace membership is required"))
 	}
 	if principal.RevokedAt != nil && !principal.RevokedAt.After(time.Now().UTC()) {
 		return errors.Join(domain.ErrForbidden, errors.New("api key is revoked"))

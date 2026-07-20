@@ -53,6 +53,7 @@ import {
   listUsageExportJobs,
   listWorkerDeadLetters,
   refreshAuthSession,
+  switchWorkspace as switchWorkspaceRequest,
   rotateAlertDestinationSecret as rotateAlertDestinationSecretRequest,
   rotateAPIKey as rotateAPIKeyRequest,
   retryUsageExportJob,
@@ -465,7 +466,9 @@ function resetUserDataState() {
 function setAuthSession(update: Omit<Partial<AppState['auth']>, 'session'> & { session: AuthSession | null }) {
   const previousUserID = appStore.state.auth.session?.user.id ?? ''
   const nextUserID = update.session?.user.id ?? ''
-  if (previousUserID !== nextUserID) {
+  const previousWorkspaceID = appStore.state.auth.session?.user.workspace_id ?? ''
+  const nextWorkspaceID = update.session?.user.workspace_id ?? ''
+  if (previousUserID !== nextUserID || previousWorkspaceID !== nextWorkspaceID) {
     resetUserDataState()
   }
   setAuthState(update)
@@ -1687,6 +1690,11 @@ export const appStoreActions = {
     } finally {
       setAuthState({ checked: true, loading: false, loginError: '', registerError: '', session: null })
     }
+  },
+  async switchWorkspace(workspaceID: string) {
+    const session = await switchWorkspaceRequest(workspaceID)
+    setAuthSession({ checked: true, loading: false, session })
+    return session
   },
   async register(input: { email: string; password: string }) {
     resetUserDataState()

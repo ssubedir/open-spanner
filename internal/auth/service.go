@@ -34,6 +34,17 @@ type Repository interface {
 	SaveWorkspace(ctx context.Context, workspace Workspace) (Workspace, error)
 	SaveWorkspaceMembership(ctx context.Context, membership WorkspaceMembership) (WorkspaceMembership, error)
 	FindDefaultWorkspaceByUserID(ctx context.Context, userID string) (Workspace, error)
+	ListWorkspaceAccessByUserID(ctx context.Context, userID string) ([]WorkspaceAccess, error)
+	FindWorkspaceAccess(ctx context.Context, workspaceID string, userID string) (WorkspaceAccess, error)
+	ListWorkspaceMembers(ctx context.Context, workspaceID string) ([]WorkspaceMember, error)
+	CountWorkspaceOwners(ctx context.Context, workspaceID string) (int, error)
+	UpdateWorkspaceMembershipRole(ctx context.Context, workspaceID string, userID string, role string) error
+	DeleteWorkspaceMembership(ctx context.Context, workspaceID string, userID string) error
+	SaveWorkspaceInvitation(ctx context.Context, invitation WorkspaceInvitation) (WorkspaceInvitation, error)
+	ListWorkspaceInvitations(ctx context.Context, workspaceID string) ([]WorkspaceInvitation, error)
+	FindWorkspaceInvitationByTokenHash(ctx context.Context, tokenHash string) (WorkspaceInvitation, error)
+	AcceptWorkspaceInvitation(ctx context.Context, invitation WorkspaceInvitation, membership WorkspaceMembership, acceptedAt time.Time) error
+	RevokeWorkspaceInvitation(ctx context.Context, workspaceID string, id string, revokedAt time.Time) error
 	SaveUser(ctx context.Context, user User) (User, error)
 	FindUserByID(ctx context.Context, id string) (User, error)
 	FindUserByEmail(ctx context.Context, email string) (User, error)
@@ -70,6 +81,34 @@ type WorkspaceMembership struct {
 	UserID      string
 	Role        string
 	CreatedAt   time.Time
+}
+
+type WorkspaceAccess struct {
+	Workspace  Workspace
+	Membership WorkspaceMembership
+}
+
+type WorkspaceMember struct {
+	WorkspaceID string
+	UserID      string
+	Email       string
+	Role        string
+	CreatedAt   time.Time
+}
+
+type WorkspaceInvitation struct {
+	ID               string
+	WorkspaceID      string
+	WorkspaceName    string
+	Email            string
+	Role             string
+	TokenHash        string
+	InvitedByUserID  string
+	ExpiresAt        time.Time
+	AcceptedAt       *time.Time
+	AcceptedByUserID string
+	RevokedAt        *time.Time
+	CreatedAt        time.Time
 }
 
 type Identity struct {
@@ -154,10 +193,12 @@ type RotateAPIKeyCommand struct {
 }
 
 type UserResult struct {
-	ID          string
-	Email       string
-	WorkspaceID string
-	CreatedAt   time.Time
+	ID            string
+	Email         string
+	WorkspaceID   string
+	WorkspaceName string
+	Role          string
+	CreatedAt     time.Time
 }
 
 type APIKeyResult struct {
@@ -488,6 +529,17 @@ func (s Service) createLoginResult(ctx context.Context, user User) (LoginResult,
 	if err != nil {
 		return LoginResult{}, err
 	}
+	return s.createLoginResultForWorkspace(ctx, user, workspace.ID)
+}
+
+func (s Service) createLoginResultForWorkspace(ctx context.Context, user User, workspaceID string) (LoginResult, error) {
+	access, err := s.repo.FindWorkspaceAccess(ctx, workspaceID, user.ID)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return LoginResult{}, errors.Join(domain.ErrForbidden, errors.New("workspace membership is required"))
+		}
+		return LoginResult{}, err
+	}
 
 	accessToken, err := newSessionToken(accessTokenPrefix, s.tokenBytes)
 	if err != nil {
@@ -502,7 +554,7 @@ func (s Service) createLoginResult(ctx context.Context, user User) (LoginResult,
 	accessSession, err := s.repo.SaveSession(ctx, Session{
 		ID:          uuid.NewString(),
 		UserID:      user.ID,
-		WorkspaceID: workspace.ID,
+		WorkspaceID: access.Workspace.ID,
 		TokenHash:   HashToken(accessToken),
 		Kind:        TokenKindAccess,
 		CreatedAt:   now,
@@ -514,7 +566,7 @@ func (s Service) createLoginResult(ctx context.Context, user User) (LoginResult,
 	refreshSession, err := s.repo.SaveSession(ctx, Session{
 		ID:          uuid.NewString(),
 		UserID:      user.ID,
-		WorkspaceID: workspace.ID,
+		WorkspaceID: access.Workspace.ID,
 		TokenHash:   HashToken(refreshToken),
 		Kind:        TokenKindRefresh,
 		CreatedAt:   now,
@@ -530,7 +582,7 @@ func (s Service) createLoginResult(ctx context.Context, user User) (LoginResult,
 		RefreshToken:     refreshToken,
 		RefreshExpiresAt: refreshSession.ExpiresAt,
 		TokenType:        "Bearer",
-		User:             userResult(user, workspace.ID),
+		User:             userResultWithAccess(user, access),
 	}, nil
 }
 
@@ -556,6 +608,7 @@ func (s Service) AuthenticateSessionPrincipal(ctx context.Context, token string)
 		ID:          user.ID,
 		User:        user,
 		WorkspaceID: user.WorkspaceID,
+		Role:        user.Role,
 	}, nil
 }
 
@@ -587,12 +640,20 @@ func (s Service) AuthenticateAPIKeyPrincipal(ctx context.Context, token string) 
 		}
 	}
 
-	result := userResult(user, key.WorkspaceID)
+	access, err := s.repo.FindWorkspaceAccess(ctx, key.WorkspaceID, user.ID)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return Principal{}, unauthorized()
+		}
+		return Principal{}, err
+	}
+	result := userResultWithAccess(user, access)
 	return Principal{
 		Kind:          PrincipalKindAPIKey,
 		ID:            key.ID,
 		User:          result,
 		WorkspaceID:   key.WorkspaceID,
+		Role:          result.Role,
 		APIKeyID:      key.ID,
 		Scopes:        append([]string(nil), key.Scopes...),
 		AllowedMeters: append([]string(nil), key.AllowedMeters...),
@@ -713,7 +774,15 @@ func (s Service) authenticateToken(ctx context.Context, token string, kind strin
 		return UserResult{}, errors.Join(domain.ErrUnauthorized, errors.New("workspace is required"))
 	}
 
-	return userResult(user, workspaceID), nil
+	access, err := s.repo.FindWorkspaceAccess(ctx, workspaceID, user.ID)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return UserResult{}, unauthorized()
+		}
+		return UserResult{}, err
+	}
+
+	return userResultWithAccess(user, access), nil
 }
 
 func (s Service) DeleteSession(ctx context.Context, token string) error {
@@ -836,6 +905,17 @@ func userResult(user User, workspaceID string) UserResult {
 		Email:       user.Email,
 		WorkspaceID: workspaceID,
 		CreatedAt:   user.CreatedAt,
+	}
+}
+
+func userResultWithAccess(user User, access WorkspaceAccess) UserResult {
+	return UserResult{
+		ID:            user.ID,
+		Email:         user.Email,
+		WorkspaceID:   access.Workspace.ID,
+		WorkspaceName: access.Workspace.Name,
+		Role:          access.Membership.Role,
+		CreatedAt:     user.CreatedAt,
 	}
 }
 

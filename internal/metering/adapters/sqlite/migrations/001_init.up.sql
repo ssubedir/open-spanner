@@ -24,6 +24,30 @@ CREATE TABLE auth_workspace_memberships (
 CREATE INDEX idx_auth_workspace_memberships_user_id
 	ON auth_workspace_memberships (user_id, workspace_id);
 
+CREATE TABLE auth_workspace_invitations (
+	id TEXT PRIMARY KEY,
+	workspace_id TEXT NOT NULL,
+	email TEXT NOT NULL,
+	role TEXT NOT NULL CHECK (role IN ('admin', 'viewer')),
+	token_hash TEXT NOT NULL UNIQUE,
+	invited_by_user_id TEXT NOT NULL,
+	expires_at TEXT NOT NULL,
+	accepted_at TEXT,
+	accepted_by_user_id TEXT,
+	revoked_at TEXT,
+	created_at TEXT NOT NULL,
+	FOREIGN KEY (workspace_id) REFERENCES auth_workspaces(id) ON DELETE CASCADE,
+	FOREIGN KEY (invited_by_user_id) REFERENCES auth_users(id) ON DELETE CASCADE,
+	FOREIGN KEY (accepted_by_user_id) REFERENCES auth_users(id) ON DELETE SET NULL
+);
+
+CREATE UNIQUE INDEX idx_auth_workspace_invitations_pending_email
+	ON auth_workspace_invitations (workspace_id, email)
+	WHERE accepted_at IS NULL AND revoked_at IS NULL;
+
+CREATE INDEX idx_auth_workspace_invitations_workspace_created
+	ON auth_workspace_invitations (workspace_id, created_at DESC, id DESC);
+
 CREATE TABLE auth_identities (
 	id TEXT PRIMARY KEY,
 	user_id TEXT NOT NULL,

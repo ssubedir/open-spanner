@@ -1062,6 +1062,40 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/auth/session/workspace": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "workspaces"
+                ],
+                "summary": "Switch workspace",
+                "operationId": "switchWorkspace",
+                "parameters": [
+                    {
+                        "description": "Workspace",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_auth.SwitchWorkspaceRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_auth.LoginResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/auth/sessions": {
             "post": {
                 "consumes": [
@@ -1167,6 +1201,235 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/auth/workspace-invitations/{token}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "workspaces"
+                ],
+                "summary": "Preview workspace invitation",
+                "operationId": "previewWorkspaceInvitation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Invitation token",
+                        "name": "token",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_auth.WorkspaceInvitationResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/auth/workspace-invitations/{token}/accept": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "workspaces"
+                ],
+                "summary": "Accept workspace invitation",
+                "operationId": "acceptWorkspaceInvitation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Invitation token",
+                        "name": "token",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_auth.LoginResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/auth/workspace/invitations": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "workspaces"
+                ],
+                "summary": "List workspace invitations",
+                "operationId": "listWorkspaceInvitations",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_auth.WorkspaceInvitationListResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "workspaces"
+                ],
+                "summary": "Create workspace invitation",
+                "operationId": "createWorkspaceInvitation",
+                "parameters": [
+                    {
+                        "description": "Invitation",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_auth.CreateWorkspaceInvitationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_auth.WorkspaceInvitationResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/auth/workspace/invitations/{id}": {
+            "delete": {
+                "tags": [
+                    "workspaces"
+                ],
+                "summary": "Revoke workspace invitation",
+                "operationId": "deleteWorkspaceInvitation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Invitation ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/v1/auth/workspace/members": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "workspaces"
+                ],
+                "summary": "List workspace members",
+                "operationId": "listWorkspaceMembers",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_auth.WorkspaceMemberListResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/auth/workspace/members/{user_id}": {
+            "delete": {
+                "tags": [
+                    "workspaces"
+                ],
+                "summary": "Remove workspace member",
+                "operationId": "deleteWorkspaceMember",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "user_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            },
+            "patch": {
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "workspaces"
+                ],
+                "summary": "Update workspace member",
+                "operationId": "updateWorkspaceMember",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "user_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Role",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_auth.UpdateWorkspaceMemberRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/v1/auth/workspaces": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "workspaces"
+                ],
+                "summary": "List workspaces",
+                "operationId": "listWorkspaces",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_auth.WorkspaceListResponse"
                         }
                     }
                 }
@@ -4708,6 +4971,17 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_metering_adapters_http_auth.CreateWorkspaceInvitationRequest": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_metering_adapters_http_auth.LoginRequest": {
             "type": "object",
             "properties": {
@@ -4785,6 +5059,22 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_metering_adapters_http_auth.SwitchWorkspaceRequest": {
+            "type": "object",
+            "properties": {
+                "workspace_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_auth.UpdateWorkspaceMemberRequest": {
+            "type": "object",
+            "properties": {
+                "role": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_metering_adapters_http_auth.UserResponse": {
             "type": "object",
             "properties": {
@@ -4795,6 +5085,117 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "id": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                },
+                "workspace_id": {
+                    "type": "string"
+                },
+                "workspace_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_auth.WorkspaceInvitationListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_auth.WorkspaceInvitationResponse"
+                    }
+                }
+            }
+        },
+        "internal_metering_adapters_http_auth.WorkspaceInvitationResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "token": {
+                    "type": "string"
+                },
+                "workspace_id": {
+                    "type": "string"
+                },
+                "workspace_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_auth.WorkspaceListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_auth.WorkspaceResponse"
+                    }
+                }
+            }
+        },
+        "internal_metering_adapters_http_auth.WorkspaceMemberListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_auth.WorkspaceMemberResponse"
+                    }
+                }
+            }
+        },
+        "internal_metering_adapters_http_auth.WorkspaceMemberResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_auth.WorkspaceResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "joined_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "role": {
                     "type": "string"
                 }
             }

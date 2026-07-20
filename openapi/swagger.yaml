@@ -399,6 +399,13 @@ definitions:
       password:
         type: string
     type: object
+  internal_metering_adapters_http_auth.CreateWorkspaceInvitationRequest:
+    properties:
+      email:
+        type: string
+      role:
+        type: string
+    type: object
   internal_metering_adapters_http_auth.LoginRequest:
     properties:
       email:
@@ -448,6 +455,16 @@ definitions:
       user:
         $ref: '#/definitions/internal_metering_adapters_http_auth.UserResponse'
     type: object
+  internal_metering_adapters_http_auth.SwitchWorkspaceRequest:
+    properties:
+      workspace_id:
+        type: string
+    type: object
+  internal_metering_adapters_http_auth.UpdateWorkspaceMemberRequest:
+    properties:
+      role:
+        type: string
+    type: object
   internal_metering_adapters_http_auth.UserResponse:
     properties:
       created_at:
@@ -455,6 +472,78 @@ definitions:
       email:
         type: string
       id:
+        type: string
+      role:
+        type: string
+      workspace_id:
+        type: string
+      workspace_name:
+        type: string
+    type: object
+  internal_metering_adapters_http_auth.WorkspaceInvitationListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_auth.WorkspaceInvitationResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_auth.WorkspaceInvitationResponse:
+    properties:
+      created_at:
+        type: string
+      email:
+        type: string
+      expires_at:
+        type: string
+      id:
+        type: string
+      role:
+        type: string
+      status:
+        type: string
+      token:
+        type: string
+      workspace_id:
+        type: string
+      workspace_name:
+        type: string
+    type: object
+  internal_metering_adapters_http_auth.WorkspaceListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_auth.WorkspaceResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_auth.WorkspaceMemberListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_auth.WorkspaceMemberResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_auth.WorkspaceMemberResponse:
+    properties:
+      created_at:
+        type: string
+      email:
+        type: string
+      role:
+        type: string
+      user_id:
+        type: string
+    type: object
+  internal_metering_adapters_http_auth.WorkspaceResponse:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      joined_at:
+        type: string
+      name:
+        type: string
+      role:
         type: string
     type: object
   internal_metering_adapters_http_entitlement.AssignmentListResponse:
@@ -2518,6 +2607,28 @@ paths:
       summary: Refresh auth session
       tags:
       - auth
+  /v1/auth/session/workspace:
+    post:
+      consumes:
+      - application/json
+      operationId: switchWorkspace
+      parameters:
+      - description: Workspace
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_auth.SwitchWorkspaceRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_auth.LoginResponse'
+      summary: Switch workspace
+      tags:
+      - workspaces
   /v1/auth/sessions:
     post:
       consumes:
@@ -2590,6 +2701,156 @@ paths:
       summary: Create auth user
       tags:
       - auth
+  /v1/auth/workspace-invitations/{token}:
+    get:
+      operationId: previewWorkspaceInvitation
+      parameters:
+      - description: Invitation token
+        in: path
+        name: token
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_auth.WorkspaceInvitationResponse'
+      summary: Preview workspace invitation
+      tags:
+      - workspaces
+  /v1/auth/workspace-invitations/{token}/accept:
+    post:
+      operationId: acceptWorkspaceInvitation
+      parameters:
+      - description: Invitation token
+        in: path
+        name: token
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_auth.LoginResponse'
+      summary: Accept workspace invitation
+      tags:
+      - workspaces
+  /v1/auth/workspace/invitations:
+    get:
+      operationId: listWorkspaceInvitations
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_auth.WorkspaceInvitationListResponse'
+      summary: List workspace invitations
+      tags:
+      - workspaces
+    post:
+      consumes:
+      - application/json
+      operationId: createWorkspaceInvitation
+      parameters:
+      - description: Invitation
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_auth.CreateWorkspaceInvitationRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_auth.WorkspaceInvitationResponse'
+      summary: Create workspace invitation
+      tags:
+      - workspaces
+  /v1/auth/workspace/invitations/{id}:
+    delete:
+      operationId: deleteWorkspaceInvitation
+      parameters:
+      - description: Invitation ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      summary: Revoke workspace invitation
+      tags:
+      - workspaces
+  /v1/auth/workspace/members:
+    get:
+      operationId: listWorkspaceMembers
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_auth.WorkspaceMemberListResponse'
+      summary: List workspace members
+      tags:
+      - workspaces
+  /v1/auth/workspace/members/{user_id}:
+    delete:
+      operationId: deleteWorkspaceMember
+      parameters:
+      - description: User ID
+        in: path
+        name: user_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      summary: Remove workspace member
+      tags:
+      - workspaces
+    patch:
+      consumes:
+      - application/json
+      operationId: updateWorkspaceMember
+      parameters:
+      - description: User ID
+        in: path
+        name: user_id
+        required: true
+        type: string
+      - description: Role
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_auth.UpdateWorkspaceMemberRequest'
+      responses:
+        "204":
+          description: No Content
+      summary: Update workspace member
+      tags:
+      - workspaces
+  /v1/auth/workspaces:
+    get:
+      operationId: listWorkspaces
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_auth.WorkspaceListResponse'
+      summary: List workspaces
+      tags:
+      - workspaces
   /v1/entitlements/check:
     post:
       consumes:

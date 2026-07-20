@@ -30,6 +30,68 @@ ORDER BY
 	auth_workspaces.id ASC
 LIMIT 1;
 
+-- name: ListWorkspaceAccessByUserID :many
+SELECT w.id AS workspace_id, w.name AS workspace_name, w.created_at AS workspace_created_at,
+	m.user_id, m.role, m.created_at AS membership_created_at
+FROM auth_workspace_memberships m
+JOIN auth_workspaces w ON w.id = m.workspace_id
+WHERE m.user_id = $1
+ORDER BY w.name, w.id;
+
+-- name: FindWorkspaceAccess :one
+SELECT w.id AS workspace_id, w.name AS workspace_name, w.created_at AS workspace_created_at,
+	m.user_id, m.role, m.created_at AS membership_created_at
+FROM auth_workspace_memberships m
+JOIN auth_workspaces w ON w.id = m.workspace_id
+WHERE m.workspace_id = $1 AND m.user_id = $2;
+
+-- name: ListWorkspaceMembers :many
+SELECT m.workspace_id, m.user_id, u.email, m.role, m.created_at
+FROM auth_workspace_memberships m
+JOIN auth_users u ON u.id = m.user_id
+WHERE m.workspace_id = $1
+ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, u.email, m.user_id;
+
+-- name: CountWorkspaceOwners :one
+SELECT COUNT(*) FROM auth_workspace_memberships
+WHERE workspace_id = $1 AND role = 'owner';
+
+-- name: UpdateWorkspaceMembershipRole :execrows
+UPDATE auth_workspace_memberships SET role = $1
+WHERE workspace_id = $2 AND user_id = $3;
+
+-- name: DeleteWorkspaceMembership :execrows
+DELETE FROM auth_workspace_memberships
+WHERE workspace_id = $1 AND user_id = $2;
+
+-- name: SaveWorkspaceInvitation :exec
+INSERT INTO auth_workspace_invitations
+	(id, workspace_id, email, role, token_hash, invited_by_user_id, expires_at, accepted_at, accepted_by_user_id, revoked_at, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
+
+-- name: ListWorkspaceInvitations :many
+SELECT id, workspace_id, email, role, token_hash, invited_by_user_id, expires_at,
+	accepted_at, accepted_by_user_id, revoked_at, created_at
+FROM auth_workspace_invitations
+WHERE workspace_id = $1
+ORDER BY created_at DESC, id DESC;
+
+-- name: FindWorkspaceInvitationByTokenHash :one
+SELECT i.id, i.workspace_id, w.name AS workspace_name, i.email, i.role, i.token_hash,
+	i.invited_by_user_id, i.expires_at, i.accepted_at, i.accepted_by_user_id, i.revoked_at, i.created_at
+FROM auth_workspace_invitations i
+JOIN auth_workspaces w ON w.id = i.workspace_id
+WHERE i.token_hash = $1;
+
+-- name: AcceptWorkspaceInvitation :execrows
+UPDATE auth_workspace_invitations
+SET accepted_at = $1, accepted_by_user_id = $2
+WHERE id = $3 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > $4;
+
+-- name: RevokeWorkspaceInvitation :execrows
+UPDATE auth_workspace_invitations SET revoked_at = $1
+WHERE id = $2 AND workspace_id = $3 AND accepted_at IS NULL AND revoked_at IS NULL;
+
 -- name: FindUserByID :one
 SELECT id, email, password_hash, created_at
 FROM auth_users

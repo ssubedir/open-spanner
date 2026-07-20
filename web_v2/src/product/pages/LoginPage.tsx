@@ -2,6 +2,7 @@ import { Link, useRouter } from '@/compat/tanstack-router'
 import { useSelector } from '@tanstack/react-store'
 import { AlertCircle, Loader2, LockKeyhole, LogIn, Mail, ShieldCheck } from 'lucide-react'
 import type { FormEvent } from 'react'
+import { useSearchParams } from 'next/navigation'
 
 import { appStore, appStoreActions } from '../app-store'
 import { Button } from '../components/ui/button'
@@ -10,6 +11,9 @@ import { Label } from '../components/ui/label'
 
 export function LoginPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const next = safeNextPath(searchParams.get('next'))
+  const invitedEmail = searchParams.get('email') || ''
   const error = useSelector(appStore, (state) => state.auth.loginError)
   const loading = useSelector(appStore, (state) => state.auth.loading)
   const providers = useSelector(appStore, (state) => state.auth.providers.filter((provider) => provider.enabled))
@@ -24,7 +28,7 @@ export function LoginPage() {
 
     try {
       await appStoreActions.login({ email, password })
-      await router.navigate({ to: '/overview' })
+      await router.navigate({ to: next })
     } catch {
       // Store owns the visible auth error state.
     }
@@ -58,6 +62,7 @@ export function LoginPage() {
               <Mail aria-hidden="true" />
               <Input
                 autoComplete="email"
+                defaultValue={invitedEmail}
                 className="h-auto border-0 bg-transparent p-0 shadow-none focus-visible:border-transparent focus-visible:ring-0"
                 name="email"
                 placeholder="admin@example.com"
@@ -102,12 +107,16 @@ export function LoginPage() {
 
         {registrationEnabled ? (
           <div className="auth-switch">
-            Need an account? <Link to="/register">Register</Link>
+            Need an account? <Link to={`/register?next=${encodeURIComponent(next)}&email=${encodeURIComponent(invitedEmail)}`}>Register</Link>
           </div>
         ) : null}
       </section>
     </main>
   )
+}
+
+function safeNextPath(value: string | null) {
+  return value && value.startsWith('/') && !value.startsWith('//') ? value : '/overview'
 }
 
 function ProviderMark({ name, provider }: { name: string; provider: string }) {

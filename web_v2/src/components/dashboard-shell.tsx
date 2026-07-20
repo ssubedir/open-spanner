@@ -3,27 +3,40 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSelector } from "@tanstack/react-store";
-import { ChevronDown, LogOut, Menu, X } from "lucide-react";
-import { useState } from "react";
+import { Check, ChevronDown, LogOut, Menu, X } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import { BrandMark } from "@/components/brand-mark";
 import { Button } from "@/components/ui/button";
 import { navigation } from "@/lib/navigation";
 import { cn } from "@/lib/utils";
 import { appStore, appStoreActions } from "@/product/app-store";
+import { listWorkspaces, type Workspace } from "@/product/api";
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const session = useSelector(appStore, (state) => state.auth.session);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const activeItem = navigation.flatMap((group) => group.items).find((item) => pathname === item.href || pathname.startsWith(item.href + "/"));
+
+  useEffect(() => {
+    if (!session) return;
+    void listWorkspaces().then((response) => setWorkspaces(response.items)).catch(() => setWorkspaces([]));
+  }, [session]);
+
+  async function switchTo(workspaceID: string) {
+    if (!session || workspaceID === session.user.workspace_id) return;
+    await appStoreActions.switchWorkspace(workspaceID);
+    window.location.href = "/overview";
+  }
 
   return (
     <div data-testid="dashboard-root" className="min-h-screen bg-background">
       <div data-testid="dashboard-frame" className="min-h-screen overflow-hidden bg-background">
         <div className="grid min-h-screen lg:grid-cols-[220px_minmax(0,1fr)]">
           <aside className="hidden border-r bg-card lg:block">
-            <Sidebar pathname={pathname} userEmail={session?.user.email} />
+            <Sidebar currentWorkspaceID={session?.user.workspace_id} onSwitch={switchTo} pathname={pathname} userEmail={session?.user.email} workspaceName={session?.user.workspace_name} workspaces={workspaces} />
           </aside>
 
           {mobileOpen && (
@@ -33,7 +46,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 <button className="absolute right-3 top-3 grid size-8 place-items-center rounded-md hover:bg-muted" onClick={() => setMobileOpen(false)} aria-label="Close navigation">
                   <X className="size-4" />
                 </button>
-                <Sidebar pathname={pathname} onNavigate={() => setMobileOpen(false)} userEmail={session?.user.email} />
+                <Sidebar currentWorkspaceID={session?.user.workspace_id} onNavigate={() => setMobileOpen(false)} onSwitch={switchTo} pathname={pathname} userEmail={session?.user.email} workspaceName={session?.user.workspace_name} workspaces={workspaces} />
               </aside>
             </div>
           )}
@@ -55,17 +68,28 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Sidebar({ pathname, onNavigate, userEmail }: { pathname: string; onNavigate?: () => void; userEmail?: string }) {
+function Sidebar({ currentWorkspaceID, pathname, onNavigate, onSwitch, userEmail, workspaceName, workspaces }: { currentWorkspaceID?: string; pathname: string; onNavigate?: () => void; onSwitch: (workspaceID: string) => Promise<void>; userEmail?: string; workspaceName?: string; workspaces: Workspace[] }) {
   return (
     <div className="flex h-full min-h-screen flex-col px-3 py-3">
-      <button className="mb-4 flex items-center gap-2.5 rounded-lg px-2 py-1 text-left hover:bg-muted">
-        <BrandMark />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-semibold">Open Spanner</span>
-          <span className="block text-xs text-muted-foreground">Usage infrastructure</span>
-        </span>
-        <ChevronDown className="size-3.5" />
-      </button>
+      <details className="group relative mb-4">
+        <summary className="flex cursor-pointer list-none items-center gap-2.5 rounded-lg px-2 py-1 text-left hover:bg-muted">
+          <BrandMark />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-semibold">{workspaceName || "Open Spanner"}</span>
+            <span className="block text-xs capitalize text-muted-foreground">Workspace</span>
+          </span>
+          <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="absolute left-0 right-0 top-full z-30 mt-1 rounded-md border bg-popover p-1 shadow-md">
+          {workspaces.map((workspace) => (
+            <button className="flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left text-xs hover:bg-muted" key={workspace.id} onClick={() => void onSwitch(workspace.id)} type="button">
+              <span className="min-w-0 flex-1"><span className="block truncate font-medium">{workspace.name}</span><span className="capitalize text-muted-foreground">{workspace.role}</span></span>
+              {workspace.id === currentWorkspaceID ? <Check className="size-3.5 text-primary" /> : null}
+            </button>
+          ))}
+          {workspaces.length === 0 ? <p className="px-2 py-2 text-xs text-muted-foreground">Loading workspace…</p> : null}
+        </div>
+      </details>
       <nav className="scrollbar-subtle flex-1 overflow-y-auto">
         {navigation.map((group) => (
           <div key={group.label} className="mb-4">

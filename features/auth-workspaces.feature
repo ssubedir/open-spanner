@@ -24,6 +24,66 @@ Feature: Authenticated workspace access
     And user B cannot see user A's plans or subjects
 
   @ui_covered @api_covered
+  Scenario: An owner invites a teammate with viewer access
+    Given a workspace owner and another registered account exist
+    When the owner creates a viewer invitation for the teammate's email
+    Then a secure invitation link is shown once
+    And the invitation expires after seven days
+    When the teammate signs in with the invited email and accepts the invitation
+    Then the teammate becomes a viewer in the shared workspace
+    And the teammate can read workspace resources
+    But the teammate cannot change workspace resources
+
+  @api_covered
+  Scenario: Invitation links enforce their complete security lifecycle
+    Given a pending workspace invitation exists
+    Then another active invitation cannot be created for the same email
+    And an account with a different email cannot accept the invitation
+    When the owner revokes the invitation
+    Then the revoked invitation cannot be accepted
+    When a replacement invitation is accepted
+    Then it cannot be accepted a second time
+    When an invitation expires
+    Then the expired invitation cannot be accepted
+    And the API reports pending, accepted, revoked, and expired invitation states
+    But invitation history never exposes invitation tokens
+
+  @ui_covered @api_covered
+  Scenario: A member switches between personal and shared workspaces
+    Given a user belongs to a personal workspace and a shared workspace
+    When the user selects the personal workspace in the dashboard
+    Then the session is scoped to the personal workspace
+    When the user creates a resource and switches to the shared workspace
+    Then the personal resource is not visible in the shared workspace
+
+  @api_covered
+  Scenario: Membership role changes take effect immediately
+    Given an admin has a write-capable API key in a shared workspace
+    Then the admin can create and revoke teammate invitations
+    When an owner changes the admin to a viewer
+    Then the viewer's existing session becomes read-only
+    And the viewer's existing API key becomes read-only
+    And the viewer cannot manage invitations
+    When the owner promotes the viewer to owner
+    Then the promoted member can manage workspace membership
+
+  @api_covered
+  Scenario: A workspace always retains an owner
+    Given a workspace has one owner
+    Then the final owner cannot be demoted
+    And the final owner cannot be removed
+    When the workspace has another owner
+    Then the first owner can be demoted
+    But the remaining final owner still cannot be demoted or removed
+
+  @ui_covered @api_covered
+  Scenario: Removing a member revokes workspace access
+    Given a user belongs to a shared workspace
+    When an owner removes the user from that workspace
+    Then the user's existing session can no longer access that workspace
+    And the user's API keys for that workspace can no longer authenticate
+
+  @ui_covered @api_covered
   Scenario: Scoped API keys can write only the allowed meter
     Given a dashboard user has two meters
     And the user creates an API key scoped to write one meter
