@@ -13,6 +13,11 @@ the dashboard, keep it server-side, and reuse one configured client per service.
 | Python | `open-spanner` | [Python](/docs/sdks/python) |
 | C# | `OpenSpanner` | [C#](/docs/sdks/csharp) |
 
+Every SDK also includes a gRPC ingestion client with single-event, bulk, and
+client-streaming writes. Unary writes support opt-in retry policies with
+backoff, jitter, and server-provided `RetryInfo`; uncertain client streams should
+be recovered through bulk ingestion with the original event idempotency keys.
+
 The SDK surface includes:
 
 - health and readiness;

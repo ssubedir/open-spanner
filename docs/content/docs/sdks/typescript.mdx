@@ -53,6 +53,26 @@ await createUsage({
 
 Create an API key in the dashboard first and expose it to your backend process as `OPEN_SPANNER_API_KEY`.
 
+## gRPC Ingestion
+
+The same package provides single, bulk, and client-streaming usage writes:
+
+```ts
+import { StreamClient } from "@ssubedir/open-spanner/stream";
+
+const ingestion = new StreamClient(
+  "localhost:18090",
+  process.env.OPEN_SPANNER_API_KEY!,
+);
+
+await ingestion.track({
+  idempotencyKey: crypto.randomUUID(),
+  subject: "org_123",
+  meter: "api_requests",
+  quantity: 1,
+});
+```
+
 ## Run The Full Example
 
 ```sh

@@ -10,7 +10,7 @@ Use the stream client from trusted backend code when you want to send usage thro
 using OpenSpanner.Streaming;
 
 var client = new StreamClient(
-    "http://localhost:18082",
+    "http://localhost:18090",
     "osp_live_...",
     retryPolicy: new RetryPolicy
     {

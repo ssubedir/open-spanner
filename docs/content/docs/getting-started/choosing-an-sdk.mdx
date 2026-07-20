@@ -14,6 +14,10 @@ Do not put Open Spanner API keys in browser or mobile clients.
 | Python | `open-spanner` | You report usage from Python services, scripts, or jobs. |
 | C# | `OpenSpanner` | You run .NET services or workers. |
 
+All four SDKs support the REST API and gRPC usage ingestion. Choose REST for
+configuration, queries, exports, and entitlements. Choose gRPC single, bulk, or
+client-streaming writes for sustained backend ingestion.
+
 The SDK pages include in-doc setup and usage snippets for each language:
 
 - [Go](/docs/sdks/go)
