@@ -27,7 +27,7 @@ Open Spanner sits between your product and downstream systems such as billing, f
 
 | Surface | Use it for |
 | --- | --- |
-| Dashboard | Sign in, share workspaces, define meters, inspect usage, manage plans, create API keys, manage exports, and view alert activity. |
+| Control plane | Dashboard UI for workspace access, meters, usage, plans, API keys, exports, alerts, and operations. |
 | REST API | Meter management, usage writes, usage queries, entitlement checks, exports, and operational endpoints. |
 | Official SDKs | Typed backend clients for meters, usage, direct exports, entitlement checks, and entitlement progress reads in Go, TypeScript, Python, and C#. |
 | gRPC streaming | High-throughput usage ingestion from trusted backend services. |
@@ -129,7 +129,7 @@ task run:sqlite
 Run the Next.js dashboard in another terminal. It listens on `18081` and proxies API requests to the internal API on `18080`:
 
 ```sh
-task admin:dev
+task control-plane:dev
 ```
 
 Run workers in separate terminals when you want queued exports, durable usage fanout, alerts, and async entitlement state updates processed:
@@ -432,6 +432,9 @@ task test:e2e
 
 ## Development
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for repository workflow, load testing,
+generated contracts, and SDK checks.
+
 Useful commands:
 
 ```sh
@@ -440,7 +443,7 @@ task vet
 task sqlc:check
 task openapi:check
 task docs:build
-task admin:build
+task control-plane:build
 ```
 
 Regenerate SDKs:
@@ -456,7 +459,7 @@ task sdk:csharp
 Run the dashboard dev server:
 
 ```sh
-task admin:dev
+task control-plane:dev
 ```
 
 ## Project Structure

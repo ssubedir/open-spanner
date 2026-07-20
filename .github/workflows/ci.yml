@@ -20,7 +20,7 @@ jobs:
     outputs:
       api: ${{ steps.filter.outputs.api }}
       sdks: ${{ steps.filter.outputs.sdks }}
-      admin: ${{ steps.filter.outputs.admin }}
+      control_plane: ${{ steps.filter.outputs.control_plane }}
       browser: ${{ steps.filter.outputs.browser }}
       docs: ${{ steps.filter.outputs.docs }}
 
@@ -38,7 +38,7 @@ jobs:
             {
               echo "api=true"
               echo "sdks=true"
-              echo "admin=true"
+              echo "control_plane=true"
               echo "browser=true"
               echo "docs=true"
             } >> "$GITHUB_OUTPUT"
@@ -83,13 +83,13 @@ jobs:
           SHARED='^\.github/workflows/ci\.yml$|^Taskfile\.yml$|^taskfiles/|^scripts/'
           BACKEND='^cmd/|^internal/|^go\.mod$|^go\.sum$|^sqlc\.yaml$|^openapi/|^docker-compose.*\.yml$|^Dockerfile$'
           SDKS='^sdk/|^examples/|^openapi/|^dotnet-tools\.json$'
-          ADMIN='^web/'
+          CONTROL_PLANE='^web/'
           DOCS='^docs/'
 
           set_area api "$SHARED|$BACKEND"
           set_area sdks "$SHARED|$SDKS"
-          set_area admin "$SHARED|$ADMIN"
-          set_area browser "$SHARED|$BACKEND|$ADMIN|^features/"
+          set_area control_plane "$SHARED|$CONTROL_PLANE"
+          set_area browser "$SHARED|$BACKEND|$CONTROL_PLANE|^features/"
           set_area docs "^\\.github/workflows/ci\\.yml$|$DOCS"
 
   api:
@@ -202,11 +202,11 @@ jobs:
       - name: Test SDK integration
         run: task test:sdk
 
-  admin:
-    name: Admin UI build
+  control-plane:
+    name: Control plane build
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.admin == 'true'
+    if: needs.changes.outputs.control_plane == 'true'
 
     steps:
       - name: Checkout
@@ -226,7 +226,7 @@ jobs:
         working-directory: web
         run: npm ci
 
-      - name: Build admin UI
+      - name: Build control plane
         working-directory: web
         run: npm run build
 
@@ -277,7 +277,7 @@ jobs:
     name: Container packaging
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.api == 'true' || needs.changes.outputs.admin == 'true'
+    if: needs.changes.outputs.api == 'true' || needs.changes.outputs.control_plane == 'true'
 
     steps:
       - name: Checkout

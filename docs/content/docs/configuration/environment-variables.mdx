@@ -93,84 +93,14 @@ The Next.js web process uses one runtime variable:
 | --- | --- | --- |
 | `OPEN_SPANNER_API_PROXY_URL` | `http://127.0.0.1:18080` | Private API origin used for `/v1` requests. Do not point this at the public web origin. |
 
-## Social Login
+## Related Configuration
 
-Open Spanner supports dashboard sign-in with email/password and configured OAuth providers. Google and GitHub are built in today, and each provider follows the same variable pattern:
-
-For a closed deployment, create the intended dashboard users first, then restart the API with `OPEN_SPANNER_REGISTRATION_ENABLED=false`. The API rejects new password registrations, OAuth cannot create new users, and the dashboard hides registration. Existing password users, linked OAuth identities, and verified OAuth identities matching an existing user's email can still sign in.
-
-```text
-OPEN_SPANNER_<PROVIDER>_OAUTH_ENABLED
-OPEN_SPANNER_<PROVIDER>_OAUTH_CLIENT_ID
-OPEN_SPANNER_<PROVIDER>_OAUTH_CLIENT_SECRET
-OPEN_SPANNER_<PROVIDER>_OAUTH_REDIRECT_URL
-```
-
-Use `GOOGLE` or `GITHUB` for the built-in providers. Social login creates the same HttpOnly dashboard session cookies as password login.
-
-Provider buttons are shown only when the provider is enabled and has credentials. To keep credentials configured but hide a provider:
-
-```sh
-OPEN_SPANNER_GOOGLE_OAUTH_ENABLED=false
-OPEN_SPANNER_GITHUB_OAUTH_ENABLED=true
-```
-
-The local callback URLs are:
-
-```text
-http://localhost:18081/v1/auth/oauth/google/callback
-http://localhost:18081/v1/auth/oauth/github/callback
-```
-
-Set explicit redirect URLs when the public browser URL differs from the API listen address:
-
-```sh
-OPEN_SPANNER_GOOGLE_OAUTH_REDIRECT_URL=https://open-spanner.example.com/v1/auth/oauth/google/callback
-OPEN_SPANNER_GITHUB_OAUTH_REDIRECT_URL=https://open-spanner.example.com/v1/auth/oauth/github/callback
-```
-
-For Google, create a Web application OAuth client and add the callback URL under authorized redirect URIs. For GitHub, create an OAuth App and use the matching callback URL.
-
-## Docker Compose Variables
-
-These variables are read by `docker-compose.app.yml` before the Open Spanner container starts:
-
-| Variable | Default | Description |
-| --- | --- | --- |
-| `OPEN_SPANNER_HTTP_PORT` | `18081` | Host port published for the web dashboard and REST proxy. |
-| `OPEN_SPANNER_GRPC_PORT` | `18090` | Host port published for the app container's gRPC listener. |
-| `OPEN_SPANNER_INGESTION_*` | service defaults | Passed through to the app container for ingestion size and rate limits. |
-| `OPEN_SPANNER_POSTGRES_PASSWORD` | `open_spanner` | Password for the bundled Postgres service and the app connection string. |
-| `OPEN_SPANNER_API_DB_MAX_OPEN_CONNS` / `OPEN_SPANNER_API_DB_MAX_IDLE_CONNS` | `20` / `10` | Pool budget passed to the API container. |
-| `OPEN_SPANNER_EXPORT_DB_MAX_OPEN_CONNS` / `OPEN_SPANNER_EXPORT_DB_MAX_IDLE_CONNS` | `5` / `2` | Pool budget passed to the export-worker container. |
-| `OPEN_SPANNER_ALERT_DB_MAX_OPEN_CONNS` / `OPEN_SPANNER_ALERT_DB_MAX_IDLE_CONNS` | `5` / `2` | Pool budget passed to the alert-worker container. |
-| `OPEN_SPANNER_ENTITLEMENT_DB_MAX_OPEN_CONNS` / `OPEN_SPANNER_ENTITLEMENT_DB_MAX_IDLE_CONNS` | `5` / `2` | Pool budget passed to the entitlement-worker container. |
-| `OPEN_SPANNER_USAGE_DB_MAX_OPEN_CONNS` / `OPEN_SPANNER_USAGE_DB_MAX_IDLE_CONNS` | `5` / `2` | Pool budget passed to the usage-outbox-worker container. |
-| `OPEN_SPANNER_DB_CONN_MAX_LIFETIME` / `OPEN_SPANNER_DB_CONN_MAX_IDLE_TIME` | `30m` / `5m` | Connection recycling settings passed to every application process. |
-| `OPEN_SPANNER_EXPORT_WORKER_INTERVAL` | `5s` | Passed through to the export worker container. |
-| `OPEN_SPANNER_EXPORT_STORAGE_DRIVER` | `filesystem` | Passed to both API and export worker containers. |
-| `OPEN_SPANNER_EXPORT_S3_*` | empty | S3-compatible storage settings passed to both API and export worker containers. |
-| `OPEN_SPANNER_EXPORT_WORKER_LOCK_TTL` | `5m` | Passed through to the export worker container. |
-| `OPEN_SPANNER_EXPORT_WORKER_MAX_ATTEMPTS` | `3` | Passed through to the export worker container. |
-| `OPEN_SPANNER_EXPORT_RETENTION` | `168h` | Passed through to the export worker container. |
-| `OPEN_SPANNER_EXPORT_CLEANUP_INTERVAL` | `1h` | Passed through to the export worker container. |
-| `OPEN_SPANNER_EXPORT_CLEANUP_BATCH_SIZE` | `1000` | Passed through to the export worker container. |
-| `OPEN_SPANNER_ALERT_WORKER_INTERVAL` | `5s` | Passed through to the alert worker container. |
-| `OPEN_SPANNER_ALERT_WORKER_LOCK_TTL` | `5m` | Passed through to the alert worker container. |
-| `OPEN_SPANNER_ALERT_WORKER_TIMEOUT` | `1m` | Passed through to the alert worker container. |
-| `OPEN_SPANNER_ALERT_WORKER_RETRY_AFTER` | `30s` | Passed through to the alert worker container. |
-| `OPEN_SPANNER_ALERT_WORKER_MAX_ATTEMPTS` | `3` | Passed through to the alert worker container. |
-| `OPEN_SPANNER_ALERT_WORKER_BATCH_SIZE` | `100` | Passed through to the alert worker container. |
-| `OPEN_SPANNER_ENTITLEMENT_WORKER_INTERVAL` | `5s` | Passed through to the entitlement worker container. |
-| `OPEN_SPANNER_ENTITLEMENT_WORKER_LOCK_TTL` | `5m` | Passed through to the entitlement worker container. |
-| `OPEN_SPANNER_ENTITLEMENT_WORKER_TIMEOUT` | `1m` | Passed through to the entitlement worker container. |
-| `OPEN_SPANNER_ENTITLEMENT_WORKER_RETRY_AFTER` | `30s` | Passed through to the entitlement worker container. |
-| `OPEN_SPANNER_ENTITLEMENT_WORKER_MAX_ATTEMPTS` | `3` | Passed through to the entitlement worker container. |
-| `OPEN_SPANNER_ENTITLEMENT_WORKER_BATCH_SIZE` | `100` | Passed through to the entitlement worker container. |
-| `OPEN_SPANNER_USAGE_WORKER_*` | service defaults | Passed through to the usage-outbox worker container. |
-| `OPEN_SPANNER_RETENTION_PRUNE_ENABLED` | `false` | Passed through to the app container. |
-| `OPEN_SPANNER_OPERATIONAL_HISTORY_*` | service defaults | Passed through to the app container for bounded operational maintenance. |
-| `OPEN_SPANNER_REGISTRATION_ENABLED` | `true` | Passed through to the app container. |
+- See [Auth Model](/docs/concepts/auth-model) for registration and OAuth setup.
+- See [Production Deployment](/docs/configuration/deployment) for per-process
+  connection budgets, worker topology, storage, and networking.
+- Use the repository `.env.example` as the complete Docker Compose template;
+  Compose-only port, password, and per-process pool variables are documented
+  inline there.
 
 ## Postgres Example
 

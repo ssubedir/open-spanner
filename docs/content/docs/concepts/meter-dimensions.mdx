@@ -201,7 +201,3 @@ Dimension names can use letters, numbers, underscores, hyphens, and dots. Dots a
 `subject` is reserved for the built-in subject field. You can group and filter by subject without adding it to `dimensions`.
 
 Avoid putting high-cardinality values in dimensions unless you really need to query by them. Request IDs, trace IDs, and raw payload values are usually better left out of dimensions.
-
-## Planned Direction
-
-Open Spanner may add more dimension management over time, such as richer dashboard controls, dimension catalogs, and looser ingestion modes. Today, dimensions are explicit and schema-backed.

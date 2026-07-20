@@ -57,7 +57,7 @@ Usage writes also queue entitlement evaluation for the affected subject and mete
 | `no_plan` | The subject has not been assigned to a plan. |
 | `not_in_plan` | The subject has a plan, but the plan does not include that meter. |
 
-## Dashboard Workflow
+## Control Plane Workflow
 
 Create and manage plans from the dashboard:
 
@@ -66,7 +66,8 @@ Create and manage plans from the dashboard:
 3. Assign subjects to the plan.
 4. Review subject progress to see current usage, remaining quota, and state.
 
-Plan management is an administrative workflow. Backend services should not create plans from SDK code during normal application traffic.
+Plan management is a control-plane workflow. Backend services should not create
+plans from SDK code during normal application traffic.
 
 ## Entitlement Checks
 
@@ -108,7 +109,8 @@ Example response:
 
 For service clients, include `plans:read` on API keys that need entitlement checks. Add `usage:write` when the same service should record usage after an allowed decision.
 
-See [Check Entitlements](/docs/tutorials/check-entitlements) for SDK examples in Go, TypeScript, Python, and C#.
+See [Enforce Entitlements](/docs/tutorials/check-entitlements) for the recommended
+atomic-consumption flow and links to language-specific SDK guides.
 
 ## Atomic Consumption
 
@@ -138,21 +140,9 @@ Use `GET /v1/entitlements/decisions` to investigate durable consumption outcomes
 
 Audit responses include the quota snapshot and accepted event ID but intentionally omit event metadata. Access requires both `usage:read` and `plans:read`, and every lookup is isolated to the authenticated workspace. The dashboard exposes the same view under **Entitlements → Decisions**.
 
-## Quota Reconciliation
-
-Use `GET /v1/system/reconciliation` to run a bounded, read-only consistency scan. It checks recent accepted and rejected consumption decisions against usage events, then recalculates currently active entitlement counters from source usage and the assignment anchors that define their quota windows.
-
-The scan reports `healthy` or `drift_detected` with explicit issues such as a missing accepted event, an event recorded for a rejected decision, or a counter count or quantity mismatch. It never repairs or mutates data. The default decision lookback is 24 hours; `lookback_hours` supports up to 720 hours, and `limit` bounds both decisions and active counters to at most 500 each.
-
-Historical counters are intentionally excluded because raw-event retention may legitimately remove their source events. Run the scan from **Operations → Reconciliation** in the dashboard or with a key that has `system:read`.
-
-Scheduled monitoring is opt-in with `OPEN_SPANNER_RECONCILIATION_ENABLED=true`. Each workspace receives a durable schedule and immutable run history. New drift episodes and scan failures create durable webhook notifications in the same transaction as the run outcome, so a process crash cannot lose the alert. Delivery retries with exponential backoff before entering `dead_letter`; every attempt is retained as an immutable audit record, and operators can manually requeue a dead-letter notification from the dashboard or API.
-
-System stats expose reconciliation health as `not_started`, `healthy`, `drift_detected`, `failed`, `stale`, or `degraded`. `stale` means the next scheduled scan is overdue beyond `OPEN_SPANNER_RECONCILIATION_STALE_AFTER`; `degraded` means at least one notification needs operator attention in dead-letter state. Repeated identical scan failures are deduplicated until a successful scan resets the failure episode.
-
-Counter drift can be repaired with `POST /v1/system/reconciliation/repairs`. Repairs use a mandatory two-step workflow: send `dry_run: true` to record a preview, then send `dry_run: false` with the preview's `counter_updated_at` as `expected_updated_at`. The apply fails with a conflict if usage changed after the preview.
-
-Only currently active counters whose complete period is still covered by the meter's raw-event retention window are eligible. Each preview and successful application is stored as an immutable audit record, available from `GET /v1/system/reconciliation/repairs`. Repair applies require `system:write`; read-only scans and repair history require `system:read`. Decision/event inconsistencies are never repaired automatically.
+Quota counters can be checked against source usage and consumption decisions.
+See [Quota Reconciliation](/docs/configuration/reconciliation) for read-only
+scans, scheduled monitoring, and guarded repair.
 
 ## Progress And Status
 
@@ -165,7 +155,7 @@ Progress and status reads answer what is already true for the subject:
 - Event reads show state transitions such as `warning`, `exceeded`, or `resolved`.
 - Period snapshots provide an auditable record of evaluated quota periods.
 
-Use progress for customer-facing quota pages, account admin screens, and backend diagnostics:
+Use progress for customer-facing quota pages, control-plane diagnostics, and backend services:
 
 ```sh
 curl "$BASE_URL/v1/plans/subjects/org_123/progress" \
@@ -179,7 +169,9 @@ curl "$BASE_URL/v1/entitlements/states?subject=org_123&meter=api_calls" \
   -H "Authorization: Bearer $API_KEY"
 ```
 
-Progress and status endpoints are part of the SDK surface. Event and period history are available from the dashboard and full REST API. Creating plans and assigning subjects remains a dashboard/admin workflow.
+Progress and status endpoints are part of the SDK surface. Event and period
+history are available from the dashboard and full REST API. Creating plans and
+assigning subjects remains a control-plane workflow.
 
 ## Usage Infrastructure
 

@@ -58,12 +58,12 @@ tasks:
       - task: test:e2e:web:postgres
 
   test:e2e:web:
-    desc: Run Playwright browser E2E tests for the v2 admin UI with SQLite
+    desc: Run control plane browser E2E tests with SQLite
     cmds:
       - cd web; npm run e2e
 
   test:e2e:web:postgres:
-    desc: Run Playwright browser E2E tests for the v2 admin UI with Postgres
+    desc: Run control plane browser E2E tests with Postgres
     cmds:
       - task: postgres:up
       - task: _test:e2e:postgres:reset
@@ -73,7 +73,7 @@ tasks:
       OPEN_SPANNER_E2E_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/open_spanner_e2e?sslmode=disable
 
   test:e2e:web:install:
-    desc: Install Playwright browser dependencies for v2 admin UI E2E tests
+    desc: Install control plane browser E2E dependencies
     cmds:
       - cd web; npm run e2e:install
 

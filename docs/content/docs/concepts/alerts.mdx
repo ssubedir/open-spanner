@@ -91,11 +91,22 @@ The webhook payload includes the rule, current state, and event:
 }
 ```
 
-Webhook delivery is best-effort in this version. A failed webhook is logged by the worker; the alert state and alert event are still recorded in Open Spanner.
+Alert events and delivery jobs are committed durably before a webhook is sent.
+Non-2xx responses and network failures are retried after
+`OPEN_SPANNER_ALERT_WORKER_RETRY_AFTER` up to the configured maximum attempts.
+Each attempt records its status code, duration, and error without changing the
+immutable alert event.
+
+Terminal failures remain visible in the dashboard and
+`GET /v1/alerts/delivery-jobs`. After correcting the destination, retry one with
+`POST /v1/alerts/delivery-jobs/{id}/retry`.
 
 ## Worker Process
 
-Alert evaluation runs outside the API process. The API records usage and queues alert work; the alert worker claims queued jobs from the same database and evaluates them.
+Alert evaluation and webhook delivery run outside the API process. Accepted
+usage first enters the transactional usage outbox; the usage worker durably
+queues matching alert work, and the alert worker evaluates rules and delivers
+their events.
 
 Run at least one alert worker when alerts are enabled. With Postgres, multiple alert workers can run at the same time because jobs are claimed with row-level locking.
 

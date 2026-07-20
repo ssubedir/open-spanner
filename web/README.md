@@ -10,7 +10,7 @@ From the repository root, start the API and then run the dashboard:
 
 ```sh
 task run:sqlite
-task admin:dev
+task control-plane:dev
 ```
 
 The dashboard is available at

@@ -52,6 +52,7 @@ For production, run Postgres as the system of record and run workers beside the 
 
 - The web process serves the dashboard and proxies public REST requests.
 - The private API serves REST, gRPC ingestion, metrics, health checks, and readiness checks.
+- The usage worker fans committed events into alert and entitlement queues.
 - The export worker processes queued CSV jobs.
 - The alert worker evaluates alert rules and sends webhook notifications.
 - The entitlement worker updates stored quota state, events, and period snapshots after usage changes.
