@@ -80,7 +80,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Docker image metadata
+      - name: API image metadata
         id: docker
         uses: docker/metadata-action@v5
         with:
@@ -90,11 +90,11 @@ jobs:
             type=raw,value=${{ steps.release.outputs.version }}
             type=raw,value=latest
 
-      - name: Web Docker image metadata
-        id: docker-web
+      - name: Control plane image metadata
+        id: docker_control_plane
         uses: docker/metadata-action@v5
         with:
-          images: ${{ secrets.DOCKERHUB_USERNAME }}/open-spanner-web
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/open-spanner-control-plane
           tags: |
             type=raw,value=${{ steps.release.outputs.tag }}
             type=raw,value=${{ steps.release.outputs.version }}
@@ -110,15 +110,15 @@ jobs:
           tags: ${{ steps.docker.outputs.tags }}
           labels: ${{ steps.docker.outputs.labels }}
 
-      - name: Build and push web image
+      - name: Build and push control plane image
         uses: docker/build-push-action@v6
         with:
           context: .
           target: web-runtime
           push: true
           platforms: linux/amd64
-          tags: ${{ steps.docker-web.outputs.tags }}
-          labels: ${{ steps.docker-web.outputs.labels }}
+          tags: ${{ steps.docker_control_plane.outputs.tags }}
+          labels: ${{ steps.docker_control_plane.outputs.labels }}
 
       - name: Create GitHub Release
         env:

@@ -23,18 +23,18 @@ SQLite is useful for demos and small single-node installs. Use Postgres when you
 
 ## Container Image
 
-Release images are published to Docker Hub as separate API and web images:
+Release images are published to Docker Hub as separate API and control-plane images:
 
 ```sh
 docker pull ssubedir/open-spanner:latest
-docker pull ssubedir/open-spanner-web:latest
+docker pull ssubedir/open-spanner-control-plane:latest
 ```
 
 Use `latest` for a quick trial. Pin a version tag for production:
 
 ```sh
-docker pull ssubedir/open-spanner:0.1.12
-docker pull ssubedir/open-spanner-web:0.1.12
+docker pull ssubedir/open-spanner:0.1.13
+docker pull ssubedir/open-spanner-control-plane:0.1.13
 ```
 
 The API image contains the API binary and worker binaries:
@@ -63,22 +63,22 @@ docker run --detach \
   --env OPEN_SPANNER_POSTGRES_DSN="postgres://open_spanner:change-me@postgres.example.com:5432/open_spanner?sslmode=require" \
   --env OPEN_SPANNER_EXPORT_STORAGE_PATH=/data/exports \
   --volume open-spanner-exports:/data/exports \
-  ssubedir/open-spanner:0.1.12
+  ssubedir/open-spanner:0.1.13
 ```
 
 The API runs database migrations on startup. Back up Postgres before upgrading across releases, especially while Open Spanner is pre-1.0.
 
-## Web Process
+## Control Plane Process
 
-Run the matching web image on the public HTTP port and point its runtime proxy at the private API service:
+Run the matching control-plane image on the public HTTP port and point its runtime proxy at the private API service:
 
 ```sh
 docker run --detach \
-  --name open-spanner-web \
+  --name open-spanner-control-plane \
   --network open-spanner \
   --publish 18081:18081 \
   --env OPEN_SPANNER_API_PROXY_URL=http://open-spanner-api:18080 \
-  ssubedir/open-spanner-web:0.1.12
+  ssubedir/open-spanner-control-plane:0.1.13
 ```
 
 The web process forwards every `/v1` request without buffering response bodies, so SDK calls, CSV downloads, dashboard sessions, and OAuth callbacks use the same public origin. Do not expose the private API HTTP port through the ingress.
@@ -95,28 +95,28 @@ docker run --detach \
   --env OPEN_SPANNER_EXPORT_STORAGE_PATH=/data/exports \
   --volume open-spanner-exports:/data/exports \
   --entrypoint /usr/local/bin/open-spanner-export-worker \
-  ssubedir/open-spanner:0.1.12
+  ssubedir/open-spanner:0.1.13
 
 docker run --detach \
   --name open-spanner-alert-worker \
   --env OPEN_SPANNER_DB_DRIVER=postgres \
   --env OPEN_SPANNER_POSTGRES_DSN="postgres://open_spanner:change-me@postgres.example.com:5432/open_spanner?sslmode=require" \
   --entrypoint /usr/local/bin/open-spanner-alert-worker \
-  ssubedir/open-spanner:0.1.12
+  ssubedir/open-spanner:0.1.13
 
 docker run --detach \
   --name open-spanner-entitlement-worker \
   --env OPEN_SPANNER_DB_DRIVER=postgres \
   --env OPEN_SPANNER_POSTGRES_DSN="postgres://open_spanner:change-me@postgres.example.com:5432/open_spanner?sslmode=require" \
   --entrypoint /usr/local/bin/open-spanner-entitlement-worker \
-  ssubedir/open-spanner:0.1.12
+  ssubedir/open-spanner:0.1.13
 
 docker run --detach \
   --name open-spanner-usage-worker \
   --env OPEN_SPANNER_DB_DRIVER=postgres \
   --env OPEN_SPANNER_POSTGRES_DSN="postgres://open_spanner:change-me@postgres.example.com:5432/open_spanner?sslmode=require" \
   --entrypoint /usr/local/bin/open-spanner-usage-worker \
-  ssubedir/open-spanner:0.1.12
+  ssubedir/open-spanner:0.1.13
 ```
 
 Queued exports need shared artifact storage. In a single-host Docker setup, the default shared Docker volume is enough. Multi-host deployments should set `OPEN_SPANNER_EXPORT_STORAGE_DRIVER=s3` on both the API and every export worker, with the same bucket, region, endpoint, and prefix. AWS S3 uses the default AWS credential chain when Open Spanner-specific static credentials are omitted; custom S3-compatible endpoints default to path-style addressing.

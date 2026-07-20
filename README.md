@@ -96,14 +96,14 @@ Release images are published to Docker Hub as separate API and dashboard images:
 
 ```sh
 docker pull ssubedir/open-spanner:latest
-docker pull ssubedir/open-spanner-web:latest
+docker pull ssubedir/open-spanner-control-plane:latest
 ```
 
 Use `latest` for trials. Pin a version tag for production:
 
 ```sh
-docker pull ssubedir/open-spanner:0.1.12
-docker pull ssubedir/open-spanner-web:0.1.12
+docker pull ssubedir/open-spanner:0.1.13
+docker pull ssubedir/open-spanner-control-plane:0.1.13
 ```
 
 The API image includes the API and worker binaries:
@@ -116,7 +116,9 @@ The API image includes the API and worker binaries:
 /usr/local/bin/open-spanner-usage-worker
 ```
 
-The web image runs the Next.js dashboard on port `18081` and forwards `/v1` requests to `OPEN_SPANNER_API_PROXY_URL`. Use `docker-compose.app.yml` for a complete local stack with the correct private API wiring.
+The control-plane image runs the Next.js UI on port `18081` and forwards `/v1`
+requests to `OPEN_SPANNER_API_PROXY_URL`. Use `docker-compose.app.yml` for a
+complete local stack with the correct private API wiring.
 
 ## From Source
 

@@ -286,7 +286,7 @@ jobs:
       - name: Build release images
         run: |
           docker build --target api-runtime --tag open-spanner-api:ci .
-          docker build --target web-runtime --tag open-spanner-web:ci .
+          docker build --target web-runtime --tag open-spanner-control-plane:ci .
 
   docs:
     name: Docs build

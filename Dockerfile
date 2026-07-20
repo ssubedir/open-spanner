@@ -57,7 +57,7 @@ RUN apk add --no-cache ca-certificates \
     && addgroup -S open-spanner \
     && adduser -S -G open-spanner open-spanner
 
-WORKDIR /opt/open-spanner-web
+WORKDIR /opt/open-spanner-control-plane
 
 COPY --from=web-build --chown=open-spanner:open-spanner /src/web/.next/standalone ./
 COPY --from=web-build --chown=open-spanner:open-spanner /src/web/.next/static ./.next/static

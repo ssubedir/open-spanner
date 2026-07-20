@@ -1,6 +1,6 @@
 services:
   web:
-    image: open-spanner-web:local
+    image: open-spanner-control-plane:local
     build:
       context: .
       dockerfile: Dockerfile
