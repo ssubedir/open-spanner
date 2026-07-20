@@ -1,126 +1,40 @@
 ---
 title: SDKs
-description: Open Spanner SDK packages and supported operations.
+description: Use Open Spanner from trusted backend services.
 ---
 
-Open Spanner SDKs are for backend services that need to create meters, report usage, query buckets, or export usage data. Create an API key in the dashboard, pass it into the SDK client, and keep the key server-side.
+Official SDKs expose the application-facing REST surface. Create an API key in
+the dashboard, keep it server-side, and reuse one configured client per service.
 
-| Language | Package | Install |
+| Language | Package | Guide |
 | --- | --- | --- |
-| Go | `github.com/ssubedir/open-spanner/sdk/go` | `go get github.com/ssubedir/open-spanner/sdk/go@latest` |
-| TypeScript | `@ssubedir/open-spanner` | `npm install @ssubedir/open-spanner` |
-| Python | `open-spanner` | `pip install open-spanner` |
-| C# | `OpenSpanner` | `dotnet add package OpenSpanner` |
-| Java | Coming soon | Coming soon |
+| Go | `github.com/ssubedir/open-spanner/sdk/go` | [Go](/docs/sdks/go) |
+| TypeScript | `@ssubedir/open-spanner` | [TypeScript](/docs/sdks/typescript) |
+| Python | `open-spanner` | [Python](/docs/sdks/python) |
+| C# | `OpenSpanner` | [C#](/docs/sdks/csharp) |
 
-## Quick Example
+Every SDK also includes a gRPC ingestion client with single-event, bulk, and
+client-streaming writes. Unary writes support opt-in retry policies with
+backoff, jitter, and server-provided `RetryInfo`; uncertain client streams should
+be recovered through bulk ingestion with the original event idempotency keys.
 
-These snippets assume `OPEN_SPANNER_API_KEY` contains an API key created from the dashboard.
+The SDK surface includes:
 
-<Tabs items={["Go", "TypeScript", "Python", "C#"]}>
-<Tab value="Go">
+- health and readiness;
+- meter lifecycle operations;
+- single and bulk usage ingestion;
+- usage search, dimensions, breakdowns, and direct CSV export;
+- entitlement checks and atomic quota consumption;
+- entitlement decision audit reads; and
+- subject plan progress and current entitlement-state reads.
 
-  ```go
-  transport := httptransport.New("localhost:18081", client.DefaultBasePath, []string{"http"})
-  transport.DefaultAuthentication = httptransport.BearerToken(os.Getenv("OPEN_SPANNER_API_KEY"))
-  api := client.New(transport, strfmt.Default)
+Control-plane operations remain in the dashboard and full REST API. This
+includes users, workspace invitations, API keys, plan definitions and
+assignments, alert configuration, queued exports, reconciliation repairs, and
+system operations.
 
-  _, err := api.Usages.CreateUsage(
-    usages.NewCreateUsageParams().WithRequest(&models.UsageCreateRequest{
-      IdempotencyKey: "usage_001",
-      Subject:        "org_123",
-      Meter:          "api_requests",
-      Quantity:       1,
-      Metadata: map[string]any{
-        "endpoint": "/v1/orders",
-        "region":   "us-east",
-      },
-    }),
-  )
-  ```
+The generated SDK contract is `openapi/sdk-openapi.json`. The full API contract
+is broader; see [API Reference](/docs/reference/api-specification).
 
-</Tab>
-<Tab value="TypeScript">
-
-  ```ts
-  client.setConfig({
-    baseUrl: process.env.OPEN_SPANNER_BASE_URL ?? "http://localhost:18081",
-    headers: {
-      Authorization: `Bearer ${process.env.OPEN_SPANNER_API_KEY}`,
-    },
-  });
-
-  await createUsage({
-    body: {
-      idempotency_key: "usage_001",
-      subject: "org_123",
-      meter: "api_requests",
-      quantity: 1,
-      metadata: {
-        endpoint: "/v1/orders",
-        region: "us-east",
-      },
-    },
-    throwOnError: true,
-  });
-  ```
-
-</Tab>
-<Tab value="Python">
-
-  ```python
-  client = AuthenticatedClient(
-      base_url=os.environ.get("OPEN_SPANNER_BASE_URL", "http://localhost:18081"),
-      token=os.environ["OPEN_SPANNER_API_KEY"],
-      raise_on_unexpected_status=True,
-  )
-
-  metadata = UsageCreateRequestMetadata()
-  metadata["endpoint"] = "/v1/orders"
-  metadata["region"] = "us-east"
-
-  create_usage.sync(
-      client=client,
-      body=UsageCreateRequest(
-          idempotency_key="usage_001",
-          subject="org_123",
-          meter="api_requests",
-          quantity=1,
-          metadata=metadata,
-      ),
-  )
-  ```
-
-</Tab>
-<Tab value="C#">
-
-  ```csharp
-  var metadata = new UsageCreateRequest_metadata();
-  metadata.AdditionalData["endpoint"] = "/v1/orders";
-  metadata.AdditionalData["region"] = "us-east";
-
-  await client.V1.Usages.PostAsync(new UsageCreateRequest
-  {
-      IdempotencyKey = "usage_001",
-      Subject = "org_123",
-      Meter = "api_requests",
-      Quantity = 1,
-      Metadata = metadata,
-  });
-  ```
-
-</Tab>
-</Tabs>
-
-The full runnable projects are still available in the repository under `examples/rest/basic` and `examples/stream/basic`.
-
-## Included Operations
-
-- Health and readiness checks
-- Meter create, list, read, update, and delete
-- Single usage ingestion
-- Bulk usage ingestion
-- Usage search
-- Direct usage CSV export
-
-SDKs do not manage dashboard users, sessions, API keys, system stats, retention pruning, subjects, ingestion history, queued export jobs, or raw event admin endpoints.
+Runnable projects are available under `examples/rest` and `examples/stream` in
+the repository.

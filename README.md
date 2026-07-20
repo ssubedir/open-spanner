@@ -1,60 +1,57 @@
 # Open Spanner
 
-Open Spanner is open-source usage and metering infrastructure for products that need a trustworthy record of what customers, accounts, or systems consume. It records usage from backend services, validates that usage against meter definitions, keeps quota state for plan limits, and turns raw events into queryable buckets for exports, limits, reporting, operations, and audits.
+Open Spanner is open-source usage and metering infrastructure. It records what
+customers, accounts, or systems consume and turns those facts into queryable
+usage, quota state, alerts, and exports.
 
-Use it when you need to answer questions like:
-
-- How many API requests did a customer make this month?
-- Which model, region, or plan produced the most usage?
-- Did a customer cross a usage threshold?
-- Is a customer within their plan quota?
-- What usage should be exported into billing, finance, analytics, or customer reporting?
-- Can we replay or retry usage writes without double-counting?
-
-Open Spanner sits between your product and downstream systems such as billing, finance, analytics, support, and feature gates. It is not a payment processor, invoice generator, tax engine, or customer identity provider; it gives those systems clean usage facts and quota state to work with.
+Use it between your product and billing, finance, analytics, support, or feature
+gates. Open Spanner is not a payment processor, invoice generator, tax engine,
+or customer identity provider; it gives those systems reliable usage facts and
+quota decisions.
 
 ## Where It Fits
 
 | Open Spanner owns | Downstream systems own |
 | --- | --- |
-| Meter definitions, dimensions, and retention windows | Customer identity, payment methods, invoices, taxes, and collection |
-| Idempotent usage ingestion over REST or gRPC | Product-specific pricing, discounts, credits, and contracts |
-| Usage queries, breakdowns, charts, and CSV exports | Revenue recognition, finance close, and external data warehouse modeling |
-| Plans, subject assignments, quota counters, and entitlement state | Customer-facing plan catalog and checkout |
-| Threshold alerts and webhook notifications | Incident routing, CRM workflows, and notification preferences |
+| Meter definitions, dimensions, and retention | Customer identity, pricing, contracts, and checkout |
+| Idempotent REST and gRPC usage ingestion | Payment methods, invoices, taxes, and collection |
+| Usage queries, breakdowns, alerts, and CSV exports | Finance close and warehouse modeling |
+| Plans, subject assignments, quota counters, and entitlement decisions | Customer-facing plan catalog and billing workflows |
+
+## Core Capabilities
+
+- Typed meters and dimensions with sum, count, average, min, max, first, last,
+  and rate aggregation.
+- Idempotent single, bulk, and client-streaming usage ingestion over REST and
+  gRPC.
+- Bucketed queries, filters, breakdowns, saved queries, raw events, and direct
+  or queued CSV exports.
+- Plans, scheduled assignments, quota progress, atomic consumption, immutable
+  decision audits, reconciliation, and guarded counter repair.
+- Threshold alerts with signed, durable webhook delivery and retry recovery.
+- Retention rollups that preserve historical analytics after raw-event pruning.
+- Shared workspaces with owner/admin/viewer roles, secure invitations, scoped
+  API keys, expiration, rotation, and revocation history.
+- Replica-safe workers, S3-compatible export storage, health probes, and
+  Prometheus-compatible OpenTelemetry metrics.
 
 ## Product Surfaces
 
-| Surface | Use it for |
+| Surface | Purpose |
 | --- | --- |
-| Dashboard | Sign in, define meters, inspect usage, manage plans, create API keys, manage exports, and view alert activity. |
-| REST API | Meter management, usage writes, usage queries, entitlement checks, exports, and operational endpoints. |
-| Official SDKs | Typed backend clients for meters, usage, direct exports, entitlement checks, and entitlement progress reads in Go, TypeScript, Python, and C#. |
-| gRPC streaming | High-throughput usage ingestion from trusted backend services. |
-| Workers | Queued CSV exports, alert threshold evaluation, and async entitlement state updates. |
-| Storage | SQLite for local/single-node use, Postgres for production deployments. |
+| Control plane | Next.js UI for workspace access, meters, usage, plans, API keys, exports, alerts, and operations. |
+| REST API | Configuration, usage ingestion and queries, entitlement decisions, exports, and operator endpoints. |
+| gRPC API | High-throughput trusted-backend usage ingestion. |
+| SDKs | REST and gRPC clients for Go, TypeScript, Python, and C#. |
+| Workers | Durable usage fanout, exports, alerts, entitlement state, and maintenance. |
+| Storage | SQLite for local or single-node use; Postgres for production. |
 
-Read the hosted docs at [ssubedir.github.io/open-spanner/docs](https://ssubedir.github.io/open-spanner/docs).
-
-## Features
-
-- Meter definitions with units, aggregation mode, retention policy, and typed dimensions.
-- Idempotent single and bulk usage ingestion.
-- gRPC stream ingestion for backend service-to-service usage pipelines.
-- Bucketed usage queries with filters, breakdowns, dimensions, and pagination.
-- Plans, subject assignments, quota counters, entitlement checks, and entitlement state history.
-- Direct CSV exports for focused requests and queued export jobs for larger files.
-- Alert rules that watch usage windows and deliver webhook notifications.
-- Dashboard auth with HttpOnly cookies and scoped API keys for service clients.
-- Workspace isolation so each dashboard user sees their own meters, usage, plans, alerts, exports, and keys.
-- SQLite and Postgres storage, including Postgres JSONB metadata filtering.
-- Embedded React dashboard.
-- Generated REST SDKs for Go, TypeScript, Python, and C#.
-- Go stream SDK for gRPC usage ingestion.
+Read the [product documentation](https://ssubedir.github.io/open-spanner/docs).
 
 ## Quick Start
 
-The fastest full stack is Docker Compose. It starts the API, dashboard, export worker, alert worker, entitlement worker, Postgres, and shared export storage.
+Docker Compose starts the control plane, API, usage, export, alert, and
+entitlement workers, Postgres, and shared export storage:
 
 ```sh
 git clone https://github.com/ssubedir/open-spanner.git
@@ -62,112 +59,37 @@ cd open-spanner
 docker compose -f docker-compose.app.yml up -d --build
 ```
 
-Open the dashboard:
-
-```text
-http://localhost:18081/register
-```
-
-Useful local endpoints:
+Open [http://localhost:18081/register](http://localhost:18081/register).
 
 | Endpoint | Purpose |
 | --- | --- |
-| `http://localhost:18081/login` | Dashboard login |
-| `http://localhost:18081/health` | Liveness |
-| `http://localhost:18081/ready` | Readiness |
+| `http://localhost:18081` | Control plane and proxied REST API |
+| `http://localhost:18081/ready` | End-to-end control-plane, API, and database readiness |
 | `localhost:18090` | gRPC usage ingestion |
 
-Stop the stack:
-
-```sh
-docker compose -f docker-compose.app.yml down
-```
-
-Remove Postgres data too:
-
-```sh
-docker compose -f docker-compose.app.yml down -v
-```
-
-## Docker Image
-
-Release images are published to Docker Hub:
-
-```sh
-docker pull ssubedir/open-spanner:latest
-```
-
-Use `latest` for trials. Pin a version tag for production:
-
-```sh
-docker pull ssubedir/open-spanner:0.1.12
-```
-
-The image includes the API and worker binaries:
-
-```text
-/usr/local/bin/open-spanner
-/usr/local/bin/open-spanner-export-worker
-/usr/local/bin/open-spanner-alert-worker
-/usr/local/bin/open-spanner-entitlement-worker
-```
-
-For a small SQLite-backed trial:
-
-```sh
-docker volume create open-spanner-data
-
-docker run --detach \
-  --name open-spanner \
-  --publish 18081:18081 \
-  --publish 18090:18090 \
-  --volume open-spanner-data:/data \
-  ssubedir/open-spanner:latest
-```
-
-## From Source
-
-Install [Task](https://taskfile.dev/) and run the API with SQLite:
-
-```sh
-task run:sqlite
-```
-
-Run workers in separate terminals when you want queued exports, alerts, and async entitlement state updates processed:
-
-```sh
-task run:export-worker
-task run:alert-worker
-task run:entitlement-worker
-```
-
-Run with Postgres:
-
-```sh
-task postgres:up
-task run:postgres
-task run:export-worker:postgres
-task run:alert-worker:postgres
-task run:entitlement-worker:postgres
-```
+Stop the stack with `docker compose -f docker-compose.app.yml down`. Add `-v`
+only when you also want to remove Postgres data.
 
 ## First Usage Flow
 
-Create a dashboard user, then create an API key from the API Keys page. Give the key `meters:write`, `meters:read`, `usage:write`, and `usage:read` for this flow. Copy the key when it is created; the full key is not shown again.
+Register a user, create an API key in the control plane, and give it
+`meters:write`, `meters:read`, `usage:write`, and `usage:read`. Copy the key when
+it is created; the full secret is not shown again.
 
 ```sh
-API_KEY="osp_..."
+export BASE_URL="http://localhost:18081"
+export API_KEY="osp_..."
 ```
 
 Create a meter:
 
 ```sh
-curl -X POST http://localhost:18081/v1/meters \
+curl -X POST "$BASE_URL/v1/meters" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "api_requests",
-    "description": "API requests served by the product API",
+    "description": "API requests served",
     "unit": "request",
     "aggregation": "sum",
     "event_retention_days": 90,
@@ -179,10 +101,10 @@ curl -X POST http://localhost:18081/v1/meters \
   }'
 ```
 
-Record usage:
+Record one event with a stable idempotency key:
 
 ```sh
-curl -X POST http://localhost:18081/v1/usages \
+curl -X POST "$BASE_URL/v1/usages" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -198,243 +120,121 @@ curl -X POST http://localhost:18081/v1/usages \
   }'
 ```
 
-Query usage buckets:
+Query daily usage:
 
 ```sh
-curl "http://localhost:18081/v1/usages?subject=org_123&meter=api_requests&bucket_size=day&metadata.endpoint=/checkout" \
+curl "$BASE_URL/v1/usages?subject=org_123&meter=api_requests&bucket_size=day" \
   -H "Authorization: Bearer $API_KEY"
 ```
 
-## gRPC Streaming
+Continue with [querying usage](docs/content/docs/getting-started/your-first-query.mdx),
+[meter dimensions](docs/content/docs/concepts/meter-dimensions.mdx), or
+[plans and entitlements](docs/content/docs/concepts/plans-entitlements.mdx).
 
-Use REST or the dashboard for setup operations such as API keys and meters. Use gRPC streaming when a trusted backend service continuously emits usage.
+## SDKs And gRPC
 
-```go
-package main
+Every official SDK includes the application-facing REST API and a gRPC usage
+client with unary, bulk, and client-streaming writes.
 
-import (
-	"context"
-	"time"
+| Language | Package | Guide |
+| --- | --- | --- |
+| Go | `github.com/ssubedir/open-spanner/sdk/go` | [Go SDK](docs/content/docs/sdks/go.mdx) |
+| TypeScript | `@ssubedir/open-spanner` | [TypeScript SDK](docs/content/docs/sdks/typescript.mdx) |
+| Python | `open-spanner` | [Python SDK](docs/content/docs/sdks/python.mdx) |
+| C# | `OpenSpanner` | [C# SDK](docs/content/docs/sdks/csharp.mdx) |
 
-	"github.com/ssubedir/open-spanner/sdk/go/stream"
-)
+Unary gRPC writes support opt-in retry policies with backoff, jitter, and
+server-provided `RetryInfo`. Client streams are not replayed automatically;
+recover uncertain streams through bulk ingestion using the original event
+idempotency keys.
 
-func main() {
-	client, err := stream.NewClient("localhost:18090", "osp_...")
-	if err != nil {
-		panic(err)
-	}
-	defer client.Close()
+Runnable REST examples live under [`examples/rest`](examples/rest). The Go
+stream examples under [`examples/stream`](examples/stream) cover basic
+ingestion, telemetry, WebSocket sessions, queue consumers, and
+entitlement-gated writes.
 
-	_, err = client.Track(context.Background(), stream.Event{
-		IdempotencyKey: "stream_usage_001",
-		Subject:        "org_123",
-		Meter:          "api_requests",
-		Quantity:       1,
-		Timestamp:      time.Now().UTC(),
-		Metadata: map[string]any{
-			"endpoint": "/checkout",
-			"status":   200,
-			"region":   "us-east",
-		},
-	})
-	if err != nil {
-		panic(err)
-	}
-}
+SDKs are for trusted backend code. Never put Open Spanner API keys in browser or
+mobile applications.
+
+## Common Use Cases
+
+| Use case | What to meter |
+| --- | --- |
+| [API requests](docs/content/docs/use-cases/api-requests.mdx) | Requests by endpoint, method, status, region, or service tier |
+| [AI tokens](docs/content/docs/use-cases/ai-tokens.mdx) | Tokens by model, provider, operation, or cache path |
+| [Storage](docs/content/docs/use-cases/storage-usage.mdx) | Capacity by tier, region, or resource type |
+| [Active users](docs/content/docs/use-cases/active-users.mdx) | Seats, workspaces, plans, or active accounts |
+| [Background jobs](docs/content/docs/use-cases/background-jobs.mdx) | Queue throughput, outcomes, and worker regions |
+| [Feature usage](docs/content/docs/use-cases/feature-usage.mdx) | Product adoption and plan-level behavior |
+| [Historical backfill](docs/content/docs/use-cases/historical-backfill.mdx) | Older usage with stable idempotency keys |
+
+## Container Images
+
+Releases publish separate API and control-plane images:
+
+```sh
+docker pull ssubedir/open-spanner:0.1.13
+docker pull ssubedir/open-spanner-control-plane:0.1.13
 ```
 
-Stream examples:
+The API image contains the API plus usage, export, alert, and entitlement worker
+binaries. Run them as separate processes against the same Postgres database.
+The control-plane image serves port `18081` and proxies `/v1` to the private API
+configured by `OPEN_SPANNER_API_PROXY_URL`.
 
-| Scenario | Path |
-| --- | --- |
-| Basic Go stream client | [`examples/stream/basic/go`](examples/stream/basic/go) |
-| Device telemetry | [`examples/stream/advance/device-telemetry`](examples/stream/advance/device-telemetry) |
-| WebSocket sessions | [`examples/stream/advance/websocket-sessions`](examples/stream/advance/websocket-sessions) |
-| Queue consumers | [`examples/stream/advance/queue-consumer`](examples/stream/advance/queue-consumer) |
-| Entitlement-gated ingestion | [`examples/stream/advance/entitlement-gate`](examples/stream/advance/entitlement-gate) |
+See [Production Deployment](docs/content/docs/configuration/deployment.mdx) for
+container topology, probes, S3 storage, database pools, TLS, and upgrade steps.
 
-## Use Cases
+## Run From Source
 
-| Use case | What you can meter |
-| --- | --- |
-| [API request metering](docs/content/docs/use-cases/api-requests.mdx) | Request volume by endpoint, method, status, region, and service tier. |
-| [AI token usage](docs/content/docs/use-cases/ai-tokens.mdx) | Tokens by model, provider, operation, and cache path. |
-| [Storage usage](docs/content/docs/use-cases/storage-usage.mdx) | Capacity by tier, region, and resource type. |
-| [Active users](docs/content/docs/use-cases/active-users.mdx) | Seats, workspaces, roles, plans, and active accounts. |
-| [Background jobs](docs/content/docs/use-cases/background-jobs.mdx) | Queue throughput, job outcomes, and worker regions. |
-| [Feature usage](docs/content/docs/use-cases/feature-usage.mdx) | Product adoption, entitlement usage, and plan-level behavior. |
-| Entitlement checks | Backend quota gates before accepting usage for a subject. |
-| [Historical backfill](docs/content/docs/use-cases/historical-backfill.mdx) | Older usage imported with stable idempotency keys. |
+Install [Task](https://taskfile.dev/) and start the API and control plane in
+separate terminals:
 
-Each REST use case has runnable Go, TypeScript, Python, and C# examples under [`examples/rest/advance`](examples/rest/advance), including the [`entitlement-check`](examples/rest/advance/entitlement-check) backend quota gate. Stream-native examples live under [`examples/stream`](examples/stream).
+```sh
+task run:sqlite
+task control-plane:dev
+```
 
-## SDKs
+Start workers separately when exercising asynchronous behavior:
 
-| Language | Package | Install | Example |
-| --- | --- | --- | --- |
-| Go REST | [`sdk/go`](sdk/go) | `go get github.com/ssubedir/open-spanner/sdk/go` | [`examples/rest/basic/go`](examples/rest/basic/go) |
-| Go stream | [`sdk/go/stream`](sdk/go/stream) | `go get github.com/ssubedir/open-spanner/sdk/go` | [`examples/stream/basic/go`](examples/stream/basic/go) |
-| TypeScript | [`@ssubedir/open-spanner`](https://www.npmjs.com/package/@ssubedir/open-spanner) | `npm install @ssubedir/open-spanner` | [`examples/rest/basic/typescript`](examples/rest/basic/typescript) |
-| Python | [`open-spanner`](https://pypi.org/project/open-spanner/) | `pip install open-spanner` | [`examples/rest/basic/python`](examples/rest/basic/python) |
-| C# | [`OpenSpanner`](https://www.nuget.org/packages/OpenSpanner/) | `dotnet add package OpenSpanner` | [`examples/rest/basic/csharp`](examples/rest/basic/csharp) |
+```sh
+task run:usage-worker
+task run:export-worker
+task run:alert-worker
+task run:entitlement-worker
+```
 
-SDKs are for trusted backend code. Do not put Open Spanner API keys in browser or mobile clients.
-
-## Production Notes
-
-For production, run Open Spanner with Postgres and separate API, export worker, alert worker, and entitlement worker processes. The API and workers must share the same database. Queued exports also require shared export storage so workers can write files and the API can serve downloads.
-
-Recommended production shape:
-
-| Component | Recommendation |
-| --- | --- |
-| Database | Postgres with backups and normal database observability. |
-| API | Run one or more API instances behind your ingress or load balancer. |
-| Export worker | Run separately from the API when queued exports are enabled. |
-| Alert worker | Run separately from the API when alert rules are enabled. |
-| Entitlement worker | Run separately from the API when plans and quota state are enabled. |
-| TLS | Terminate TLS at your ingress, load balancer, or reverse proxy. |
-| gRPC | Expose only to trusted backend services that emit usage. |
-| Secrets | Protect Postgres credentials, scoped API keys, and webhook signing secrets. |
-
-See [Production Deployment](docs/content/docs/configuration/deployment.mdx) for the checklist.
+For Postgres, run `task postgres:up` and use the corresponding `*:postgres`
+runtime tasks.
 
 ## Configuration
 
-Common runtime variables:
-
-| Variable | Default | Description |
+| Variable | Default | Purpose |
 | --- | --- | --- |
-| `OPEN_SPANNER_HTTP_ADDR` | `:18081` | HTTP dashboard, REST API, and health endpoints. |
-| `OPEN_SPANNER_GRPC_ADDR` | `:18090` | gRPC usage ingestion listen address. |
-| `OPEN_SPANNER_GITHUB_OAUTH_ENABLED` | `true` | Enables GitHub sign-in when credentials are configured. |
-| `OPEN_SPANNER_GITHUB_OAUTH_CLIENT_ID` | | Enables GitHub sign-in when set with `OPEN_SPANNER_GITHUB_OAUTH_CLIENT_SECRET`. |
-| `OPEN_SPANNER_GITHUB_OAUTH_CLIENT_SECRET` | | GitHub OAuth client secret. |
-| `OPEN_SPANNER_GITHUB_OAUTH_REDIRECT_URL` | | Optional callback URL; defaults to the request host plus `/v1/auth/oauth/github/callback`. |
-| `OPEN_SPANNER_GOOGLE_OAUTH_ENABLED` | `true` | Enables Google sign-in when credentials are configured. |
-| `OPEN_SPANNER_GOOGLE_OAUTH_CLIENT_ID` | | Enables Google sign-in when set with `OPEN_SPANNER_GOOGLE_OAUTH_CLIENT_SECRET`. |
-| `OPEN_SPANNER_GOOGLE_OAUTH_CLIENT_SECRET` | | Google OAuth client secret. |
-| `OPEN_SPANNER_GOOGLE_OAUTH_REDIRECT_URL` | | Optional callback URL; defaults to the request host plus `/v1/auth/oauth/google/callback`. |
-| `OPEN_SPANNER_DB_DRIVER` | `sqlite` | Storage driver: `sqlite` or `postgres`. |
-| `OPEN_SPANNER_SQLITE_PATH` | `open-spanner.db` | SQLite database path. |
-| `OPEN_SPANNER_POSTGRES_DSN` | | Postgres connection string. |
-| `OPEN_SPANNER_EXPORT_STORAGE_PATH` | `open-spanner-exports` | Shared path for generated export files. |
-| `OPEN_SPANNER_EXPORT_WORKER_INTERVAL` | `5s` | Export worker polling interval. |
-| `OPEN_SPANNER_ALERT_WORKER_INTERVAL` | `5s` | Alert worker polling interval. |
-| `OPEN_SPANNER_ENTITLEMENT_WORKER_INTERVAL` | `5s` | Entitlement worker polling interval. |
-| `OPEN_SPANNER_RETENTION_PRUNE_ENABLED` | `false` | Enables automatic retention pruning. |
+| `OPEN_SPANNER_HTTP_ADDR` | `:18080` | Private API, health, readiness, and metrics address |
+| `OPEN_SPANNER_GRPC_ADDR` | `:18090` | gRPC ingestion address |
+| `OPEN_SPANNER_API_PROXY_URL` | `http://127.0.0.1:18080` | Private API origin used by the control plane |
+| `OPEN_SPANNER_DB_DRIVER` | `sqlite` | `sqlite` or `postgres` storage |
+| `OPEN_SPANNER_POSTGRES_DSN` | empty | Postgres connection string |
+| `OPEN_SPANNER_EXPORT_STORAGE_DRIVER` | `filesystem` | `filesystem` or `s3` export artifacts |
+| `OPEN_SPANNER_REGISTRATION_ENABLED` | `true` | Allow new password and OAuth accounts |
 
-See [Environment Variables](docs/content/docs/configuration/environment-variables.mdx) for the full list.
+See [Environment Variables](docs/content/docs/configuration/environment-variables.mdx)
+for the complete runtime reference and `.env.example` for Compose settings.
 
-### Social Login
-
-Dashboard users can sign in with email/password or a configured OAuth provider. Google and GitHub are built in today. Each provider uses the same configuration pattern:
-
-```text
-OPEN_SPANNER_<PROVIDER>_OAUTH_ENABLED
-OPEN_SPANNER_<PROVIDER>_OAUTH_CLIENT_ID
-OPEN_SPANNER_<PROVIDER>_OAUTH_CLIENT_SECRET
-OPEN_SPANNER_<PROVIDER>_OAUTH_REDIRECT_URL
-```
-
-Use `GOOGLE` or `GITHUB` for the built-in providers. Provider buttons are shown only when the provider is enabled and configured with credentials.
-
-Local callback URLs:
-
-```text
-http://localhost:18081/v1/auth/oauth/google/callback
-http://localhost:18081/v1/auth/oauth/github/callback
-```
-
-For Vite dashboard development, also allow:
-
-```text
-http://localhost:5173/v1/auth/oauth/google/callback
-http://localhost:5173/v1/auth/oauth/github/callback
-```
-
-Disable a configured provider without removing credentials:
-
-```sh
-OPEN_SPANNER_GOOGLE_OAUTH_ENABLED=false
-OPEN_SPANNER_GITHUB_OAUTH_ENABLED=true
-```
-
-## Examples And Tests
-
-Verify local examples compile and build:
-
-```sh
-task test:examples
-```
-
-Run SDK integration tests for the stream clients:
-
-```sh
-task test:sdk
-```
-
-Run API tests:
+## Development
 
 ```sh
 task test
 task test:postgres
-```
-
-Run dashboard E2E tests:
-
-```sh
+task test:s3
 task test:e2e
-```
-
-## Development
-
-Useful commands:
-
-```sh
-task test
-task vet
-task sqlc:check
-task openapi:check
 task docs:build
-task admin:build
+task control-plane:build
 ```
 
-Regenerate SDKs:
-
-```sh
-task openapi:sdk
-task sdk:go
-task sdk:typescript
-task sdk:python
-task sdk:csharp
-```
-
-Run the dashboard dev server:
-
-```sh
-task admin:dev
-```
-
-## Project Structure
-
-```text
-cmd/api                 API entrypoint
-cmd/export-worker       Queued export worker entrypoint
-cmd/alert-worker        Alert evaluation worker entrypoint
-cmd/entitlement-worker  Entitlement state worker entrypoint
-internal/config         Runtime configuration
-internal/server/http    HTTP server wiring
-internal/ui             Embedded dashboard routes and assets
-internal/metering       Domain, app services, adapters, and workers
-web                     React dashboard source
-docs                    Fumadocs documentation site
-openapi                 Generated Swagger/OpenAPI artifacts
-sdk                     Generated SDKs
-sdk/tests               SDK integration tests
-examples                REST and gRPC stream examples
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md) for load testing, generated contracts,
+SDK checks, and repository workflow.
 
 ## License
 

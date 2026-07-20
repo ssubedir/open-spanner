@@ -44,7 +44,7 @@ test.describe('Feature: Dashboard usage exploration', () => {
     await When.theUserCreatesAnAPIRequestMeter(page, meterName)
     const scenario = await Given.apiRequestUsageExists(page, meterName)
 
-    await When.theUserRunsAnAdvancedUsageQuery(page, scenario)
+    const queryName = await When.theUserRunsAnAdvancedUsageQuery(page, scenario)
     await Then.theUsagePageLoadsWithoutDimensionErrors(page)
     await Then.advancedQueryReturnsOnlyMatchingUsage(page, meterName)
 
@@ -56,6 +56,11 @@ test.describe('Feature: Dashboard usage exploration', () => {
 
     const bucketExport = await When.theUserExportsCurrentUsageBuckets(page)
     await Then.advancedUsageBucketCSVIncludesMatchingUsage(bucketExport, scenario)
+
+    await When.theUserReopensSavedUsageQuery(page, queryName)
+    await Then.advancedQueryReturnsOnlyMatchingUsage(page, meterName)
+    await When.theUserOpensPinnedUsageQueryFromOverview(page, queryName)
+    await Then.advancedQueryReturnsOnlyMatchingUsage(page, meterName)
   })
 
   test('Scenario: a user visualizes usage over time', async ({ page }) => {
@@ -67,11 +72,13 @@ test.describe('Feature: Dashboard usage exploration', () => {
 
     await When.theUserCreatesAnAPIRequestMeter(page, meterName)
     const scenario = await Given.apiRequestUsageExists(page, meterName)
+    await Given.usageAcrossMultipleWindowsExists(page, scenario)
 
     await When.theUserRunsAnAdvancedUsageQuery(page, scenario)
     await When.theUserChangesUsageChartControls(page)
     await Then.usageChartControlsAreApplied(page)
     await Then.advancedQueryReturnsOnlyMatchingUsage(page, meterName)
+    await Then.usageChartShowsTotal(page, 25)
   })
 
   test('Scenario: usage filters remain readable as they grow', async ({ page }) => {

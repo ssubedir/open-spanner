@@ -17,6 +17,12 @@ type PlanLimit struct {
 	// created at
 	CreatedAt string `json:"created_at,omitempty"`
 
+	// enforcement
+	Enforcement string `json:"enforcement,omitempty"`
+
+	// failure policy
+	FailurePolicy string `json:"failure_policy,omitempty"`
+
 	// id
 	ID string `json:"id,omitempty"`
 

@@ -4,13 +4,10 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"time"
 
 	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/grpc/pb"
-	appalert "github.com/ssubedir/open-spanner/internal/metering/app/alert"
-	appentitlement "github.com/ssubedir/open-spanner/internal/metering/app/entitlement"
 	appusage "github.com/ssubedir/open-spanner/internal/metering/app/usage"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
 	"google.golang.org/grpc"
@@ -18,25 +15,31 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-type alertEnqueuer interface {
-	EnqueueForUsageEvents(ctx context.Context, events []appalert.UsageEvent) error
-}
-
-type entitlementEnqueuer interface {
-	EnqueueForUsageEvents(ctx context.Context, events []appentitlement.UsageEvent) error
-}
-
 type UsageServer struct {
 	pb.UnimplementedUsageServiceServer
 
-	service      appusage.Service
-	alerts       alertEnqueuer
-	entitlements entitlementEnqueuer
-	authorizer   appauth.Authorizer
+	service    appusage.Service
+	authorizer appauth.Authorizer
+	limits     IngestionLimits
 }
 
-func NewUsageServer(service appusage.Service, alerts alertEnqueuer, entitlements entitlementEnqueuer, authorizer appauth.Authorizer) *UsageServer {
-	return &UsageServer{service: service, alerts: alerts, entitlements: entitlements, authorizer: authorizer}
+type IngestionLimits struct {
+	MaxBulkEvents   int
+	MaxStreamEvents int
+}
+
+func NewUsageServer(service appusage.Service, authorizer appauth.Authorizer, options ...IngestionLimits) *UsageServer {
+	limits := IngestionLimits{MaxBulkEvents: appusage.MaxBulkEvents, MaxStreamEvents: appusage.MaxBulkEvents}
+	if len(options) > 0 {
+		limits = options[0]
+	}
+	if limits.MaxBulkEvents <= 0 || limits.MaxBulkEvents > appusage.MaxBulkEvents {
+		limits.MaxBulkEvents = appusage.MaxBulkEvents
+	}
+	if limits.MaxStreamEvents <= 0 || limits.MaxStreamEvents > appusage.MaxBulkEvents {
+		limits.MaxStreamEvents = appusage.MaxBulkEvents
+	}
+	return &UsageServer{service: service, authorizer: authorizer, limits: limits}
 }
 
 func (s *UsageServer) CreateUsage(ctx context.Context, req *pb.CreateUsageRequest) (*pb.CreateUsageResponse, error) {
@@ -48,15 +51,10 @@ func (s *UsageServer) CreateUsage(ctx context.Context, req *pb.CreateUsageReques
 		return nil, serviceError(err)
 	}
 
-	event, err := s.service.Create(ctx, cmd)
+	event, err := s.service.CreateIngestion(ctx, "single", cmd)
 	if err != nil {
 		return nil, serviceError(err)
 	}
-	if err := s.recordIngestion(ctx, "single", 1, 0, 0); err != nil {
-		return nil, serviceError(err)
-	}
-	s.enqueueAlerts(ctx, []appusage.Result{event})
-	s.enqueueEntitlements(ctx, []appusage.Result{event})
 
 	res, err := resultToProto(event)
 	if err != nil {
@@ -66,6 +64,9 @@ func (s *UsageServer) CreateUsage(ctx context.Context, req *pb.CreateUsageReques
 }
 
 func (s *UsageServer) CreateUsageBulk(ctx context.Context, req *pb.CreateUsageBulkRequest) (*pb.CreateUsageBulkResponse, error) {
+	if len(req.GetEvents()) > s.limits.MaxBulkEvents {
+		return nil, serviceError(fmt.Errorf("%w: bulk usage event limit is %d", domain.ErrInvalidInput, s.limits.MaxBulkEvents))
+	}
 	commands, err := commandsFromProto(req.GetEvents())
 	if err != nil {
 		return nil, serviceError(err)
@@ -74,15 +75,10 @@ func (s *UsageServer) CreateUsageBulk(ctx context.Context, req *pb.CreateUsageBu
 		return nil, serviceError(err)
 	}
 
-	result, err := s.service.CreateBulk(ctx, req.GetIdempotencyKey(), commands)
+	result, err := s.service.CreateBulkIngestion(ctx, "bulk", req.GetIdempotencyKey(), commands, 0)
 	if err != nil {
 		return nil, serviceError(err)
 	}
-	if err := s.recordBulkIngestion(ctx, "bulk", result); err != nil {
-		return nil, serviceError(err)
-	}
-	s.enqueueAlerts(ctx, result.Accepted)
-	s.enqueueEntitlements(ctx, result.Accepted)
 
 	res, err := bulkResponseFromResult(result)
 	if err != nil {
@@ -106,8 +102,8 @@ func (s *UsageServer) StreamUsage(stream grpc.ClientStreamingServer[pb.StreamUsa
 			return serviceError(err)
 		}
 		commands = append(commands, cmd)
-		if len(commands) > appusage.MaxBulkEvents {
-			return serviceError(fmt.Errorf("%w: bulk usage event limit is %d", domain.ErrInvalidInput, appusage.MaxBulkEvents))
+		if len(commands) > s.limits.MaxStreamEvents {
+			return serviceError(fmt.Errorf("%w: stream usage event limit is %d", domain.ErrInvalidInput, s.limits.MaxStreamEvents))
 		}
 	}
 }
@@ -117,69 +113,16 @@ func (s *UsageServer) closeUsageStream(stream grpc.ClientStreamingServer[pb.Stre
 		return serviceError(err)
 	}
 
-	result, err := s.service.CreateBulk(stream.Context(), idempotencyKeyFromMetadata(stream.Context()), commands)
+	result, err := s.service.CreateBulkIngestion(stream.Context(), "stream", idempotencyKeyFromMetadata(stream.Context()), commands, 0)
 	if err != nil {
 		return serviceError(err)
 	}
-	if err := s.recordBulkIngestion(stream.Context(), "stream", result); err != nil {
-		return serviceError(err)
-	}
-	s.enqueueAlerts(stream.Context(), result.Accepted)
-	s.enqueueEntitlements(stream.Context(), result.Accepted)
 
 	res, err := streamResponseFromResult(result)
 	if err != nil {
 		return serviceError(err)
 	}
 	return stream.SendAndClose(res)
-}
-
-func (s *UsageServer) recordBulkIngestion(ctx context.Context, kind string, result appusage.BulkResult) error {
-	return s.recordIngestion(ctx, kind, len(result.Accepted), len(result.Duplicates), len(result.Failed))
-}
-
-func (s *UsageServer) recordIngestion(ctx context.Context, kind string, accepted int, duplicates int, failed int) error {
-	_, err := s.service.RecordIngestion(ctx, appusage.IngestionCommand{
-		Kind:       kind,
-		Accepted:   accepted,
-		Duplicates: duplicates,
-		Failed:     failed,
-	})
-	return err
-}
-
-func (s *UsageServer) enqueueAlerts(ctx context.Context, events []appusage.Result) {
-	if s.alerts == nil || len(events) == 0 {
-		return
-	}
-	alertEvents := make([]appalert.UsageEvent, 0, len(events))
-	for _, event := range events {
-		alertEvents = append(alertEvents, appalert.UsageEvent{
-			Subject:  event.Subject,
-			Meter:    event.MeterName,
-			Metadata: event.Metadata,
-		})
-	}
-	if err := s.alerts.EnqueueForUsageEvents(ctx, alertEvents); err != nil {
-		log.Printf("alert enqueue failed: %v", err)
-	}
-}
-
-func (s *UsageServer) enqueueEntitlements(ctx context.Context, events []appusage.Result) {
-	if s.entitlements == nil || len(events) == 0 {
-		return
-	}
-	entitlementEvents := make([]appentitlement.UsageEvent, 0, len(events))
-	for _, event := range events {
-		entitlementEvents = append(entitlementEvents, appentitlement.UsageEvent{
-			Subject:  event.Subject,
-			Meter:    event.MeterName,
-			Quantity: event.Quantity,
-		})
-	}
-	if err := s.entitlements.EnqueueForUsageEvents(ctx, entitlementEvents); err != nil {
-		log.Printf("entitlement enqueue failed: %v", err)
-	}
 }
 
 func (s *UsageServer) authorizeUsageCommands(ctx context.Context, commands []appusage.CreateCommand) error {

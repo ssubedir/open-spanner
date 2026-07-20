@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/http/internal/request"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
@@ -22,6 +24,15 @@ type ErrorBody struct {
 
 func ServiceError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, domain.ErrRateLimited):
+		retryAfter := time.Second
+		var value interface{ RetryAfter() time.Duration }
+		if errors.As(err, &value) && value.RetryAfter() > 0 {
+			retryAfter = value.RetryAfter()
+		}
+		seconds := int((retryAfter + time.Second - 1) / time.Second)
+		w.Header().Set("Retry-After", strconv.Itoa(seconds))
+		Error(w, http.StatusTooManyRequests, "rate_limited", err.Error())
 	case errors.Is(err, domain.ErrInvalidInput):
 		Error(w, http.StatusBadRequest, "invalid_input", err.Error())
 	case errors.Is(err, domain.ErrUnauthorized):
@@ -47,6 +58,10 @@ func Error(w http.ResponseWriter, status int, code string, message string) {
 }
 
 func ValidationError(w http.ResponseWriter, err error) {
+	if request.Code(err) == "request_too_large" {
+		Error(w, http.StatusRequestEntityTooLarge, request.Code(err), request.Message(err))
+		return
+	}
 	Error(w, http.StatusBadRequest, request.Code(err), request.Message(err))
 }
 

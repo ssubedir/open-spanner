@@ -1,0 +1,58 @@
+---
+title: Quota Reconciliation
+description: Detect quota drift and apply guarded counter repairs.
+---
+
+Reconciliation verifies that atomic-consumption decisions, usage events, and
+active entitlement counters still agree. Use it for operator diagnosis; normal
+quota checks and consumption do not require a scan first.
+
+## Run A Read-Only Scan
+
+Run a bounded scan from **Operations → Reconciliation** or
+`GET /v1/system/reconciliation`. It checks recent accepted and rejected
+decisions against usage events and recalculates active counters from source
+usage.
+
+The result is `healthy` or `drift_detected` and identifies issues such as:
+
+- an accepted decision without its usage event;
+- a rejected decision with an unexpected event; or
+- a counter whose count or quantity differs from source usage.
+
+Scans never mutate data. Historical counters are excluded because raw-event
+retention may legitimately remove their source events. Read access requires
+`system:read`.
+
+## Schedule Monitoring
+
+Set `OPEN_SPANNER_RECONCILIATION_ENABLED=true` to create a durable schedule for
+each workspace. Every run is retained in history. New drift episodes and scan
+failures create durable webhook notifications in the same transaction as the
+outcome, then retry with exponential backoff. Operators can requeue a dead-letter
+notification from the dashboard or API.
+
+System stats report `not_started`, `healthy`, `drift_detected`, `failed`,
+`stale`, or `degraded`. A stale schedule is overdue beyond
+`OPEN_SPANNER_RECONCILIATION_STALE_AFTER`; degraded health means a notification
+requires attention in dead-letter state.
+
+## Repair A Counter
+
+Repairs use an explicit preview-and-apply workflow:
+
+1. Send `dry_run: true` to `POST /v1/system/reconciliation/repairs`.
+2. Review the recorded source count, quantity, and current counter.
+3. Send `dry_run: false` with the preview's `counter_updated_at` value as
+   `expected_updated_at`.
+
+The apply returns a conflict if usage or the counter changed after preview. Only
+active counters whose complete period is still covered by raw-event retention
+are eligible. Decision/event inconsistencies are reported but never repaired
+automatically.
+
+Every preview and successful apply is immutable audit history. Applying a repair
+requires `system:write`; scans and repair-history reads require `system:read`.
+
+See [Environment Variables](/docs/configuration/environment-variables) for scan
+intervals, lookback, lock, retry, and webhook settings.

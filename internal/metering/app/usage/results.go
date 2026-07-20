@@ -15,6 +15,7 @@ type Result struct {
 	EventTime      time.Time
 	ReceivedAt     time.Time
 	Metadata       map[string]any
+	Replayed       bool `json:"-"`
 }
 
 type ListItemResult struct {
@@ -75,6 +76,14 @@ type BulkResult struct {
 	Accepted   []Result
 	Duplicates []Result
 	Failed     []BulkFailureResult
+	Replayed   bool `json:"-"`
+}
+
+func (r BulkResult) NewlyAccepted() []Result {
+	if r.Replayed {
+		return nil
+	}
+	return r.Accepted
 }
 
 func (r BulkResult) Events() []Result {
@@ -123,11 +132,23 @@ type ExportJobResult struct {
 	ErrorMessage string
 	Attempts     int
 	LockedUntil  time.Time
+	ClaimToken   string
 	ArtifactPath string
 	ArtifactSize int64
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	CompletedAt  time.Time
+	ExpiredAt    time.Time
+}
+
+type ExportCleanupRunResult struct {
+	ID             string
+	WorkspaceID    string
+	ExpiredBefore  time.Time
+	FilesDeleted   int
+	BytesReclaimed int64
+	Failures       int
+	CreatedAt      time.Time
 }
 
 func eventResultFromDomain(event domainusage.Event) Result {
@@ -186,7 +207,7 @@ func bulkResultFromDomain(result domainusage.BulkSaveResult) BulkResult {
 		duplicates = append(duplicates, eventResultFromDomain(event))
 	}
 
-	return BulkResult{Accepted: accepted, Duplicates: duplicates}
+	return BulkResult{Accepted: accepted, Duplicates: duplicates, Replayed: result.Replayed()}
 }
 
 func ingestionResultFromDomain(run domainusage.IngestionRun) IngestionResult {
@@ -211,12 +232,18 @@ func exportJobResultFromDomain(job domainusage.ExportJob) ExportJobResult {
 		ErrorMessage: job.ErrorMessage(),
 		Attempts:     job.Attempts(),
 		LockedUntil:  job.LockedUntil(),
+		ClaimToken:   job.ClaimToken(),
 		ArtifactPath: job.ArtifactPath(),
 		ArtifactSize: job.ArtifactSize(),
 		CreatedAt:    job.CreatedAt(),
 		UpdatedAt:    job.UpdatedAt(),
 		CompletedAt:  job.CompletedAt(),
+		ExpiredAt:    job.ExpiredAt(),
 	}
+}
+
+func exportCleanupRunResultFromDomain(run domainusage.ExportCleanupRun) ExportCleanupRunResult {
+	return ExportCleanupRunResult{ID: run.ID(), WorkspaceID: run.WorkspaceID(), ExpiredBefore: run.ExpiredBefore(), FilesDeleted: run.FilesDeleted(), BytesReclaimed: run.BytesReclaimed(), Failures: run.Failures(), CreatedAt: run.CreatedAt()}
 }
 
 func pruneResultFromDomain(run domainusage.PruneRun) PruneResult {

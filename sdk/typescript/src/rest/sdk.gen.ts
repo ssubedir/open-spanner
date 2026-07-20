@@ -2,7 +2,7 @@
 
 import { client } from './client.gen.js';
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client/index.js';
-import type { CheckEntitlementData, CheckEntitlementErrors, CheckEntitlementResponses, CreateMeterData, CreateMeterErrors, CreateMeterResponses, CreateUsageBulkData, CreateUsageBulkErrors, CreateUsageBulkResponses, CreateUsageData, CreateUsageErrors, CreateUsageResponses, DeleteMeterData, DeleteMeterErrors, DeleteMeterResponses, ExportFilteredUsageBucketsData, ExportFilteredUsageBucketsErrors, ExportFilteredUsageBucketsResponses, ExportUsageBucketsData, ExportUsageBucketsErrors, ExportUsageBucketsResponses, GetMeterData, GetMeterErrors, GetMeterResponses, GetSubjectPlanProgressData, GetSubjectPlanProgressErrors, GetSubjectPlanProgressResponses, HealthCheckData, HealthCheckResponses, ListEntitlementStatesData, ListEntitlementStatesErrors, ListEntitlementStatesResponses, ListMetersData, ListMetersErrors, ListMetersResponses, ListUsageDimensionValuesData, ListUsageDimensionValuesErrors, ListUsageDimensionValuesResponses, ReadinessCheckData, ReadinessCheckErrors, ReadinessCheckResponses, SearchUsageBreakdownData, SearchUsageBreakdownErrors, SearchUsageBreakdownResponses, SearchUsageBucketsData, SearchUsageBucketsErrors, SearchUsageBucketsResponses, UpdateMeterData, UpdateMeterErrors, UpdateMeterResponses } from './types.gen.js';
+import type { CheckEntitlementData, CheckEntitlementErrors, CheckEntitlementResponses, ConsumeEntitlementData, ConsumeEntitlementErrors, ConsumeEntitlementResponses, CreateMeterData, CreateMeterErrors, CreateMeterResponses, CreateUsageBulkData, CreateUsageBulkErrors, CreateUsageBulkResponses, CreateUsageData, CreateUsageErrors, CreateUsageResponses, DeleteMeterData, DeleteMeterErrors, DeleteMeterResponses, ExportFilteredUsageBucketsData, ExportFilteredUsageBucketsErrors, ExportFilteredUsageBucketsResponses, ExportUsageBucketsData, ExportUsageBucketsErrors, ExportUsageBucketsResponses, GetConsumptionDecisionData, GetConsumptionDecisionErrors, GetConsumptionDecisionResponses, GetMeterData, GetMeterErrors, GetMeterResponses, GetSubjectPlanProgressData, GetSubjectPlanProgressErrors, GetSubjectPlanProgressResponses, HealthCheckData, HealthCheckResponses, ListConsumptionDecisionsData, ListConsumptionDecisionsErrors, ListConsumptionDecisionsResponses, ListEntitlementStatesData, ListEntitlementStatesErrors, ListEntitlementStatesResponses, ListMetersData, ListMetersErrors, ListMetersResponses, ListUsageDimensionValuesData, ListUsageDimensionValuesErrors, ListUsageDimensionValuesResponses, ReadinessCheckData, ReadinessCheckErrors, ReadinessCheckResponses, SearchUsageBreakdownData, SearchUsageBreakdownErrors, SearchUsageBreakdownResponses, SearchUsageBucketsData, SearchUsageBucketsErrors, SearchUsageBucketsResponses, UpdateMeterData, UpdateMeterErrors, UpdateMeterResponses } from './types.gen.js';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -39,6 +39,30 @@ export const checkEntitlement = <ThrowOnError extends boolean = false>(options: 
         ...options.headers
     }
 });
+
+/**
+ * Atomically consume quota
+ *
+ * Evaluates projected quota under a subject lock. Advisory limits always accept usage; hard limits reject usage that would exceed quota. Accepted and rejected decisions are stored by idempotency key and replayed without reevaluation.
+ */
+export const consumeEntitlement = <ThrowOnError extends boolean = false>(options: Options<ConsumeEntitlementData, ThrowOnError>): RequestResult<ConsumeEntitlementResponses, ConsumeEntitlementErrors, ThrowOnError> => (options.client ?? client).post<ConsumeEntitlementResponses, ConsumeEntitlementErrors, ThrowOnError>({
+    url: '/v1/entitlements/consume',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * List consumption decisions
+ */
+export const listConsumptionDecisions = <ThrowOnError extends boolean = false>(options?: Options<ListConsumptionDecisionsData, ThrowOnError>): RequestResult<ListConsumptionDecisionsResponses, ListConsumptionDecisionsErrors, ThrowOnError> => (options?.client ?? client).get<ListConsumptionDecisionsResponses, ListConsumptionDecisionsErrors, ThrowOnError>({ url: '/v1/entitlements/decisions', ...options });
+
+/**
+ * Get consumption decision
+ */
+export const getConsumptionDecision = <ThrowOnError extends boolean = false>(options: Options<GetConsumptionDecisionData, ThrowOnError>): RequestResult<GetConsumptionDecisionResponses, GetConsumptionDecisionErrors, ThrowOnError> => (options.client ?? client).get<GetConsumptionDecisionResponses, GetConsumptionDecisionErrors, ThrowOnError>({ url: '/v1/entitlements/decisions/{idempotency_key}', ...options });
 
 /**
  * List entitlement states

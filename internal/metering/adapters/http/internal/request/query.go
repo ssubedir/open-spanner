@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strconv"
 	"time"
 )
@@ -90,6 +91,10 @@ func ParseOptionalBool(name string, value string) (bool, error) {
 func DecodeJSON(body io.Reader, target any) error {
 	decoder := json.NewDecoder(body)
 	if err := decoder.Decode(target); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			return NewValidationError("request_too_large", fmt.Sprintf("request body exceeds %d bytes", tooLarge.Limit))
+		}
 		return ErrInvalidJSON
 	}
 	var extra any

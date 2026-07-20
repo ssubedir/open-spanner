@@ -17,6 +17,7 @@ type Service interface {
 	Evaluate(ctx context.Context, cmd appentitlement.EvaluateCommand) (appentitlement.EvaluationResult, error)
 	CompleteCheckJob(ctx context.Context, cmd appentitlement.CompleteCommand) error
 	FailCheckJob(ctx context.Context, cmd appentitlement.FailCommand) error
+	DeadLetterCheckJob(ctx context.Context, cmd appentitlement.DeadLetterCommand) error
 }
 
 type Logger func(format string, args ...any)
@@ -126,7 +127,7 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 	})
 	duration := time.Since(startedAt).Round(time.Millisecond)
 	if err == nil {
-		if err := w.service.CompleteCheckJob(baseCtx, appentitlement.CompleteCommand{Subject: job.Subject, Meter: job.MeterName}); err != nil && !errors.Is(err, domain.ErrNotFound) {
+		if err := w.service.CompleteCheckJob(baseCtx, appentitlement.CompleteCommand{Subject: job.Subject, Meter: job.MeterName, Attempts: job.Attempts}); err != nil && !errors.Is(err, domain.ErrNotFound) {
 			return true, err
 		}
 		w.logSuccess(job, evaluation, duration)
@@ -140,8 +141,8 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 	failCtx, failCancel := context.WithTimeout(appauth.WithWorkspaceID(context.Background(), job.WorkspaceID), 10*time.Second)
 	defer failCancel()
 	if job.Attempts >= w.maxAttempts {
-		if completeErr := w.service.CompleteCheckJob(failCtx, appentitlement.CompleteCommand{Subject: job.Subject, Meter: job.MeterName}); completeErr != nil && !errors.Is(completeErr, domain.ErrNotFound) {
-			return true, errors.Join(err, completeErr)
+		if deadLetterErr := w.service.DeadLetterCheckJob(failCtx, appentitlement.DeadLetterCommand{Subject: job.Subject, Meter: job.MeterName, Attempts: job.Attempts, Error: err.Error()}); deadLetterErr != nil && !errors.Is(deadLetterErr, domain.ErrNotFound) {
+			return true, errors.Join(err, deadLetterErr)
 		}
 		w.logger("entitlement check failed permanently: subject=%s meter=%s attempts=%d duration=%s error=%v", job.Subject, job.MeterName, job.Attempts, duration, err)
 		return true, nil
@@ -149,6 +150,7 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 	if failErr := w.service.FailCheckJob(failCtx, appentitlement.FailCommand{
 		Subject:    job.Subject,
 		Meter:      job.MeterName,
+		Attempts:   job.Attempts,
 		RetryAfter: w.retryAfter,
 		Error:      err.Error(),
 	}); failErr != nil && !errors.Is(failErr, domain.ErrNotFound) {

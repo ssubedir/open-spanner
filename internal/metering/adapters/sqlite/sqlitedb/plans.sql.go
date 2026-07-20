@@ -105,16 +105,23 @@ DELETE FROM entitlement_check_jobs
 WHERE workspace_id = ?1
 	AND subject = ?2
 	AND meter_name = ?3
+	AND attempts = ?4
 `
 
 type DeleteEntitlementCheckJobParams struct {
-	WorkspaceID string
-	Subject     string
-	MeterName   string
+	WorkspaceID      string
+	Subject          string
+	MeterName        string
+	ExpectedAttempts int64
 }
 
 func (q *Queries) DeleteEntitlementCheckJob(ctx context.Context, arg DeleteEntitlementCheckJobParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteEntitlementCheckJob, arg.WorkspaceID, arg.Subject, arg.MeterName)
+	result, err := q.db.ExecContext(ctx, deleteEntitlementCheckJob,
+		arg.WorkspaceID,
+		arg.Subject,
+		arg.MeterName,
+		arg.ExpectedAttempts,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -245,30 +252,6 @@ func (q *Queries) EnqueueEntitlementCheckJob(ctx context.Context, arg EnqueueEnt
 		arg.Now,
 	)
 	return err
-}
-
-const findActivePlanAssignmentAnchor = `-- name: FindActivePlanAssignmentAnchor :one
-SELECT period_anchor_at
-FROM plan_subject_assignments
-WHERE workspace_id = ?1
-  AND subject = ?2
-  AND assigned_at <= ?3
-  AND (unassigned_at IS NULL OR unassigned_at > ?3)
-ORDER BY assigned_at DESC
-LIMIT 1
-`
-
-type FindActivePlanAssignmentAnchorParams struct {
-	WorkspaceID string
-	Subject     string
-	Now         string
-}
-
-func (q *Queries) FindActivePlanAssignmentAnchor(ctx context.Context, arg FindActivePlanAssignmentAnchorParams) (string, error) {
-	row := q.db.QueryRowContext(ctx, findActivePlanAssignmentAnchor, arg.WorkspaceID, arg.Subject, arg.Now)
-	var period_anchor_at string
-	err := row.Scan(&period_anchor_at)
-	return period_anchor_at, err
 }
 
 const findEffectivePlanSubjectAssignment = `-- name: FindEffectivePlanSubjectAssignment :one
@@ -421,8 +404,8 @@ INSERT INTO entitlement_usage_counters (
 )
 VALUES (
 	?1, ?2, ?3, ?4, ?5, ?6,
-	1, ?7, ?7, ?7,
-	?7, ?8, ?7, ?8, ?9
+	?7, ?8, ?9, ?10,
+	?11, ?12, ?13, ?14, ?15
 )
 ON CONFLICT(workspace_id, subject, meter_name, period, period_start) DO UPDATE SET
 	period_end = excluded.period_end,
@@ -444,15 +427,21 @@ ON CONFLICT(workspace_id, subject, meter_name, period, period_start) DO UPDATE S
 `
 
 type IncrementEntitlementUsageCounterParams struct {
-	WorkspaceID string
-	Subject     string
-	MeterName   string
-	Period      string
-	PeriodStart string
-	PeriodEnd   string
-	Quantity    float64
-	EventTime   string
-	UpdatedAt   string
+	WorkspaceID    string
+	Subject        string
+	MeterName      string
+	Period         string
+	PeriodStart    string
+	PeriodEnd      string
+	EventCount     int64
+	QuantitySum    float64
+	QuantityMin    float64
+	QuantityMax    float64
+	FirstQuantity  float64
+	FirstEventTime string
+	LastQuantity   float64
+	LastEventTime  string
+	UpdatedAt      string
 }
 
 func (q *Queries) IncrementEntitlementUsageCounter(ctx context.Context, arg IncrementEntitlementUsageCounterParams) error {
@@ -463,8 +452,14 @@ func (q *Queries) IncrementEntitlementUsageCounter(ctx context.Context, arg Incr
 		arg.Period,
 		arg.PeriodStart,
 		arg.PeriodEnd,
-		arg.Quantity,
-		arg.EventTime,
+		arg.EventCount,
+		arg.QuantitySum,
+		arg.QuantityMin,
+		arg.QuantityMax,
+		arg.FirstQuantity,
+		arg.FirstEventTime,
+		arg.LastQuantity,
+		arg.LastEventTime,
 		arg.UpdatedAt,
 	)
 	return err
@@ -684,7 +679,7 @@ func (q *Queries) ListEntitlementStates(ctx context.Context, arg ListEntitlement
 }
 
 const listPlanLimits = `-- name: ListPlanLimits :many
-SELECT id, plan_id, meter_name, period, limit_value, warning_percent, created_at, updated_at
+SELECT id, plan_id, meter_name, period, limit_value, warning_percent, enforcement, failure_policy, created_at, updated_at
 FROM plan_limits
 WHERE workspace_id = ?1
 	AND (?2 IS NULL OR plan_id = ?2)
@@ -703,6 +698,8 @@ type ListPlanLimitsRow struct {
 	Period         string
 	LimitValue     float64
 	WarningPercent float64
+	Enforcement    string
+	FailurePolicy  string
 	CreatedAt      string
 	UpdatedAt      string
 }
@@ -723,6 +720,8 @@ func (q *Queries) ListPlanLimits(ctx context.Context, arg ListPlanLimitsParams) 
 			&i.Period,
 			&i.LimitValue,
 			&i.WarningPercent,
+			&i.Enforcement,
+			&i.FailurePolicy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -880,6 +879,53 @@ func (q *Queries) ListPlans(ctx context.Context, arg ListPlansParams) ([]ListPla
 	return items, nil
 }
 
+const lockEffectivePlanSubjectAssignment = `-- name: LockEffectivePlanSubjectAssignment :one
+SELECT a.id, a.subject, a.plan_id, p.name AS plan_name, p.version AS plan_version, a.assigned_at, a.period_anchor_at, a.unassigned_at, a.updated_at
+FROM plan_subject_assignments a
+JOIN plans p ON p.workspace_id = a.workspace_id AND p.id = a.plan_id
+WHERE a.workspace_id = ?1
+	AND a.subject = ?2
+	AND a.assigned_at <= ?3
+	AND (a.unassigned_at IS NULL OR a.unassigned_at > ?3)
+ORDER BY a.assigned_at DESC, a.updated_at DESC
+LIMIT 1
+`
+
+type LockEffectivePlanSubjectAssignmentParams struct {
+	WorkspaceID string
+	Subject     string
+	Now         string
+}
+
+type LockEffectivePlanSubjectAssignmentRow struct {
+	ID             string
+	Subject        string
+	PlanID         string
+	PlanName       string
+	PlanVersion    int64
+	AssignedAt     string
+	PeriodAnchorAt string
+	UnassignedAt   sql.NullString
+	UpdatedAt      string
+}
+
+func (q *Queries) LockEffectivePlanSubjectAssignment(ctx context.Context, arg LockEffectivePlanSubjectAssignmentParams) (LockEffectivePlanSubjectAssignmentRow, error) {
+	row := q.db.QueryRowContext(ctx, lockEffectivePlanSubjectAssignment, arg.WorkspaceID, arg.Subject, arg.Now)
+	var i LockEffectivePlanSubjectAssignmentRow
+	err := row.Scan(
+		&i.ID,
+		&i.Subject,
+		&i.PlanID,
+		&i.PlanName,
+		&i.PlanVersion,
+		&i.AssignedAt,
+		&i.PeriodAnchorAt,
+		&i.UnassignedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const requeueEntitlementCheckJob = `-- name: RequeueEntitlementCheckJob :execrows
 UPDATE entitlement_check_jobs
 SET run_after = ?1,
@@ -888,14 +934,16 @@ SET run_after = ?1,
 WHERE workspace_id = ?3
 	AND subject = ?4
 	AND meter_name = ?5
+	AND attempts = ?6
 `
 
 type RequeueEntitlementCheckJobParams struct {
-	RunAfter    string
-	Now         string
-	WorkspaceID string
-	Subject     string
-	MeterName   string
+	RunAfter         string
+	Now              string
+	WorkspaceID      string
+	Subject          string
+	MeterName        string
+	ExpectedAttempts int64
 }
 
 func (q *Queries) RequeueEntitlementCheckJob(ctx context.Context, arg RequeueEntitlementCheckJobParams) (int64, error) {
@@ -905,6 +953,7 @@ func (q *Queries) RequeueEntitlementCheckJob(ctx context.Context, arg RequeueEnt
 		arg.WorkspaceID,
 		arg.Subject,
 		arg.MeterName,
+		arg.ExpectedAttempts,
 	)
 	if err != nil {
 		return 0, err
@@ -1114,6 +1163,38 @@ func (q *Queries) SaveEntitlementState(ctx context.Context, arg SaveEntitlementS
 	return err
 }
 
+const saveEntitlementWorkerDeadLetter = `-- name: SaveEntitlementWorkerDeadLetter :exec
+INSERT INTO system_worker_dead_letters (
+	public_id, workspace_id, worker_name, job_key, subject, meter_name, attempts, last_error, status, created_at
+) VALUES (
+	?1, ?2, 'entitlement', ?3 || ':' || ?4,
+	?3, ?4, ?5, ?6, 'dead_letter', ?7
+)
+`
+
+type SaveEntitlementWorkerDeadLetterParams struct {
+	PublicID    string
+	WorkspaceID string
+	Subject     string
+	MeterName   string
+	Attempts    int64
+	LastError   string
+	CreatedAt   string
+}
+
+func (q *Queries) SaveEntitlementWorkerDeadLetter(ctx context.Context, arg SaveEntitlementWorkerDeadLetterParams) error {
+	_, err := q.db.ExecContext(ctx, saveEntitlementWorkerDeadLetter,
+		arg.PublicID,
+		arg.WorkspaceID,
+		arg.Subject,
+		arg.MeterName,
+		arg.Attempts,
+		arg.LastError,
+		arg.CreatedAt,
+	)
+	return err
+}
+
 const savePlan = `-- name: SavePlan :exec
 INSERT INTO plans (id, workspace_id, name, description, version, parent_plan_id, is_current, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1154,13 +1235,15 @@ func (q *Queries) SavePlan(ctx context.Context, arg SavePlanParams) error {
 }
 
 const savePlanLimit = `-- name: SavePlanLimit :exec
-INSERT INTO plan_limits (id, workspace_id, plan_id, meter_name, period, limit_value, warning_percent, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO plan_limits (id, workspace_id, plan_id, meter_name, period, limit_value, warning_percent, enforcement, failure_policy, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	meter_name = excluded.meter_name,
 	period = excluded.period,
 	limit_value = excluded.limit_value,
 	warning_percent = excluded.warning_percent,
+	enforcement = excluded.enforcement,
+	failure_policy = excluded.failure_policy,
 	updated_at = excluded.updated_at
 `
 
@@ -1172,6 +1255,8 @@ type SavePlanLimitParams struct {
 	Period         string
 	LimitValue     float64
 	WarningPercent float64
+	Enforcement    string
+	FailurePolicy  string
 	CreatedAt      string
 	UpdatedAt      string
 }
@@ -1185,6 +1270,8 @@ func (q *Queries) SavePlanLimit(ctx context.Context, arg SavePlanLimitParams) er
 		arg.Period,
 		arg.LimitValue,
 		arg.WarningPercent,
+		arg.Enforcement,
+		arg.FailurePolicy,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)

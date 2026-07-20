@@ -107,9 +107,10 @@ func (q *Queries) FindUsageEventByIdempotencyKey(ctx context.Context, arg FindUs
 	return i, err
 }
 
-const saveBulkUsageIngestion = `-- name: SaveBulkUsageIngestion :exec
+const saveBulkUsageIngestion = `-- name: SaveBulkUsageIngestion :execrows
 INSERT INTO bulk_usage_ingestions (workspace_id, idempotency_key, response, created_at)
 VALUES (?, ?, ?, ?)
+ON CONFLICT DO NOTHING
 `
 
 type SaveBulkUsageIngestionParams struct {
@@ -119,63 +120,15 @@ type SaveBulkUsageIngestionParams struct {
 	CreatedAt      string
 }
 
-func (q *Queries) SaveBulkUsageIngestion(ctx context.Context, arg SaveBulkUsageIngestionParams) error {
-	_, err := q.db.ExecContext(ctx, saveBulkUsageIngestion,
+func (q *Queries) SaveBulkUsageIngestion(ctx context.Context, arg SaveBulkUsageIngestionParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, saveBulkUsageIngestion,
 		arg.WorkspaceID,
 		arg.IdempotencyKey,
 		arg.Response,
 		arg.CreatedAt,
 	)
-	return err
-}
-
-const saveUsageEvent = `-- name: SaveUsageEvent :exec
-INSERT INTO usage_events (
-	id,
-	workspace_id,
-	idempotency_key,
-	subject,
-	meter_name,
-	quantity,
-	event_time,
-	received_at,
-	metadata
-) VALUES (
-	?1,
-	?2,
-	NULLIF(CAST(?3 AS TEXT), ''),
-	?4,
-	?5,
-	?6,
-	?7,
-	?8,
-	?9
-)
-`
-
-type SaveUsageEventParams struct {
-	ID             string
-	WorkspaceID    string
-	IdempotencyKey string
-	Subject        string
-	MeterName      string
-	Quantity       float64
-	EventTime      string
-	ReceivedAt     string
-	Metadata       string
-}
-
-func (q *Queries) SaveUsageEvent(ctx context.Context, arg SaveUsageEventParams) error {
-	_, err := q.db.ExecContext(ctx, saveUsageEvent,
-		arg.ID,
-		arg.WorkspaceID,
-		arg.IdempotencyKey,
-		arg.Subject,
-		arg.MeterName,
-		arg.Quantity,
-		arg.EventTime,
-		arg.ReceivedAt,
-		arg.Metadata,
-	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

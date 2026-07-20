@@ -8,6 +8,7 @@
     "plans-entitlements",
     "alerts",
     "auth-model",
+    "workspace-access",
     "query-model",
     "retention"
   ]

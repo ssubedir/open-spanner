@@ -134,6 +134,10 @@ func SystemRead(extractor ResourceExtractor) Policy {
 	return need(appauth.ActionSystemRead, extractor)
 }
 
+func SystemWrite(extractor ResourceExtractor) Policy {
+	return need(appauth.ActionSystemWrite, extractor)
+}
+
 func (r Router) Route(pattern string, fn func(Router)) {
 	r.router.Route(pattern, func(router chi.Router) {
 		fn(NewRouter(router, r.authorizer))
@@ -142,6 +146,10 @@ func (r Router) Route(pattern string, fn func(Router)) {
 
 func (r Router) Get(pattern string, handler http.HandlerFunc, policies ...Policy) {
 	r.router.With(r.authorization(policies...)...).Get(pattern, handler)
+}
+
+func (r Router) Head(pattern string, handler http.HandlerFunc, policies ...Policy) {
+	r.router.With(r.authorization(policies...)...).Head(pattern, handler)
 }
 
 func (r Router) Post(pattern string, handler http.HandlerFunc, policies ...Policy) {

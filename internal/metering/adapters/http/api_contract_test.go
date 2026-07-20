@@ -2467,7 +2467,7 @@ func newTestRouter() http.Handler {
 	subjectService := appsubject.NewService(usageRepo)
 	entitlementService := appentitlement.NewService(sqlite.NewEntitlementRepository(store), meterRepo, usageRepo, store)
 	usageService := appusage.NewService(meterRepo, usageRepo, store)
-	systemService := appsystem.NewService(sqlite.NewSystemRepository(store))
+	systemService := appsystem.NewService(sqlite.NewSystemRepository(store), store)
 
 	router := chi.NewRouter()
 	router.Use(func(next http.Handler) http.Handler {
@@ -2481,7 +2481,7 @@ func newTestRouter() http.Handler {
 		httpmeter.NewHandler(meterService).RegisterRoutes(r, nil)
 		httpsubject.NewHandler(subjectService).RegisterRoutes(r, nil)
 		httpentitlement.NewHandler(entitlementService).RegisterRoutes(r, nil)
-		httpusage.NewHandler(usageService, httpusage.HandlerOptions{Entitlements: entitlementService}).RegisterRoutes(r, nil)
+		httpusage.NewHandler(usageService, httpusage.HandlerOptions{}).RegisterRoutes(r, nil)
 		httpsystem.NewHandler(systemService).RegisterRoutes(r, nil)
 	})
 
@@ -2505,7 +2505,7 @@ func newProtectedTestRouter() http.Handler {
 	subjectService := appsubject.NewService(usageRepo)
 	entitlementService := appentitlement.NewService(sqlite.NewEntitlementRepository(store), meterRepo, usageRepo, store)
 	usageService := appusage.NewService(meterRepo, usageRepo, store)
-	systemService := appsystem.NewService(sqlite.NewSystemRepository(store))
+	systemService := appsystem.NewService(sqlite.NewSystemRepository(store), store)
 	authHandler := httpauth.NewHandler(authService)
 
 	router := chi.NewRouter()
@@ -2516,7 +2516,7 @@ func newProtectedTestRouter() http.Handler {
 			httpmeter.NewHandler(meterService).RegisterRoutes(protected, authorizer)
 			httpsubject.NewHandler(subjectService).RegisterRoutes(protected, authorizer)
 			httpentitlement.NewHandler(entitlementService).RegisterRoutes(protected, authorizer)
-			httpusage.NewHandler(usageService, httpusage.HandlerOptions{Entitlements: entitlementService}).RegisterRoutes(protected, authorizer)
+			httpusage.NewHandler(usageService, httpusage.HandlerOptions{}).RegisterRoutes(protected, authorizer)
 			httpsystem.NewHandler(systemService).RegisterRoutes(protected, authorizer)
 		})
 	})

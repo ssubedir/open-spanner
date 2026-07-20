@@ -1,0 +1,250 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --background: oklch(0.995 0 0);
+  --foreground: oklch(0.18 0.005 260);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.005 260);
+  --primary: oklch(0.61 0.11 167);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.965 0.002 260);
+  --secondary-foreground: oklch(0.25 0.005 260);
+  --muted: oklch(0.97 0.002 260);
+  --muted-foreground: oklch(0.54 0.006 260);
+  --border: oklch(0.91 0.003 260);
+  --input: oklch(0.91 0.003 260);
+  --ring: oklch(0.61 0.11 167);
+  --destructive: oklch(0.58 0.22 27);
+  --radius: 0.5rem;
+  --accent-orange: oklch(0.74 0.17 55);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-destructive: var(--destructive);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 4px);
+  --font-sans: "Inter", "SF Pro Text", "Segoe UI", sans-serif;
+}
+
+* {
+  border-color: var(--border);
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  background: oklch(0.88 0.07 167);
+}
+
+.scrollbar-subtle {
+  scrollbar-color: oklch(0.84 0 0) transparent;
+  scrollbar-width: thin;
+}
+
+.chart-grid {
+  background-image:
+    linear-gradient(to right, oklch(0.91 0.003 260 / 0.75) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(0.94 0.002 260 / 0.6) 1px, transparent 1px);
+  background-size: calc(100% / 12) 100%, 100% 25%;
+}
+
+.product-page {
+  --background: #ffffff;
+  --card: #ffffff;
+  --card-foreground: #171717;
+  --foreground: #171717;
+  --muted: #f5f5f5;
+  --muted-foreground: #737373;
+  --border: #e5e5e5;
+  --input: #dedede;
+  --primary: #159b6d;
+  --primary-foreground: #ffffff;
+  --secondary: #f5f5f5;
+  --secondary-foreground: #262626;
+  --success: #159b6d;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --ring: rgba(21, 155, 109, 0.2);
+  --radius: 8px;
+  --shadow: none;
+  min-height: calc(100vh - 58px);
+  min-width: 0;
+  padding: 26px;
+  background: var(--background);
+}
+
+.product-page .page-header {
+  margin: -26px -26px 22px;
+  padding: 25px 30px 22px;
+  border-bottom: 1px solid var(--border);
+  background: var(--card);
+}
+
+.product-page .page-header h1 {
+  font-size: 24px;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+}
+
+.product-page .eyebrow {
+  color: var(--primary);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+}
+
+.product-page .card {
+  border-color: var(--border);
+  border-radius: 9px;
+  box-shadow: none;
+}
+
+.product-page .metric-grid {
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+
+.product-page .metric-card {
+  min-height: 96px;
+  border: 0;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+}
+
+.product-page .metric-card:last-child {
+  border-right: 0;
+}
+
+.product-page .metric-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 7px;
+  background: color-mix(in oklch, var(--primary) 10%, var(--card));
+}
+
+.product-page .metric-card strong {
+  font-size: 23px;
+  letter-spacing: -0.025em;
+}
+
+.product-page .card-header {
+  padding: 14px 16px;
+  background: var(--card);
+}
+
+.product-page .card-title {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.product-page .table-head {
+  height: 38px;
+  background: color-mix(in oklch, var(--muted) 70%, var(--card));
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.product-page .table-cell {
+  padding-block: 11px;
+}
+
+.product-page .table-row:hover .table-cell {
+  background: color-mix(in oklch, var(--muted) 70%, var(--card));
+}
+
+.product-page .button {
+  border-radius: 7px;
+  font-weight: 600;
+  box-shadow: none;
+}
+
+.product-page .button-primary {
+  background: var(--primary);
+}
+
+.product-page .button-primary:hover:not(:disabled) {
+  background: color-mix(in oklch, var(--primary) 86%, black);
+}
+
+.product-page .badge {
+  border-radius: 999px;
+  font-weight: 500;
+}
+
+.product-page .modal-panel {
+  border-radius: 10px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.18);
+}
+
+.auth-page {
+  --background: #f7f7f6;
+  --card: #ffffff;
+  --card-foreground: #171717;
+  --foreground: #171717;
+  --muted: #f5f5f5;
+  --muted-foreground: #737373;
+  --border: #e5e5e5;
+  --input: #dedede;
+  --primary: #159b6d;
+  --primary-foreground: #ffffff;
+  --ring: rgba(21, 155, 109, 0.2);
+  --shadow: 0 12px 35px rgba(0, 0, 0, 0.08);
+  background-color: var(--background);
+}
+
+@media (max-width: 640px) {
+  .product-page {
+    padding: 18px;
+  }
+
+  .product-page .page-header {
+    margin: -18px -18px 18px;
+    padding: 20px 18px;
+  }
+
+  .product-page .metric-grid {
+    gap: 1px;
+  }
+
+  .product-page .metric-card {
+    border-right: 0;
+  }
+}

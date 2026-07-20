@@ -22,6 +22,30 @@ CREATE TABLE auth_workspace_memberships (
 CREATE INDEX idx_auth_workspace_memberships_user_id
 	ON auth_workspace_memberships (user_id, workspace_id);
 
+CREATE TABLE auth_workspace_invitations (
+	id TEXT PRIMARY KEY,
+	workspace_id TEXT NOT NULL,
+	email TEXT NOT NULL,
+	role TEXT NOT NULL CHECK (role IN ('admin', 'viewer')),
+	token_hash TEXT NOT NULL UNIQUE,
+	invited_by_user_id TEXT NOT NULL,
+	expires_at TEXT NOT NULL,
+	accepted_at TEXT,
+	accepted_by_user_id TEXT,
+	revoked_at TEXT,
+	created_at TEXT NOT NULL,
+	FOREIGN KEY (workspace_id) REFERENCES auth_workspaces(id) ON DELETE CASCADE,
+	FOREIGN KEY (invited_by_user_id) REFERENCES auth_users(id) ON DELETE CASCADE,
+	FOREIGN KEY (accepted_by_user_id) REFERENCES auth_users(id) ON DELETE SET NULL
+);
+
+CREATE UNIQUE INDEX idx_auth_workspace_invitations_pending_email
+	ON auth_workspace_invitations (workspace_id, email)
+	WHERE accepted_at IS NULL AND revoked_at IS NULL;
+
+CREATE INDEX idx_auth_workspace_invitations_workspace_created
+	ON auth_workspace_invitations (workspace_id, created_at DESC, id DESC);
+
 CREATE TABLE auth_identities (
 	id TEXT PRIMARY KEY,
 	user_id TEXT NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
@@ -487,3 +511,347 @@ CREATE TABLE workspace_stats (
 	prune_runs BIGINT NOT NULL DEFAULT 0,
 	updated_at TEXT NOT NULL
 );
+
+ALTER TABLE plan_limits
+	ADD COLUMN enforcement TEXT NOT NULL DEFAULT 'advisory'
+		CHECK (enforcement IN ('advisory', 'hard')),
+	ADD COLUMN failure_policy TEXT NOT NULL DEFAULT 'fail_open'
+		CHECK (failure_policy IN ('fail_open', 'fail_closed'));
+
+CREATE TABLE consumption_decisions (
+	workspace_id TEXT NOT NULL,
+	idempotency_key TEXT NOT NULL,
+	response JSONB NOT NULL,
+	created_at TIMESTAMPTZ NOT NULL,
+	PRIMARY KEY (workspace_id, idempotency_key)
+);
+
+CREATE TABLE consumption_decision_prune_runs (
+	id TEXT PRIMARY KEY,
+	workspace_id TEXT NOT NULL,
+	before TIMESTAMPTZ NOT NULL,
+	dry_run BOOLEAN NOT NULL,
+	deleted BIGINT NOT NULL CHECK (deleted >= 0),
+	created_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX idx_consumption_decision_prune_runs_workspace_created
+	ON consumption_decision_prune_runs (workspace_id, created_at DESC, id DESC);
+
+ALTER TABLE consumption_decisions
+	ADD COLUMN subject TEXT NOT NULL DEFAULT '',
+	ADD COLUMN meter_name TEXT NOT NULL DEFAULT '',
+	ADD COLUMN accepted BOOLEAN NOT NULL DEFAULT FALSE,
+	ADD COLUMN evaluation_failed BOOLEAN NOT NULL DEFAULT FALSE,
+	ADD COLUMN enforcement TEXT NOT NULL DEFAULT '',
+	ADD COLUMN state TEXT NOT NULL DEFAULT '';
+
+UPDATE consumption_decisions SET
+	subject = COALESCE(response->'Quota'->>'Subject', ''),
+	meter_name = COALESCE(response->'Quota'->>'MeterName', ''),
+	accepted = COALESCE((response->>'Accepted')::boolean, FALSE),
+	evaluation_failed = COALESCE((response->>'EvaluationFailed')::boolean, FALSE),
+	enforcement = COALESCE(response->'Quota'->>'Enforcement', ''),
+	state = COALESCE(response->'Quota'->>'State', '');
+
+CREATE INDEX idx_consumption_decisions_workspace_audit
+	ON consumption_decisions (workspace_id, created_at DESC, idempotency_key DESC);
+CREATE INDEX idx_consumption_decisions_workspace_subject
+	ON consumption_decisions (workspace_id, subject, created_at DESC);
+CREATE INDEX idx_consumption_decisions_workspace_meter
+	ON consumption_decisions (workspace_id, meter_name, created_at DESC);
+
+CREATE TABLE quota_counter_repair_runs (
+	id TEXT PRIMARY KEY,
+	workspace_id TEXT NOT NULL REFERENCES auth_workspaces(id) ON DELETE CASCADE,
+	subject TEXT NOT NULL,
+	meter_name TEXT NOT NULL,
+	period TEXT NOT NULL,
+	period_start TEXT NOT NULL,
+	period_end TEXT NOT NULL,
+	dry_run BOOLEAN NOT NULL,
+	applied BOOLEAN NOT NULL,
+	before_snapshot JSONB NOT NULL,
+	after_snapshot JSONB NOT NULL,
+	counter_updated_at TEXT NOT NULL,
+	created_at TIMESTAMPTZ NOT NULL,
+	FOREIGN KEY (workspace_id, meter_name) REFERENCES meters(workspace_id, name)
+);
+
+CREATE INDEX idx_quota_counter_repair_runs_workspace_created
+	ON quota_counter_repair_runs (workspace_id, created_at DESC, id DESC);
+
+CREATE TABLE reconciliation_schedules (
+	workspace_id TEXT PRIMARY KEY REFERENCES auth_workspaces(id) ON DELETE CASCADE,
+	next_run_at TIMESTAMPTZ NOT NULL,
+	locked_until TIMESTAMPTZ,
+	last_fingerprint TEXT NOT NULL DEFAULT '',
+	last_notified_fingerprint TEXT NOT NULL DEFAULT '',
+	updated_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX reconciliation_schedules_due_idx
+	ON reconciliation_schedules (next_run_at, workspace_id);
+
+CREATE TABLE reconciliation_runs (
+	id TEXT PRIMARY KEY,
+	workspace_id TEXT NOT NULL REFERENCES auth_workspaces(id) ON DELETE CASCADE,
+	status TEXT NOT NULL CHECK (status IN ('healthy', 'drift_detected', 'failed')),
+	decisions_checked INTEGER NOT NULL,
+	counters_checked INTEGER NOT NULL,
+	issue_count INTEGER NOT NULL,
+	truncated BOOLEAN NOT NULL,
+	lookback_hours INTEGER NOT NULL,
+	duration_ms BIGINT NOT NULL,
+	fingerprint TEXT NOT NULL DEFAULT '',
+	issues JSONB NOT NULL DEFAULT '[]'::jsonb,
+	error TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX reconciliation_runs_workspace_created_idx
+	ON reconciliation_runs (workspace_id, created_at DESC, id DESC);
+
+ALTER TABLE reconciliation_schedules
+	ADD COLUMN last_failure_fingerprint TEXT NOT NULL DEFAULT '';
+
+CREATE TABLE reconciliation_notifications (
+	id TEXT PRIMARY KEY,
+	workspace_id TEXT NOT NULL REFERENCES auth_workspaces(id) ON DELETE CASCADE,
+	event_type TEXT NOT NULL CHECK (event_type IN ('drift_detected', 'scan_failed')),
+	fingerprint TEXT NOT NULL,
+	payload JSONB NOT NULL,
+	status TEXT NOT NULL CHECK (status IN ('pending', 'delivered', 'dead_letter')),
+	attempts INTEGER NOT NULL DEFAULT 0,
+	next_attempt_at TIMESTAMPTZ NOT NULL,
+	locked_until TIMESTAMPTZ,
+	last_error TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL,
+	delivered_at TIMESTAMPTZ
+);
+
+CREATE INDEX reconciliation_notifications_due_idx
+	ON reconciliation_notifications (status, next_attempt_at, id);
+CREATE INDEX reconciliation_notifications_workspace_created_idx
+	ON reconciliation_notifications (workspace_id, created_at DESC, id DESC);
+
+CREATE TABLE reconciliation_notification_attempts (
+	id TEXT PRIMARY KEY,
+	notification_id TEXT NOT NULL REFERENCES reconciliation_notifications(id) ON DELETE CASCADE,
+	attempt INTEGER NOT NULL,
+	status TEXT NOT NULL CHECK (status IN ('delivered', 'failed')),
+	error TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX reconciliation_notification_attempts_notification_idx
+	ON reconciliation_notification_attempts (notification_id, created_at, id);
+
+CREATE TABLE auth_api_key_events (
+	id TEXT PRIMARY KEY,
+	workspace_id TEXT NOT NULL,
+	user_id TEXT NOT NULL,
+	api_key_id TEXT NOT NULL,
+	key_name TEXT NOT NULL,
+	key_prefix TEXT NOT NULL,
+	event_type TEXT NOT NULL CHECK (event_type IN ('created', 'rotated', 'revoked')),
+	related_api_key_id TEXT,
+	effective_at TIMESTAMPTZ,
+	created_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX idx_auth_api_key_events_workspace_user
+	ON auth_api_key_events (workspace_id, user_id, created_at DESC, id DESC);
+
+CREATE TABLE system_worker_heartbeats (
+	worker_name TEXT PRIMARY KEY,
+	started_at TIMESTAMPTZ NOT NULL,
+	last_heartbeat_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE system_worker_dead_letters (
+	id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	public_id UUID NOT NULL UNIQUE,
+	workspace_id TEXT NOT NULL REFERENCES auth_workspaces(id) ON DELETE CASCADE,
+	worker_name TEXT NOT NULL CHECK (worker_name IN ('alert', 'entitlement')),
+	job_key TEXT NOT NULL,
+	rule_id TEXT NOT NULL DEFAULT '',
+	subject TEXT NOT NULL DEFAULT '',
+	meter_name TEXT NOT NULL DEFAULT '',
+	attempts INTEGER NOT NULL,
+	last_error TEXT NOT NULL,
+	status TEXT NOT NULL CHECK (status IN ('dead_letter', 'requeued')),
+	created_at TIMESTAMPTZ NOT NULL,
+	requeued_at TIMESTAMPTZ
+);
+
+CREATE INDEX system_worker_dead_letters_workspace_created_idx
+	ON system_worker_dead_letters (workspace_id, created_at DESC, id DESC);
+CREATE INDEX system_worker_dead_letters_active_idx
+	ON system_worker_dead_letters (worker_name, status, created_at DESC);
+
+CREATE TABLE alert_delivery_jobs (
+	id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	public_id UUID NOT NULL UNIQUE,
+	workspace_id TEXT NOT NULL REFERENCES auth_workspaces(id) ON DELETE CASCADE,
+	event_id TEXT NOT NULL UNIQUE REFERENCES alert_events(id) ON DELETE CASCADE,
+	destination_id TEXT NOT NULL DEFAULT '',
+	payload JSONB NOT NULL,
+	status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'delivered', 'dead_letter')),
+	attempts INTEGER NOT NULL DEFAULT 0,
+	next_attempt_at TIMESTAMPTZ NOT NULL,
+	locked_until TIMESTAMPTZ,
+	last_error TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL,
+	updated_at TIMESTAMPTZ NOT NULL,
+	delivered_at TIMESTAMPTZ
+);
+
+CREATE INDEX alert_delivery_jobs_claim_idx
+	ON alert_delivery_jobs (status, next_attempt_at, locked_until, id);
+CREATE INDEX alert_delivery_jobs_workspace_created_idx
+	ON alert_delivery_jobs (workspace_id, created_at DESC, id DESC);
+
+ALTER TABLE usage_export_jobs ADD COLUMN claim_token UUID;
+
+ALTER TABLE usage_export_jobs ADD COLUMN expired_at TEXT;
+
+CREATE INDEX idx_usage_export_jobs_artifact_retention
+	ON usage_export_jobs (completed_at, id)
+	WHERE status = 'completed' AND expired_at IS NULL;
+
+CREATE TABLE usage_export_cleanup_runs (
+	id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	public_id UUID NOT NULL UNIQUE,
+	workspace_id TEXT NOT NULL REFERENCES auth_workspaces(id) ON DELETE CASCADE,
+	expired_before TEXT NOT NULL,
+	files_deleted INTEGER NOT NULL,
+	bytes_reclaimed BIGINT NOT NULL,
+	failures INTEGER NOT NULL,
+	created_at TEXT NOT NULL
+);
+
+CREATE INDEX idx_usage_export_cleanup_runs_workspace_created
+	ON usage_export_cleanup_runs (workspace_id, created_at DESC, id DESC);
+
+CREATE TABLE usage_hourly_rollups (
+	id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	workspace_id TEXT NOT NULL REFERENCES auth_workspaces(id) ON DELETE CASCADE,
+	meter_name TEXT NOT NULL,
+	subject TEXT NOT NULL,
+	bucket_start TEXT NOT NULL,
+	metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+	event_count BIGINT NOT NULL,
+	quantity_sum DOUBLE PRECISION NOT NULL,
+	quantity_min DOUBLE PRECISION NOT NULL,
+	quantity_max DOUBLE PRECISION NOT NULL,
+	first_quantity DOUBLE PRECISION NOT NULL,
+	first_event_time TEXT NOT NULL,
+	first_event_id TEXT NOT NULL,
+	last_quantity DOUBLE PRECISION NOT NULL,
+	last_event_time TEXT NOT NULL,
+	last_event_id TEXT NOT NULL,
+	rolled_up_at TEXT NOT NULL,
+	UNIQUE (workspace_id, meter_name, subject, bucket_start, metadata)
+);
+
+CREATE INDEX idx_usage_hourly_rollups_workspace_meter_bucket
+	ON usage_hourly_rollups (workspace_id, meter_name, bucket_start);
+
+CREATE VIEW usage_aggregation_fragments AS
+SELECT workspace_id, subject, meter_name, quantity, quantity AS quantity_sum,
+	quantity AS quantity_min, quantity AS quantity_max, 1::bigint AS event_count,
+	quantity AS first_quantity, event_time AS first_event_time, id AS first_event_id,
+	quantity AS last_quantity, event_time AS last_event_time, id AS last_event_id,
+	event_time, received_at, idempotency_key, metadata
+FROM usage_events
+UNION ALL
+SELECT workspace_id, subject, meter_name, quantity_sum AS quantity, quantity_sum, quantity_min, quantity_max,
+	event_count, first_quantity, first_event_time, first_event_id,
+	last_quantity, last_event_time, last_event_id, bucket_start AS event_time,
+	NULL::text AS received_at, NULL::text AS idempotency_key, metadata
+FROM usage_hourly_rollups;
+
+CREATE TABLE usage_rollup_runs (
+	id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	workspace_id TEXT NOT NULL REFERENCES auth_workspaces(id) ON DELETE CASCADE,
+	meter_name TEXT NOT NULL,
+	finalized_through TEXT NOT NULL,
+	source_events BIGINT NOT NULL,
+	rollup_rows BIGINT NOT NULL,
+	created_at TEXT NOT NULL,
+	UNIQUE (workspace_id, meter_name, finalized_through)
+);
+
+CREATE INDEX idx_usage_rollup_runs_workspace_meter_created
+	ON usage_rollup_runs (workspace_id, meter_name, created_at DESC, id DESC);
+
+ALTER TABLE workspace_stats ADD COLUMN ingestion_throttled BIGINT NOT NULL DEFAULT 0;
+
+CREATE TABLE ingestion_rate_windows (
+	workspace_id TEXT PRIMARY KEY REFERENCES auth_workspaces(id) ON DELETE CASCADE,
+	window_start TEXT NOT NULL,
+	permitted_events BIGINT NOT NULL DEFAULT 0,
+	throttled_events BIGINT NOT NULL DEFAULT 0,
+	updated_at TEXT NOT NULL
+);
+
+CREATE INDEX idx_usage_ingestions_cleanup ON usage_ingestions (created_at, id);
+CREATE INDEX idx_usage_prune_runs_cleanup ON usage_prune_runs (created_at, id);
+CREATE INDEX idx_consumption_decision_prune_runs_cleanup ON consumption_decision_prune_runs (created_at, id);
+CREATE INDEX idx_usage_export_cleanup_runs_cleanup ON usage_export_cleanup_runs (created_at, id);
+CREATE INDEX idx_usage_export_jobs_cleanup ON usage_export_jobs (completed_at, id)
+	WHERE status = 'completed' AND expired_at IS NOT NULL;
+CREATE INDEX idx_alert_delivery_jobs_cleanup ON alert_delivery_jobs (delivered_at, id)
+	WHERE status = 'delivered';
+CREATE INDEX idx_reconciliation_runs_cleanup ON reconciliation_runs (created_at, id);
+CREATE INDEX idx_reconciliation_notifications_cleanup ON reconciliation_notifications (delivered_at, id)
+	WHERE status = 'delivered';
+CREATE INDEX idx_usage_rollup_runs_cleanup ON usage_rollup_runs (created_at, id);
+
+ALTER TABLE system_worker_heartbeats
+	ADD COLUMN instance_id TEXT NOT NULL DEFAULT 'legacy';
+
+DELETE FROM system_worker_heartbeats;
+
+ALTER TABLE system_worker_heartbeats
+	DROP CONSTRAINT system_worker_heartbeats_pkey;
+
+ALTER TABLE system_worker_heartbeats
+	ADD PRIMARY KEY (worker_name, instance_id);
+
+ALTER TABLE reconciliation_schedules
+	ADD COLUMN claim_token TEXT;
+
+ALTER TABLE reconciliation_notifications
+	ADD COLUMN claim_token TEXT;
+
+CREATE TABLE system_maintenance_leases (
+	worker_name TEXT PRIMARY KEY,
+	claim_token TEXT NOT NULL,
+	locked_until TIMESTAMPTZ NOT NULL,
+	updated_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE usage_event_outbox (
+	id BIGSERIAL PRIMARY KEY,
+	public_id UUID NOT NULL UNIQUE,
+	workspace_id TEXT NOT NULL REFERENCES auth_workspaces(id) ON DELETE CASCADE,
+	event_id TEXT NOT NULL,
+	subject TEXT NOT NULL,
+	meter_name TEXT NOT NULL,
+	quantity DOUBLE PRECISION NOT NULL,
+	metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+	status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'dead_letter')),
+	attempts INTEGER NOT NULL DEFAULT 0,
+	next_attempt_at TIMESTAMPTZ NOT NULL,
+	locked_until TIMESTAMPTZ,
+	claim_token UUID,
+	last_error TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL,
+	updated_at TIMESTAMPTZ NOT NULL,
+	UNIQUE (workspace_id, event_id)
+);
+
+CREATE INDEX usage_event_outbox_claim_idx
+	ON usage_event_outbox (status, next_attempt_at, locked_until, id);

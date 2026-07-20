@@ -61,6 +61,27 @@ create_usage.sync(
 
 Create an API key in the dashboard first and expose it to your backend process as `OPEN_SPANNER_API_KEY`.
 
+## gRPC Ingestion
+
+The same package provides single, bulk, and client-streaming usage writes:
+
+```python
+from open_spanner_client.stream import Event, StreamClient
+
+ingestion = StreamClient("localhost:18090", os.environ["OPEN_SPANNER_API_KEY"])
+try:
+    ingestion.track(
+        Event(
+            idempotency_key=str(uuid.uuid4()),
+            subject="org_123",
+            meter="api_requests",
+            quantity=1,
+        )
+    )
+finally:
+    ingestion.close()
+```
+
 ## Run The Full Example
 
 ```sh

@@ -36,27 +36,86 @@ type IngestionCommand struct {
 const MaxBulkEvents = 1000
 
 func (s *service) Create(ctx context.Context, cmd CreateCommand) (Result, error) {
+	return s.create(ctx, "", cmd)
+}
+
+func (s *service) CreateIngestion(ctx context.Context, kind string, cmd CreateCommand) (Result, error) {
+	return s.create(ctx, kind, cmd)
+}
+
+func (s *service) create(ctx context.Context, kind string, cmd CreateCommand) (Result, error) {
+	if err := s.checkIngestionCapacity(ctx, 1); err != nil {
+		return Result{}, err
+	}
 	event, err := s.newEvent(ctx, cmd, map[string]domainmeter.Meter{})
 	if err != nil {
 		return Result{}, err
 	}
 
-	event, err = s.usageRepo.Save(ctx, event)
+	requestedEventID := event.ID()
+	var run domainusage.IngestionRun
+	err = s.transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
+		var saveErr error
+		event, saveErr = s.usageRepo.Save(txCtx, event)
+		if saveErr != nil {
+			return saveErr
+		}
+		replayed := event.ID() != requestedEventID
+		if !replayed {
+			if saveErr = s.usageRepo.EnqueueOutbox(txCtx, []domainusage.Event{event}, s.now()); saveErr != nil {
+				return saveErr
+			}
+		}
+		if kind != "" {
+			run, saveErr = s.saveIngestionRun(txCtx, IngestionCommand{
+				Kind: kind, Accepted: boolInt(!replayed), Duplicates: boolInt(replayed),
+			})
+		}
+		return saveErr
+	})
+	if err == nil && kind != "" {
+		s.recordIngestionMetrics(ctx, run)
+	}
 	if err != nil {
 		return Result{}, err
 	}
 
+	result := eventResultFromDomain(event)
+	result.Replayed = event.ID() != requestedEventID
+	return result, nil
+}
+
+func (s *service) GetByIdempotencyKey(ctx context.Context, idempotencyKey string) (Result, error) {
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
+	if idempotencyKey == "" {
+		return Result{}, fmt.Errorf("%w: idempotency key is required", domain.ErrInvalidInput)
+	}
+	event, err := s.usageRepo.FindEventByIdempotencyKey(ctx, idempotencyKey)
+	if err != nil {
+		return Result{}, err
+	}
 	return eventResultFromDomain(event), nil
 }
 
 func (s *service) CreateBulk(ctx context.Context, idempotencyKey string, commands []CreateCommand) (BulkResult, error) {
+	return s.createBulk(ctx, "", idempotencyKey, commands, 0)
+}
+
+func (s *service) CreateBulkIngestion(ctx context.Context, kind string, idempotencyKey string, commands []CreateCommand, initialFailures int) (BulkResult, error) {
+	return s.createBulk(ctx, kind, idempotencyKey, commands, initialFailures)
+}
+
+func (s *service) createBulk(ctx context.Context, kind string, idempotencyKey string, commands []CreateCommand, initialFailures int) (BulkResult, error) {
 	idempotencyKey = strings.TrimSpace(idempotencyKey)
 
 	if len(commands) == 0 {
 		return BulkResult{}, fmt.Errorf("%w: at least one usage event is required", domain.ErrInvalidInput)
 	}
-	if len(commands) > MaxBulkEvents {
-		return BulkResult{}, fmt.Errorf("%w: bulk usage event limit is %d", domain.ErrInvalidInput, MaxBulkEvents)
+	if len(commands) > s.limits.MaxBatchEvents {
+		return BulkResult{}, fmt.Errorf("%w: bulk usage event limit is %d", domain.ErrInvalidInput, s.limits.MaxBatchEvents)
+	}
+	if err := s.checkIngestionCapacity(ctx, len(commands)); err != nil {
+		return BulkResult{}, err
 	}
 
 	meters := map[string]domainmeter.Meter{}
@@ -75,10 +134,46 @@ func (s *service) CreateBulk(ctx context.Context, idempotencyKey string, command
 	}
 
 	if len(events) == 0 {
-		return BulkResult{Failed: failures}, nil
+		result := BulkResult{Failed: failures}
+		if kind == "" {
+			return result, nil
+		}
+		run, err := s.saveIngestionRun(ctx, IngestionCommand{Kind: kind, Failed: initialFailures + len(failures)})
+		if err != nil {
+			return BulkResult{}, err
+		}
+		s.recordIngestionMetrics(ctx, run)
+		return result, nil
 	}
 
-	saved, err := s.usageRepo.SaveBulk(ctx, idempotencyKey, events)
+	var saved domainusage.BulkSaveResult
+	var run domainusage.IngestionRun
+	var err error
+	err = s.transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
+		var saveErr error
+		saved, saveErr = s.usageRepo.SaveBulk(txCtx, idempotencyKey, events)
+		if saveErr != nil {
+			return saveErr
+		}
+		if !saved.Replayed() {
+			if saveErr = s.usageRepo.EnqueueOutbox(txCtx, saved.Accepted(), s.now()); saveErr != nil {
+				return saveErr
+			}
+		}
+		if kind != "" {
+			accepted, duplicates := len(saved.Accepted()), len(saved.Duplicates())
+			if saved.Replayed() {
+				accepted, duplicates = 0, len(saved.Events())
+			}
+			run, saveErr = s.saveIngestionRun(txCtx, IngestionCommand{
+				Kind: kind, Accepted: accepted, Duplicates: duplicates, Failed: initialFailures + len(failures),
+			})
+		}
+		return saveErr
+	})
+	if err == nil && kind != "" {
+		s.recordIngestionMetrics(ctx, run)
+	}
 	if err != nil {
 		return BulkResult{}, err
 	}
@@ -106,6 +201,15 @@ func bulkFailureFromError(index int, err error) BulkFailureResult {
 }
 
 func (s *service) RecordIngestion(ctx context.Context, cmd IngestionCommand) (IngestionResult, error) {
+	run, err := s.saveIngestionRun(ctx, cmd)
+	if err != nil {
+		return IngestionResult{}, err
+	}
+	s.recordIngestionMetrics(ctx, run)
+	return ingestionResultFromDomain(run), nil
+}
+
+func (s *service) saveIngestionRun(ctx context.Context, cmd IngestionCommand) (domainusage.IngestionRun, error) {
 	run, err := domainusage.NewIngestionRun(
 		newID(),
 		domainusage.IngestionKind(cmd.Kind),
@@ -115,15 +219,30 @@ func (s *service) RecordIngestion(ctx context.Context, cmd IngestionCommand) (In
 		s.now(),
 	)
 	if err != nil {
-		return IngestionResult{}, err
+		return domainusage.IngestionRun{}, err
 	}
 
 	run, err = s.usageRepo.SaveIngestionRun(ctx, run)
 	if err != nil {
-		return IngestionResult{}, err
+		return domainusage.IngestionRun{}, err
 	}
+	return run, nil
+}
 
-	return ingestionResultFromDomain(run), nil
+func (s *service) recordIngestionMetrics(ctx context.Context, run domainusage.IngestionRun) {
+	if s.metrics != nil {
+		kind := string(run.Kind())
+		s.metrics.RecordIngestion(ctx, kind, "accepted", run.Accepted())
+		s.metrics.RecordIngestion(ctx, kind, "duplicate", run.Duplicates())
+		s.metrics.RecordIngestion(ctx, kind, "rejected", run.Failed())
+	}
+}
+
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func (s *service) newEvent(ctx context.Context, cmd CreateCommand, meters map[string]domainmeter.Meter) (domainusage.Event, error) {

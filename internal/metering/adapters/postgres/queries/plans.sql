@@ -33,13 +33,15 @@ WHERE workspace_id = sqlc.arg('workspace_id')::text
 	AND id = sqlc.arg('id')::text;
 
 -- name: SavePlanLimit :exec
-INSERT INTO plan_limits (id, workspace_id, plan_id, meter_name, period, limit_value, warning_percent, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+INSERT INTO plan_limits (id, workspace_id, plan_id, meter_name, period, limit_value, warning_percent, enforcement, failure_policy, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 ON CONFLICT(id) DO UPDATE SET
 	meter_name = excluded.meter_name,
 	period = excluded.period,
 	limit_value = excluded.limit_value,
 	warning_percent = excluded.warning_percent,
+	enforcement = excluded.enforcement,
+	failure_policy = excluded.failure_policy,
 	updated_at = excluded.updated_at;
 
 -- name: DeletePlanLimits :exec
@@ -48,7 +50,7 @@ WHERE workspace_id = sqlc.arg('workspace_id')::text
 	AND plan_id = sqlc.arg('plan_id')::text;
 
 -- name: ListPlanLimits :many
-SELECT id, plan_id, meter_name, period, limit_value, warning_percent, created_at, updated_at
+SELECT id, plan_id, meter_name, period, limit_value, warning_percent, enforcement, failure_policy, created_at, updated_at
 FROM plan_limits
 WHERE workspace_id = sqlc.arg('workspace_id')::text
 	AND (sqlc.narg('plan_id')::text IS NULL OR plan_id = sqlc.narg('plan_id')::text)
@@ -104,15 +106,17 @@ WHERE a.workspace_id = sqlc.arg('workspace_id')::text
 ORDER BY a.assigned_at DESC, a.updated_at DESC
 LIMIT 1;
 
--- name: FindActivePlanAssignmentAnchor :one
-SELECT period_anchor_at
-FROM plan_subject_assignments
-WHERE workspace_id = sqlc.arg('workspace_id')::text
-  AND subject = sqlc.arg('subject')::text
-  AND assigned_at <= sqlc.arg('now')::text
-  AND (unassigned_at IS NULL OR unassigned_at > sqlc.arg('now')::text)
-ORDER BY assigned_at DESC
-LIMIT 1;
+-- name: LockEffectivePlanSubjectAssignment :one
+SELECT a.id, a.subject, a.plan_id, p.name AS plan_name, p.version AS plan_version, a.assigned_at, a.period_anchor_at, a.unassigned_at, a.updated_at
+FROM plan_subject_assignments a
+JOIN plans p ON p.workspace_id = a.workspace_id AND p.id = a.plan_id
+WHERE a.workspace_id = sqlc.arg('workspace_id')::text
+	AND a.subject = sqlc.arg('subject')::text
+	AND a.assigned_at <= sqlc.arg('now')::text
+	AND (a.unassigned_at IS NULL OR a.unassigned_at > sqlc.arg('now')::text)
+ORDER BY a.assigned_at DESC, a.updated_at DESC
+LIMIT 1
+FOR UPDATE;
 
 -- name: DeletePlanSubjectAssignment :execrows
 UPDATE plan_subject_assignments
@@ -233,13 +237,23 @@ SET run_after = sqlc.arg('run_after'),
 	updated_at = sqlc.arg('now')
 WHERE workspace_id = sqlc.arg('workspace_id')::text
 	AND subject = sqlc.arg('subject')::text
-	AND meter_name = sqlc.arg('meter_name')::text;
+	AND meter_name = sqlc.arg('meter_name')::text
+	AND attempts = sqlc.arg('expected_attempts')::int;
 
 -- name: DeleteEntitlementCheckJob :execrows
 DELETE FROM entitlement_check_jobs
 WHERE workspace_id = sqlc.arg('workspace_id')::text
 	AND subject = sqlc.arg('subject')::text
-	AND meter_name = sqlc.arg('meter_name')::text;
+	AND meter_name = sqlc.arg('meter_name')::text
+	AND attempts = sqlc.arg('expected_attempts')::int;
+
+-- name: SaveEntitlementWorkerDeadLetter :exec
+INSERT INTO system_worker_dead_letters (
+	public_id, workspace_id, worker_name, job_key, subject, meter_name, attempts, last_error, status, created_at
+) VALUES (
+	sqlc.arg('public_id')::uuid, sqlc.arg('workspace_id')::text, 'entitlement', sqlc.arg('subject')::text || ':' || sqlc.arg('meter_name')::text,
+	sqlc.arg('subject')::text, sqlc.arg('meter_name')::text, sqlc.arg('attempts')::int, sqlc.arg('last_error')::text, 'dead_letter', sqlc.arg('created_at')::timestamptz
+);
 
 -- name: ListEntitlementStates :many
 SELECT workspace_id, subject, meter_name, plan_id, plan_name, period, state, current_value, limit_value, remaining_value, warning_percent, message, evaluated_at, updated_at
@@ -275,8 +289,8 @@ INSERT INTO entitlement_usage_counters (
 )
 VALUES (
 	sqlc.arg('workspace_id'), sqlc.arg('subject'), sqlc.arg('meter_name'), sqlc.arg('period'), sqlc.arg('period_start'), sqlc.arg('period_end'),
-	1, sqlc.arg('quantity'), sqlc.arg('quantity'), sqlc.arg('quantity'),
-	sqlc.arg('quantity'), sqlc.arg('event_time'), sqlc.arg('quantity'), sqlc.arg('event_time'), sqlc.arg('updated_at')
+	sqlc.arg('event_count')::bigint, sqlc.arg('quantity_sum'), sqlc.arg('quantity_min'), sqlc.arg('quantity_max'),
+	sqlc.arg('first_quantity'), sqlc.arg('first_event_time'), sqlc.arg('last_quantity'), sqlc.arg('last_event_time'), sqlc.arg('updated_at')
 )
 ON CONFLICT(workspace_id, subject, meter_name, period, period_start) DO UPDATE SET
 	period_end = excluded.period_end,

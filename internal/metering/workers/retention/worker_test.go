@@ -59,8 +59,9 @@ func TestWorkerPrunesWithSQLiteRepositories(t *testing.T) {
 	}
 
 	service := appusage.NewService(meterRepo, usageRepo, store)
-	worker := NewWorker(service, 5*time.Millisecond, time.Second, func(string, ...any) {})
-	stop := worker.Start(ctx)
+	worker := NewWorker(service, 5*time.Millisecond, time.Second, func(string, ...any) {}).
+		WithWorkspaceLister(staticWorkspaceLister{appauth.DefaultWorkspaceID})
+	stop := worker.Start(context.Background())
 	t.Cleanup(stop)
 
 	if !waitFor(t, 500*time.Millisecond, func() bool {
@@ -149,6 +150,20 @@ func TestWorkerPrunesOnIntervalAndStops(t *testing.T) {
 	}
 }
 
+func TestWorkerPrunesEveryWorkspace(t *testing.T) {
+	pruner := &workspaceRecordingPruner{}
+	result := NewWorker(pruner, time.Second, time.Second, func(string, ...any) {}).
+		WithWorkspaceLister(staticWorkspaceLister{"workspace-a", "workspace-b"}).
+		prune(context.Background())
+
+	if result.err != nil || result.workspaces != 2 || result.eventsDeleted != 2 {
+		t.Fatalf("prune result = %#v", result)
+	}
+	if got := pruner.workspaceIDs; len(got) != 2 || got[0] != "workspace-a" || got[1] != "workspace-b" {
+		t.Fatalf("pruned workspaces = %#v", got)
+	}
+}
+
 func TestWorkerSkipsTickWhenPreviousRunIsActive(t *testing.T) {
 	pruner := newBlockingPruner()
 	logs := &logRecorder{}
@@ -192,6 +207,25 @@ func TestWorkerCancelsPruneAfterTimeout(t *testing.T) {
 type fakePruner struct {
 	mu    sync.Mutex
 	count int
+}
+
+type staticWorkspaceLister []string
+
+func (l staticWorkspaceLister) ListWorkspaceIDs(context.Context) ([]string, error) {
+	return append([]string(nil), l...), nil
+}
+
+type workspaceRecordingPruner struct {
+	workspaceIDs []string
+}
+
+func (p *workspaceRecordingPruner) PruneEvents(ctx context.Context, _ appusage.PruneCommand) (appusage.PruneResult, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return appusage.PruneResult{}, err
+	}
+	p.workspaceIDs = append(p.workspaceIDs, workspaceID)
+	return appusage.PruneResult{Deleted: 1}, nil
 }
 
 type blockingPruner struct {

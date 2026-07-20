@@ -43,6 +43,19 @@ type AuthApiKey struct {
 	LastUsedAt    sql.NullString
 }
 
+type AuthApiKeyEvent struct {
+	ID              string
+	WorkspaceID     string
+	UserID          string
+	ApiKeyID        string
+	KeyName         string
+	KeyPrefix       string
+	EventType       string
+	RelatedApiKeyID sql.NullString
+	EffectiveAt     sql.NullString
+	CreatedAt       string
+}
+
 type AuthIdentity struct {
 	ID            string
 	UserID        string
@@ -75,6 +88,20 @@ type AuthWorkspace struct {
 	ID        string
 	Name      string
 	CreatedAt string
+}
+
+type AuthWorkspaceInvitation struct {
+	ID               string
+	WorkspaceID      string
+	Email            string
+	Role             string
+	TokenHash        string
+	InvitedByUserID  string
+	ExpiresAt        string
+	AcceptedAt       sql.NullString
+	AcceptedByUserID sql.NullString
+	RevokedAt        sql.NullString
+	CreatedAt        string
 }
 
 type EntitlementCheckJob struct {
@@ -163,21 +190,11 @@ type EntitlementUsageCounter struct {
 	UpdatedAt      string
 }
 
-type UsageExportJob struct {
-	ID           string
-	WorkspaceID  string
-	Kind         string
-	Status       string
-	Format       string
-	QueryJson    string
-	Error        string
-	Attempts     int64
-	LockedUntil  sql.NullString
-	ArtifactPath string
-	ArtifactSize int64
-	CreatedAt    string
-	UpdatedAt    string
-	CompletedAt  sql.NullString
+type SystemWorkerHeartbeat struct {
+	WorkerName      string
+	InstanceID      string
+	StartedAt       string
+	LastHeartbeatAt string
 }
 
 type UsageSavedQuery struct {

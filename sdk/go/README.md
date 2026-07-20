@@ -14,6 +14,7 @@ Record usage for a meter that already exists:
 package main
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/ssubedir/open-spanner/sdk/go/client"
 	"github.com/ssubedir/open-spanner/sdk/go/client/usages"
 	"github.com/ssubedir/open-spanner/sdk/go/models"
+	"github.com/ssubedir/open-spanner/sdk/go/retry"
 )
 
 func main() {
@@ -36,13 +38,13 @@ func main() {
 	transport.DefaultAuthentication = httptransport.BearerToken(apiKey)
 	api := client.New(transport, strfmt.Default)
 
-	usage, err := api.Usages.CreateUsage(usages.NewCreateUsageParams().WithRequest(&models.UsageCreateRequest{
-		IdempotencyKey: fmt.Sprintf("api_requests-%d", time.Now().UnixNano()),
-		Subject:        "org_123",
-		Meter:          "api_requests",
-		Quantity:       1,
-		Timestamp:      time.Now().UTC().Format(time.RFC3339),
-	}))
+	request := usages.NewCreateUsageParams().WithRequest(&models.UsageCreateRequest{
+		IdempotencyKey: fmt.Sprintf("api_requests-%d", time.Now().UnixNano()), Subject: "org_123",
+		Meter: "api_requests", Quantity: 1, Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
+	usage, err := retry.Do(context.Background(), retry.DefaultPolicy(), func() (*usages.CreateUsageCreated, error) {
+		return api.Usages.CreateUsage(request)
+	})
 	if err != nil {
 		panic(err)
 	}
@@ -70,7 +72,11 @@ import (
 )
 
 func main() {
-	client, err := stream.NewClient("localhost:18090", "osp_...")
+	client, err := stream.NewClient(
+		"localhost:18090",
+		"osp_...",
+		stream.WithRetryPolicy(stream.DefaultRetryPolicy()),
+	)
 	if err != nil {
 		panic(err)
 	}
@@ -95,3 +101,5 @@ func main() {
 ```
 
 Use `stream.WithTransportCredentials(...)` when connecting to a TLS-enabled gRPC endpoint.
+
+The retry policy applies only to unary `Track` and `TrackBulk` calls. It retries overload, temporary unavailability, and deadline failures, honors `google.rpc.RetryInfo`, preserves the original request, and reports each retry through `RetryPolicy.OnRetry`. Client streams are not replayed automatically because the server may have accepted an unknown prefix; retry those events with their original idempotency keys through `TrackBulk`.

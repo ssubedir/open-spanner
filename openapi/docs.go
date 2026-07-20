@@ -148,6 +148,57 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/alerts/delivery-jobs": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "alerts"
+                ],
+                "summary": "List alert delivery jobs",
+                "operationId": "listAlertDeliveryJobs",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Result limit",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_alert.DeliveryJobListResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/alerts/delivery-jobs/{id}/retry": {
+            "post": {
+                "tags": [
+                    "alerts"
+                ],
+                "summary": "Retry alert delivery job",
+                "operationId": "retryAlertDeliveryJob",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Delivery job ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
         "/v1/alerts/destinations": {
             "get": {
                 "produces": [
@@ -619,6 +670,38 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/auth/api-key-events": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "List API key audit events",
+                "operationId": "listAPIKeyEvents",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_auth.APIKeyEventListResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/auth/api-keys": {
             "get": {
                 "produces": [
@@ -709,7 +792,7 @@ const docTemplate = `{
                 "tags": [
                     "auth"
                 ],
-                "summary": "Delete API key",
+                "summary": "Revoke API key",
                 "operationId": "deleteAPIKey",
                 "parameters": [
                     {
@@ -732,6 +815,77 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/auth/api-keys/{id}/rotate": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Rotate API key",
+                "operationId": "rotateAPIKey",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "API key ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Rotation options",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_auth.RotateAPIKeyRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_auth.APIKeyCreateResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
                         }
@@ -908,6 +1062,40 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/auth/session/workspace": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "workspaces"
+                ],
+                "summary": "Switch workspace",
+                "operationId": "switchWorkspace",
+                "parameters": [
+                    {
+                        "description": "Workspace",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_auth.SwitchWorkspaceRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_auth.LoginResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/auth/sessions": {
             "post": {
                 "consumes": [
@@ -997,6 +1185,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
                         }
                     },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
                     "409": {
                         "description": "Conflict",
                         "schema": {
@@ -1007,6 +1201,235 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/auth/workspace-invitations/{token}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "workspaces"
+                ],
+                "summary": "Preview workspace invitation",
+                "operationId": "previewWorkspaceInvitation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Invitation token",
+                        "name": "token",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_auth.WorkspaceInvitationResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/auth/workspace-invitations/{token}/accept": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "workspaces"
+                ],
+                "summary": "Accept workspace invitation",
+                "operationId": "acceptWorkspaceInvitation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Invitation token",
+                        "name": "token",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_auth.LoginResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/auth/workspace/invitations": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "workspaces"
+                ],
+                "summary": "List workspace invitations",
+                "operationId": "listWorkspaceInvitations",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_auth.WorkspaceInvitationListResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "workspaces"
+                ],
+                "summary": "Create workspace invitation",
+                "operationId": "createWorkspaceInvitation",
+                "parameters": [
+                    {
+                        "description": "Invitation",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_auth.CreateWorkspaceInvitationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_auth.WorkspaceInvitationResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/auth/workspace/invitations/{id}": {
+            "delete": {
+                "tags": [
+                    "workspaces"
+                ],
+                "summary": "Revoke workspace invitation",
+                "operationId": "deleteWorkspaceInvitation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Invitation ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/v1/auth/workspace/members": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "workspaces"
+                ],
+                "summary": "List workspace members",
+                "operationId": "listWorkspaceMembers",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_auth.WorkspaceMemberListResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/auth/workspace/members/{user_id}": {
+            "delete": {
+                "tags": [
+                    "workspaces"
+                ],
+                "summary": "Remove workspace member",
+                "operationId": "deleteWorkspaceMember",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "user_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            },
+            "patch": {
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "workspaces"
+                ],
+                "summary": "Update workspace member",
+                "operationId": "updateWorkspaceMember",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "user_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Role",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_auth.UpdateWorkspaceMemberRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/v1/auth/workspaces": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "workspaces"
+                ],
+                "summary": "List workspaces",
+                "operationId": "listWorkspaces",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_auth.WorkspaceListResponse"
                         }
                     }
                 }
@@ -1051,6 +1474,189 @@ const docTemplate = `{
                     },
                     "403": {
                         "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/entitlements/consume": {
+            "post": {
+                "description": "Evaluates projected quota under a subject lock. Advisory limits always accept usage; hard limits reject usage that would exceed quota. Accepted and rejected decisions are stored by idempotency key and replayed without reevaluation.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "entitlements",
+                    "usages"
+                ],
+                "summary": "Atomically consume quota",
+                "operationId": "consumeEntitlement",
+                "parameters": [
+                    {
+                        "description": "Consumption event",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_usage.ConsumeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_usage.ConsumeResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_usage.ConsumeResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/entitlements/decisions": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "entitlements"
+                ],
+                "summary": "List consumption decisions",
+                "operationId": "listConsumptionDecisions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Subject",
+                        "name": "subject",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Meter",
+                        "name": "meter",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "accepted or rejected",
+                        "name": "outcome",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Evaluation failure outcome",
+                        "name": "evaluation_failed",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "advisory or hard",
+                        "name": "enforcement",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Quota state",
+                        "name": "state",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Pagination cursor",
+                        "name": "cursor",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_usage.ConsumptionDecisionListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/entitlements/decisions/{idempotency_key}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "entitlements"
+                ],
+                "summary": "Get consumption decision",
+                "operationId": "getConsumptionDecision",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Idempotency key",
+                        "name": "idempotency_key",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_usage.ConsumptionDecisionResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
                         }
@@ -2438,6 +3044,275 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/system/reconciliation": {
+            "get": {
+                "description": "Checks recent consumption decisions and active quota counters against source usage without modifying data.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Reconcile quota records",
+                "operationId": "reconcileQuotaRecords",
+                "parameters": [
+                    {
+                        "maximum": 500,
+                        "type": "integer",
+                        "default": 100,
+                        "description": "Maximum decisions and active counters to inspect",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 720,
+                        "type": "integer",
+                        "default": 24,
+                        "description": "Recent decision lookback in hours",
+                        "name": "lookback_hours",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_system.ReconciliationResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/system/reconciliation/notifications": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "List reconciliation notifications",
+                "operationId": "listReconciliationNotifications",
+                "parameters": [
+                    {
+                        "maximum": 200,
+                        "type": "integer",
+                        "default": 50,
+                        "description": "Maximum notification records",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_system.ReconciliationNotificationListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/system/reconciliation/notifications/{id}/retry": {
+            "post": {
+                "tags": [
+                    "system"
+                ],
+                "summary": "Retry reconciliation notification",
+                "operationId": "retryReconciliationNotification",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Notification ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/system/reconciliation/repairs": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "List quota counter repairs",
+                "operationId": "listQuotaCounterRepairs",
+                "parameters": [
+                    {
+                        "maximum": 200,
+                        "type": "integer",
+                        "default": 50,
+                        "description": "Maximum audit records",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_system.CounterRepairListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Set dry_run=true to preview. Applying requires expected_updated_at from the preview and fails if the counter changed.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Repair a quota counter",
+                "operationId": "repairQuotaCounter",
+                "parameters": [
+                    {
+                        "description": "Repair target and concurrency guard",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_system.CounterRepairRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_system.CounterRepairResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/system/reconciliation/runs": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "List reconciliation runs",
+                "operationId": "listReconciliationRuns",
+                "parameters": [
+                    {
+                        "maximum": 200,
+                        "type": "integer",
+                        "default": 50,
+                        "description": "Maximum run records",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_system.ReconciliationRunListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/system/stats": {
             "get": {
                 "produces": [
@@ -2453,6 +3328,92 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/internal_metering_adapters_http_system.StatsResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/system/workers/dead-letters": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "List worker dead letters",
+                "operationId": "listWorkerDeadLetters",
+                "parameters": [
+                    {
+                        "maximum": 200,
+                        "type": "integer",
+                        "default": 50,
+                        "description": "Maximum audit records",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_metering_adapters_http_system.WorkerDeadLetterListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/system/workers/dead-letters/{id}/retry": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Retry a worker dead letter",
+                "operationId": "retryWorkerDeadLetter",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Dead-letter ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
                         }
                     },
                     "500": {
@@ -2960,6 +3921,24 @@ const docTemplate = `{
                             "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
                         }
                     },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        },
+                        "headers": {
+                            "Retry-After": {
+                                "type": "string",
+                                "description": "Seconds until ingestion capacity is available"
+                            }
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
@@ -3078,6 +4057,24 @@ const docTemplate = `{
                         "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse"
+                        },
+                        "headers": {
+                            "Retry-After": {
+                                "type": "string",
+                                "description": "Seconds until ingestion capacity is available"
+                            }
                         }
                     },
                     "500": {
@@ -3379,6 +4376,52 @@ const docTemplate = `{
             "properties": {
                 "error": {
                     "$ref": "#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorBody"
+                }
+            }
+        },
+        "internal_metering_adapters_http_alert.DeliveryJobListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_alert.DeliveryJobResponse"
+                    }
+                }
+            }
+        },
+        "internal_metering_adapters_http_alert.DeliveryJobResponse": {
+            "type": "object",
+            "properties": {
+                "attempts": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "delivered_at": {
+                    "type": "string"
+                },
+                "destination_id": {
+                    "type": "string"
+                },
+                "event_id": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "next_attempt_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
                 }
             }
         },
@@ -3796,6 +4839,49 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_auth.APIKeyEventListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_auth.APIKeyEventResponse"
+                    }
+                }
+            }
+        },
+        "internal_metering_adapters_http_auth.APIKeyEventResponse": {
+            "type": "object",
+            "properties": {
+                "api_key_id": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "effective_at": {
+                    "type": "string"
+                },
+                "event_type": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "key_name": {
+                    "type": "string"
+                },
+                "key_prefix": {
+                    "type": "string"
+                },
+                "related_api_key_id": {
+                    "type": "string"
                 }
             }
         },
@@ -3845,6 +4931,9 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "status": {
+                    "type": "string"
                 }
             }
         },
@@ -3882,6 +4971,17 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_metering_adapters_http_auth.CreateWorkspaceInvitationRequest": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_metering_adapters_http_auth.LoginRequest": {
             "type": "object",
             "properties": {
@@ -3912,6 +5012,9 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/internal_metering_adapters_http_auth.OAuthProviderResponse"
                     }
+                },
+                "registration_enabled": {
+                    "type": "boolean"
                 }
             }
         },
@@ -3940,11 +5043,35 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_metering_adapters_http_auth.RotateAPIKeyRequest": {
+            "type": "object",
+            "properties": {
+                "grace_period_seconds": {
+                    "type": "integer"
+                }
+            }
+        },
         "internal_metering_adapters_http_auth.SessionResponse": {
             "type": "object",
             "properties": {
                 "user": {
                     "$ref": "#/definitions/internal_metering_adapters_http_auth.UserResponse"
+                }
+            }
+        },
+        "internal_metering_adapters_http_auth.SwitchWorkspaceRequest": {
+            "type": "object",
+            "properties": {
+                "workspace_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_auth.UpdateWorkspaceMemberRequest": {
+            "type": "object",
+            "properties": {
+                "role": {
+                    "type": "string"
                 }
             }
         },
@@ -3958,6 +5085,117 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "id": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                },
+                "workspace_id": {
+                    "type": "string"
+                },
+                "workspace_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_auth.WorkspaceInvitationListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_auth.WorkspaceInvitationResponse"
+                    }
+                }
+            }
+        },
+        "internal_metering_adapters_http_auth.WorkspaceInvitationResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "token": {
+                    "type": "string"
+                },
+                "workspace_id": {
+                    "type": "string"
+                },
+                "workspace_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_auth.WorkspaceListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_auth.WorkspaceResponse"
+                    }
+                }
+            }
+        },
+        "internal_metering_adapters_http_auth.WorkspaceMemberListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_auth.WorkspaceMemberResponse"
+                    }
+                }
+            }
+        },
+        "internal_metering_adapters_http_auth.WorkspaceMemberResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_auth.WorkspaceResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "joined_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "role": {
                     "type": "string"
                 }
             }
@@ -4159,6 +5397,12 @@ const docTemplate = `{
         "internal_metering_adapters_http_entitlement.LimitRequest": {
             "type": "object",
             "properties": {
+                "enforcement": {
+                    "type": "string"
+                },
+                "failure_policy": {
+                    "type": "string"
+                },
                 "limit": {
                     "type": "number"
                 },
@@ -4177,6 +5421,12 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "created_at": {
+                    "type": "string"
+                },
+                "enforcement": {
+                    "type": "string"
+                },
+                "failure_policy": {
                     "type": "string"
                 },
                 "id": {
@@ -4815,6 +6065,167 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_metering_adapters_http_system.CounterRepairListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_system.CounterRepairResponse"
+                    }
+                }
+            }
+        },
+        "internal_metering_adapters_http_system.CounterRepairRequest": {
+            "type": "object",
+            "properties": {
+                "dry_run": {
+                    "type": "boolean"
+                },
+                "expected_updated_at": {
+                    "type": "string"
+                },
+                "meter": {
+                    "type": "string"
+                },
+                "period": {
+                    "type": "string"
+                },
+                "period_start": {
+                    "type": "string"
+                },
+                "subject": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_system.CounterRepairResponse": {
+            "type": "object",
+            "properties": {
+                "after": {
+                    "$ref": "#/definitions/internal_metering_adapters_http_system.CounterSnapshotResponse"
+                },
+                "applied": {
+                    "type": "boolean"
+                },
+                "before": {
+                    "$ref": "#/definitions/internal_metering_adapters_http_system.CounterSnapshotResponse"
+                },
+                "counter_updated_at": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "dry_run": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "meter": {
+                    "type": "string"
+                },
+                "period": {
+                    "type": "string"
+                },
+                "period_end": {
+                    "type": "string"
+                },
+                "period_start": {
+                    "type": "string"
+                },
+                "subject": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_system.CounterSnapshotResponse": {
+            "type": "object",
+            "properties": {
+                "event_count": {
+                    "type": "integer"
+                },
+                "first_event_time": {
+                    "type": "string"
+                },
+                "first_quantity": {
+                    "type": "number"
+                },
+                "last_event_time": {
+                    "type": "string"
+                },
+                "last_quantity": {
+                    "type": "number"
+                },
+                "quantity_max": {
+                    "type": "number"
+                },
+                "quantity_min": {
+                    "type": "number"
+                },
+                "quantity_sum": {
+                    "type": "number"
+                }
+            }
+        },
+        "internal_metering_adapters_http_system.IngestionSafetyResponse": {
+            "type": "object",
+            "properties": {
+                "accepted_events": {
+                    "type": "integer"
+                },
+                "rejected_events": {
+                    "type": "integer"
+                },
+                "throttled_events": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_metering_adapters_http_system.LastDecisionPruneRunResponse": {
+            "type": "object",
+            "properties": {
+                "before": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "deleted": {
+                    "type": "integer"
+                },
+                "dry_run": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_system.LastExportCleanupRunResponse": {
+            "type": "object",
+            "properties": {
+                "bytes_reclaimed": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "expired_before": {
+                    "type": "string"
+                },
+                "failures": {
+                    "type": "integer"
+                },
+                "files_deleted": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_metering_adapters_http_system.LastPruneRunResponse": {
             "type": "object",
             "properties": {
@@ -4832,11 +6243,295 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_metering_adapters_http_system.ReconciliationHealthResponse": {
+            "type": "object",
+            "properties": {
+                "dead_letter_notifications": {
+                    "type": "integer"
+                },
+                "locked_until": {
+                    "type": "string"
+                },
+                "next_run_at": {
+                    "type": "string"
+                },
+                "pending_notifications": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_system.ReconciliationIssueResponse": {
+            "type": "object",
+            "properties": {
+                "actual": {
+                    "type": "string"
+                },
+                "expected": {
+                    "type": "string"
+                },
+                "idempotency_key": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "meter": {
+                    "type": "string"
+                },
+                "period": {
+                    "type": "string"
+                },
+                "period_start": {
+                    "type": "string"
+                },
+                "severity": {
+                    "type": "string"
+                },
+                "subject": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_system.ReconciliationNotificationAttemptResponse": {
+            "type": "object",
+            "properties": {
+                "attempt": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_system.ReconciliationNotificationListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_system.ReconciliationNotificationResponse"
+                    }
+                }
+            }
+        },
+        "internal_metering_adapters_http_system.ReconciliationNotificationResponse": {
+            "type": "object",
+            "properties": {
+                "attempt_history": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_system.ReconciliationNotificationAttemptResponse"
+                    }
+                },
+                "attempts": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "delivered_at": {
+                    "type": "string"
+                },
+                "event_type": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "next_attempt_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "total_attempts": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_metering_adapters_http_system.ReconciliationResponse": {
+            "type": "object",
+            "properties": {
+                "checked_at": {
+                    "type": "string"
+                },
+                "counters_checked": {
+                    "type": "integer"
+                },
+                "decisions_checked": {
+                    "type": "integer"
+                },
+                "issues": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_system.ReconciliationIssueResponse"
+                    }
+                },
+                "lookback_hours": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "truncated": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "internal_metering_adapters_http_system.ReconciliationRunListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_system.ReconciliationRunResponse"
+                    }
+                }
+            }
+        },
+        "internal_metering_adapters_http_system.ReconciliationRunResponse": {
+            "type": "object",
+            "properties": {
+                "counters_checked": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "decisions_checked": {
+                    "type": "integer"
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "fingerprint": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "issue_count": {
+                    "type": "integer"
+                },
+                "issues": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_system.ReconciliationIssueResponse"
+                    }
+                },
+                "lookback_hours": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "truncated": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "internal_metering_adapters_http_system.RollupHealthResponse": {
+            "type": "object",
+            "properties": {
+                "finalized_through": {
+                    "type": "string"
+                },
+                "healthy_meters": {
+                    "type": "integer"
+                },
+                "issues": {
+                    "type": "integer"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_system.RollupMeterHealthResponse"
+                    }
+                },
+                "meters": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_system.RollupMeterHealthResponse": {
+            "type": "object",
+            "properties": {
+                "expected_through": {
+                    "type": "string"
+                },
+                "finalized_through": {
+                    "type": "string"
+                },
+                "issue": {
+                    "type": "string"
+                },
+                "last_run_at": {
+                    "type": "string"
+                },
+                "meter": {
+                    "type": "string"
+                },
+                "rollup_rows": {
+                    "type": "integer"
+                },
+                "source_events": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_metering_adapters_http_system.StatsResponse": {
             "type": "object",
             "properties": {
+                "consumption_decisions": {
+                    "type": "integer"
+                },
+                "decision_prune_runs": {
+                    "type": "integer"
+                },
+                "export_cleanup_runs": {
+                    "type": "integer"
+                },
+                "ingestion_safety": {
+                    "$ref": "#/definitions/internal_metering_adapters_http_system.IngestionSafetyResponse"
+                },
+                "last_decision_prune_run": {
+                    "$ref": "#/definitions/internal_metering_adapters_http_system.LastDecisionPruneRunResponse"
+                },
+                "last_export_cleanup_run": {
+                    "$ref": "#/definitions/internal_metering_adapters_http_system.LastExportCleanupRunResponse"
+                },
                 "last_prune_run": {
                     "$ref": "#/definitions/internal_metering_adapters_http_system.LastPruneRunResponse"
+                },
+                "last_reconciliation_run": {
+                    "$ref": "#/definitions/internal_metering_adapters_http_system.ReconciliationRunResponse"
                 },
                 "meters": {
                     "type": "integer"
@@ -4844,8 +6539,136 @@ const docTemplate = `{
                 "prune_runs": {
                     "type": "integer"
                 },
+                "reconciliation_health": {
+                    "$ref": "#/definitions/internal_metering_adapters_http_system.ReconciliationHealthResponse"
+                },
+                "rollup_health": {
+                    "$ref": "#/definitions/internal_metering_adapters_http_system.RollupHealthResponse"
+                },
                 "usage_events": {
                     "type": "integer"
+                },
+                "worker_health": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_system.WorkerHealthResponse"
+                    }
+                }
+            }
+        },
+        "internal_metering_adapters_http_system.WorkerDeadLetterListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_system.WorkerDeadLetterResponse"
+                    }
+                }
+            }
+        },
+        "internal_metering_adapters_http_system.WorkerDeadLetterResponse": {
+            "type": "object",
+            "properties": {
+                "attempts": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "job_key": {
+                    "type": "string"
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "meter": {
+                    "type": "string"
+                },
+                "requeued_at": {
+                    "type": "string"
+                },
+                "rule_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "subject": {
+                    "type": "string"
+                },
+                "worker_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_system.WorkerHealthResponse": {
+            "type": "object",
+            "properties": {
+                "failed_jobs": {
+                    "type": "integer"
+                },
+                "healthy_replicas": {
+                    "type": "integer"
+                },
+                "instances": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_system.WorkerInstanceHealthResponse"
+                    }
+                },
+                "last_failure_at": {
+                    "type": "string"
+                },
+                "last_heartbeat_at": {
+                    "type": "string"
+                },
+                "last_success_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "oldest_pending_at": {
+                    "type": "string"
+                },
+                "pending_jobs": {
+                    "type": "integer"
+                },
+                "replica_count": {
+                    "type": "integer"
+                },
+                "running_jobs": {
+                    "type": "integer"
+                },
+                "stale_replicas": {
+                    "type": "integer"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_system.WorkerInstanceHealthResponse": {
+            "type": "object",
+            "properties": {
+                "instance_id": {
+                    "type": "string"
+                },
+                "last_heartbeat_at": {
+                    "type": "string"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
                 }
             }
         },
@@ -4952,6 +6775,152 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/internal_metering_adapters_http_usage.BulkFailureResponse"
                     }
+                }
+            }
+        },
+        "internal_metering_adapters_http_usage.ConsumeQuotaResponse": {
+            "type": "object",
+            "properties": {
+                "allowed": {
+                    "type": "boolean"
+                },
+                "current": {
+                    "type": "number"
+                },
+                "enforcement": {
+                    "type": "string"
+                },
+                "failure_policy": {
+                    "type": "string"
+                },
+                "from": {
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "number"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "meter": {
+                    "type": "string"
+                },
+                "overage": {
+                    "type": "number"
+                },
+                "period": {
+                    "type": "string"
+                },
+                "period_reset_at": {
+                    "type": "string"
+                },
+                "plan_id": {
+                    "type": "string"
+                },
+                "plan_name": {
+                    "type": "string"
+                },
+                "projected": {
+                    "type": "number"
+                },
+                "quantity": {
+                    "type": "number"
+                },
+                "remaining": {
+                    "type": "number"
+                },
+                "retry_after_seconds": {
+                    "type": "integer"
+                },
+                "state": {
+                    "type": "string"
+                },
+                "subject": {
+                    "type": "string"
+                },
+                "to": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_usage.ConsumeRequest": {
+            "type": "object",
+            "properties": {
+                "idempotency_key": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "meter": {
+                    "type": "string"
+                },
+                "quantity": {
+                    "type": "number"
+                },
+                "subject": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_usage.ConsumeResponse": {
+            "type": "object",
+            "properties": {
+                "accepted": {
+                    "type": "boolean"
+                },
+                "evaluation_failed": {
+                    "type": "boolean"
+                },
+                "event": {
+                    "$ref": "#/definitions/internal_metering_adapters_http_usage.Response"
+                },
+                "quota": {
+                    "$ref": "#/definitions/internal_metering_adapters_http_usage.ConsumeQuotaResponse"
+                },
+                "replayed": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "internal_metering_adapters_http_usage.ConsumptionDecisionListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_metering_adapters_http_usage.ConsumptionDecisionResponse"
+                    }
+                },
+                "next_cursor": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_metering_adapters_http_usage.ConsumptionDecisionResponse": {
+            "type": "object",
+            "properties": {
+                "accepted": {
+                    "type": "boolean"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "evaluation_failed": {
+                    "type": "boolean"
+                },
+                "event_id": {
+                    "type": "string"
+                },
+                "idempotency_key": {
+                    "type": "string"
+                },
+                "quota": {
+                    "$ref": "#/definitions/internal_metering_adapters_http_usage.ConsumeQuotaResponse"
                 }
             }
         },
@@ -5089,6 +7058,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "error": {
+                    "type": "string"
+                },
+                "expired_at": {
                     "type": "string"
                 },
                 "format": {

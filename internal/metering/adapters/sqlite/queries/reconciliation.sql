@@ -1,0 +1,353 @@
+-- name: ListDecisionReconciliationRows :many
+SELECT d.idempotency_key, d.subject, d.meter_name, d.accepted, d.created_at,
+	e.id AS event_id, e.subject AS event_subject, e.meter_name AS event_meter_name
+FROM consumption_decisions d
+LEFT JOIN usage_events e
+	ON e.workspace_id = d.workspace_id AND e.idempotency_key = d.idempotency_key
+WHERE d.workspace_id = sqlc.arg('workspace_id')
+	AND d.created_at >= sqlc.arg('since')
+ORDER BY d.created_at DESC, d.idempotency_key DESC
+LIMIT sqlc.arg('limit');
+
+-- name: CountReconciliationNotificationStates :one
+SELECT
+	SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
+	SUM(CASE WHEN status = 'dead_letter' THEN 1 ELSE 0 END) AS dead_letter
+FROM reconciliation_notifications
+WHERE workspace_id = sqlc.arg('workspace_id');
+
+-- name: EnsureReconciliationSchedules :exec
+INSERT INTO reconciliation_schedules (workspace_id, next_run_at, updated_at)
+SELECT id, sqlc.arg('now'), sqlc.arg('now')
+FROM auth_workspaces
+WHERE 1
+ON CONFLICT (workspace_id) DO NOTHING;
+
+-- name: ClaimReconciliationSchedule :one
+UPDATE reconciliation_schedules
+SET locked_until = sqlc.arg('locked_until'), claim_token = sqlc.arg('claim_token'), updated_at = sqlc.arg('now')
+WHERE workspace_id = (
+	SELECT workspace_id FROM reconciliation_schedules
+	WHERE julianday(next_run_at) <= julianday(sqlc.arg('now'))
+		AND (locked_until IS NULL OR julianday(locked_until) <= julianday(sqlc.arg('now')))
+	ORDER BY next_run_at, workspace_id LIMIT 1
+)
+RETURNING workspace_id, claim_token, last_fingerprint, last_notified_fingerprint, last_failure_fingerprint;
+
+-- name: SaveReconciliationRun :exec
+INSERT INTO reconciliation_runs (
+	id, workspace_id, status, decisions_checked, counters_checked, issue_count,
+	truncated, lookback_hours, duration_ms, fingerprint, issues, error, created_at
+) VALUES (
+	sqlc.arg('id'), sqlc.arg('workspace_id'), sqlc.arg('status'),
+	sqlc.arg('decisions_checked'), sqlc.arg('counters_checked'), sqlc.arg('issue_count'),
+	sqlc.arg('truncated'), sqlc.arg('lookback_hours'), sqlc.arg('duration_ms'),
+	sqlc.arg('fingerprint'), sqlc.arg('issues'), sqlc.arg('error'), sqlc.arg('created_at')
+);
+
+-- name: CompleteReconciliationSchedule :execrows
+UPDATE reconciliation_schedules
+SET next_run_at = sqlc.arg('next_run_at'), locked_until = NULL, claim_token = NULL,
+	last_fingerprint = sqlc.arg('fingerprint'),
+	last_notified_fingerprint = CASE WHEN sqlc.arg('fingerprint') = '' THEN '' ELSE last_notified_fingerprint END,
+	last_failure_fingerprint = '',
+	updated_at = sqlc.arg('updated_at')
+WHERE workspace_id = sqlc.arg('workspace_id') AND claim_token = sqlc.arg('claim_token');
+
+-- name: FailReconciliationSchedule :execrows
+UPDATE reconciliation_schedules
+SET next_run_at = sqlc.arg('next_run_at'), locked_until = NULL, claim_token = NULL,
+	last_failure_fingerprint = sqlc.arg('failure_fingerprint'), updated_at = sqlc.arg('updated_at')
+WHERE workspace_id = sqlc.arg('workspace_id') AND claim_token = sqlc.arg('claim_token');
+
+-- name: ClaimMaintenanceLease :one
+INSERT INTO system_maintenance_leases (worker_name, claim_token, locked_until, updated_at)
+VALUES (sqlc.arg('worker_name'), sqlc.arg('claim_token'), sqlc.arg('locked_until'), sqlc.arg('now'))
+ON CONFLICT (worker_name) DO UPDATE
+SET claim_token = excluded.claim_token, locked_until = excluded.locked_until, updated_at = excluded.updated_at
+WHERE julianday(system_maintenance_leases.locked_until) <= julianday(excluded.updated_at)
+RETURNING claim_token;
+
+-- name: ReleaseMaintenanceLease :execrows
+DELETE FROM system_maintenance_leases
+WHERE worker_name = sqlc.arg('worker_name') AND claim_token = sqlc.arg('claim_token');
+
+-- name: MarkReconciliationNotified :exec
+UPDATE reconciliation_schedules
+SET last_notified_fingerprint = sqlc.arg('fingerprint'), updated_at = sqlc.arg('updated_at')
+WHERE workspace_id = sqlc.arg('workspace_id') AND last_fingerprint = sqlc.arg('fingerprint');
+
+-- name: ListReconciliationRuns :many
+SELECT id, status, decisions_checked, counters_checked, issue_count, truncated,
+	lookback_hours, duration_ms, fingerprint, issues, error, created_at
+FROM reconciliation_runs
+WHERE workspace_id = sqlc.arg('workspace_id')
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg('limit');
+
+-- name: GetReconciliationSchedule :one
+SELECT next_run_at, locked_until, updated_at
+FROM reconciliation_schedules
+WHERE workspace_id = sqlc.arg('workspace_id');
+
+-- name: SaveReconciliationNotification :exec
+INSERT INTO reconciliation_notifications (
+	id, workspace_id, event_type, fingerprint, payload, status,
+	attempts, next_attempt_at, created_at
+) VALUES (
+	sqlc.arg('id'), sqlc.arg('workspace_id'), sqlc.arg('event_type'), sqlc.arg('fingerprint'),
+	sqlc.arg('payload'), 'pending', 0, sqlc.arg('next_attempt_at'), sqlc.arg('created_at')
+);
+
+-- name: ClaimReconciliationNotification :one
+UPDATE reconciliation_notifications
+SET locked_until = sqlc.arg('locked_until'), claim_token = sqlc.arg('claim_token')
+WHERE id = (
+	SELECT id FROM reconciliation_notifications
+	WHERE status = 'pending' AND julianday(next_attempt_at) <= julianday(sqlc.arg('now'))
+		AND (locked_until IS NULL OR julianday(locked_until) <= julianday(sqlc.arg('now')))
+	ORDER BY next_attempt_at, id LIMIT 1
+)
+RETURNING id, workspace_id, event_type, fingerprint, payload,
+	status, attempts, next_attempt_at, last_error, created_at, delivered_at, claim_token,
+	(SELECT COUNT(*) FROM reconciliation_notification_attempts a WHERE a.notification_id = reconciliation_notifications.id) AS total_attempts;
+
+-- name: CompleteReconciliationNotification :execrows
+UPDATE reconciliation_notifications
+SET status = 'delivered', attempts = attempts + 1, locked_until = NULL,
+	last_error = '', delivered_at = sqlc.arg('delivered_at'), claim_token = NULL
+WHERE id = sqlc.arg('id') AND claim_token = sqlc.arg('claim_token');
+
+-- name: SaveReconciliationNotificationAttempt :exec
+INSERT INTO reconciliation_notification_attempts (id, notification_id, attempt, status, error, created_at)
+VALUES (sqlc.arg('id'), sqlc.arg('notification_id'), sqlc.arg('attempt'), sqlc.arg('status'), sqlc.arg('error'), sqlc.arg('created_at'));
+
+-- name: ListReconciliationNotificationAttempts :many
+SELECT id, attempt, status, error, created_at
+FROM reconciliation_notification_attempts
+WHERE notification_id = sqlc.arg('notification_id')
+ORDER BY created_at, id;
+
+-- name: RetryReconciliationNotification :execrows
+UPDATE reconciliation_notifications
+SET status = CASE WHEN attempts + 1 >= sqlc.arg('max_attempts') THEN 'dead_letter' ELSE 'pending' END,
+	attempts = attempts + 1, next_attempt_at = sqlc.arg('next_attempt_at'),
+	locked_until = NULL, last_error = sqlc.arg('last_error'), claim_token = NULL
+WHERE id = sqlc.arg('id') AND claim_token = sqlc.arg('claim_token');
+
+-- name: ListReconciliationNotifications :many
+SELECT id, event_type, fingerprint, payload, status, attempts, next_attempt_at,
+	locked_until, last_error, created_at, delivered_at
+FROM reconciliation_notifications
+WHERE workspace_id = sqlc.arg('workspace_id')
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg('limit');
+
+-- name: RequeueReconciliationNotification :execrows
+UPDATE reconciliation_notifications
+SET status = 'pending', attempts = 0, next_attempt_at = sqlc.arg('next_attempt_at'),
+	locked_until = NULL, claim_token = NULL, last_error = '', delivered_at = NULL
+WHERE id = sqlc.arg('id') AND workspace_id = sqlc.arg('workspace_id') AND status = 'dead_letter';
+
+-- name: ListActiveEntitlementCounters :many
+SELECT c.subject, c.meter_name, c.period, c.period_start, c.period_end,
+	c.event_count, c.quantity_sum, c.quantity_min, c.quantity_max, c.updated_at,
+	m.event_retention_days
+FROM entitlement_usage_counters c
+JOIN meters m ON m.workspace_id = c.workspace_id AND m.name = c.meter_name
+WHERE c.workspace_id = sqlc.arg('workspace_id')
+	AND julianday(c.period_start) <= julianday(sqlc.arg('now'))
+	AND julianday(c.period_end) > julianday(sqlc.arg('now'))
+ORDER BY c.updated_at DESC, c.subject, c.meter_name, c.period
+LIMIT sqlc.arg('limit');
+
+-- name: ListCounterReconciliationEvents :many
+SELECT id, quantity, event_time, received_at
+FROM usage_events
+WHERE workspace_id = sqlc.arg('workspace_id')
+	AND subject = sqlc.arg('subject')
+	AND meter_name = sqlc.arg('meter_name')
+	AND julianday(event_time) >= julianday(sqlc.arg('period_start'))
+	AND julianday(event_time) < julianday(sqlc.arg('period_end'))
+ORDER BY received_at, id;
+
+-- name: ListCounterReconciliationAssignments :many
+SELECT id, assigned_at, period_anchor_at, unassigned_at
+FROM plan_subject_assignments
+WHERE workspace_id = sqlc.arg('workspace_id')
+	AND subject = sqlc.arg('subject')
+	AND julianday(assigned_at) < julianday(sqlc.arg('window_end'))
+	AND (unassigned_at IS NULL OR julianday(unassigned_at) > julianday(sqlc.arg('window_start')))
+ORDER BY assigned_at DESC, id DESC;
+
+-- name: GetEntitlementCounterForRepair :one
+SELECT c.subject, c.meter_name, c.period, c.period_start, c.period_end,
+	c.event_count, c.quantity_sum, c.quantity_min, c.quantity_max,
+	c.first_quantity, c.first_event_time, c.last_quantity, c.last_event_time, c.updated_at,
+	m.event_retention_days
+FROM entitlement_usage_counters c
+JOIN meters m ON m.workspace_id = c.workspace_id AND m.name = c.meter_name
+WHERE c.workspace_id = sqlc.arg('workspace_id')
+	AND c.subject = sqlc.arg('subject')
+	AND c.meter_name = sqlc.arg('meter_name')
+	AND c.period = sqlc.arg('period')
+	AND c.period_start = sqlc.arg('period_start');
+
+-- name: UpdateEntitlementCounterForRepair :execrows
+UPDATE entitlement_usage_counters SET
+	event_count = sqlc.arg('event_count'), quantity_sum = sqlc.arg('quantity_sum'),
+	quantity_min = sqlc.arg('quantity_min'), quantity_max = sqlc.arg('quantity_max'),
+	first_quantity = sqlc.arg('first_quantity'), first_event_time = sqlc.arg('first_event_time'),
+	last_quantity = sqlc.arg('last_quantity'), last_event_time = sqlc.arg('last_event_time'),
+	updated_at = sqlc.arg('updated_at')
+WHERE workspace_id = sqlc.arg('workspace_id')
+	AND subject = sqlc.arg('subject')
+	AND meter_name = sqlc.arg('meter_name')
+	AND period = sqlc.arg('period')
+	AND period_start = sqlc.arg('period_start')
+	AND updated_at = sqlc.arg('expected_updated_at');
+
+-- name: DeleteEntitlementCounterForRepair :execrows
+DELETE FROM entitlement_usage_counters
+WHERE workspace_id = sqlc.arg('workspace_id')
+	AND subject = sqlc.arg('subject')
+	AND meter_name = sqlc.arg('meter_name')
+	AND period = sqlc.arg('period')
+	AND period_start = sqlc.arg('period_start')
+	AND updated_at = sqlc.arg('expected_updated_at');
+
+-- name: SaveQuotaCounterRepairRun :exec
+INSERT INTO quota_counter_repair_runs (
+	id, workspace_id, subject, meter_name, period, period_start, period_end,
+	dry_run, applied, before_snapshot, after_snapshot, counter_updated_at, created_at
+) VALUES (
+	sqlc.arg('id'), sqlc.arg('workspace_id'), sqlc.arg('subject'), sqlc.arg('meter_name'),
+	sqlc.arg('period'), sqlc.arg('period_start'), sqlc.arg('period_end'), sqlc.arg('dry_run'),
+	sqlc.arg('applied'), sqlc.arg('before_snapshot'), sqlc.arg('after_snapshot'),
+	sqlc.arg('counter_updated_at'), sqlc.arg('created_at')
+);
+
+-- name: ListQuotaCounterRepairRuns :many
+SELECT id, subject, meter_name, period, period_start, period_end, dry_run, applied,
+	before_snapshot, after_snapshot, counter_updated_at, created_at
+FROM quota_counter_repair_runs
+WHERE workspace_id = sqlc.arg('workspace_id')
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg('limit');
+-- name: UpsertWorkerHeartbeat :exec
+INSERT INTO system_worker_heartbeats (worker_name, instance_id, started_at, last_heartbeat_at)
+VALUES (?, ?, ?, ?)
+ON CONFLICT(worker_name, instance_id) DO UPDATE SET started_at = excluded.started_at, last_heartbeat_at = excluded.last_heartbeat_at;
+
+-- name: ListWorkerHeartbeats :many
+SELECT worker_name, instance_id, started_at, last_heartbeat_at
+FROM system_worker_heartbeats
+ORDER BY worker_name ASC, instance_id ASC;
+
+-- name: DeleteExpiredWorkerHeartbeats :exec
+DELETE FROM system_worker_heartbeats
+WHERE last_heartbeat_at < sqlc.arg('cutoff');
+
+-- name: DeleteWorkerHeartbeat :exec
+DELETE FROM system_worker_heartbeats
+WHERE worker_name = sqlc.arg('worker_name')
+	AND instance_id = sqlc.arg('instance_id');
+
+-- name: ListWorkerDiagnostics :many
+SELECT 'export' AS worker_name,
+	COALESCE(SUM(CASE WHEN e.status = 'queued' OR (e.status = 'running' AND e.locked_until < sqlc.arg('now')) THEN 1 ELSE 0 END), 0) AS pending_jobs,
+	COALESCE(SUM(CASE WHEN e.status = 'running' AND e.locked_until >= sqlc.arg('now') THEN 1 ELSE 0 END), 0) AS running_jobs,
+	COALESCE(SUM(CASE WHEN e.status = 'failed' THEN 1 ELSE 0 END), 0) AS failed_jobs,
+	COALESCE(MIN(CASE WHEN e.status = 'queued' OR (e.status = 'running' AND e.locked_until < sqlc.arg('now')) THEN e.created_at END), '') AS oldest_pending_at,
+	COALESCE(MAX(CASE WHEN e.status = 'completed' THEN e.completed_at END), '') AS last_success_at,
+	COALESCE(MAX(CASE WHEN e.status = 'failed' THEN e.updated_at END), '') AS last_failure_at
+FROM usage_export_jobs e
+UNION ALL
+SELECT 'alert',
+	(SELECT COUNT(*) FROM alert_evaluation_jobs j JOIN alert_rules r ON r.id = j.rule_id WHERE (j.locked_until IS NULL OR j.locked_until < sqlc.arg('now')) AND (sqlc.arg('workspace_id') = '' OR r.workspace_id = sqlc.arg('workspace_id')))
+		+ (SELECT COUNT(*) FROM alert_delivery_jobs WHERE (status = 'pending' OR (status = 'running' AND (locked_until IS NULL OR locked_until < sqlc.arg('now')))) AND (sqlc.arg('workspace_id') = '' OR workspace_id = sqlc.arg('workspace_id'))),
+	(SELECT COUNT(*) FROM alert_evaluation_jobs j JOIN alert_rules r ON r.id = j.rule_id WHERE j.locked_until >= sqlc.arg('now') AND (sqlc.arg('workspace_id') = '' OR r.workspace_id = sqlc.arg('workspace_id')))
+		+ (SELECT COUNT(*) FROM alert_delivery_jobs WHERE status = 'running' AND locked_until >= sqlc.arg('now') AND (sqlc.arg('workspace_id') = '' OR workspace_id = sqlc.arg('workspace_id'))),
+	(SELECT COUNT(*) FROM system_worker_dead_letters WHERE worker_name = 'alert' AND status = 'dead_letter' AND (sqlc.arg('workspace_id') = '' OR workspace_id = sqlc.arg('workspace_id')))
+		+ (SELECT COUNT(*) FROM alert_delivery_jobs WHERE status = 'dead_letter' AND (sqlc.arg('workspace_id') = '' OR workspace_id = sqlc.arg('workspace_id'))),
+	COALESCE((SELECT MIN(pending_at) FROM (
+		SELECT j.created_at AS pending_at FROM alert_evaluation_jobs j JOIN alert_rules r ON r.id = j.rule_id WHERE (j.locked_until IS NULL OR j.locked_until < sqlc.arg('now')) AND (sqlc.arg('workspace_id') = '' OR r.workspace_id = sqlc.arg('workspace_id'))
+		UNION ALL
+		SELECT created_at FROM alert_delivery_jobs WHERE (status = 'pending' OR (status = 'running' AND (locked_until IS NULL OR locked_until < sqlc.arg('now')))) AND (sqlc.arg('workspace_id') = '' OR workspace_id = sqlc.arg('workspace_id'))
+	)), ''),
+	MAX(COALESCE((SELECT MAX(s.evaluated_at) FROM alert_states s JOIN alert_rules r ON r.id = s.rule_id WHERE sqlc.arg('workspace_id') = '' OR r.workspace_id = sqlc.arg('workspace_id')), ''), COALESCE((SELECT MAX(delivered_at) FROM alert_delivery_jobs WHERE sqlc.arg('workspace_id') = '' OR workspace_id = sqlc.arg('workspace_id')), '')),
+	MAX(COALESCE((SELECT MAX(created_at) FROM system_worker_dead_letters WHERE worker_name = 'alert' AND status = 'dead_letter' AND (sqlc.arg('workspace_id') = '' OR workspace_id = sqlc.arg('workspace_id'))), ''), COALESCE((SELECT MAX(updated_at) FROM alert_delivery_jobs WHERE status = 'dead_letter' AND (sqlc.arg('workspace_id') = '' OR workspace_id = sqlc.arg('workspace_id'))), ''))
+UNION ALL
+SELECT 'entitlement',
+	COALESCE(SUM(CASE WHEN e.locked_until IS NULL OR e.locked_until < sqlc.arg('now') THEN 1 ELSE 0 END), 0),
+	COALESCE(SUM(CASE WHEN e.locked_until >= sqlc.arg('now') THEN 1 ELSE 0 END), 0),
+	(SELECT COUNT(*) FROM system_worker_dead_letters WHERE worker_name = 'entitlement' AND status = 'dead_letter'),
+	COALESCE(MIN(CASE WHEN e.locked_until IS NULL OR e.locked_until < sqlc.arg('now') THEN e.created_at END), ''),
+	COALESCE((SELECT MAX(evaluated_at) FROM entitlement_states), ''),
+	COALESCE((SELECT MAX(created_at) FROM system_worker_dead_letters WHERE worker_name = 'entitlement' AND status = 'dead_letter'), '')
+FROM entitlement_check_jobs e
+UNION ALL
+SELECT 'retention', 0, 0, 0, '',
+	MAX(last_success_at), ''
+FROM (
+	SELECT COALESCE(MAX(created_at), '') AS last_success_at FROM usage_prune_runs
+	UNION ALL
+	SELECT COALESCE(MAX(created_at), '') FROM consumption_decision_prune_runs
+)
+UNION ALL
+SELECT 'reconciliation',
+	COALESCE(SUM(CASE WHEN n.status = 'pending' AND (n.locked_until IS NULL OR n.locked_until < sqlc.arg('now')) THEN 1 ELSE 0 END), 0)
+		+ (SELECT COUNT(*) FROM reconciliation_schedules s WHERE s.next_run_at <= sqlc.arg('now') AND (s.locked_until IS NULL OR s.locked_until < sqlc.arg('now'))),
+	COALESCE(SUM(CASE WHEN n.status = 'pending' AND n.locked_until >= sqlc.arg('now') THEN 1 ELSE 0 END), 0)
+		+ (SELECT COUNT(*) FROM reconciliation_schedules s WHERE s.locked_until >= sqlc.arg('now')),
+	COALESCE(SUM(CASE WHEN n.status = 'dead_letter' THEN 1 ELSE 0 END), 0),
+	COALESCE((SELECT MIN(pending_at) FROM (
+		SELECT created_at AS pending_at FROM reconciliation_notifications WHERE status = 'pending' AND (locked_until IS NULL OR locked_until < sqlc.arg('now'))
+		UNION ALL
+		SELECT next_run_at FROM reconciliation_schedules WHERE next_run_at <= sqlc.arg('now') AND (locked_until IS NULL OR locked_until < sqlc.arg('now'))
+	)), ''),
+	COALESCE((SELECT MAX(created_at) FROM reconciliation_runs WHERE status IN ('healthy', 'drift_detected')), ''),
+	MAX(last_failure_at)
+FROM reconciliation_notifications n
+CROSS JOIN (
+	SELECT MAX(last_failure_at) AS last_failure_at FROM (
+		SELECT COALESCE(MAX(created_at), '') AS last_failure_at FROM reconciliation_runs WHERE status = 'failed'
+		UNION ALL
+		SELECT COALESCE(MAX(created_at), '') FROM reconciliation_notification_attempts WHERE status = 'failed'
+	)
+);
+
+-- name: ListWorkerDeadLetters :many
+SELECT public_id, worker_name, job_key, rule_id, subject, meter_name, attempts, last_error, status, created_at, requeued_at
+FROM system_worker_dead_letters
+WHERE workspace_id = sqlc.arg('workspace_id')
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg('limit');
+
+-- name: GetWorkerDeadLetter :one
+SELECT public_id, worker_name, job_key, rule_id, subject, meter_name, attempts, last_error, status, created_at, requeued_at
+FROM system_worker_dead_letters
+WHERE workspace_id = sqlc.arg('workspace_id') AND public_id = sqlc.arg('public_id');
+
+-- name: EnqueueAlertWorkerDeadLetter :execrows
+INSERT INTO alert_evaluation_jobs (rule_id, run_after, locked_until, attempts, created_at, updated_at)
+SELECT d.rule_id, sqlc.arg('now'), NULL, 0, sqlc.arg('now'), sqlc.arg('now')
+FROM system_worker_dead_letters d
+JOIN alert_rules r ON r.id = d.rule_id AND r.workspace_id = d.workspace_id
+WHERE d.workspace_id = sqlc.arg('workspace_id') AND d.public_id = sqlc.arg('public_id')
+	AND d.worker_name = 'alert' AND d.status = 'dead_letter'
+ON CONFLICT(rule_id) DO UPDATE SET run_after = excluded.run_after, locked_until = NULL, attempts = 0, updated_at = excluded.updated_at;
+
+-- name: EnqueueEntitlementWorkerDeadLetter :execrows
+INSERT INTO entitlement_check_jobs (workspace_id, subject, meter_name, run_after, locked_until, attempts, created_at, updated_at)
+SELECT d.workspace_id, d.subject, d.meter_name, sqlc.arg('now'), NULL, 0, sqlc.arg('now'), sqlc.arg('now')
+FROM system_worker_dead_letters d
+JOIN meters m ON m.workspace_id = d.workspace_id AND m.name = d.meter_name
+WHERE d.workspace_id = sqlc.arg('workspace_id') AND d.public_id = sqlc.arg('public_id')
+	AND d.worker_name = 'entitlement' AND d.status = 'dead_letter'
+ON CONFLICT(workspace_id, subject, meter_name) DO UPDATE SET run_after = excluded.run_after, locked_until = NULL, attempts = 0, updated_at = excluded.updated_at;
+
+-- name: MarkWorkerDeadLetterRequeued :execrows
+UPDATE system_worker_dead_letters
+SET status = 'requeued', requeued_at = sqlc.arg('now')
+WHERE workspace_id = sqlc.arg('workspace_id') AND public_id = sqlc.arg('public_id') AND status = 'dead_letter';

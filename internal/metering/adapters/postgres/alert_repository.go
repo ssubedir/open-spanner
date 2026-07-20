@@ -7,6 +7,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/google/uuid"
+
 	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/postgres/postgresdb"
 	appalert "github.com/ssubedir/open-spanner/internal/metering/app/alert"
@@ -270,6 +272,122 @@ func (r *AlertRepository) SaveDelivery(ctx context.Context, delivery appalert.De
 	return delivery, nil
 }
 
+func (r *AlertRepository) SaveDeliveryJob(ctx context.Context, job appalert.DeliveryJob) error {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return err
+	}
+	publicID, err := uuid.Parse(job.ID)
+	if err != nil {
+		return err
+	}
+	return queriesFor(ctx, r.queries).SaveAlertDeliveryJob(ctx, postgresdb.SaveAlertDeliveryJobParams{PublicID: publicID, WorkspaceID: workspaceID, EventID: job.EventID, DestinationID: job.DestinationID, Payload: job.Payload, Now: job.CreatedAt})
+}
+
+func (r *AlertRepository) ClaimDeliveryJob(ctx context.Context, now, lockedUntil time.Time, maxAttempts int) (appalert.DeliveryJob, error) {
+	row, err := queriesFor(ctx, r.queries).ClaimAlertDeliveryJob(ctx, postgresdb.ClaimAlertDeliveryJobParams{LockedUntil: lockedUntil, Now: now, MaxAttempts: int32(maxAttempts)})
+	if errors.Is(err, sql.ErrNoRows) {
+		return appalert.DeliveryJob{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return appalert.DeliveryJob{}, err
+	}
+	return appalert.DeliveryJob{ID: row.PublicID.String(), WorkspaceID: row.WorkspaceID, EventID: row.EventID, DestinationID: row.DestinationID, Payload: row.Payload, Status: "running", Attempts: int(row.Attempts), CreatedAt: row.CreatedAt, UpdatedAt: now}, nil
+}
+
+func (r *AlertRepository) CompleteDeliveryJob(ctx context.Context, id string, attempts int, now time.Time) error {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return err
+	}
+	publicID, err := uuid.Parse(id)
+	if err != nil {
+		return err
+	}
+	rows, err := queriesFor(ctx, r.queries).CompleteAlertDeliveryJob(ctx, postgresdb.CompleteAlertDeliveryJobParams{Now: now, PublicID: publicID, WorkspaceID: workspaceID, ExpectedAttempts: int32(attempts)})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (r *AlertRepository) RetryDeliveryJob(ctx context.Context, id string, attempts int, next time.Time, maxAttempts int, lastError string, now time.Time) error {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return err
+	}
+	publicID, err := uuid.Parse(id)
+	if err != nil {
+		return err
+	}
+	rows, err := queriesFor(ctx, r.queries).RetryAlertDeliveryJob(ctx, postgresdb.RetryAlertDeliveryJobParams{MaxAttempts: int32(maxAttempts), NextAttemptAt: next, LastError: lastError, Now: now, PublicID: publicID, WorkspaceID: workspaceID, ExpectedAttempts: int32(attempts)})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (r *AlertRepository) RequeueDeliveryJob(ctx context.Context, id string, now time.Time) error {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return err
+	}
+	publicID, err := uuid.Parse(id)
+	if err != nil {
+		return err
+	}
+	rows, err := queriesFor(ctx, r.queries).RequeueAlertDeliveryJob(ctx, postgresdb.RequeueAlertDeliveryJobParams{Now: now, PublicID: publicID, WorkspaceID: workspaceID})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (r *AlertRepository) FindDeliveryJobStatus(ctx context.Context, id string) (string, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return "", err
+	}
+	publicID, err := uuid.Parse(id)
+	if err != nil {
+		return "", err
+	}
+	status, err := queriesFor(ctx, r.queries).GetAlertDeliveryJobStatus(ctx, postgresdb.GetAlertDeliveryJobStatusParams{PublicID: publicID, WorkspaceID: workspaceID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", domain.ErrNotFound
+	}
+	return status, err
+}
+
+func (r *AlertRepository) ListDeliveryJobs(ctx context.Context, limit int) ([]appalert.DeliveryJob, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := queriesFor(ctx, r.queries).ListAlertDeliveryJobs(ctx, postgresdb.ListAlertDeliveryJobsParams{WorkspaceID: workspaceID, Limit: int32(limit)})
+	if err != nil {
+		return nil, err
+	}
+	jobs := make([]appalert.DeliveryJob, 0, len(rows))
+	for _, row := range rows {
+		delivered := time.Time{}
+		if row.DeliveredAt.Valid {
+			delivered = row.DeliveredAt.Time
+		}
+		jobs = append(jobs, appalert.DeliveryJob{ID: row.PublicID.String(), EventID: row.EventID, DestinationID: row.DestinationID, Status: row.Status, Attempts: int(row.Attempts), NextAttemptAt: row.NextAttemptAt, LastError: row.LastError, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, DeliveredAt: delivered})
+	}
+	return jobs, nil
+}
+
 func (r *AlertRepository) FindEvents(ctx context.Context, query appalert.EventQuery) ([]appalert.Event, error) {
 	workspaceID, err := appauth.RequireWorkspaceID(ctx)
 	if err != nil {
@@ -333,8 +451,8 @@ func (r *AlertRepository) ClaimEvaluationJob(ctx context.Context, now time.Time,
 	return postgresAlertEvaluationJob(row, workspaceID)
 }
 
-func (r *AlertRepository) CompleteEvaluationJob(ctx context.Context, ruleID string) error {
-	rows, err := queriesFor(ctx, r.queries).DeleteAlertEvaluationJob(ctx, ruleID)
+func (r *AlertRepository) CompleteEvaluationJob(ctx context.Context, ruleID string, attempts int) error {
+	rows, err := queriesFor(ctx, r.queries).DeleteAlertEvaluationJob(ctx, postgresdb.DeleteAlertEvaluationJobParams{RuleID: ruleID, ExpectedAttempts: int32(attempts)})
 	if err != nil {
 		return err
 	}
@@ -344,11 +462,12 @@ func (r *AlertRepository) CompleteEvaluationJob(ctx context.Context, ruleID stri
 	return nil
 }
 
-func (r *AlertRepository) RequeueEvaluationJob(ctx context.Context, ruleID string, runAfter time.Time, now time.Time) error {
+func (r *AlertRepository) RequeueEvaluationJob(ctx context.Context, ruleID string, attempts int, runAfter time.Time, now time.Time) error {
 	rows, err := queriesFor(ctx, r.queries).RequeueAlertEvaluationJob(ctx, postgresdb.RequeueAlertEvaluationJobParams{
-		RuleID:   ruleID,
-		RunAfter: formatTime(runAfter),
-		Now:      formatTime(now),
+		RuleID:           ruleID,
+		RunAfter:         formatTime(runAfter),
+		Now:              formatTime(now),
+		ExpectedAttempts: int32(attempts),
 	})
 	if err != nil {
 		return err
@@ -357,6 +476,20 @@ func (r *AlertRepository) RequeueEvaluationJob(ctx context.Context, ruleID strin
 		return domain.ErrNotFound
 	}
 	return nil
+}
+
+func (r *AlertRepository) SaveEvaluationDeadLetter(ctx context.Context, deadLetter appalert.EvaluationDeadLetter) error {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return err
+	}
+	publicID, err := uuid.Parse(deadLetter.ID)
+	if err != nil {
+		return err
+	}
+	return queriesFor(ctx, r.queries).SaveAlertWorkerDeadLetter(ctx, postgresdb.SaveAlertWorkerDeadLetterParams{
+		PublicID: publicID, WorkspaceID: workspaceID, RuleID: deadLetter.RuleID, Attempts: int32(deadLetter.Attempts), LastError: deadLetter.Error, CreatedAt: deadLetter.CreatedAt,
+	})
 }
 
 func (r *AlertRepository) UpdateRuleNextEvaluation(ctx context.Context, id string, nextEvaluateAt time.Time, updatedAt time.Time) error {

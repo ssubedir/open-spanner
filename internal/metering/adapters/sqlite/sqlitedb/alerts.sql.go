@@ -10,6 +10,51 @@ import (
 	"database/sql"
 )
 
+const claimAlertDeliveryJob = `-- name: ClaimAlertDeliveryJob :one
+UPDATE alert_delivery_jobs
+SET status = 'running', attempts = alert_delivery_jobs.attempts + 1, locked_until = ?1, updated_at = ?2
+WHERE id = (
+	SELECT candidate.id FROM alert_delivery_jobs candidate
+	WHERE candidate.next_attempt_at <= ?2
+		AND (candidate.status = 'pending' OR (candidate.status = 'running' AND candidate.locked_until < ?2))
+		AND candidate.attempts < ?3
+	ORDER BY candidate.next_attempt_at, candidate.id
+	LIMIT 1
+)
+RETURNING public_id, workspace_id, event_id, destination_id, payload, attempts, created_at
+`
+
+type ClaimAlertDeliveryJobParams struct {
+	LockedUntil sql.NullString
+	Now         string
+	MaxAttempts int64
+}
+
+type ClaimAlertDeliveryJobRow struct {
+	PublicID      string
+	WorkspaceID   string
+	EventID       string
+	DestinationID string
+	Payload       string
+	Attempts      int64
+	CreatedAt     string
+}
+
+func (q *Queries) ClaimAlertDeliveryJob(ctx context.Context, arg ClaimAlertDeliveryJobParams) (ClaimAlertDeliveryJobRow, error) {
+	row := q.db.QueryRowContext(ctx, claimAlertDeliveryJob, arg.LockedUntil, arg.Now, arg.MaxAttempts)
+	var i ClaimAlertDeliveryJobRow
+	err := row.Scan(
+		&i.PublicID,
+		&i.WorkspaceID,
+		&i.EventID,
+		&i.DestinationID,
+		&i.Payload,
+		&i.Attempts,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const claimAlertEvaluationJob = `-- name: ClaimAlertEvaluationJob :one
 UPDATE alert_evaluation_jobs
 SET attempts = alert_evaluation_jobs.attempts + 1,
@@ -47,6 +92,33 @@ func (q *Queries) ClaimAlertEvaluationJob(ctx context.Context, arg ClaimAlertEva
 	return i, err
 }
 
+const completeAlertDeliveryJob = `-- name: CompleteAlertDeliveryJob :execrows
+UPDATE alert_delivery_jobs
+SET status = 'delivered', locked_until = NULL, last_error = '', delivered_at = ?1, updated_at = ?1
+WHERE public_id = ?2 AND workspace_id = ?3
+	AND status = 'running' AND attempts = ?4
+`
+
+type CompleteAlertDeliveryJobParams struct {
+	Now              sql.NullString
+	PublicID         string
+	WorkspaceID      string
+	ExpectedAttempts int64
+}
+
+func (q *Queries) CompleteAlertDeliveryJob(ctx context.Context, arg CompleteAlertDeliveryJobParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, completeAlertDeliveryJob,
+		arg.Now,
+		arg.PublicID,
+		arg.WorkspaceID,
+		arg.ExpectedAttempts,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteAlertDestination = `-- name: DeleteAlertDestination :execrows
 DELETE FROM alert_destinations
 WHERE workspace_id = ?1
@@ -68,11 +140,17 @@ func (q *Queries) DeleteAlertDestination(ctx context.Context, arg DeleteAlertDes
 
 const deleteAlertEvaluationJob = `-- name: DeleteAlertEvaluationJob :execrows
 DELETE FROM alert_evaluation_jobs
-WHERE rule_id = ?
+WHERE rule_id = ?1
+	AND attempts = ?2
 `
 
-func (q *Queries) DeleteAlertEvaluationJob(ctx context.Context, ruleID string) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteAlertEvaluationJob, ruleID)
+type DeleteAlertEvaluationJobParams struct {
+	RuleID           string
+	ExpectedAttempts int64
+}
+
+func (q *Queries) DeleteAlertEvaluationJob(ctx context.Context, arg DeleteAlertEvaluationJobParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteAlertEvaluationJob, arg.RuleID, arg.ExpectedAttempts)
 	if err != nil {
 		return 0, err
 	}
@@ -151,6 +229,45 @@ func (q *Queries) EnqueueDueAlertEvaluationJobs(ctx context.Context, arg Enqueue
 	return result.RowsAffected()
 }
 
+const findAlertEventByID = `-- name: FindAlertEventByID :one
+SELECT e.id, e.rule_id, e.group_key, e.group_value, e.type, e.value, e.message, e.created_at
+FROM alert_events e
+JOIN alert_rules r ON r.id = e.rule_id
+WHERE e.id = ?1 AND r.workspace_id = ?2
+`
+
+type FindAlertEventByIDParams struct {
+	EventID     string
+	WorkspaceID string
+}
+
+type FindAlertEventByIDRow struct {
+	ID         string
+	RuleID     string
+	GroupKey   string
+	GroupValue string
+	Type       string
+	Value      float64
+	Message    string
+	CreatedAt  string
+}
+
+func (q *Queries) FindAlertEventByID(ctx context.Context, arg FindAlertEventByIDParams) (FindAlertEventByIDRow, error) {
+	row := q.db.QueryRowContext(ctx, findAlertEventByID, arg.EventID, arg.WorkspaceID)
+	var i FindAlertEventByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.RuleID,
+		&i.GroupKey,
+		&i.GroupValue,
+		&i.Type,
+		&i.Value,
+		&i.Message,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const findAlertState = `-- name: FindAlertState :one
 SELECT rule_id, group_key, group_value, status, value, message, evaluated_at, updated_at
 FROM alert_states
@@ -204,6 +321,84 @@ func (q *Queries) FindWorkspaceIDForAlertRule(ctx context.Context, id string) (s
 	var workspace_id string
 	err := row.Scan(&workspace_id)
 	return workspace_id, err
+}
+
+const getAlertDeliveryJobStatus = `-- name: GetAlertDeliveryJobStatus :one
+SELECT status
+FROM alert_delivery_jobs
+WHERE public_id = ?1 AND workspace_id = ?2
+`
+
+type GetAlertDeliveryJobStatusParams struct {
+	PublicID    string
+	WorkspaceID string
+}
+
+func (q *Queries) GetAlertDeliveryJobStatus(ctx context.Context, arg GetAlertDeliveryJobStatusParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getAlertDeliveryJobStatus, arg.PublicID, arg.WorkspaceID)
+	var status string
+	err := row.Scan(&status)
+	return status, err
+}
+
+const listAlertDeliveryJobs = `-- name: ListAlertDeliveryJobs :many
+SELECT public_id, event_id, destination_id, status, attempts, next_attempt_at, last_error, created_at, updated_at, delivered_at
+FROM alert_delivery_jobs
+WHERE workspace_id = ?1
+ORDER BY created_at DESC, id DESC
+LIMIT ?2
+`
+
+type ListAlertDeliveryJobsParams struct {
+	WorkspaceID string
+	Limit       int64
+}
+
+type ListAlertDeliveryJobsRow struct {
+	PublicID      string
+	EventID       string
+	DestinationID string
+	Status        string
+	Attempts      int64
+	NextAttemptAt string
+	LastError     string
+	CreatedAt     string
+	UpdatedAt     string
+	DeliveredAt   sql.NullString
+}
+
+func (q *Queries) ListAlertDeliveryJobs(ctx context.Context, arg ListAlertDeliveryJobsParams) ([]ListAlertDeliveryJobsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAlertDeliveryJobs, arg.WorkspaceID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAlertDeliveryJobsRow{}
+	for rows.Next() {
+		var i ListAlertDeliveryJobsRow
+		if err := rows.Scan(
+			&i.PublicID,
+			&i.EventID,
+			&i.DestinationID,
+			&i.Status,
+			&i.Attempts,
+			&i.NextAttemptAt,
+			&i.LastError,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeliveredAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listAlertDestinations = `-- name: ListAlertDestinations :many
@@ -534,22 +729,85 @@ func (q *Queries) ListAlertStates(ctx context.Context, arg ListAlertStatesParams
 	return items, nil
 }
 
+const requeueAlertDeliveryJob = `-- name: RequeueAlertDeliveryJob :execrows
+UPDATE alert_delivery_jobs
+SET status = 'pending', attempts = 0, next_attempt_at = ?1, locked_until = NULL,
+	last_error = '', delivered_at = NULL, updated_at = ?1
+WHERE public_id = ?2 AND workspace_id = ?3 AND status = 'dead_letter'
+`
+
+type RequeueAlertDeliveryJobParams struct {
+	Now         string
+	PublicID    string
+	WorkspaceID string
+}
+
+func (q *Queries) RequeueAlertDeliveryJob(ctx context.Context, arg RequeueAlertDeliveryJobParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, requeueAlertDeliveryJob, arg.Now, arg.PublicID, arg.WorkspaceID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const requeueAlertEvaluationJob = `-- name: RequeueAlertEvaluationJob :execrows
 UPDATE alert_evaluation_jobs
 SET run_after = ?1,
 	locked_until = NULL,
 	updated_at = ?2
 WHERE rule_id = ?3
+	AND attempts = ?4
 `
 
 type RequeueAlertEvaluationJobParams struct {
-	RunAfter string
-	Now      string
-	RuleID   string
+	RunAfter         string
+	Now              string
+	RuleID           string
+	ExpectedAttempts int64
 }
 
 func (q *Queries) RequeueAlertEvaluationJob(ctx context.Context, arg RequeueAlertEvaluationJobParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, requeueAlertEvaluationJob, arg.RunAfter, arg.Now, arg.RuleID)
+	result, err := q.db.ExecContext(ctx, requeueAlertEvaluationJob,
+		arg.RunAfter,
+		arg.Now,
+		arg.RuleID,
+		arg.ExpectedAttempts,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const retryAlertDeliveryJob = `-- name: RetryAlertDeliveryJob :execrows
+UPDATE alert_delivery_jobs
+SET status = CASE WHEN attempts >= ?1 THEN 'dead_letter' ELSE 'pending' END,
+	next_attempt_at = ?2, locked_until = NULL,
+	last_error = ?3, updated_at = ?4
+WHERE public_id = ?5 AND workspace_id = ?6
+	AND status = 'running' AND attempts = ?7
+`
+
+type RetryAlertDeliveryJobParams struct {
+	MaxAttempts      int64
+	NextAttemptAt    string
+	LastError        string
+	Now              string
+	PublicID         string
+	WorkspaceID      string
+	ExpectedAttempts int64
+}
+
+func (q *Queries) RetryAlertDeliveryJob(ctx context.Context, arg RetryAlertDeliveryJobParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, retryAlertDeliveryJob,
+		arg.MaxAttempts,
+		arg.NextAttemptAt,
+		arg.LastError,
+		arg.Now,
+		arg.PublicID,
+		arg.WorkspaceID,
+		arg.ExpectedAttempts,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -584,6 +842,37 @@ func (q *Queries) SaveAlertDelivery(ctx context.Context, arg SaveAlertDeliveryPa
 		arg.DurationMs,
 		arg.AttemptedAt,
 		arg.CreatedAt,
+	)
+	return err
+}
+
+const saveAlertDeliveryJob = `-- name: SaveAlertDeliveryJob :exec
+INSERT INTO alert_delivery_jobs (
+	public_id, workspace_id, event_id, destination_id, payload, status, attempts, next_attempt_at, created_at, updated_at
+) VALUES (
+	?1, ?2, ?3, ?4, ?5, 'pending', 0,
+	?6, ?6, ?6
+)
+ON CONFLICT(event_id) DO NOTHING
+`
+
+type SaveAlertDeliveryJobParams struct {
+	PublicID      string
+	WorkspaceID   string
+	EventID       string
+	DestinationID string
+	Payload       string
+	Now           string
+}
+
+func (q *Queries) SaveAlertDeliveryJob(ctx context.Context, arg SaveAlertDeliveryJobParams) error {
+	_, err := q.db.ExecContext(ctx, saveAlertDeliveryJob,
+		arg.PublicID,
+		arg.WorkspaceID,
+		arg.EventID,
+		arg.DestinationID,
+		arg.Payload,
+		arg.Now,
 	)
 	return err
 }
@@ -766,6 +1055,36 @@ func (q *Queries) SaveAlertState(ctx context.Context, arg SaveAlertStateParams) 
 		arg.Message,
 		arg.EvaluatedAt,
 		arg.UpdatedAt,
+	)
+	return err
+}
+
+const saveAlertWorkerDeadLetter = `-- name: SaveAlertWorkerDeadLetter :exec
+INSERT INTO system_worker_dead_letters (
+	public_id, workspace_id, worker_name, job_key, rule_id, attempts, last_error, status, created_at
+) VALUES (
+	?1, ?2, 'alert', ?3, ?3,
+	?4, ?5, 'dead_letter', ?6
+)
+`
+
+type SaveAlertWorkerDeadLetterParams struct {
+	PublicID    string
+	WorkspaceID string
+	RuleID      string
+	Attempts    int64
+	LastError   string
+	CreatedAt   string
+}
+
+func (q *Queries) SaveAlertWorkerDeadLetter(ctx context.Context, arg SaveAlertWorkerDeadLetterParams) error {
+	_, err := q.db.ExecContext(ctx, saveAlertWorkerDeadLetter,
+		arg.PublicID,
+		arg.WorkspaceID,
+		arg.RuleID,
+		arg.Attempts,
+		arg.LastError,
+		arg.CreatedAt,
 	)
 	return err
 }

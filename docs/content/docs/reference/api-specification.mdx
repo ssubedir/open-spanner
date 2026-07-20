@@ -1,76 +1,35 @@
 ---
-title: REST API Specification
-description: Where to find the full Open Spanner API reference.
+title: API Reference
+description: Generated REST and gRPC contracts for Open Spanner.
 ---
 
 ## REST
 
-The running service does not serve Swagger UI or a live OpenAPI endpoint. Open Spanner keeps the runtime HTTP surface focused on the dashboard, REST API, and health endpoints.
+The complete generated REST contract is committed in these formats:
 
-The REST API specification is generated into the repository under:
-
-- `openapi/swagger.json`
 - `openapi/openapi.json`
+- `openapi/swagger.json`
+- `openapi/swagger.yaml`
 
-The full REST API includes dashboard auth, API key management, meter operations, usage ingestion, usage querying, plans, entitlement checks, direct CSV exports, queued export jobs, alerts, system stats, and operational endpoints.
+It covers dashboard authentication, shared workspaces, API keys, meters,
+subjects, usage, plans, entitlement consumption and decisions, alerts, exports,
+reconciliation, retention, and system operations. The generated files are the
+source of truth for paths, request bodies, responses, and status codes; product
+guides intentionally avoid duplicating that full endpoint inventory.
 
-Plans and entitlement checks are available through the full REST API:
+The narrower backend SDK contract is `openapi/sdk-openapi.json`. It contains
+runtime metering and entitlement operations without control-plane and operator
+endpoints. See [SDKs](/docs/sdks) for packages and examples.
 
-- `POST /v1/plans`
-- `GET /v1/plans`
-- `GET /v1/plans/{id}`
-- `PUT /v1/plans/{id}`
-- `DELETE /v1/plans/{id}`
-- `GET /v1/plans/assignments`
-- `PUT /v1/plans/subjects/{subject}`
-- `DELETE /v1/plans/subjects/{subject}`
-- `GET /v1/plans/subjects/{subject}/progress`
-- `POST /v1/entitlements/check`
-- `GET /v1/entitlements/states`
-- `GET /v1/entitlements/events`
-- `GET /v1/entitlements/periods`
-
-The direct CSV endpoints return files from the request:
-
-- `GET /v1/usages/export`
-- `POST /v1/usages/export`
-- `GET /v1/usageevents/export`
-- `POST /v1/usageevents/export`
-
-Queued export jobs are available for longer-running bucketed exports:
-
-- `POST /v1/exports`
-- `GET /v1/exports`
-- `GET /v1/exports/{id}`
-- `POST /v1/exports/{id}/cancel`
-- `POST /v1/exports/{id}/retry`
-- `GET /v1/exports/{id}/download`
-
-Alert rules are available in the full REST API and dashboard:
-
-- `POST /v1/alerts/destinations`
-- `GET /v1/alerts/destinations`
-- `PUT /v1/alerts/destinations/{id}`
-- `DELETE /v1/alerts/destinations/{id}`
-- `POST /v1/alerts/destinations/{id}/webhook-secret/rotate`
-- `POST /v1/alerts`
-- `GET /v1/alerts`
-- `GET /v1/alerts/events`
-- `GET /v1/alerts/{id}`
-- `PUT /v1/alerts/{id}`
-- `DELETE /v1/alerts/{id}`
-- `POST /v1/alerts/{id}/evaluate`
+The running service does not host Swagger UI. Use the checked-in specification
+with the OpenAPI viewer or client generator of your choice.
 
 ## gRPC
 
-Open Spanner also exposes a gRPC usage ingestion service on `OPEN_SPANNER_GRPC_ADDR`.
+Open Spanner exposes `CreateUsage`, `CreateUsageBulk`, and `StreamUsage` on
+`OPEN_SPANNER_GRPC_ADDR`. Authenticate with API-key request metadata using
+`authorization: Bearer <key>`, `x-open-spanner-api-key`, or `x-api-key`.
 
-The first gRPC surface is intentionally scoped to trusted backend ingestion:
-
-- `CreateUsage`
-- `CreateUsageBulk`
-- `StreamUsage`
-
-gRPC clients authenticate with the same API keys used by the REST API. Send the key in request metadata with `authorization: Bearer <key>`, `x-open-spanner-api-key`, or `x-api-key`.
-
-The protobuf schema lives in `proto/open_spanner/v1/usage.proto`.
+The protobuf source is `proto/open_spanner/v1/usage.proto`. Use gRPC for
+continuous trusted-backend ingestion; use REST for product configuration,
+queries, entitlement decisions, and control-plane operations.

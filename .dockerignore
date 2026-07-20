@@ -3,8 +3,10 @@
 .env
 .env.*
 !.env.example
+.tmp
 
 open-spanner.db*
+open-spanner-exports
 
 **/node_modules
 **/.venv
@@ -14,10 +16,9 @@ open-spanner.db*
 
 docs/.next
 docs/out
+web/.next
+web/.next-e2e
 sdk/typescript/dist
-internal/ui/static/**
-!internal/ui/static
-!internal/ui/static/keep.txt
 
 coverage
 *.log

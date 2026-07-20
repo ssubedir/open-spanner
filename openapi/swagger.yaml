@@ -12,6 +12,36 @@ definitions:
       error:
         $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorBody'
     type: object
+  internal_metering_adapters_http_alert.DeliveryJobListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_alert.DeliveryJobResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_alert.DeliveryJobResponse:
+    properties:
+      attempts:
+        type: integer
+      created_at:
+        type: string
+      delivered_at:
+        type: string
+      destination_id:
+        type: string
+      event_id:
+        type: string
+      id:
+        type: string
+      last_error:
+        type: string
+      next_attempt_at:
+        type: string
+      status:
+        type: string
+      updated_at:
+        type: string
+    type: object
   internal_metering_adapters_http_alert.DeliveryResponse:
     properties:
       attempted_at:
@@ -284,6 +314,34 @@ definitions:
         items:
           type: string
         type: array
+      status:
+        type: string
+    type: object
+  internal_metering_adapters_http_auth.APIKeyEventListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_auth.APIKeyEventResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_auth.APIKeyEventResponse:
+    properties:
+      api_key_id:
+        type: string
+      created_at:
+        type: string
+      effective_at:
+        type: string
+      event_type:
+        type: string
+      id:
+        type: string
+      key_name:
+        type: string
+      key_prefix:
+        type: string
+      related_api_key_id:
+        type: string
     type: object
   internal_metering_adapters_http_auth.APIKeyListResponse:
     properties:
@@ -316,6 +374,8 @@ definitions:
         items:
           type: string
         type: array
+      status:
+        type: string
     type: object
   internal_metering_adapters_http_auth.CreateAPIKeyRequest:
     properties:
@@ -339,6 +399,13 @@ definitions:
       password:
         type: string
     type: object
+  internal_metering_adapters_http_auth.CreateWorkspaceInvitationRequest:
+    properties:
+      email:
+        type: string
+      role:
+        type: string
+    type: object
   internal_metering_adapters_http_auth.LoginRequest:
     properties:
       email:
@@ -359,6 +426,8 @@ definitions:
         items:
           $ref: '#/definitions/internal_metering_adapters_http_auth.OAuthProviderResponse'
         type: array
+      registration_enabled:
+        type: boolean
     type: object
   internal_metering_adapters_http_auth.OAuthProviderResponse:
     properties:
@@ -376,10 +445,25 @@ definitions:
       user:
         $ref: '#/definitions/internal_metering_adapters_http_auth.UserResponse'
     type: object
+  internal_metering_adapters_http_auth.RotateAPIKeyRequest:
+    properties:
+      grace_period_seconds:
+        type: integer
+    type: object
   internal_metering_adapters_http_auth.SessionResponse:
     properties:
       user:
         $ref: '#/definitions/internal_metering_adapters_http_auth.UserResponse'
+    type: object
+  internal_metering_adapters_http_auth.SwitchWorkspaceRequest:
+    properties:
+      workspace_id:
+        type: string
+    type: object
+  internal_metering_adapters_http_auth.UpdateWorkspaceMemberRequest:
+    properties:
+      role:
+        type: string
     type: object
   internal_metering_adapters_http_auth.UserResponse:
     properties:
@@ -388,6 +472,78 @@ definitions:
       email:
         type: string
       id:
+        type: string
+      role:
+        type: string
+      workspace_id:
+        type: string
+      workspace_name:
+        type: string
+    type: object
+  internal_metering_adapters_http_auth.WorkspaceInvitationListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_auth.WorkspaceInvitationResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_auth.WorkspaceInvitationResponse:
+    properties:
+      created_at:
+        type: string
+      email:
+        type: string
+      expires_at:
+        type: string
+      id:
+        type: string
+      role:
+        type: string
+      status:
+        type: string
+      token:
+        type: string
+      workspace_id:
+        type: string
+      workspace_name:
+        type: string
+    type: object
+  internal_metering_adapters_http_auth.WorkspaceListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_auth.WorkspaceResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_auth.WorkspaceMemberListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_auth.WorkspaceMemberResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_auth.WorkspaceMemberResponse:
+    properties:
+      created_at:
+        type: string
+      email:
+        type: string
+      role:
+        type: string
+      user_id:
+        type: string
+    type: object
+  internal_metering_adapters_http_auth.WorkspaceResponse:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      joined_at:
+        type: string
+      name:
+        type: string
+      role:
         type: string
     type: object
   internal_metering_adapters_http_entitlement.AssignmentListResponse:
@@ -519,6 +675,10 @@ definitions:
     type: object
   internal_metering_adapters_http_entitlement.LimitRequest:
     properties:
+      enforcement:
+        type: string
+      failure_policy:
+        type: string
       limit:
         type: number
       meter:
@@ -531,6 +691,10 @@ definitions:
   internal_metering_adapters_http_entitlement.LimitResponse:
     properties:
       created_at:
+        type: string
+      enforcement:
+        type: string
+      failure_policy:
         type: string
       id:
         type: string
@@ -948,6 +1112,111 @@ definitions:
       usage_events:
         type: integer
     type: object
+  internal_metering_adapters_http_system.CounterRepairListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_system.CounterRepairResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_system.CounterRepairRequest:
+    properties:
+      dry_run:
+        type: boolean
+      expected_updated_at:
+        type: string
+      meter:
+        type: string
+      period:
+        type: string
+      period_start:
+        type: string
+      subject:
+        type: string
+    type: object
+  internal_metering_adapters_http_system.CounterRepairResponse:
+    properties:
+      after:
+        $ref: '#/definitions/internal_metering_adapters_http_system.CounterSnapshotResponse'
+      applied:
+        type: boolean
+      before:
+        $ref: '#/definitions/internal_metering_adapters_http_system.CounterSnapshotResponse'
+      counter_updated_at:
+        type: string
+      created_at:
+        type: string
+      dry_run:
+        type: boolean
+      id:
+        type: string
+      meter:
+        type: string
+      period:
+        type: string
+      period_end:
+        type: string
+      period_start:
+        type: string
+      subject:
+        type: string
+    type: object
+  internal_metering_adapters_http_system.CounterSnapshotResponse:
+    properties:
+      event_count:
+        type: integer
+      first_event_time:
+        type: string
+      first_quantity:
+        type: number
+      last_event_time:
+        type: string
+      last_quantity:
+        type: number
+      quantity_max:
+        type: number
+      quantity_min:
+        type: number
+      quantity_sum:
+        type: number
+    type: object
+  internal_metering_adapters_http_system.IngestionSafetyResponse:
+    properties:
+      accepted_events:
+        type: integer
+      rejected_events:
+        type: integer
+      throttled_events:
+        type: integer
+    type: object
+  internal_metering_adapters_http_system.LastDecisionPruneRunResponse:
+    properties:
+      before:
+        type: string
+      created_at:
+        type: string
+      deleted:
+        type: integer
+      dry_run:
+        type: boolean
+      id:
+        type: string
+    type: object
+  internal_metering_adapters_http_system.LastExportCleanupRunResponse:
+    properties:
+      bytes_reclaimed:
+        type: integer
+      created_at:
+        type: string
+      expired_before:
+        type: string
+      failures:
+        type: integer
+      files_deleted:
+        type: integer
+      id:
+        type: string
+    type: object
   internal_metering_adapters_http_system.LastPruneRunResponse:
     properties:
       created_at:
@@ -959,16 +1228,286 @@ definitions:
       id:
         type: string
     type: object
+  internal_metering_adapters_http_system.ReconciliationHealthResponse:
+    properties:
+      dead_letter_notifications:
+        type: integer
+      locked_until:
+        type: string
+      next_run_at:
+        type: string
+      pending_notifications:
+        type: integer
+      status:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  internal_metering_adapters_http_system.ReconciliationIssueResponse:
+    properties:
+      actual:
+        type: string
+      expected:
+        type: string
+      idempotency_key:
+        type: string
+      kind:
+        type: string
+      message:
+        type: string
+      meter:
+        type: string
+      period:
+        type: string
+      period_start:
+        type: string
+      severity:
+        type: string
+      subject:
+        type: string
+    type: object
+  internal_metering_adapters_http_system.ReconciliationNotificationAttemptResponse:
+    properties:
+      attempt:
+        type: integer
+      created_at:
+        type: string
+      error:
+        type: string
+      status:
+        type: string
+    type: object
+  internal_metering_adapters_http_system.ReconciliationNotificationListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_system.ReconciliationNotificationResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_system.ReconciliationNotificationResponse:
+    properties:
+      attempt_history:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_system.ReconciliationNotificationAttemptResponse'
+        type: array
+      attempts:
+        type: integer
+      created_at:
+        type: string
+      delivered_at:
+        type: string
+      event_type:
+        type: string
+      id:
+        type: string
+      last_error:
+        type: string
+      next_attempt_at:
+        type: string
+      status:
+        type: string
+      total_attempts:
+        type: integer
+    type: object
+  internal_metering_adapters_http_system.ReconciliationResponse:
+    properties:
+      checked_at:
+        type: string
+      counters_checked:
+        type: integer
+      decisions_checked:
+        type: integer
+      issues:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_system.ReconciliationIssueResponse'
+        type: array
+      lookback_hours:
+        type: integer
+      status:
+        type: string
+      truncated:
+        type: boolean
+    type: object
+  internal_metering_adapters_http_system.ReconciliationRunListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_system.ReconciliationRunResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_system.ReconciliationRunResponse:
+    properties:
+      counters_checked:
+        type: integer
+      created_at:
+        type: string
+      decisions_checked:
+        type: integer
+      duration_ms:
+        type: integer
+      error:
+        type: string
+      fingerprint:
+        type: string
+      id:
+        type: string
+      issue_count:
+        type: integer
+      issues:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_system.ReconciliationIssueResponse'
+        type: array
+      lookback_hours:
+        type: integer
+      status:
+        type: string
+      truncated:
+        type: boolean
+    type: object
+  internal_metering_adapters_http_system.RollupHealthResponse:
+    properties:
+      finalized_through:
+        type: string
+      healthy_meters:
+        type: integer
+      issues:
+        type: integer
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_system.RollupMeterHealthResponse'
+        type: array
+      meters:
+        type: integer
+      status:
+        type: string
+    type: object
+  internal_metering_adapters_http_system.RollupMeterHealthResponse:
+    properties:
+      expected_through:
+        type: string
+      finalized_through:
+        type: string
+      issue:
+        type: string
+      last_run_at:
+        type: string
+      meter:
+        type: string
+      rollup_rows:
+        type: integer
+      source_events:
+        type: integer
+      status:
+        type: string
+    type: object
   internal_metering_adapters_http_system.StatsResponse:
     properties:
+      consumption_decisions:
+        type: integer
+      decision_prune_runs:
+        type: integer
+      export_cleanup_runs:
+        type: integer
+      ingestion_safety:
+        $ref: '#/definitions/internal_metering_adapters_http_system.IngestionSafetyResponse'
+      last_decision_prune_run:
+        $ref: '#/definitions/internal_metering_adapters_http_system.LastDecisionPruneRunResponse'
+      last_export_cleanup_run:
+        $ref: '#/definitions/internal_metering_adapters_http_system.LastExportCleanupRunResponse'
       last_prune_run:
         $ref: '#/definitions/internal_metering_adapters_http_system.LastPruneRunResponse'
+      last_reconciliation_run:
+        $ref: '#/definitions/internal_metering_adapters_http_system.ReconciliationRunResponse'
       meters:
         type: integer
       prune_runs:
         type: integer
+      reconciliation_health:
+        $ref: '#/definitions/internal_metering_adapters_http_system.ReconciliationHealthResponse'
+      rollup_health:
+        $ref: '#/definitions/internal_metering_adapters_http_system.RollupHealthResponse'
       usage_events:
         type: integer
+      worker_health:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_system.WorkerHealthResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_system.WorkerDeadLetterListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_system.WorkerDeadLetterResponse'
+        type: array
+    type: object
+  internal_metering_adapters_http_system.WorkerDeadLetterResponse:
+    properties:
+      attempts:
+        type: integer
+      created_at:
+        type: string
+      id:
+        type: string
+      job_key:
+        type: string
+      last_error:
+        type: string
+      meter:
+        type: string
+      requeued_at:
+        type: string
+      rule_id:
+        type: string
+      status:
+        type: string
+      subject:
+        type: string
+      worker_name:
+        type: string
+    type: object
+  internal_metering_adapters_http_system.WorkerHealthResponse:
+    properties:
+      failed_jobs:
+        type: integer
+      healthy_replicas:
+        type: integer
+      instances:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_system.WorkerInstanceHealthResponse'
+        type: array
+      last_failure_at:
+        type: string
+      last_heartbeat_at:
+        type: string
+      last_success_at:
+        type: string
+      name:
+        type: string
+      oldest_pending_at:
+        type: string
+      pending_jobs:
+        type: integer
+      replica_count:
+        type: integer
+      running_jobs:
+        type: integer
+      stale_replicas:
+        type: integer
+      started_at:
+        type: string
+      status:
+        type: string
+    type: object
+  internal_metering_adapters_http_system.WorkerInstanceHealthResponse:
+    properties:
+      instance_id:
+        type: string
+      last_heartbeat_at:
+        type: string
+      started_at:
+        type: string
+      status:
+        type: string
     type: object
   internal_metering_adapters_http_usage.BreakdownListResponse:
     properties:
@@ -1038,6 +1577,102 @@ definitions:
         items:
           $ref: '#/definitions/internal_metering_adapters_http_usage.BulkFailureResponse'
         type: array
+    type: object
+  internal_metering_adapters_http_usage.ConsumeQuotaResponse:
+    properties:
+      allowed:
+        type: boolean
+      current:
+        type: number
+      enforcement:
+        type: string
+      failure_policy:
+        type: string
+      from:
+        type: string
+      limit:
+        type: number
+      message:
+        type: string
+      meter:
+        type: string
+      overage:
+        type: number
+      period:
+        type: string
+      period_reset_at:
+        type: string
+      plan_id:
+        type: string
+      plan_name:
+        type: string
+      projected:
+        type: number
+      quantity:
+        type: number
+      remaining:
+        type: number
+      retry_after_seconds:
+        type: integer
+      state:
+        type: string
+      subject:
+        type: string
+      to:
+        type: string
+    type: object
+  internal_metering_adapters_http_usage.ConsumeRequest:
+    properties:
+      idempotency_key:
+        type: string
+      metadata:
+        additionalProperties: {}
+        type: object
+      meter:
+        type: string
+      quantity:
+        type: number
+      subject:
+        type: string
+      timestamp:
+        type: string
+    type: object
+  internal_metering_adapters_http_usage.ConsumeResponse:
+    properties:
+      accepted:
+        type: boolean
+      evaluation_failed:
+        type: boolean
+      event:
+        $ref: '#/definitions/internal_metering_adapters_http_usage.Response'
+      quota:
+        $ref: '#/definitions/internal_metering_adapters_http_usage.ConsumeQuotaResponse'
+      replayed:
+        type: boolean
+    type: object
+  internal_metering_adapters_http_usage.ConsumptionDecisionListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_metering_adapters_http_usage.ConsumptionDecisionResponse'
+        type: array
+      next_cursor:
+        type: string
+    type: object
+  internal_metering_adapters_http_usage.ConsumptionDecisionResponse:
+    properties:
+      accepted:
+        type: boolean
+      created_at:
+        type: string
+      evaluation_failed:
+        type: boolean
+      event_id:
+        type: string
+      idempotency_key:
+        type: string
+      quota:
+        $ref: '#/definitions/internal_metering_adapters_http_usage.ConsumeQuotaResponse'
     type: object
   internal_metering_adapters_http_usage.CreateRequest:
     properties:
@@ -1127,6 +1762,8 @@ definitions:
       download_url:
         type: string
       error:
+        type: string
+      expired_at:
         type: string
       format:
         type: string
@@ -1484,6 +2121,39 @@ paths:
       summary: Evaluate alert rule
       tags:
       - alerts
+  /v1/alerts/delivery-jobs:
+    get:
+      operationId: listAlertDeliveryJobs
+      parameters:
+      - description: Result limit
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_alert.DeliveryJobListResponse'
+      summary: List alert delivery jobs
+      tags:
+      - alerts
+  /v1/alerts/delivery-jobs/{id}/retry:
+    post:
+      operationId: retryAlertDeliveryJob
+      parameters:
+      - description: Delivery job ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      summary: Retry alert delivery job
+      tags:
+      - alerts
   /v1/alerts/destinations:
     get:
       operationId: listAlertDestinations
@@ -1679,6 +2349,27 @@ paths:
       summary: List alert events
       tags:
       - alerts
+  /v1/auth/api-key-events:
+    get:
+      operationId: listAPIKeyEvents
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_auth.APIKeyEventListResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List API key audit events
+      tags:
+      - auth
   /v1/auth/api-keys:
     get:
       operationId: listAPIKeys
@@ -1759,7 +2450,54 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
-      summary: Delete API key
+      summary: Revoke API key
+      tags:
+      - auth
+  /v1/auth/api-keys/{id}/rotate:
+    post:
+      consumes:
+      - application/json
+      operationId: rotateAPIKey
+      parameters:
+      - description: API key ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Rotation options
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_auth.RotateAPIKeyRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_auth.APIKeyCreateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Rotate API key
       tags:
       - auth
   /v1/auth/oauth/{provider}:
@@ -1869,6 +2607,28 @@ paths:
       summary: Refresh auth session
       tags:
       - auth
+  /v1/auth/session/workspace:
+    post:
+      consumes:
+      - application/json
+      operationId: switchWorkspace
+      parameters:
+      - description: Workspace
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_auth.SwitchWorkspaceRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_auth.LoginResponse'
+      summary: Switch workspace
+      tags:
+      - workspaces
   /v1/auth/sessions:
     post:
       consumes:
@@ -1926,6 +2686,10 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
         "409":
           description: Conflict
           schema:
@@ -1937,6 +2701,156 @@ paths:
       summary: Create auth user
       tags:
       - auth
+  /v1/auth/workspace-invitations/{token}:
+    get:
+      operationId: previewWorkspaceInvitation
+      parameters:
+      - description: Invitation token
+        in: path
+        name: token
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_auth.WorkspaceInvitationResponse'
+      summary: Preview workspace invitation
+      tags:
+      - workspaces
+  /v1/auth/workspace-invitations/{token}/accept:
+    post:
+      operationId: acceptWorkspaceInvitation
+      parameters:
+      - description: Invitation token
+        in: path
+        name: token
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_auth.LoginResponse'
+      summary: Accept workspace invitation
+      tags:
+      - workspaces
+  /v1/auth/workspace/invitations:
+    get:
+      operationId: listWorkspaceInvitations
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_auth.WorkspaceInvitationListResponse'
+      summary: List workspace invitations
+      tags:
+      - workspaces
+    post:
+      consumes:
+      - application/json
+      operationId: createWorkspaceInvitation
+      parameters:
+      - description: Invitation
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_auth.CreateWorkspaceInvitationRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_auth.WorkspaceInvitationResponse'
+      summary: Create workspace invitation
+      tags:
+      - workspaces
+  /v1/auth/workspace/invitations/{id}:
+    delete:
+      operationId: deleteWorkspaceInvitation
+      parameters:
+      - description: Invitation ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      summary: Revoke workspace invitation
+      tags:
+      - workspaces
+  /v1/auth/workspace/members:
+    get:
+      operationId: listWorkspaceMembers
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_auth.WorkspaceMemberListResponse'
+      summary: List workspace members
+      tags:
+      - workspaces
+  /v1/auth/workspace/members/{user_id}:
+    delete:
+      operationId: deleteWorkspaceMember
+      parameters:
+      - description: User ID
+        in: path
+        name: user_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      summary: Remove workspace member
+      tags:
+      - workspaces
+    patch:
+      consumes:
+      - application/json
+      operationId: updateWorkspaceMember
+      parameters:
+      - description: User ID
+        in: path
+        name: user_id
+        required: true
+        type: string
+      - description: Role
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_auth.UpdateWorkspaceMemberRequest'
+      responses:
+        "204":
+          description: No Content
+      summary: Update workspace member
+      tags:
+      - workspaces
+  /v1/auth/workspaces:
+    get:
+      operationId: listWorkspaces
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_auth.WorkspaceListResponse'
+      summary: List workspaces
+      tags:
+      - workspaces
   /v1/entitlements/check:
     post:
       consumes:
@@ -1971,6 +2885,130 @@ paths:
       summary: Check entitlement quota
       tags:
       - plans
+  /v1/entitlements/consume:
+    post:
+      consumes:
+      - application/json
+      description: Evaluates projected quota under a subject lock. Advisory limits
+        always accept usage; hard limits reject usage that would exceed quota. Accepted
+        and rejected decisions are stored by idempotency key and replayed without
+        reevaluation.
+      operationId: consumeEntitlement
+      parameters:
+      - description: Consumption event
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_usage.ConsumeRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_usage.ConsumeResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_usage.ConsumeResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Atomically consume quota
+      tags:
+      - entitlements
+      - usages
+  /v1/entitlements/decisions:
+    get:
+      operationId: listConsumptionDecisions
+      parameters:
+      - description: Subject
+        in: query
+        name: subject
+        type: string
+      - description: Meter
+        in: query
+        name: meter
+        type: string
+      - description: accepted or rejected
+        in: query
+        name: outcome
+        type: string
+      - description: Evaluation failure outcome
+        in: query
+        name: evaluation_failed
+        type: boolean
+      - description: advisory or hard
+        in: query
+        name: enforcement
+        type: string
+      - description: Quota state
+        in: query
+        name: state
+        type: string
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      - description: Pagination cursor
+        in: query
+        name: cursor
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_usage.ConsumptionDecisionListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List consumption decisions
+      tags:
+      - entitlements
+  /v1/entitlements/decisions/{idempotency_key}:
+    get:
+      operationId: getConsumptionDecision
+      parameters:
+      - description: Idempotency key
+        in: path
+        name: idempotency_key
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_usage.ConsumptionDecisionResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Get consumption decision
+      tags:
+      - entitlements
   /v1/entitlements/events:
     get:
       operationId: listEntitlementEvents
@@ -2878,6 +3916,188 @@ paths:
       summary: List subject usage events
       tags:
       - subjects
+  /v1/system/reconciliation:
+    get:
+      description: Checks recent consumption decisions and active quota counters against
+        source usage without modifying data.
+      operationId: reconcileQuotaRecords
+      parameters:
+      - default: 100
+        description: Maximum decisions and active counters to inspect
+        in: query
+        maximum: 500
+        name: limit
+        type: integer
+      - default: 24
+        description: Recent decision lookback in hours
+        in: query
+        maximum: 720
+        name: lookback_hours
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_system.ReconciliationResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Reconcile quota records
+      tags:
+      - system
+  /v1/system/reconciliation/notifications:
+    get:
+      operationId: listReconciliationNotifications
+      parameters:
+      - default: 50
+        description: Maximum notification records
+        in: query
+        maximum: 200
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_system.ReconciliationNotificationListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List reconciliation notifications
+      tags:
+      - system
+  /v1/system/reconciliation/notifications/{id}/retry:
+    post:
+      operationId: retryReconciliationNotification
+      parameters:
+      - description: Notification ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Retry reconciliation notification
+      tags:
+      - system
+  /v1/system/reconciliation/repairs:
+    get:
+      operationId: listQuotaCounterRepairs
+      parameters:
+      - default: 50
+        description: Maximum audit records
+        in: query
+        maximum: 200
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_system.CounterRepairListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List quota counter repairs
+      tags:
+      - system
+    post:
+      consumes:
+      - application/json
+      description: Set dry_run=true to preview. Applying requires expected_updated_at
+        from the preview and fails if the counter changed.
+      operationId: repairQuotaCounter
+      parameters:
+      - description: Repair target and concurrency guard
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_metering_adapters_http_system.CounterRepairRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_system.CounterRepairResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Repair a quota counter
+      tags:
+      - system
+  /v1/system/reconciliation/runs:
+    get:
+      operationId: listReconciliationRuns
+      parameters:
+      - default: 50
+        description: Maximum run records
+        in: query
+        maximum: 200
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_system.ReconciliationRunListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List reconciliation runs
+      tags:
+      - system
   /v1/system/stats:
     get:
       operationId: getSystemStats
@@ -2893,6 +4113,63 @@ paths:
           schema:
             $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
       summary: Get system stats
+      tags:
+      - system
+  /v1/system/workers/dead-letters:
+    get:
+      operationId: listWorkerDeadLetters
+      parameters:
+      - default: 50
+        description: Maximum audit records
+        in: query
+        maximum: 200
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_metering_adapters_http_system.WorkerDeadLetterListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: List worker dead letters
+      tags:
+      - system
+  /v1/system/workers/dead-letters/{id}/retry:
+    post:
+      operationId: retryWorkerDeadLetter
+      parameters:
+      - description: Dead-letter ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+      summary: Retry a worker dead letter
       tags:
       - system
   /v1/usageevents:
@@ -3224,6 +4501,18 @@ paths:
           description: Conflict
           schema:
             $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "429":
+          description: Too Many Requests
+          headers:
+            Retry-After:
+              description: Seconds until ingestion capacity is available
+              type: string
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
@@ -3303,6 +4592,18 @@ paths:
             $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
         "409":
           description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
+        "429":
+          description: Too Many Requests
+          headers:
+            Retry-After:
+              description: Seconds until ingestion capacity is available
+              type: string
           schema:
             $ref: '#/definitions/github_com_ssubedir_open-spanner_internal_metering_adapters_http_internal_respond.ErrorResponse'
         "500":

@@ -1,62 +1,44 @@
-# Open Spanner Web UI
+# Open Spanner Web
 
-React dashboard for Open Spanner. The UI is built with Vite, React, TanStack Router, react-querybuilder, and local shadcn-style components.
-
-## Pages
-
-- `/overview` - system totals, subject activity, and ingestion history
-- `/meters` - create, list, edit, and delete meter definitions
-- `/usage` - create usage events and query bucketed usage with advanced filters
-
-`/` redirects to `/overview`. The Go API embeds the built UI and serves these routes from the same origin as the `/v1` API.
+The Open Spanner dashboard is a Next.js App Router application. Source files live
+under `src/`, file-based routes are defined in `src/app/`, and reusable
+shadcn-style primitives live in `src/components/ui/`.
 
 ## Development
 
-Install dependencies:
+From the repository root, start the API and then run the dashboard:
 
 ```sh
-npm install
+task run:sqlite
+task control-plane:dev
 ```
 
-Run the Vite dev server:
+The dashboard is available at
+[http://127.0.0.1:18081/overview](http://127.0.0.1:18081/overview). It proxies
+`/v1` requests to the API configured by `OPEN_SPANNER_API_PROXY_URL`.
+
+To run Next.js directly from this directory:
 
 ```sh
+npm ci
 npm run dev
 ```
 
-From the repository root, the same command is available through Task:
-
-```sh
-task admin:dev
-```
-
-The app uses relative `/v1/...` API calls. For full integration testing, run the Go API with the built UI so the dashboard and API share the same origin.
-
-## Build
-
-Build the embedded UI assets:
-
-```sh
-npm run build
-```
-
-From the repository root:
-
-```sh
-task admin:build
-```
-
-The build output is written to `internal/ui/static` for Go embedding. The build script removes stale asset files before Vite writes the new bundle.
+By default, the direct Next.js command listens on
+[http://localhost:3000](http://localhost:3000) and proxies API requests to
+`http://127.0.0.1:18080`.
 
 ## Checks
 
 ```sh
 npm run lint
+npm run typecheck
 npm run build
+npm audit
 ```
 
-## Notes
+Run the full Playwright suite from the repository root with:
 
-- Keep route paths in sync with `internal/ui/ui.go`.
-- Keep API calls in `src/api.ts` relative unless the backend serving model changes.
-- Advanced usage filtering is powered by `react-querybuilder` and maps to the `/v1/usages/search` request shape.
+```sh
+task test:e2e:web
+```

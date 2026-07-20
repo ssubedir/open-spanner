@@ -68,6 +68,26 @@ sealed class ApiKeyProvider(string apiKey) : IAccessTokenProvider
 
 Create an API key in the dashboard first and expose it to your backend process as `OPEN_SPANNER_API_KEY`.
 
+## gRPC Ingestion
+
+The same package provides single, bulk, and client-streaming usage writes:
+
+```csharp
+using OpenSpanner.Streaming;
+
+using var ingestion = new StreamClient(
+    "http://localhost:18090",
+    Environment.GetEnvironmentVariable("OPEN_SPANNER_API_KEY")!);
+
+await ingestion.TrackAsync(new Event
+{
+    IdempotencyKey = Guid.NewGuid().ToString(),
+    Subject = "org_123",
+    Meter = "api_requests",
+    Quantity = 1,
+});
+```
+
 ## Run The Full Example
 
 ```sh

@@ -13,7 +13,10 @@ import (
 
 type Service interface {
 	Create(ctx context.Context, cmd CreateCommand) (Result, error)
+	CreateIngestion(ctx context.Context, kind string, cmd CreateCommand) (Result, error)
 	CreateBulk(ctx context.Context, idempotencyKey string, commands []CreateCommand) (BulkResult, error)
+	CreateBulkIngestion(ctx context.Context, kind string, idempotencyKey string, commands []CreateCommand, initialFailures int) (BulkResult, error)
+	GetByIdempotencyKey(ctx context.Context, idempotencyKey string) (Result, error)
 	List(ctx context.Context, query ListQuery) ([]ListItemResult, error)
 	ListDimensionValues(ctx context.Context, query DimensionValueListQuery) (DimensionValueListResult, error)
 	ListBreakdown(ctx context.Context, query BreakdownListQuery) (BreakdownListResult, error)
@@ -26,10 +29,17 @@ type Service interface {
 	GetExportJob(ctx context.Context, id string) (ExportJobResult, error)
 	ListExportJobs(ctx context.Context, query ExportJobListQuery) (ExportJobListResult, error)
 	ClaimExportJob(ctx context.Context, cmd ExportJobClaimCommand) (ExportJobResult, bool, error)
+	RenewExportJobLease(ctx context.Context, cmd ExportJobRenewCommand) error
 	CompleteExportJob(ctx context.Context, cmd ExportJobCompleteCommand) (ExportJobResult, error)
 	FailExportJob(ctx context.Context, cmd ExportJobFailCommand) (ExportJobResult, error)
 	CancelExportJob(ctx context.Context, cmd ExportJobCancelCommand) (ExportJobResult, error)
 	RetryExportJob(ctx context.Context, cmd ExportJobRetryCommand) (ExportJobResult, error)
+	ListExpiredExportJobs(ctx context.Context, expiredBefore time.Time, limit int) ([]ExportJobResult, error)
+	ExpireExportJob(ctx context.Context, id string) (bool, error)
+	RecordExportCleanupRun(ctx context.Context, cmd ExportCleanupRunCommand) (ExportCleanupRunResult, error)
+	ClaimOutbox(ctx context.Context, cmd OutboxClaimCommand) (domainusage.OutboxMessage, bool, error)
+	CompleteOutbox(ctx context.Context, cmd OutboxCompleteCommand) error
+	FailOutbox(ctx context.Context, cmd OutboxFailCommand) error
 }
 
 type service struct {
@@ -37,18 +47,40 @@ type service struct {
 	usageRepo  domainusage.Repository
 	transactor apptransaction.Transactor
 	now        func() time.Time
+	limits     IngestionLimits
+	metrics    IngestionMetrics
 }
 
-func NewService(meterRepo domainmeter.Repository, usageRepo domainusage.Repository, transactor apptransaction.Transactor) Service {
+type IngestionMetrics interface {
+	RecordIngestion(ctx context.Context, kind, outcome string, count int)
+}
+
+type IngestionLimits struct {
+	MaxBatchEvents int
+	RateEvents     int
+	RateWindow     time.Duration
+	Metrics        IngestionMetrics
+}
+
+func NewService(meterRepo domainmeter.Repository, usageRepo domainusage.Repository, transactor apptransaction.Transactor, options ...IngestionLimits) Service {
 	if transactor == nil {
 		panic("usage service requires a transactor")
 	}
 
+	limits := IngestionLimits{MaxBatchEvents: MaxBulkEvents}
+	if len(options) > 0 {
+		limits = options[0]
+		if limits.MaxBatchEvents <= 0 || limits.MaxBatchEvents > MaxBulkEvents {
+			limits.MaxBatchEvents = MaxBulkEvents
+		}
+	}
 	return &service{
 		meterRepo:  meterRepo,
 		usageRepo:  usageRepo,
 		transactor: transactor,
 		now:        func() time.Time { return time.Now().UTC() },
+		limits:     limits,
+		metrics:    limits.Metrics,
 	}
 }
 

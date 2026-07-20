@@ -36,6 +36,8 @@ export type WorkspaceIsolationScenario = {
   destinationName: string
   exportID: string
   meterName: string
+  planID: string
+  planName: string
   subject: string
 }
 
@@ -157,6 +159,26 @@ export const Given = {
       timestamp: timestamp.toISOString(),
       to,
     }
+  },
+
+  async usageAcrossMultipleWindowsExists(page: Page, scenario: UsageScenario) {
+    const timestamp = new Date(Date.now() - 2 * 60 * 60_000)
+    scenario.from = toLocalDateTime(new Date(Date.now() - 3 * 60 * 60_000))
+    const response = await page.request.post('/v1/usages', {
+      data: {
+        idempotency_key: `${scenario.meterName}-earlier-window-${uniqueID()}`,
+        metadata: {
+          'region-name': 'us-east-1',
+          service: { tier: 'gold' },
+          status_code: '200',
+        },
+        meter: scenario.meterName,
+        quantity: 13,
+        subject: scenario.primarySubject,
+        timestamp: timestamp.toISOString(),
+      },
+    })
+    expect(response.status()).toBe(201)
   },
 
   async aPlanEntitlementWarningExists(page: Page): Promise<PlanEntitlementScenario> {
@@ -294,7 +316,7 @@ export const When = {
     await page.getByRole('button', { name: 'Run Query' }).click()
   },
 
-  async theUserRunsAnAdvancedUsageQuery(page: Page, scenario: UsageScenario) {
+  async theUserRunsAnAdvancedUsageQuery(page: Page, scenario: UsageScenario): Promise<string> {
     await page.goto('/usage')
     await expect(page.getByRole('heading', { name: 'Usage buckets' })).toBeVisible()
 
@@ -323,6 +345,23 @@ export const When = {
     await expect(page.getByLabel('Saved query name')).toHaveValue(queryName)
     await page.getByRole('button', { name: 'Save' }).click()
     await expectSavedUsageQuery(page, queryName)
+    await page.getByRole('button', { name: 'Run Query' }).click()
+    return queryName
+  },
+
+  async theUserReopensSavedUsageQuery(page: Page, queryName: string) {
+    await page.reload()
+    await selectControlOption(page, page.getByRole('combobox', { name: 'Saved query' }), queryName)
+    await expect(page.getByLabel('Saved query name')).toHaveValue(queryName)
+    await page.getByRole('button', { name: 'Run Query' }).click()
+  },
+
+  async theUserOpensPinnedUsageQueryFromOverview(page: Page, queryName: string) {
+    await page.goto('/overview')
+    await expect(page.getByRole('heading', { name: 'Pinned Usage Queries' })).toBeVisible()
+    await page.getByRole('button', { name: `Open ${queryName}` }).click()
+    await expect(page).toHaveURL(/\/usage$/)
+    await expect(page.getByLabel('Saved query name')).toHaveValue(queryName)
     await page.getByRole('button', { name: 'Run Query' }).click()
   },
 
@@ -587,6 +626,7 @@ export const When = {
     const apiKeyName = `workspace-sdk-${id}`
     const destinationName = `Workspace webhook ${id}`
     const alertName = `Workspace threshold ${id}`
+    const planName = `Workspace plan ${id}`
 
     const keyResponse = await page.request.post('/v1/auth/api-keys', {
       data: {
@@ -656,6 +696,26 @@ export const When = {
     expect(alertResponse.status()).toBe(201)
     const alert = await alertResponse.json() as { id: string }
 
+    const planResponse = await page.request.post('/v1/plans', {
+      data: {
+        description: 'Workspace isolation plan',
+        limits: [{
+          limit: 100,
+          meter: meterName,
+          period: 'month',
+          warning_percent: 80,
+        }],
+        name: planName,
+      },
+    })
+    expect(planResponse.status()).toBe(201)
+    const plan = await planResponse.json() as { id: string }
+
+    const assignmentResponse = await page.request.put(`/v1/plans/subjects/${encodeURIComponent(subject)}`, {
+      data: { plan_id: plan.id },
+    })
+    expect(assignmentResponse.status()).toBe(200)
+
     const exportResponse = await page.request.post('/v1/exports', {
       data: {
         format: 'csv',
@@ -680,6 +740,8 @@ export const When = {
       destinationName,
       exportID: exportJob.id,
       meterName,
+      planID: plan.id,
+      planName,
       subject,
     }
 
@@ -760,7 +822,6 @@ export const Then = {
     await expect(chart.getByLabel('Chart type')).toBeVisible()
     await expect(chart.getByLabel('Cumulative chart')).toBeVisible()
     await expect(chart.locator('canvas')).toBeVisible()
-    await expect(chart).toContainText('12')
   },
 
   async usageChartControlsAreApplied(page: Page) {
@@ -776,7 +837,10 @@ export const Then = {
     }
     await expect(chart).toContainText('Cumulative')
     await expect(chart.locator('canvas')).toBeVisible()
-    await expect(chart).toContainText('12')
+  },
+
+  async usageChartShowsTotal(page: Page, total: number) {
+    await expect(page.getByLabel('Usage chart summary')).toContainText(String(total))
   },
 
   async usageFiltersRemainReadable(page: Page) {
@@ -1091,6 +1155,14 @@ export const Then = {
     await expect(page.getByRole('heading', { name: 'SDK access' })).toBeVisible()
     await expect(page.locator('main')).not.toContainText(scenario.apiKeyName)
 
+    await page.goto('/plans')
+    await expect(page.getByRole('heading', { name: 'Plans', exact: true })).toBeVisible()
+    await expect(page.locator('main')).not.toContainText(scenario.planName)
+
+    await page.goto(`/plans/${scenario.planID}`)
+    await expect(page.getByRole('heading', { name: 'Plan not found' })).toBeVisible()
+    await expect(page.locator('main')).not.toContainText(scenario.planName)
+
     await page.goto('/overview')
     await expect(page.getByRole('heading', { name: 'Metering operations' })).toBeVisible()
     await expect(page.locator('main')).not.toContainText(scenario.subject)
@@ -1124,7 +1196,7 @@ export const Then = {
   },
 
   async workspaceOwnedAPIResourcesAreHiddenFromCurrentUser(page: Page, scenario: WorkspaceIsolationScenario) {
-    const [meters, apiKeys, alerts, destinations, subjects, events, exports] = await Promise.all([
+    const [meters, apiKeys, alerts, destinations, subjects, events, exports, plans, assignments] = await Promise.all([
       page.request.get('/v1/meters'),
       page.request.get('/v1/auth/api-keys'),
       page.request.get('/v1/alerts'),
@@ -1132,9 +1204,11 @@ export const Then = {
       page.request.get('/v1/subjects?limit=50'),
       page.request.get('/v1/usageevents?limit=50'),
       page.request.get('/v1/exports?limit=50'),
+      page.request.get('/v1/plans'),
+      page.request.get('/v1/plans/assignments'),
     ])
 
-    for (const response of [meters, apiKeys, alerts, destinations, subjects, events, exports]) {
+    for (const response of [meters, apiKeys, alerts, destinations, subjects, events, exports, plans, assignments]) {
       expect(response.status()).toBe(200)
     }
 
@@ -1145,6 +1219,8 @@ export const Then = {
     await expectListExcludes(subjects, 'subject', scenario.subject)
     await expectListExcludes(events, 'subject', scenario.subject)
     await expectListExcludes(exports, 'id', scenario.exportID)
+    await expectListExcludes(plans, 'name', scenario.planName)
+    await expectListExcludes(assignments, 'subject', scenario.subject)
 
     const usageQuery = new URLSearchParams({
       bucket_size: 'day',
@@ -1164,6 +1240,8 @@ export const Then = {
     expect(alert.status()).toBe(404)
     const exportJob = await page.request.get(`/v1/exports/${scenario.exportID}`)
     expect(exportJob.status()).toBe(404)
+    const plan = await page.request.get(`/v1/plans/${scenario.planID}`)
+    expect(plan.status()).toBe(404)
     const deleteKey = await page.request.delete(`/v1/auth/api-keys/${scenario.apiKeyID}`)
     expect(deleteKey.status()).toBe(404)
   },
@@ -1357,7 +1435,7 @@ async function waitForCompletedExportJob(api: APIRequestContext, id: string): Pr
     timeout: 20_000,
   }).toBe('completed')
 
-  return latest as ExportJobResponse
+  return latest!
 }
 
 async function waitForExportJobStatus(api: APIRequestContext, id: string, status: string): Promise<ExportJobResponse> {
@@ -1373,7 +1451,7 @@ async function waitForExportJobStatus(api: APIRequestContext, id: string, status
     timeout: 20_000,
   }).toBe(status)
 
-  return latest as ExportJobResponse
+  return latest!
 }
 
 async function expectSavedUsageQuery(page: Page, name: string) {

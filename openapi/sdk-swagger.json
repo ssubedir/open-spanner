@@ -94,6 +94,189 @@
         }
       }
     },
+    "/v1/entitlements/consume": {
+      "post": {
+        "description": "Evaluates projected quota under a subject lock. Advisory limits always accept usage; hard limits reject usage that would exceed quota. Accepted and rejected decisions are stored by idempotency key and replayed without reevaluation.",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "entitlements",
+          "usages"
+        ],
+        "summary": "Atomically consume quota",
+        "operationId": "consumeEntitlement",
+        "parameters": [
+          {
+            "description": "Consumption event",
+            "name": "request",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/EntitlementConsumeRequest"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "schema": {
+              "$ref": "#/definitions/EntitlementConsumeResponse"
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "schema": {
+              "$ref": "#/definitions/EntitlementConsumeResponse"
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/v1/entitlements/decisions": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "entitlements"
+        ],
+        "summary": "List consumption decisions",
+        "operationId": "listConsumptionDecisions",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Subject",
+            "name": "subject",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Meter",
+            "name": "meter",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "accepted or rejected",
+            "name": "outcome",
+            "in": "query"
+          },
+          {
+            "type": "boolean",
+            "description": "Evaluation failure outcome",
+            "name": "evaluation_failed",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "advisory or hard",
+            "name": "enforcement",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Quota state",
+            "name": "state",
+            "in": "query"
+          },
+          {
+            "type": "integer",
+            "description": "Page size",
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Pagination cursor",
+            "name": "cursor",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/ConsumptionDecisionListResponse"
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/v1/entitlements/decisions/{idempotency_key}": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "entitlements"
+        ],
+        "summary": "Get consumption decision",
+        "operationId": "getConsumptionDecision",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Idempotency key",
+            "name": "idempotency_key",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/ConsumptionDecision"
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/v1/entitlements/states": {
       "get": {
         "produces": [
@@ -497,6 +680,24 @@
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "413": {
+            "description": "Request Entity Too Large",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            },
+            "headers": {
+              "Retry-After": {
+                "type": "string",
+                "description": "Seconds until ingestion capacity is available"
+              }
+            }
+          },
           "500": {
             "description": "Internal Server Error",
             "schema": {
@@ -615,6 +816,24 @@
             "description": "Conflict",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "413": {
+            "description": "Request Entity Too Large",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            },
+            "headers": {
+              "Retry-After": {
+                "type": "string",
+                "description": "Seconds until ingestion capacity is available"
+              }
             }
           },
           "500": {
@@ -1029,6 +1248,12 @@
       "type": "object",
       "properties": {
         "created_at": {
+          "type": "string"
+        },
+        "enforcement": {
+          "type": "string"
+        },
+        "failure_policy": {
           "type": "string"
         },
         "id": {
@@ -1494,6 +1719,157 @@
         }
       },
       "title": "UsageCreateRequest"
+    },
+    "EntitlementConsumeRequest": {
+      "type": "object",
+      "properties": {
+        "idempotency_key": {
+          "type": "string"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "meter": {
+          "type": "string"
+        },
+        "quantity": {
+          "type": "number"
+        },
+        "subject": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        }
+      },
+      "title": "EntitlementConsumeRequest"
+    },
+    "EntitlementConsumeResponse": {
+      "type": "object",
+      "properties": {
+        "accepted": {
+          "type": "boolean"
+        },
+        "evaluation_failed": {
+          "type": "boolean"
+        },
+        "event": {
+          "$ref": "#/definitions/UsageEvent"
+        },
+        "quota": {
+          "$ref": "#/definitions/EntitlementConsumeQuota"
+        },
+        "replayed": {
+          "type": "boolean"
+        }
+      },
+      "title": "EntitlementConsumeResponse"
+    },
+    "EntitlementConsumeQuota": {
+      "type": "object",
+      "properties": {
+        "allowed": {
+          "type": "boolean"
+        },
+        "current": {
+          "type": "number"
+        },
+        "enforcement": {
+          "type": "string"
+        },
+        "failure_policy": {
+          "type": "string"
+        },
+        "from": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "message": {
+          "type": "string"
+        },
+        "meter": {
+          "type": "string"
+        },
+        "overage": {
+          "type": "number"
+        },
+        "period": {
+          "type": "string"
+        },
+        "period_reset_at": {
+          "type": "string"
+        },
+        "plan_id": {
+          "type": "string"
+        },
+        "plan_name": {
+          "type": "string"
+        },
+        "projected": {
+          "type": "number"
+        },
+        "quantity": {
+          "type": "number"
+        },
+        "remaining": {
+          "type": "number"
+        },
+        "retry_after_seconds": {
+          "type": "integer"
+        },
+        "state": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        }
+      },
+      "title": "EntitlementConsumeQuota"
+    },
+    "ConsumptionDecision": {
+      "type": "object",
+      "properties": {
+        "accepted": {
+          "type": "boolean"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "evaluation_failed": {
+          "type": "boolean"
+        },
+        "event_id": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "quota": {
+          "$ref": "#/definitions/EntitlementConsumeQuota"
+        }
+      },
+      "title": "ConsumptionDecision"
+    },
+    "ConsumptionDecisionListResponse": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ConsumptionDecision"
+          }
+        },
+        "next_cursor": {
+          "type": "string"
+        }
+      },
+      "title": "ConsumptionDecisionListResponse"
     },
     "UsageDimensionValueListResponse": {
       "type": "object",

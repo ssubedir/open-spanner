@@ -1,0 +1,40 @@
+---
+title: Observability
+description: Scrape OpenTelemetry metrics for ingestion, API, database, and worker health.
+---
+
+The API exposes OpenTelemetry metrics in Prometheus format at `GET /metrics`. The endpoint does not require dashboard or API-key authentication so a Prometheus server on the deployment network can scrape it.
+
+```yaml
+scrape_configs:
+  - job_name: open-spanner
+    static_configs:
+      - targets: ["open-spanner-api:18080"]
+```
+
+Keep `/metrics` on a trusted network or protect it at your ingress. It contains operational counts and process information, but never workspace IDs, subjects, meters, idempotency keys, or raw URL parameters.
+
+## Core Metrics
+
+| Metric prefix | Signal |
+| --- | --- |
+| `open_spanner_http_server_*` | HTTP request count and duration by method, route template, and response status. |
+| `open_spanner_grpc_server_*` | gRPC request count and duration by bounded service method and status. |
+| `open_spanner_ingestion_events_*` | Accepted, duplicate, rejected, and throttled event totals by ingestion kind. |
+| `open_spanner_operational_history_cleanup_*` | Rows removed and failed operational-history cleanup passes. |
+| `open_spanner_db_client_*` | Open, in-use, and idle SQL connections, configured pool capacity, waits, wait duration, and retryable transaction failures. |
+| `open_spanner_worker_*` | Durable heartbeat age, pending/running/failed jobs, oldest pending age, and last success or failure age. |
+| `go_*` and `process_*` | Go runtime and operating-system process metrics. |
+
+HTTP measurements use Chi route templates such as `/v1/usages/{id}`. They never use the raw request path, which prevents IDs and other high-cardinality values from creating unbounded metric series. Worker names, ingestion kinds, outcomes, protocol statuses, and database drivers are bounded internal enums.
+
+## Suggested Alerts
+
+- Alert when ingestion throttling responses or non-success gRPC statuses increase.
+- Alert when database connections in use approach the configured maximum or connection waits rise continuously.
+- Alert when exhausted Postgres transaction retries are non-zero or retry attempts rise continuously.
+- Alert when operational-history cleanup failures increase or the history worker heartbeat becomes stale.
+- Alert when a worker heartbeat age exceeds 30 seconds.
+- Alert when pending job count or oldest pending age grows without a corresponding success.
+
+The instrumentation uses the OpenTelemetry Metrics API internally. Prometheus is the first exporter; this keeps collection code independent from the monitoring backend and leaves room for an OTLP exporter without changing business logic.

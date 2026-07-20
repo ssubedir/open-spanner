@@ -19,6 +19,7 @@ type Client struct {
 	conn   *grpc.ClientConn
 	client pb.UsageServiceClient
 	apiKey string
+	retry  *RetryPolicy
 }
 
 type Option func(*clientConfig)
@@ -26,6 +27,7 @@ type Option func(*clientConfig)
 type clientConfig struct {
 	dialOptions           []grpc.DialOption
 	useDefaultCredentials bool
+	retry                 *RetryPolicy
 }
 
 type Event struct {
@@ -92,6 +94,7 @@ func NewClient(addr string, apiKey string, options ...Option) (*Client, error) {
 		conn:   conn,
 		client: pb.NewUsageServiceClient(conn),
 		apiKey: apiKey,
+		retry:  cfg.retry,
 	}, nil
 }
 
@@ -108,6 +111,15 @@ func WithTransportCredentials(creds credentials.TransportCredentials) Option {
 	}
 }
 
+// WithRetryPolicy enables retries for unary Track and TrackBulk calls.
+// Client-streaming calls are never replayed automatically.
+func WithRetryPolicy(policy RetryPolicy) Option {
+	return func(cfg *clientConfig) {
+		policy = normalizeRetryPolicy(policy)
+		cfg.retry = &policy
+	}
+}
+
 func (c *Client) Close() error {
 	return c.conn.Close()
 }
@@ -118,7 +130,10 @@ func (c *Client) Track(ctx context.Context, event Event) (RecordedEvent, error) 
 		return RecordedEvent{}, err
 	}
 
-	res, err := c.client.CreateUsage(c.authContext(ctx), &pb.CreateUsageRequest{Event: input})
+	request := &pb.CreateUsageRequest{Event: input}
+	res, err := retryUnary(ctx, c.retry, func() (*pb.CreateUsageResponse, error) {
+		return c.client.CreateUsage(c.authContext(ctx), request)
+	})
 	if err != nil {
 		return RecordedEvent{}, err
 	}
@@ -131,9 +146,12 @@ func (c *Client) TrackBulk(ctx context.Context, idempotencyKey string, events []
 		return BulkResult{}, err
 	}
 
-	res, err := c.client.CreateUsageBulk(c.authContext(ctx), &pb.CreateUsageBulkRequest{
+	request := &pb.CreateUsageBulkRequest{
 		IdempotencyKey: idempotencyKey,
 		Events:         inputs,
+	}
+	res, err := retryUnary(ctx, c.retry, func() (*pb.CreateUsageBulkResponse, error) {
+		return c.client.CreateUsageBulk(c.authContext(ctx), request)
 	})
 	if err != nil {
 		return BulkResult{}, err

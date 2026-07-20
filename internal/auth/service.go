@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -20,6 +21,7 @@ const (
 	defaultAccessTokenTTL  = 15 * time.Minute
 	defaultRefreshTokenTTL = 30 * 24 * time.Hour
 	defaultTokenBytes      = 32
+	maxAPIKeyRotationGrace = 24 * time.Hour
 	minPasswordRunes       = 8
 	accessTokenPrefix      = "osp_at_"
 	refreshTokenPrefix     = "osp_rt_"
@@ -32,6 +34,17 @@ type Repository interface {
 	SaveWorkspace(ctx context.Context, workspace Workspace) (Workspace, error)
 	SaveWorkspaceMembership(ctx context.Context, membership WorkspaceMembership) (WorkspaceMembership, error)
 	FindDefaultWorkspaceByUserID(ctx context.Context, userID string) (Workspace, error)
+	ListWorkspaceAccessByUserID(ctx context.Context, userID string) ([]WorkspaceAccess, error)
+	FindWorkspaceAccess(ctx context.Context, workspaceID string, userID string) (WorkspaceAccess, error)
+	ListWorkspaceMembers(ctx context.Context, workspaceID string) ([]WorkspaceMember, error)
+	CountWorkspaceOwners(ctx context.Context, workspaceID string) (int, error)
+	UpdateWorkspaceMembershipRole(ctx context.Context, workspaceID string, userID string, role string) error
+	DeleteWorkspaceMembership(ctx context.Context, workspaceID string, userID string) error
+	SaveWorkspaceInvitation(ctx context.Context, invitation WorkspaceInvitation) (WorkspaceInvitation, error)
+	ListWorkspaceInvitations(ctx context.Context, workspaceID string) ([]WorkspaceInvitation, error)
+	FindWorkspaceInvitationByTokenHash(ctx context.Context, tokenHash string) (WorkspaceInvitation, error)
+	AcceptWorkspaceInvitation(ctx context.Context, invitation WorkspaceInvitation, membership WorkspaceMembership, acceptedAt time.Time) error
+	RevokeWorkspaceInvitation(ctx context.Context, workspaceID string, id string, revokedAt time.Time) error
 	SaveUser(ctx context.Context, user User) (User, error)
 	FindUserByID(ctx context.Context, id string) (User, error)
 	FindUserByEmail(ctx context.Context, email string) (User, error)
@@ -40,11 +53,14 @@ type Repository interface {
 	SaveSession(ctx context.Context, session Session) (Session, error)
 	FindSessionByTokenHash(ctx context.Context, tokenHash string, kind string, now time.Time) (Session, error)
 	DeleteSessionByTokenHash(ctx context.Context, tokenHash string) error
-	SaveAPIKey(ctx context.Context, key APIKey) (APIKey, error)
+	CreateAPIKey(ctx context.Context, key APIKey, event APIKeyEvent) (APIKey, error)
 	ListAPIKeys(ctx context.Context, userID string) ([]APIKey, error)
-	FindAPIKeyByTokenHash(ctx context.Context, tokenHash string) (APIKey, error)
+	FindAPIKeyByID(ctx context.Context, userID string, id string) (APIKey, error)
+	FindAPIKeyPrincipalByTokenHash(ctx context.Context, tokenHash string) (APIKey, User, error)
 	UpdateAPIKeyLastUsed(ctx context.Context, id string, lastUsedAt time.Time) error
-	DeleteAPIKey(ctx context.Context, userID string, id string) error
+	RotateAPIKey(ctx context.Context, userID string, sourceID string, replacement APIKey, revokeAt time.Time, events []APIKeyEvent) (APIKey, error)
+	RevokeAPIKey(ctx context.Context, userID string, id string, revokedAt time.Time, event APIKeyEvent) error
+	ListAPIKeyEvents(ctx context.Context, userID string, limit int) ([]APIKeyEvent, error)
 }
 
 type User struct {
@@ -65,6 +81,34 @@ type WorkspaceMembership struct {
 	UserID      string
 	Role        string
 	CreatedAt   time.Time
+}
+
+type WorkspaceAccess struct {
+	Workspace  Workspace
+	Membership WorkspaceMembership
+}
+
+type WorkspaceMember struct {
+	WorkspaceID string
+	UserID      string
+	Email       string
+	Role        string
+	CreatedAt   time.Time
+}
+
+type WorkspaceInvitation struct {
+	ID               string
+	WorkspaceID      string
+	WorkspaceName    string
+	Email            string
+	Role             string
+	TokenHash        string
+	InvitedByUserID  string
+	ExpiresAt        time.Time
+	AcceptedAt       *time.Time
+	AcceptedByUserID string
+	RevokedAt        *time.Time
+	CreatedAt        time.Time
 }
 
 type Identity struct {
@@ -103,6 +147,19 @@ type APIKey struct {
 	LastUsedAt    *time.Time
 }
 
+type APIKeyEvent struct {
+	ID              string
+	WorkspaceID     string
+	UserID          string
+	APIKeyID        string
+	KeyName         string
+	KeyPrefix       string
+	EventType       string
+	RelatedAPIKeyID string
+	EffectiveAt     *time.Time
+	CreatedAt       time.Time
+}
+
 type CreateUserCommand struct {
 	Email    string
 	Password string
@@ -114,10 +171,11 @@ type LoginCommand struct {
 }
 
 type ExternalIdentityLoginCommand struct {
-	Provider      string
-	Subject       string
-	Email         string
-	EmailVerified bool
+	Provider             string
+	Subject              string
+	Email                string
+	EmailVerified        bool
+	RegistrationDisabled bool
 }
 
 type CreateAPIKeyCommand struct {
@@ -128,11 +186,19 @@ type CreateAPIKeyCommand struct {
 	ExpiresAt     *time.Time
 }
 
-type UserResult struct {
+type RotateAPIKeyCommand struct {
+	UserID      string
 	ID          string
-	Email       string
-	WorkspaceID string
-	CreatedAt   time.Time
+	GracePeriod time.Duration
+}
+
+type UserResult struct {
+	ID            string
+	Email         string
+	WorkspaceID   string
+	WorkspaceName string
+	Role          string
+	CreatedAt     time.Time
 }
 
 type APIKeyResult struct {
@@ -151,6 +217,17 @@ type APIKeyResult struct {
 type CreateAPIKeyResult struct {
 	APIKeyResult
 	Key string
+}
+
+type APIKeyEventResult struct {
+	ID              string
+	APIKeyID        string
+	KeyName         string
+	KeyPrefix       string
+	EventType       string
+	RelatedAPIKeyID string
+	EffectiveAt     *time.Time
+	CreatedAt       time.Time
 }
 
 type LoginResult struct {
@@ -177,6 +254,15 @@ type Service struct {
 	accessTokenTTL  time.Duration
 	refreshTokenTTL time.Duration
 	tokenBytes      int
+	apiKeyUsage     *apiKeyUsageTracker
+}
+
+const apiKeyLastUsedInterval = time.Minute
+
+type apiKeyUsageTracker struct {
+	mu          sync.Mutex
+	lastUpdates map[string]time.Time
+	lastCleanup time.Time
 }
 
 func NewService(repo Repository) Service {
@@ -186,6 +272,7 @@ func NewService(repo Repository) Service {
 		accessTokenTTL:  defaultAccessTokenTTL,
 		refreshTokenTTL: defaultRefreshTokenTTL,
 		tokenBytes:      defaultTokenBytes,
+		apiKeyUsage:     &apiKeyUsageTracker{lastUpdates: make(map[string]time.Time)},
 	}
 }
 
@@ -249,7 +336,8 @@ func (s Service) CreateAPIKey(ctx context.Context, cmd CreateAPIKeyCommand) (Cre
 		return CreateAPIKeyResult{}, err
 	}
 
-	key, err := s.repo.SaveAPIKey(ctx, APIKey{
+	now := s.now().UTC()
+	key := APIKey{
 		ID:            uuid.NewString(),
 		UserID:        userID,
 		WorkspaceID:   workspaceID,
@@ -259,8 +347,9 @@ func (s Service) CreateAPIKey(ctx context.Context, cmd CreateAPIKeyCommand) (Cre
 		Scopes:        scopes,
 		AllowedMeters: allowedMeters,
 		ExpiresAt:     expiresAt,
-		CreatedAt:     s.now().UTC(),
-	})
+		CreatedAt:     now,
+	}
+	key, err = s.repo.CreateAPIKey(ctx, key, apiKeyEvent(key, "created", "", nil, now))
 	if err != nil {
 		return CreateAPIKeyResult{}, err
 	}
@@ -286,6 +375,66 @@ func (s Service) ListAPIKeys(ctx context.Context, userID string) ([]APIKeyResult
 	results := make([]APIKeyResult, 0, len(keys))
 	for _, key := range keys {
 		results = append(results, apiKeyResult(key))
+	}
+	return results, nil
+}
+
+func (s Service) RotateAPIKey(ctx context.Context, cmd RotateAPIKeyCommand) (CreateAPIKeyResult, error) {
+	cmd.UserID = strings.TrimSpace(cmd.UserID)
+	cmd.ID = strings.TrimSpace(cmd.ID)
+	if cmd.UserID == "" || cmd.ID == "" {
+		return CreateAPIKeyResult{}, errors.Join(domain.ErrInvalidInput, errors.New("api key id is required"))
+	}
+	if cmd.GracePeriod < 0 || cmd.GracePeriod > maxAPIKeyRotationGrace {
+		return CreateAPIKeyResult{}, errors.Join(domain.ErrInvalidInput, errors.New("grace period must be between 0 and 24 hours"))
+	}
+	source, err := s.repo.FindAPIKeyByID(ctx, cmd.UserID, cmd.ID)
+	if err != nil {
+		return CreateAPIKeyResult{}, err
+	}
+	now := s.now().UTC()
+	if source.ExpiresAt != nil && !source.ExpiresAt.After(now) {
+		return CreateAPIKeyResult{}, errors.Join(domain.ErrConflict, errors.New("expired api key cannot be rotated"))
+	}
+	if source.RevokedAt != nil {
+		return CreateAPIKeyResult{}, errors.Join(domain.ErrConflict, errors.New("revoked api key cannot be rotated"))
+	}
+	token, err := newSessionToken(apiKeyPrefix, s.tokenBytes)
+	if err != nil {
+		return CreateAPIKeyResult{}, err
+	}
+	replacement := APIKey{
+		ID: uuid.NewString(), UserID: source.UserID, WorkspaceID: source.WorkspaceID, Name: source.Name,
+		TokenHash: HashToken(token), Prefix: tokenPrefix(token), Scopes: append([]string(nil), source.Scopes...),
+		AllowedMeters: append([]string(nil), source.AllowedMeters...), ExpiresAt: source.ExpiresAt, CreatedAt: now,
+	}
+	revokeAt := now.Add(cmd.GracePeriod)
+	events := []APIKeyEvent{
+		apiKeyEvent(source, "rotated", replacement.ID, &revokeAt, now),
+		apiKeyEvent(replacement, "created", source.ID, nil, now.Add(time.Nanosecond)),
+	}
+	replacement, err = s.repo.RotateAPIKey(ctx, cmd.UserID, source.ID, replacement, revokeAt, events)
+	if err != nil {
+		return CreateAPIKeyResult{}, err
+	}
+	return CreateAPIKeyResult{APIKeyResult: apiKeyResult(replacement), Key: token}, nil
+}
+
+func (s Service) ListAPIKeyEvents(ctx context.Context, userID string, limit int) ([]APIKeyEventResult, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, errors.Join(domain.ErrInvalidInput, errors.New("user id is required"))
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	events, err := s.repo.ListAPIKeyEvents(ctx, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]APIKeyEventResult, 0, len(events))
+	for _, event := range events {
+		results = append(results, APIKeyEventResult{ID: event.ID, APIKeyID: event.APIKeyID, KeyName: event.KeyName, KeyPrefix: event.KeyPrefix, EventType: event.EventType, RelatedAPIKeyID: event.RelatedAPIKeyID, EffectiveAt: event.EffectiveAt, CreatedAt: event.CreatedAt})
 	}
 	return results, nil
 }
@@ -344,6 +493,9 @@ func (s Service) LoginWithExternalIdentity(ctx context.Context, cmd ExternalIden
 		if !errors.Is(err, domain.ErrNotFound) {
 			return LoginResult{}, err
 		}
+		if cmd.RegistrationDisabled {
+			return LoginResult{}, errors.Join(domain.ErrForbidden, errors.New("registration is disabled"))
+		}
 		user, err = s.repo.SaveUser(ctx, User{
 			ID:           uuid.NewString(),
 			Email:        email,
@@ -377,6 +529,17 @@ func (s Service) createLoginResult(ctx context.Context, user User) (LoginResult,
 	if err != nil {
 		return LoginResult{}, err
 	}
+	return s.createLoginResultForWorkspace(ctx, user, workspace.ID)
+}
+
+func (s Service) createLoginResultForWorkspace(ctx context.Context, user User, workspaceID string) (LoginResult, error) {
+	access, err := s.repo.FindWorkspaceAccess(ctx, workspaceID, user.ID)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return LoginResult{}, errors.Join(domain.ErrForbidden, errors.New("workspace membership is required"))
+		}
+		return LoginResult{}, err
+	}
 
 	accessToken, err := newSessionToken(accessTokenPrefix, s.tokenBytes)
 	if err != nil {
@@ -391,7 +554,7 @@ func (s Service) createLoginResult(ctx context.Context, user User) (LoginResult,
 	accessSession, err := s.repo.SaveSession(ctx, Session{
 		ID:          uuid.NewString(),
 		UserID:      user.ID,
-		WorkspaceID: workspace.ID,
+		WorkspaceID: access.Workspace.ID,
 		TokenHash:   HashToken(accessToken),
 		Kind:        TokenKindAccess,
 		CreatedAt:   now,
@@ -403,7 +566,7 @@ func (s Service) createLoginResult(ctx context.Context, user User) (LoginResult,
 	refreshSession, err := s.repo.SaveSession(ctx, Session{
 		ID:          uuid.NewString(),
 		UserID:      user.ID,
-		WorkspaceID: workspace.ID,
+		WorkspaceID: access.Workspace.ID,
 		TokenHash:   HashToken(refreshToken),
 		Kind:        TokenKindRefresh,
 		CreatedAt:   now,
@@ -419,7 +582,7 @@ func (s Service) createLoginResult(ctx context.Context, user User) (LoginResult,
 		RefreshToken:     refreshToken,
 		RefreshExpiresAt: refreshSession.ExpiresAt,
 		TokenType:        "Bearer",
-		User:             userResult(user, workspace.ID),
+		User:             userResultWithAccess(user, access),
 	}, nil
 }
 
@@ -445,6 +608,7 @@ func (s Service) AuthenticateSessionPrincipal(ctx context.Context, token string)
 		ID:          user.ID,
 		User:        user,
 		WorkspaceID: user.WorkspaceID,
+		Role:        user.Role,
 	}, nil
 }
 
@@ -454,7 +618,7 @@ func (s Service) AuthenticateAPIKeyPrincipal(ctx context.Context, token string) 
 		return Principal{}, unauthorized()
 	}
 
-	key, err := s.repo.FindAPIKeyByTokenHash(ctx, HashToken(token))
+	key, user, err := s.repo.FindAPIKeyPrincipalByTokenHash(ctx, HashToken(token))
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return Principal{}, unauthorized()
@@ -463,36 +627,69 @@ func (s Service) AuthenticateAPIKeyPrincipal(ctx context.Context, token string) 
 	}
 
 	now := s.now().UTC()
-	if key.RevokedAt != nil {
+	if key.RevokedAt != nil && !key.RevokedAt.After(now) {
 		return Principal{}, unauthorized()
 	}
 	if key.ExpiresAt != nil && !key.ExpiresAt.After(now) {
 		return Principal{}, unauthorized()
 	}
-	if err := s.repo.UpdateAPIKeyLastUsed(ctx, key.ID, now); err != nil {
-		return Principal{}, err
+	if s.apiKeyUsage.shouldUpdate(key, now) {
+		if err := s.repo.UpdateAPIKeyLastUsed(ctx, key.ID, now); err != nil {
+			s.apiKeyUsage.release(key.ID, now)
+			return Principal{}, err
+		}
 	}
 
-	user, err := s.repo.FindUserByID(ctx, key.UserID)
+	access, err := s.repo.FindWorkspaceAccess(ctx, key.WorkspaceID, user.ID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return Principal{}, unauthorized()
 		}
 		return Principal{}, err
 	}
-
-	result := userResult(user, key.WorkspaceID)
+	result := userResultWithAccess(user, access)
 	return Principal{
 		Kind:          PrincipalKindAPIKey,
 		ID:            key.ID,
 		User:          result,
 		WorkspaceID:   key.WorkspaceID,
+		Role:          result.Role,
 		APIKeyID:      key.ID,
 		Scopes:        append([]string(nil), key.Scopes...),
 		AllowedMeters: append([]string(nil), key.AllowedMeters...),
 		ExpiresAt:     key.ExpiresAt,
 		RevokedAt:     key.RevokedAt,
 	}, nil
+}
+
+func (t *apiKeyUsageTracker) shouldUpdate(key APIKey, now time.Time) bool {
+	if key.LastUsedAt != nil && now.Sub(*key.LastUsedAt) < apiKeyLastUsedInterval {
+		return false
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if last, ok := t.lastUpdates[key.ID]; ok && now.Sub(last) < apiKeyLastUsedInterval {
+		return false
+	}
+	if t.lastCleanup.IsZero() || now.Sub(t.lastCleanup) >= apiKeyLastUsedInterval {
+		for id, updatedAt := range t.lastUpdates {
+			if now.Sub(updatedAt) >= apiKeyLastUsedInterval {
+				delete(t.lastUpdates, id)
+			}
+		}
+		t.lastCleanup = now
+	}
+	t.lastUpdates[key.ID] = now
+	return true
+}
+
+func (t *apiKeyUsageTracker) release(id string, reservedAt time.Time) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.lastUpdates[id].Equal(reservedAt) {
+		delete(t.lastUpdates, id)
+	}
 }
 
 func (s Service) RefreshSession(ctx context.Context, token string) (RefreshResult, error) {
@@ -577,7 +774,15 @@ func (s Service) authenticateToken(ctx context.Context, token string, kind strin
 		return UserResult{}, errors.Join(domain.ErrUnauthorized, errors.New("workspace is required"))
 	}
 
-	return userResult(user, workspaceID), nil
+	access, err := s.repo.FindWorkspaceAccess(ctx, workspaceID, user.ID)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return UserResult{}, unauthorized()
+		}
+		return UserResult{}, err
+	}
+
+	return userResultWithAccess(user, access), nil
 }
 
 func (s Service) DeleteSession(ctx context.Context, token string) error {
@@ -594,7 +799,12 @@ func (s Service) DeleteAPIKey(ctx context.Context, userID string, id string) err
 	if userID == "" || id == "" {
 		return errors.Join(domain.ErrInvalidInput, errors.New("api key id is required"))
 	}
-	return s.repo.DeleteAPIKey(ctx, userID, id)
+	key, err := s.repo.FindAPIKeyByID(ctx, userID, id)
+	if err != nil {
+		return err
+	}
+	now := s.now().UTC()
+	return s.repo.RevokeAPIKey(ctx, userID, id, now, apiKeyEvent(key, "revoked", "", &now, now))
 }
 
 func HashToken(token string) string {
@@ -698,6 +908,17 @@ func userResult(user User, workspaceID string) UserResult {
 	}
 }
 
+func userResultWithAccess(user User, access WorkspaceAccess) UserResult {
+	return UserResult{
+		ID:            user.ID,
+		Email:         user.Email,
+		WorkspaceID:   access.Workspace.ID,
+		WorkspaceName: access.Workspace.Name,
+		Role:          access.Membership.Role,
+		CreatedAt:     user.CreatedAt,
+	}
+}
+
 func apiKeyResult(key APIKey) APIKeyResult {
 	return APIKeyResult{
 		ID:            key.ID,
@@ -711,4 +932,8 @@ func apiKeyResult(key APIKey) APIKeyResult {
 		CreatedAt:     key.CreatedAt,
 		LastUsedAt:    key.LastUsedAt,
 	}
+}
+
+func apiKeyEvent(key APIKey, eventType string, relatedID string, effectiveAt *time.Time, createdAt time.Time) APIKeyEvent {
+	return APIKeyEvent{ID: uuid.NewString(), WorkspaceID: key.WorkspaceID, UserID: key.UserID, APIKeyID: key.ID, KeyName: key.Name, KeyPrefix: key.Prefix, EventType: eventType, RelatedAPIKeyID: relatedID, EffectiveAt: effectiveAt, CreatedAt: createdAt}
 }

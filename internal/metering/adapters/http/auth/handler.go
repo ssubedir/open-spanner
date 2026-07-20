@@ -28,30 +28,33 @@ const (
 )
 
 type Handler struct {
-	httpClient       *http.Client
-	oauthFailurePath string
-	oauthProviders   []OAuthProvider
-	oauthSuccessPath string
-	service          appauth.Service
-	verifier         idTokenVerifier
+	httpClient          *http.Client
+	oauthFailurePath    string
+	oauthProviders      []OAuthProvider
+	oauthSuccessPath    string
+	registrationEnabled bool
+	service             appauth.Service
+	verifier            idTokenVerifier
 }
 
 type HandlerOptions struct {
-	HTTPClient       *http.Client
-	OAuth            config.OAuthConfigs
-	OAuthFailurePath string
-	OAuthSuccessPath string
-	OAuthProviders   []OAuthProvider
-	Verifier         idTokenVerifier
+	HTTPClient           *http.Client
+	OAuth                config.OAuthConfigs
+	OAuthFailurePath     string
+	OAuthSuccessPath     string
+	OAuthProviders       []OAuthProvider
+	RegistrationDisabled bool
+	Verifier             idTokenVerifier
 }
 
 func NewHandler(service appauth.Service, options ...HandlerOptions) *Handler {
 	handler := &Handler{
-		httpClient:       http.DefaultClient,
-		oauthFailurePath: "/login",
-		oauthSuccessPath: "/overview",
-		service:          service,
-		verifier:         googleIDTokenVerifier{},
+		httpClient:          http.DefaultClient,
+		oauthFailurePath:    "/login",
+		oauthSuccessPath:    "/overview",
+		registrationEnabled: true,
+		service:             service,
+		verifier:            googleIDTokenVerifier{},
 	}
 	if len(options) > 0 {
 		if options[0].HTTPClient != nil {
@@ -67,6 +70,7 @@ func NewHandler(service appauth.Service, options ...HandlerOptions) *Handler {
 			handler.verifier = options[0].Verifier
 		}
 		handler.oauthProviders = oauthProviders(options[0].OAuthProviders)
+		handler.registrationEnabled = !options[0].RegistrationDisabled
 		if len(handler.oauthProviders) == 0 {
 			handler.oauthProviders = defaultOAuthProviders(
 				options[0].OAuth,
@@ -91,10 +95,15 @@ func NewHandler(service appauth.Service, options ...HandlerOptions) *Handler {
 // @Param request body CreateUserRequest true "User"
 // @Success 201 {object} UserResponse
 // @Failure 400 {object} respond.ErrorResponse
+// @Failure 403 {object} respond.ErrorResponse
 // @Failure 409 {object} respond.ErrorResponse
 // @Failure 500 {object} respond.ErrorResponse
 // @Router /v1/auth/users [post]
 func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
+	if !h.registrationEnabled {
+		respond.Error(w, http.StatusForbidden, "registration_disabled", "registration is disabled")
+		return
+	}
 	var req CreateUserRequest
 	if err := request.DecodeJSON(r.Body, &req); err != nil {
 		respond.ValidationError(w, err)
@@ -167,7 +176,7 @@ func (h *Handler) ListOAuthProviders(w http.ResponseWriter, r *http.Request) {
 			Name:    provider.Name(),
 		})
 	}
-	respond.JSON(w, http.StatusOK, OAuthProviderListResponse{Items: providers})
+	respond.JSON(w, http.StatusOK, OAuthProviderListResponse{Items: providers, RegistrationEnabled: h.registrationEnabled})
 }
 
 // StartOAuth redirects the user to an OAuth/OIDC provider.
@@ -255,10 +264,11 @@ func (h *Handler) CompleteOAuth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	session, err := h.service.LoginWithExternalIdentity(r.Context(), appauth.ExternalIdentityLoginCommand{
-		Provider:      identity.Provider,
-		Subject:       identity.Subject,
-		Email:         identity.Email,
-		EmailVerified: identity.EmailVerified,
+		Provider:             identity.Provider,
+		Subject:              identity.Subject,
+		Email:                identity.Email,
+		EmailVerified:        identity.EmailVerified,
+		RegistrationDisabled: !h.registrationEnabled,
 	})
 	if err != nil {
 		http.Redirect(w, r, h.oauthFailurePath, http.StatusFound)
@@ -319,6 +329,10 @@ func (h *Handler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 		respond.ServiceError(w, err)
 		return
 	}
+	if err := appauth.RequireWorkspaceAdmin(principal); err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
 
 	var req CreateAPIKeyRequest
 	if err := request.DecodeJSON(r.Body, &req); err != nil {
@@ -354,9 +368,85 @@ func (h *Handler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// DeleteAPIKey deletes an API key for the current user.
+// RotateAPIKey creates a replacement key and schedules revocation of the old key.
+// @Summary Rotate API key
+// @ID rotateAPIKey
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param id path string true "API key ID"
+// @Param request body RotateAPIKeyRequest true "Rotation options"
+// @Success 201 {object} APIKeyCreateResponse
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 401 {object} respond.ErrorResponse
+// @Failure 404 {object} respond.ErrorResponse
+// @Failure 409 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/auth/api-keys/{id}/rotate [post]
+func (h *Handler) RotateAPIKey(w http.ResponseWriter, r *http.Request) {
+	principal, err := h.currentPrincipal(r)
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	if err := appauth.RequireWorkspaceAdmin(principal); err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	var req RotateAPIKeyRequest
+	if err := request.DecodeJSON(r.Body, &req); err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+	if req.GracePeriodSeconds < 0 || req.GracePeriodSeconds > 86400 {
+		respond.Error(w, http.StatusBadRequest, "invalid_input", "grace_period_seconds must be between 0 and 86400")
+		return
+	}
+	ctx := appauth.WithPrincipal(r.Context(), principal)
+	key, err := h.service.RotateAPIKey(ctx, appauth.RotateAPIKeyCommand{UserID: principal.User.ID, ID: chi.URLParam(r, "id"), GracePeriod: time.Duration(req.GracePeriodSeconds) * time.Second})
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	respond.JSON(w, http.StatusCreated, APIKeyCreateResponse{APIKeyResponse: apiKeyResponse(key.APIKeyResult), Key: key.Key})
+}
+
+// ListAPIKeyEvents lists immutable API key lifecycle events.
+// @Summary List API key audit events
+// @ID listAPIKeyEvents
+// @Tags auth
+// @Produce json
+// @Success 200 {object} APIKeyEventListResponse
+// @Failure 401 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/auth/api-key-events [get]
+func (h *Handler) ListAPIKeyEvents(w http.ResponseWriter, r *http.Request) {
+	principal, err := h.currentPrincipal(r)
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	ctx := appauth.WithPrincipal(r.Context(), principal)
+	events, err := h.service.ListAPIKeyEvents(ctx, principal.User.ID, 50)
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	items := make([]APIKeyEventResponse, 0, len(events))
+	for _, event := range events {
+		var effectiveAt *string
+		if event.EffectiveAt != nil {
+			value := event.EffectiveAt.Format(time.RFC3339)
+			effectiveAt = &value
+		}
+		items = append(items, APIKeyEventResponse{ID: event.ID, APIKeyID: event.APIKeyID, KeyName: event.KeyName, KeyPrefix: event.KeyPrefix, EventType: event.EventType, RelatedAPIKeyID: event.RelatedAPIKeyID, EffectiveAt: effectiveAt, CreatedAt: event.CreatedAt.Format(time.RFC3339)})
+	}
+	respond.JSON(w, http.StatusOK, APIKeyEventListResponse{Items: items})
+}
+
+// DeleteAPIKey immediately revokes an API key for the current user.
 //
-// @Summary Delete API key
+// @Summary Revoke API key
 // @ID deleteAPIKey
 // @Tags auth
 // @Produce json
@@ -369,6 +459,10 @@ func (h *Handler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteAPIKey(w http.ResponseWriter, r *http.Request) {
 	principal, err := h.currentPrincipal(r)
 	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	if err := appauth.RequireWorkspaceAdmin(principal); err != nil {
 		respond.ServiceError(w, err)
 		return
 	}
@@ -481,13 +575,26 @@ func (h *Handler) currentPrincipal(r *http.Request) (appauth.Principal, error) {
 
 func userResponse(user appauth.UserResult) UserResponse {
 	return UserResponse{
-		ID:        user.ID,
-		Email:     user.Email,
-		CreatedAt: user.CreatedAt.Format(time.RFC3339),
+		ID:            user.ID,
+		Email:         user.Email,
+		WorkspaceID:   user.WorkspaceID,
+		WorkspaceName: user.WorkspaceName,
+		Role:          user.Role,
+		CreatedAt:     user.CreatedAt.Format(time.RFC3339),
 	}
 }
 
 func apiKeyResponse(key appauth.APIKeyResult) APIKeyResponse {
+	now := time.Now().UTC()
+	status := "active"
+	if key.ExpiresAt != nil && !key.ExpiresAt.After(now) {
+		status = "expired"
+	}
+	if key.RevokedAt != nil && !key.RevokedAt.After(now) {
+		status = "revoked"
+	} else if key.RevokedAt != nil && status == "active" {
+		status = "revoking"
+	}
 	var lastUsedAt *string
 	if key.LastUsedAt != nil {
 		formatted := key.LastUsedAt.Format(time.RFC3339)
@@ -513,6 +620,7 @@ func apiKeyResponse(key appauth.APIKeyResult) APIKeyResponse {
 		RevokedAt:     revokedAt,
 		CreatedAt:     key.CreatedAt.Format(time.RFC3339),
 		LastUsedAt:    lastUsedAt,
+		Status:        status,
 	}
 }
 
@@ -642,7 +750,7 @@ func setAuthCookie(w http.ResponseWriter, r *http.Request, name string, token st
 		Path:     "/",
 		Expires:  expiresAt,
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   requestIsSecure(r),
 		SameSite: http.SameSiteLaxMode,
 	})
 }
@@ -654,7 +762,7 @@ func setOAuthStateCookie(w http.ResponseWriter, r *http.Request, state string) {
 		Path:     "/v1/auth/oauth",
 		MaxAge:   int((10 * time.Minute).Seconds()),
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   requestIsSecure(r),
 		SameSite: http.SameSiteLaxMode,
 	})
 }
@@ -666,7 +774,7 @@ func setOAuthRedirectCookie(w http.ResponseWriter, r *http.Request, redirectURL 
 		Path:     "/v1/auth/oauth",
 		MaxAge:   int((10 * time.Minute).Seconds()),
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   requestIsSecure(r),
 		SameSite: http.SameSiteLaxMode,
 	})
 }
@@ -679,7 +787,7 @@ func clearOAuthStateCookie(w http.ResponseWriter, r *http.Request) {
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   requestIsSecure(r),
 		SameSite: http.SameSiteLaxMode,
 	})
 }
@@ -692,7 +800,7 @@ func clearOAuthRedirectCookie(w http.ResponseWriter, r *http.Request) {
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   requestIsSecure(r),
 		SameSite: http.SameSiteLaxMode,
 	})
 }
@@ -705,7 +813,15 @@ func clearAuthCookie(w http.ResponseWriter, r *http.Request, name string) {
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   requestIsSecure(r),
 		SameSite: http.SameSiteLaxMode,
 	})
+}
+
+func requestIsSecure(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	forwardedProto, _, _ := strings.Cut(r.Header.Get("X-Forwarded-Proto"), ",")
+	return strings.EqualFold(strings.TrimSpace(forwardedProto), "https")
 }

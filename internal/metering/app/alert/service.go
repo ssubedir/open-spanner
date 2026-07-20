@@ -97,11 +97,19 @@ type Repository interface {
 	SaveEvent(ctx context.Context, event Event) (Event, error)
 	FindEvents(ctx context.Context, query EventQuery) ([]Event, error)
 	SaveDelivery(ctx context.Context, delivery Delivery) (Delivery, error)
+	SaveDeliveryJob(ctx context.Context, job DeliveryJob) error
+	ClaimDeliveryJob(ctx context.Context, now time.Time, lockedUntil time.Time, maxAttempts int) (DeliveryJob, error)
+	CompleteDeliveryJob(ctx context.Context, id string, attempts int, now time.Time) error
+	RetryDeliveryJob(ctx context.Context, id string, attempts int, nextAttemptAt time.Time, maxAttempts int, lastError string, now time.Time) error
+	ListDeliveryJobs(ctx context.Context, limit int) ([]DeliveryJob, error)
+	RequeueDeliveryJob(ctx context.Context, id string, now time.Time) error
+	FindDeliveryJobStatus(ctx context.Context, id string) (string, error)
 	EnqueueEvaluationJob(ctx context.Context, ruleID string, runAfter time.Time, now time.Time) error
 	EnqueueDueEvaluationJobs(ctx context.Context, now time.Time, limit int) (int, error)
 	ClaimEvaluationJob(ctx context.Context, now time.Time, lockedUntil time.Time, maxAttempts int) (EvaluationJob, error)
-	CompleteEvaluationJob(ctx context.Context, ruleID string) error
-	RequeueEvaluationJob(ctx context.Context, ruleID string, runAfter time.Time, now time.Time) error
+	CompleteEvaluationJob(ctx context.Context, ruleID string, attempts int) error
+	RequeueEvaluationJob(ctx context.Context, ruleID string, attempts int, runAfter time.Time, now time.Time) error
+	SaveEvaluationDeadLetter(ctx context.Context, deadLetter EvaluationDeadLetter) error
 	UpdateRuleNextEvaluation(ctx context.Context, id string, nextEvaluateAt time.Time, updatedAt time.Time) error
 }
 
@@ -127,7 +135,13 @@ type Service interface {
 	ClaimEvaluationJob(ctx context.Context, cmd ClaimCommand) (EvaluationJobResult, bool, error)
 	CompleteEvaluationJob(ctx context.Context, cmd CompleteCommand) error
 	FailEvaluationJob(ctx context.Context, cmd FailCommand) error
+	DeadLetterEvaluationJob(ctx context.Context, cmd DeadLetterCommand) error
 	RecordDelivery(ctx context.Context, cmd DeliveryCommand) (DeliveryResult, error)
+	ClaimDeliveryJob(ctx context.Context, cmd ClaimCommand) (DeliveryJobResult, bool, error)
+	CompleteDeliveryJob(ctx context.Context, cmd DeliveryJobCompleteCommand) error
+	FailDeliveryJob(ctx context.Context, cmd DeliveryJobFailCommand) error
+	ListDeliveryJobs(ctx context.Context, limit int) (DeliveryJobListResult, error)
+	RequeueDeliveryJob(ctx context.Context, id string) error
 	Evaluate(ctx context.Context, cmd EvaluateCommand) (EvaluationResult, error)
 }
 
@@ -215,6 +229,21 @@ type Delivery struct {
 	Duration    time.Duration
 	AttemptedAt time.Time
 	CreatedAt   time.Time
+}
+
+type DeliveryJob struct {
+	ID            string
+	WorkspaceID   string
+	EventID       string
+	DestinationID string
+	Payload       []byte
+	Status        string
+	Attempts      int
+	NextAttemptAt time.Time
+	LastError     string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	DeliveredAt   time.Time
 }
 
 type EvaluationJob struct {
@@ -340,14 +369,30 @@ type ClaimCommand struct {
 }
 
 type CompleteCommand struct {
-	RuleID string
+	RuleID   string
+	Attempts int
 }
 
 type FailCommand struct {
 	RuleID      string
+	Attempts    int
 	RetryAfter  time.Duration
 	MaxAttempts int
 	Error       string
+}
+
+type DeadLetterCommand struct {
+	RuleID   string
+	Attempts int
+	Error    string
+}
+
+type EvaluationDeadLetter struct {
+	ID        string
+	RuleID    string
+	Attempts  int
+	Error     string
+	CreatedAt time.Time
 }
 
 type EvaluateCommand struct {
@@ -362,6 +407,20 @@ type DeliveryCommand struct {
 	Error       string
 	Duration    time.Duration
 	AttemptedAt time.Time
+}
+
+type DeliveryJobCompleteCommand struct {
+	ID       string
+	Attempts int
+	Delivery DeliveryCommand
+}
+
+type DeliveryJobFailCommand struct {
+	ID          string
+	Attempts    int
+	MaxAttempts int
+	RetryAfter  time.Duration
+	Delivery    DeliveryCommand
 }
 
 type RuleResult struct {
@@ -440,6 +499,24 @@ type DeliveryResult struct {
 	AttemptedAt time.Time
 	CreatedAt   time.Time
 }
+
+type DeliveryJobResult struct {
+	ID            string
+	WorkspaceID   string
+	EventID       string
+	DestinationID string
+	Payload       []byte
+	Status        string
+	Attempts      int
+	NextAttemptAt time.Time
+	LastError     string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	DeliveredAt   time.Time
+	Destination   *DestinationResult
+}
+
+type DeliveryJobListResult struct{ Items []DeliveryJobResult }
 
 type EventListResult struct {
 	Items      []EventResult
@@ -756,9 +833,18 @@ func (s *service) ListEvents(ctx context.Context, query EventListQuery) (EventLi
 func (s *service) EnqueueForUsageEvents(ctx context.Context, events []UsageEvent) error {
 	now := s.now()
 	seen := map[string]struct{}{}
+	eventsByMeter := make(map[string][]UsageEvent)
+	meters := make([]string, 0)
 	for _, event := range events {
+		meterName := strings.TrimSpace(event.Meter)
+		if _, ok := eventsByMeter[meterName]; !ok {
+			meters = append(meters, meterName)
+		}
+		eventsByMeter[meterName] = append(eventsByMeter[meterName], event)
+	}
+	for _, meterName := range meters {
 		rules, err := s.repo.FindRules(ctx, RuleQuery{
-			MeterName: strings.TrimSpace(event.Meter),
+			MeterName: meterName,
 			Enabled:   boolPointer(true),
 			Limit:     domainusage.MaxLimit,
 		})
@@ -770,7 +856,14 @@ func (s *service) EnqueueForUsageEvents(ctx context.Context, events []UsageEvent
 			if _, exists := seen[rule.ID]; exists {
 				continue
 			}
-			if !ruleMatchesUsageEvent(rule, event) {
+			matched := false
+			for _, event := range eventsByMeter[meterName] {
+				if ruleMatchesUsageEvent(rule, event) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
 				continue
 			}
 			seen[rule.ID] = struct{}{}
@@ -806,7 +899,10 @@ func (s *service) CompleteEvaluationJob(ctx context.Context, cmd CompleteCommand
 	if err != nil {
 		return err
 	}
-	return s.repo.CompleteEvaluationJob(ctx, id)
+	if cmd.Attempts < 1 {
+		return domain.ErrInvalidInput
+	}
+	return s.repo.CompleteEvaluationJob(ctx, id, cmd.Attempts)
 }
 
 func (s *service) FailEvaluationJob(ctx context.Context, cmd FailCommand) error {
@@ -817,8 +913,27 @@ func (s *service) FailEvaluationJob(ctx context.Context, cmd FailCommand) error 
 	if cmd.RetryAfter <= 0 {
 		cmd.RetryAfter = time.Minute
 	}
+	if cmd.Attempts < 1 {
+		return domain.ErrInvalidInput
+	}
 	now := s.now()
-	return s.repo.RequeueEvaluationJob(ctx, id, now.Add(cmd.RetryAfter), now)
+	return s.repo.RequeueEvaluationJob(ctx, id, cmd.Attempts, now.Add(cmd.RetryAfter), now)
+}
+
+func (s *service) DeadLetterEvaluationJob(ctx context.Context, cmd DeadLetterCommand) error {
+	id, err := normalizeRequired(cmd.RuleID, "alert rule id is required")
+	if err != nil {
+		return err
+	}
+	if cmd.Attempts < 1 || strings.TrimSpace(cmd.Error) == "" {
+		return domain.ErrInvalidInput
+	}
+	return s.transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
+		if err := s.repo.SaveEvaluationDeadLetter(txCtx, EvaluationDeadLetter{ID: uuid.NewString(), RuleID: id, Attempts: cmd.Attempts, Error: cmd.Error, CreatedAt: s.now()}); err != nil {
+			return err
+		}
+		return s.repo.CompleteEvaluationJob(txCtx, id, cmd.Attempts)
+	})
 }
 
 func (s *service) RecordDelivery(ctx context.Context, cmd DeliveryCommand) (DeliveryResult, error) {
@@ -1084,6 +1199,32 @@ func (s *service) saveEvaluation(ctx context.Context, rule Rule, state State, ev
 }
 
 func (s *service) saveEvaluations(ctx context.Context, rule Rule, states []State, events []Event, now time.Time) error {
+	var destination *Destination
+	if rule.DestinationID != "" {
+		value, err := s.findDestination(ctx, rule.DestinationID)
+		if err != nil {
+			return err
+		}
+		destination = &value
+	}
+	jobs := make(map[string]DeliveryJob, len(events))
+	for _, event := range events {
+		if event.Type == EventEvaluationFailed || rule.DestinationID == "" {
+			continue
+		}
+		state := primaryState(states)
+		for _, candidate := range states {
+			if candidate.GroupKey == event.GroupKey && candidate.GroupValue == event.GroupValue {
+				state = candidate
+				break
+			}
+		}
+		job, err := newDeliveryJob(event, rule, state, destination, now)
+		if err != nil {
+			return err
+		}
+		jobs[event.ID] = job
+	}
 	return s.transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
 		for _, state := range states {
 			if _, err := s.repo.SaveState(txCtx, state); err != nil {
@@ -1093,6 +1234,11 @@ func (s *service) saveEvaluations(ctx context.Context, rule Rule, states []State
 		for _, event := range events {
 			if _, err := s.repo.SaveEvent(txCtx, event); err != nil {
 				return err
+			}
+			if job, ok := jobs[event.ID]; ok {
+				if err := s.repo.SaveDeliveryJob(txCtx, job); err != nil {
+					return err
+				}
 			}
 		}
 		return s.repo.UpdateRuleNextEvaluation(txCtx, rule.ID, now.Add(rule.EvaluationInterval), now)

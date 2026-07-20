@@ -3,6 +3,16 @@ package usage
 type BulkSaveResult struct {
 	accepted   []Event
 	duplicates []Event
+	replayed   bool
+}
+
+func (r BulkSaveResult) Replayed() bool {
+	return r.replayed
+}
+
+func (r BulkSaveResult) AsReplay() BulkSaveResult {
+	r.replayed = true
+	return r
 }
 
 func NewBulkSaveResult(accepted []Event, duplicates []Event) BulkSaveResult {

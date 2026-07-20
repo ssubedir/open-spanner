@@ -3,10 +3,15 @@ title: Technical Overview
 description: How Open Spanner receives, stores, and queries usage.
 ---
 
-Open Spanner runs as a Go API process with an embedded React dashboard. It stores metering data in SQLite or Postgres, exposes REST for the dashboard and SDK control-plane operations, and exposes gRPC for trusted backend usage ingestion.
+Open Spanner runs a Next.js control-plane UI in front of a private Go API. The
+web process owns the public HTTP endpoint and proxies `/v1` requests to the API
+at runtime. The API stores metering data in SQLite or Postgres, exposes REST for
+control-plane and SDK operations, and exposes gRPC for trusted backend usage
+ingestion.
 
 Queued work is handled by separate worker binaries:
 
+- The usage worker drains the transactional usage outbox into downstream queues.
 - The export worker claims queued CSV export jobs and writes export artifacts.
 - The alert worker claims alert evaluation jobs and delivers webhook notifications.
 - The entitlement worker claims quota state jobs and records entitlement state, events, and period snapshots.
@@ -19,7 +24,8 @@ Queued work is handled by separate worker binaries:
 4. Metering handlers validate request shape and pass commands into the application layer.
 5. The domain layer applies meter, usage, plan, entitlement, alert, export, and retention rules.
 6. A storage adapter writes to or reads from SQLite or Postgres.
-7. Usage writes enqueue related alert and entitlement jobs when matching rules or plan assignments exist.
+7. Usage writes commit an outbox record atomically; the usage worker then queues
+   matching alert and entitlement work.
 
 ## Storage Model
 
@@ -43,7 +49,9 @@ For production, treat the API and workers as separate processes that share one P
 
 | Process | Main work |
 | --- | --- |
-| API | Dashboard, REST, gRPC ingestion, auth, migrations, and readiness. |
+| Web | Next.js dashboard and public REST proxy. |
+| API | REST, gRPC ingestion, auth, migrations, metrics, and readiness. |
+| Usage worker | Transactional usage outbox fanout. |
 | Export worker | CSV export jobs and artifact writes. |
 | Alert worker | Alert rule evaluation and webhook delivery. |
 | Entitlement worker | Quota state refresh, entitlement events, and period snapshots. |

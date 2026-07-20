@@ -4,6 +4,8 @@
   "pages": [
     "deployment",
     "database",
+    "observability",
+    "reconciliation",
     "environment-variables"
   ]
 }

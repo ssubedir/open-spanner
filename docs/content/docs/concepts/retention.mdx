@@ -5,7 +5,11 @@ description: How long raw usage events are kept.
 
 Meters can define `event_retention_days`. Retention controls how long raw usage events are kept for that meter.
 
-Aggregated query results are calculated from retained events. If raw events are pruned, future queries over that old window cannot use the deleted events.
+Before deleting raw events, Open Spanner atomically materializes immutable hourly rollups. Sum, count, average, minimum, maximum, first, last, and rate queries continue to combine retained rollups with live events. Metadata dimensions and subject breakdowns remain available too.
+
+Every non-dry-run retention pass records the finalized cutoff, number of source events, and number of rollup rows for each meter, including passes with no expired events. `GET /v1/system/stats` and the Overview dashboard report per-meter coverage health. The check flags missing or stale coverage, malformed rollup rows, and raw events left behind an already finalized cutoff; it never rebuilds or deletes data.
+
+Individual event browsing and event-only filters (`quantity`, event or receive time, and idempotency key) require raw data. A query that overlaps rolled-up history must use UTC hour-aligned boundaries; unsupported retained-history queries return a conflict instead of an incomplete result.
 
 ## Automatic Pruning
 
@@ -15,6 +19,22 @@ Retention pruning runs in the API process when enabled:
 OPEN_SPANNER_RETENTION_PRUNE_ENABLED=true
 OPEN_SPANNER_RETENTION_PRUNE_INTERVAL=1h
 OPEN_SPANNER_RETENTION_PRUNE_TIMEOUT=30m
+OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION=720h
 ```
 
-Choose retention based on billing, audit, and reporting needs.
+The same worker removes atomic-consumption decisions after `OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION` (30 days by default). During that window, an idempotency key always replays its original accepted or rejected response. After expiration and pruning, the same key is evaluated as a new attempt. Choose a window longer than the maximum client retry period.
+
+Choose retention based on how long individual event audit data is needed. Aggregated reporting can outlive the raw-event window.
+
+## Operational History
+
+Open Spanner independently removes terminal operational history after 30 days by default. This always-on maintenance covers ingestion audit rows, completed and expired export jobs, delivered alert and reconciliation notifications, maintenance-run history, and superseded rollup-run records. Every table is pruned in bounded batches.
+
+Active and queued work, failed exports, unresolved dead letters, raw usage events, usage aggregates, entitlement state, and quota-repair audit records are never removed by this cleanup. The newest rollup-run record for every workspace and meter is also preserved for coverage diagnostics.
+
+```sh
+OPEN_SPANNER_OPERATIONAL_HISTORY_RETENTION=720h
+OPEN_SPANNER_OPERATIONAL_HISTORY_INTERVAL=1h
+OPEN_SPANNER_OPERATIONAL_HISTORY_TIMEOUT=5m
+OPEN_SPANNER_OPERATIONAL_HISTORY_BATCH_SIZE=1000
+```

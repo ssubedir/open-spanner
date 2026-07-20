@@ -22,6 +22,22 @@ namespace OpenSpanner.Models
 #else
         public string CreatedAt { get; set; }
 #endif
+        /// <summary>The enforcement property</summary>
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
+#nullable enable
+        public string? Enforcement { get; set; }
+#nullable restore
+#else
+        public string Enforcement { get; set; }
+#endif
+        /// <summary>The failure_policy property</summary>
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
+#nullable enable
+        public string? FailurePolicy { get; set; }
+#nullable restore
+#else
+        public string FailurePolicy { get; set; }
+#endif
         /// <summary>The id property</summary>
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_1_OR_GREATER
 #nullable enable
@@ -84,6 +100,8 @@ namespace OpenSpanner.Models
             return new Dictionary<string, Action<IParseNode>>
             {
                 { "created_at", n => { CreatedAt = n.GetStringValue(); } },
+                { "enforcement", n => { Enforcement = n.GetStringValue(); } },
+                { "failure_policy", n => { FailurePolicy = n.GetStringValue(); } },
                 { "id", n => { Id = n.GetStringValue(); } },
                 { "limit", n => { Limit = n.GetDoubleValue(); } },
                 { "meter", n => { Meter = n.GetStringValue(); } },
@@ -100,6 +118,8 @@ namespace OpenSpanner.Models
         {
             if(ReferenceEquals(writer, null)) throw new ArgumentNullException(nameof(writer));
             writer.WriteStringValue("created_at", CreatedAt);
+            writer.WriteStringValue("enforcement", Enforcement);
+            writer.WriteStringValue("failure_policy", FailurePolicy);
             writer.WriteStringValue("id", Id);
             writer.WriteDoubleValue("limit", Limit);
             writer.WriteStringValue("meter", Meter);

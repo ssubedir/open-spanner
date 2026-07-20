@@ -7,6 +7,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -16,26 +18,59 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
+	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/config"
-	"github.com/ssubedir/open-spanner/internal/metering/adapters/fileexport"
+	postgresadapter "github.com/ssubedir/open-spanner/internal/metering/adapters/postgres"
 	appalert "github.com/ssubedir/open-spanner/internal/metering/app/alert"
+	appconsumption "github.com/ssubedir/open-spanner/internal/metering/app/consumption"
+	appentitlement "github.com/ssubedir/open-spanner/internal/metering/app/entitlement"
+	appsystem "github.com/ssubedir/open-spanner/internal/metering/app/system"
+	appusage "github.com/ssubedir/open-spanner/internal/metering/app/usage"
+	"github.com/ssubedir/open-spanner/internal/metering/domain"
 	alertworker "github.com/ssubedir/open-spanner/internal/metering/workers/alert"
 	entitlementworker "github.com/ssubedir/open-spanner/internal/metering/workers/entitlement"
 	exportworker "github.com/ssubedir/open-spanner/internal/metering/workers/export"
+	outboxworker "github.com/ssubedir/open-spanner/internal/metering/workers/outbox"
+	reconciliationworker "github.com/ssubedir/open-spanner/internal/metering/workers/reconciliation"
 )
+
+func drainUsageOutbox(t *testing.T, app *App) {
+	t.Helper()
+	worker := outboxworker.NewWorker(app.UsageService, app.AlertService, app.EntitlementService, outboxworker.Options{
+		PollInterval: time.Millisecond, LockTTL: time.Minute, Timeout: time.Minute,
+		RetryAfter: time.Second, MaxAttempts: 3, BatchSize: 100, Logger: t.Logf,
+	})
+	for {
+		processed, err := worker.ProcessOnce(context.Background())
+		if err != nil {
+			t.Fatalf("dispatch usage outbox: %v", err)
+		}
+		if !processed {
+			return
+		}
+	}
+}
 
 func TestIntegrationAuthGuardsSDKAndDashboardRoutes(t *testing.T) {
 	ctx := context.Background()
 	router := chi.NewRouter()
 	app, err := RegisterRoutes(ctx, router, config.Config{
-		DBDriver:   "sqlite",
-		SQLitePath: ":memory:",
-		DBPool:     config.DBPoolConfig{MaxOpenConns: 1},
+		DBDriver:            "sqlite",
+		SQLitePath:          ":memory:",
+		DBPool:              config.DBPoolConfig{MaxOpenConns: 1},
+		RegistrationEnabled: true,
 	})
 	if err != nil {
 		t.Fatalf("register routes: %v", err)
@@ -178,12 +213,311 @@ func TestIntegrationAuthGuardsSDKAndDashboardRoutes(t *testing.T) {
 	}
 }
 
+func TestIntegrationSQLiteRegistrationControl(t *testing.T) {
+	runIntegrationRegistrationControl(t, config.Config{
+		DBDriver:            "sqlite",
+		SQLitePath:          ":memory:",
+		DBPool:              config.DBPoolConfig{MaxOpenConns: 1},
+		RegistrationEnabled: false,
+	}, "sqlite")
+}
+
+func TestIntegrationPostgresRegistrationControl(t *testing.T) {
+	dsn := os.Getenv("OPEN_SPANNER_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set OPEN_SPANNER_TEST_POSTGRES_DSN to run Postgres bootstrap integration tests")
+	}
+	runIntegrationRegistrationControl(t, config.Config{
+		DBDriver:            "postgres",
+		PostgresDSN:         dsn,
+		DBPool:              config.DBPoolConfig{MaxOpenConns: 1},
+		RegistrationEnabled: false,
+	}, "postgres")
+}
+
+func runIntegrationRegistrationControl(t *testing.T, cfg config.Config, namespace string) {
+	t.Helper()
+	ctx := context.Background()
+	router := chi.NewRouter()
+	app, err := RegisterRoutes(ctx, router, cfg)
+	if err != nil {
+		t.Fatalf("register routes: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := app.Cleanup(); err != nil {
+			t.Fatalf("cleanup: %v", err)
+		}
+	})
+
+	email := "existing-registration-" + namespace + "-" + strconv.FormatInt(time.Now().UTC().UnixNano(), 36) + "@example.com"
+	if _, err := app.AuthService.CreateUser(ctx, appauth.CreateUserCommand{Email: email, Password: "strong-password"}); err != nil {
+		t.Fatalf("seed existing user: %v", err)
+	}
+
+	providers := requestJSON(t, router, http.MethodGet, "/v1/auth/providers", nil, nil)
+	if providers.Code != http.StatusOK || !strings.Contains(providers.Body.String(), `"registration_enabled":false`) {
+		t.Fatalf("providers status = %d body=%s", providers.Code, providers.Body.String())
+	}
+
+	blocked := requestJSON(t, router, http.MethodPost, "/v1/auth/users", map[string]any{
+		"email":    "blocked-" + email,
+		"password": "strong-password",
+	}, nil)
+	if blocked.Code != http.StatusForbidden || !strings.Contains(blocked.Body.String(), `"code":"registration_disabled"`) {
+		t.Fatalf("blocked registration status = %d body=%s", blocked.Code, blocked.Body.String())
+	}
+
+	login := requestJSON(t, router, http.MethodPost, "/v1/auth/sessions", map[string]any{
+		"email":    email,
+		"password": "strong-password",
+	}, nil)
+	if login.Code != http.StatusCreated {
+		t.Fatalf("existing login status = %d body=%s", login.Code, login.Body.String())
+	}
+}
+
+func TestIntegrationSQLiteAPIKeyRotation(t *testing.T) {
+	runIntegrationAPIKeyRotation(t, config.Config{DBDriver: "sqlite", SQLitePath: ":memory:", DBPool: config.DBPoolConfig{MaxOpenConns: 1}, RegistrationEnabled: true}, "sqlite")
+}
+
+func TestIntegrationPostgresAPIKeyRotation(t *testing.T) {
+	dsn := os.Getenv("OPEN_SPANNER_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set OPEN_SPANNER_TEST_POSTGRES_DSN to run Postgres bootstrap integration tests")
+	}
+	runIntegrationAPIKeyRotation(t, config.Config{DBDriver: "postgres", PostgresDSN: dsn, DBPool: config.DBPoolConfig{MaxOpenConns: 1}, RegistrationEnabled: true}, "postgres")
+}
+
+func runIntegrationAPIKeyRotation(t *testing.T, cfg config.Config, namespace string) {
+	t.Helper()
+	router := chi.NewRouter()
+	app, err := RegisterRoutes(context.Background(), router, cfg)
+	if err != nil {
+		t.Fatalf("register routes: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := app.Cleanup(); err != nil {
+			t.Fatalf("cleanup: %v", err)
+		}
+	})
+
+	suffix := namespace + "-rotation-" + strconv.FormatInt(time.Now().UTC().UnixNano(), 36)
+	identity := createTestDashboardIdentity(t, router, "rotation-"+suffix+"@example.com")
+	heartbeatAt := time.Now().UTC()
+	if err := app.SystemService.RecordWorkerHeartbeat(context.Background(), "export", "export-pod-1", heartbeatAt.Add(-time.Minute), heartbeatAt); err != nil {
+		t.Fatalf("record worker heartbeat: %v", err)
+	}
+	health := requestJSON(t, router, http.MethodGet, "/v1/system/stats", nil, identity.Cookies)
+	if health.Code != http.StatusOK || !strings.Contains(health.Body.String(), `"name":"export"`) {
+		t.Fatalf("worker health status=%d body=%s", health.Code, health.Body.String())
+	}
+	var healthStats struct {
+		WorkerHealth []struct {
+			Name            string `json:"name"`
+			ReplicaCount    int    `json:"replica_count"`
+			HealthyReplicas int    `json:"healthy_replicas"`
+			Instances       []struct {
+				InstanceID string `json:"instance_id"`
+			} `json:"instances"`
+		} `json:"worker_health"`
+	}
+	decodeJSON(t, health, &healthStats)
+	foundInstance := false
+	if len(healthStats.WorkerHealth) > 0 {
+		for _, instance := range healthStats.WorkerHealth[0].Instances {
+			foundInstance = foundInstance || instance.InstanceID == "export-pod-1"
+		}
+	}
+	if len(healthStats.WorkerHealth) == 0 || healthStats.WorkerHealth[0].Name != "export" || healthStats.WorkerHealth[0].ReplicaCount < 1 || healthStats.WorkerHealth[0].HealthyReplicas < 1 || !foundInstance {
+		t.Fatalf("worker replica response = %+v", healthStats.WorkerHealth)
+	}
+	created := requestJSON(t, router, http.MethodPost, "/v1/auth/api-keys", fullAccessAPIKeyPayload("rotating-"+suffix), identity.Cookies)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create rotating key status=%d body=%s", created.Code, created.Body.String())
+	}
+	var oldKey apiKeyCreateTestResponse
+	decodeJSON(t, created, &oldKey)
+
+	rotated := requestJSON(t, router, http.MethodPost, "/v1/auth/api-keys/"+url.PathEscape(oldKey.ID)+"/rotate", map[string]any{"grace_period_seconds": 60}, identity.Cookies)
+	if rotated.Code != http.StatusCreated {
+		t.Fatalf("rotate key status=%d body=%s", rotated.Code, rotated.Body.String())
+	}
+	var newKey apiKeyCreateTestResponse
+	decodeJSON(t, rotated, &newKey)
+	if newKey.ID == oldKey.ID || newKey.Key == "" || newKey.Name != oldKey.Name {
+		t.Fatalf("rotated key=%#v old=%#v", newKey, oldKey)
+	}
+
+	for label, token := range map[string]string{"old during grace": oldKey.Key, "replacement": newKey.Key} {
+		res := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/meters", nil, map[string]string{"Authorization": "Bearer " + token}, nil)
+		if res.Code != http.StatusOK {
+			t.Fatalf("%s status=%d body=%s", label, res.Code, res.Body.String())
+		}
+	}
+
+	revoked := requestJSON(t, router, http.MethodDelete, "/v1/auth/api-keys/"+url.PathEscape(oldKey.ID), nil, identity.Cookies)
+	if revoked.Code != http.StatusNoContent {
+		t.Fatalf("revoke old key status=%d body=%s", revoked.Code, revoked.Body.String())
+	}
+	oldAuth := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/meters", nil, map[string]string{"Authorization": "Bearer " + oldKey.Key}, nil)
+	if oldAuth.Code != http.StatusUnauthorized {
+		t.Fatalf("revoked old key status=%d body=%s", oldAuth.Code, oldAuth.Body.String())
+	}
+
+	audit := requestJSON(t, router, http.MethodGet, "/v1/auth/api-key-events", nil, identity.Cookies)
+	if audit.Code != http.StatusOK {
+		t.Fatalf("key audit status=%d body=%s", audit.Code, audit.Body.String())
+	}
+	var history struct {
+		Items []struct {
+			EventType       string `json:"event_type"`
+			APIKeyID        string `json:"api_key_id"`
+			RelatedAPIKeyID string `json:"related_api_key_id"`
+		} `json:"items"`
+	}
+	decodeJSON(t, audit, &history)
+	counts := map[string]int{}
+	for _, event := range history.Items {
+		if event.APIKeyID == oldKey.ID || event.APIKeyID == newKey.ID {
+			counts[event.EventType]++
+		}
+	}
+	if counts["created"] != 2 || counts["rotated"] != 1 || counts["revoked"] != 1 {
+		t.Fatalf("key audit history=%#v", history.Items)
+	}
+}
+
 func TestIntegrationSQLiteSDKUsageFlow(t *testing.T) {
 	runIntegrationSDKUsageFlow(t, config.Config{
-		DBDriver:   "sqlite",
-		SQLitePath: ":memory:",
-		DBPool:     config.DBPoolConfig{MaxOpenConns: 1},
+		DBDriver:            "sqlite",
+		SQLitePath:          ":memory:",
+		DBPool:              config.DBPoolConfig{MaxOpenConns: 1},
+		RegistrationEnabled: true,
 	}, "sqlite")
+}
+
+func TestIntegrationSQLiteIngestionSafetyLimits(t *testing.T) {
+	runIntegrationIngestionSafetyLimits(t, config.Config{
+		DBDriver:            "sqlite",
+		SQLitePath:          ":memory:",
+		DBPool:              config.DBPoolConfig{MaxOpenConns: 1},
+		RegistrationEnabled: true,
+	})
+}
+
+func TestIntegrationPostgresIngestionSafetyLimits(t *testing.T) {
+	dsn := os.Getenv("OPEN_SPANNER_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set OPEN_SPANNER_TEST_POSTGRES_DSN to run Postgres bootstrap integration tests")
+	}
+	runIntegrationIngestionSafetyLimits(t, config.Config{
+		DBDriver:            "postgres",
+		PostgresDSN:         dsn,
+		DBPool:              config.DBPoolConfig{MaxOpenConns: 16},
+		RegistrationEnabled: true,
+	})
+}
+
+func runIntegrationIngestionSafetyLimits(t *testing.T, cfg config.Config) {
+	t.Helper()
+	cfg.IngestionMaxBodyBytes = 512
+	cfg.IngestionMaxBulkEvents = 2
+	cfg.IngestionMaxStreamEvents = 2
+	const rateLimit = 16
+	const concurrentWriters = 32
+	cfg.IngestionRateLimitEvents = rateLimit
+	cfg.IngestionRateLimitWindow = time.Hour
+	ctx := context.Background()
+	router := chi.NewRouter()
+	app, err := RegisterRoutes(ctx, router, cfg)
+	if err != nil {
+		t.Fatalf("register routes: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := app.Cleanup(); err != nil {
+			t.Fatalf("cleanup: %v", err)
+		}
+	})
+
+	suffix := strconv.FormatInt(time.Now().UTC().UnixNano(), 36)
+	headers := map[string]string{"Authorization": "Bearer " + createTestDashboardAPIKey(t, router, "limits+"+suffix+"@example.com")}
+	meter := "limited_" + suffix
+	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name": meter, "unit": "event", "aggregation": "sum",
+	}, headers, nil)
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
+	}
+
+	bulk := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages/bulk", []map[string]any{
+		{"idempotency_key": "bulk-1-" + suffix, "subject": "org", "meter": meter, "quantity": 1},
+		{"idempotency_key": "bulk-2-" + suffix, "subject": "org", "meter": meter, "quantity": 1},
+		{"idempotency_key": "bulk-3-" + suffix, "subject": "org", "meter": meter, "quantity": 1},
+	}, headers, nil)
+	if bulk.Code != http.StatusBadRequest {
+		t.Fatalf("oversized bulk status = %d, want %d: %s", bulk.Code, http.StatusBadRequest, bulk.Body.String())
+	}
+
+	type ingestionResponse struct {
+		status     int
+		retryAfter string
+		body       string
+	}
+	responses := make(chan ingestionResponse, concurrentWriters)
+	var writers sync.WaitGroup
+	for index := 0; index < concurrentWriters; index++ {
+		writers.Add(1)
+		go func(index int) {
+			defer writers.Done()
+			usage := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages", map[string]any{
+				"idempotency_key": fmt.Sprintf("limited-%d-%s", index, suffix),
+				"subject":         "org", "meter": meter, "quantity": 1,
+			}, headers, nil)
+			responses <- ingestionResponse{status: usage.Code, retryAfter: usage.Header().Get("Retry-After"), body: usage.Body.String()}
+		}(index)
+	}
+	writers.Wait()
+	close(responses)
+	accepted, throttled := 0, 0
+	for response := range responses {
+		switch response.status {
+		case http.StatusCreated:
+			accepted++
+		case http.StatusTooManyRequests:
+			throttled++
+			if response.retryAfter == "" {
+				t.Fatalf("throttled response is missing Retry-After: %s", response.body)
+			}
+		default:
+			t.Fatalf("concurrent ingestion status = %d, want 201 or 429: %s", response.status, response.body)
+		}
+	}
+	if accepted != rateLimit || throttled != concurrentWriters-rateLimit {
+		t.Fatalf("concurrent ingestion accepted=%d throttled=%d, want %d and %d", accepted, throttled, rateLimit, concurrentWriters-rateLimit)
+	}
+
+	tooLarge := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages", map[string]any{
+		"idempotency_key": "large-" + suffix, "subject": "org", "meter": meter, "quantity": 1,
+		"metadata": map[string]any{"payload": strings.Repeat("x", 1024)},
+	}, headers, nil)
+	if tooLarge.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized body status = %d, want %d: %s", tooLarge.Code, http.StatusRequestEntityTooLarge, tooLarge.Body.String())
+	}
+
+	stats := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/system/stats", nil, headers, nil)
+	if stats.Code != http.StatusOK {
+		t.Fatalf("stats status = %d, want %d: %s", stats.Code, http.StatusOK, stats.Body.String())
+	}
+	var result struct {
+		IngestionSafety struct {
+			AcceptedEvents  int64 `json:"accepted_events"`
+			ThrottledEvents int64 `json:"throttled_events"`
+		} `json:"ingestion_safety"`
+	}
+	decodeJSON(t, stats, &result)
+	if result.IngestionSafety.AcceptedEvents != rateLimit || result.IngestionSafety.ThrottledEvents != concurrentWriters-rateLimit {
+		t.Fatalf("ingestion safety = %#v, want accepted=%d throttled=%d", result.IngestionSafety, rateLimit, concurrentWriters-rateLimit)
+	}
 }
 
 func TestIntegrationPostgresSDKUsageFlow(t *testing.T) {
@@ -193,17 +527,71 @@ func TestIntegrationPostgresSDKUsageFlow(t *testing.T) {
 	}
 
 	runIntegrationSDKUsageFlow(t, config.Config{
-		DBDriver:    "postgres",
-		PostgresDSN: dsn,
-		DBPool:      config.DBPoolConfig{MaxOpenConns: 1},
+		DBDriver:            "postgres",
+		PostgresDSN:         dsn,
+		DBPool:              config.DBPoolConfig{MaxOpenConns: 1},
+		RegistrationEnabled: true,
 	}, "postgres")
+}
+
+func TestIntegrationS3ExportUsageFlow(t *testing.T) {
+	endpoint := os.Getenv("OPEN_SPANNER_TEST_S3_ENDPOINT")
+	if endpoint == "" {
+		t.Skip("set OPEN_SPANNER_TEST_S3_ENDPOINT to run S3 export integration tests")
+	}
+	accessKey, secretKey := "minioadmin", "minioadmin"
+	bucket := createIntegrationS3Bucket(t, endpoint, accessKey, secretKey)
+	runIntegrationSDKUsageFlow(t, config.Config{
+		DBDriver: "sqlite", SQLitePath: ":memory:", DBPool: config.DBPoolConfig{MaxOpenConns: 1}, RegistrationEnabled: true,
+		ExportStorageDriver: "s3", ExportS3Bucket: bucket, ExportS3Region: "us-east-1", ExportS3Endpoint: endpoint,
+		ExportS3AccessKeyID: accessKey, ExportS3SecretAccessKey: secretKey, ExportS3Prefix: "integration", ExportS3ForcePathStyle: true,
+	}, "s3")
+}
+
+func TestIntegrationPostgresS3ExportUsageFlow(t *testing.T) {
+	endpoint := os.Getenv("OPEN_SPANNER_TEST_S3_ENDPOINT")
+	if endpoint == "" {
+		t.Skip("set OPEN_SPANNER_TEST_S3_ENDPOINT to run S3 export integration tests")
+	}
+	dsn := os.Getenv("OPEN_SPANNER_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set OPEN_SPANNER_TEST_POSTGRES_DSN to run Postgres S3 export integration tests")
+	}
+	accessKey, secretKey := "minioadmin", "minioadmin"
+	bucket := createIntegrationS3Bucket(t, endpoint, accessKey, secretKey)
+	runIntegrationSDKUsageFlow(t, config.Config{
+		DBDriver: "postgres", PostgresDSN: dsn, DBPool: config.DBPoolConfig{MaxOpenConns: 5}, RegistrationEnabled: true,
+		ExportStorageDriver: "s3", ExportS3Bucket: bucket, ExportS3Region: "us-east-1", ExportS3Endpoint: endpoint,
+		ExportS3AccessKeyID: accessKey, ExportS3SecretAccessKey: secretKey, ExportS3Prefix: "integration", ExportS3ForcePathStyle: true,
+	}, "postgres_s3")
+}
+
+func createIntegrationS3Bucket(t *testing.T, endpoint, accessKey, secretKey string) string {
+	t.Helper()
+	ctx := context.Background()
+	cfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion("us-east-1"), awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := s3.NewFromConfig(cfg, func(options *s3.Options) { options.BaseEndpoint = aws.String(endpoint); options.UsePathStyle = true })
+	bucket := "open-spanner-bootstrap-" + uuid.NewString()
+	if _, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)}); err != nil {
+		t.Fatalf("create S3 integration bucket: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := client.DeleteBucket(context.Background(), &s3.DeleteBucketInput{Bucket: aws.String(bucket)}); err != nil {
+			t.Errorf("delete S3 integration bucket: %v", err)
+		}
+	})
+	return bucket
 }
 
 func TestIntegrationSQLiteWorkspaceIsolation(t *testing.T) {
 	runIntegrationWorkspaceIsolationFlow(t, config.Config{
-		DBDriver:   "sqlite",
-		SQLitePath: ":memory:",
-		DBPool:     config.DBPoolConfig{MaxOpenConns: 1},
+		DBDriver:            "sqlite",
+		SQLitePath:          ":memory:",
+		DBPool:              config.DBPoolConfig{MaxOpenConns: 1},
+		RegistrationEnabled: true,
 	}, "sqlite")
 }
 
@@ -214,17 +602,19 @@ func TestIntegrationPostgresWorkspaceIsolation(t *testing.T) {
 	}
 
 	runIntegrationWorkspaceIsolationFlow(t, config.Config{
-		DBDriver:    "postgres",
-		PostgresDSN: dsn,
-		DBPool:      config.DBPoolConfig{MaxOpenConns: 1},
+		DBDriver:            "postgres",
+		PostgresDSN:         dsn,
+		DBPool:              config.DBPoolConfig{MaxOpenConns: 1},
+		RegistrationEnabled: true,
 	}, "postgres")
 }
 
 func TestIntegrationSQLitePlanEntitlementFlow(t *testing.T) {
 	runIntegrationPlanEntitlementFlow(t, config.Config{
-		DBDriver:   "sqlite",
-		SQLitePath: ":memory:",
-		DBPool:     config.DBPoolConfig{MaxOpenConns: 1},
+		DBDriver:            "sqlite",
+		SQLitePath:          ":memory:",
+		DBPool:              config.DBPoolConfig{MaxOpenConns: 1},
+		RegistrationEnabled: true,
 	}, "sqlite")
 }
 
@@ -235,15 +625,1419 @@ func TestIntegrationPostgresPlanEntitlementFlow(t *testing.T) {
 	}
 
 	runIntegrationPlanEntitlementFlow(t, config.Config{
-		DBDriver:    "postgres",
-		PostgresDSN: dsn,
-		DBPool:      config.DBPoolConfig{MaxOpenConns: 1},
+		DBDriver:            "postgres",
+		PostgresDSN:         dsn,
+		DBPool:              config.DBPoolConfig{MaxOpenConns: 1},
+		RegistrationEnabled: true,
 	}, "postgres")
+}
+
+func TestIntegrationSQLiteConcurrentUsageIdempotency(t *testing.T) {
+	runIntegrationConcurrentUsageIdempotency(t, config.Config{
+		DBDriver:            "sqlite",
+		SQLitePath:          t.TempDir() + "/concurrent-idempotency.db",
+		DBPool:              config.DBPoolConfig{MaxOpenConns: 8},
+		RegistrationEnabled: true,
+	}, "sqlite")
+}
+
+func TestIntegrationPostgresConcurrentUsageIdempotency(t *testing.T) {
+	dsn := os.Getenv("OPEN_SPANNER_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set OPEN_SPANNER_TEST_POSTGRES_DSN to run Postgres bootstrap integration tests")
+	}
+
+	runIntegrationConcurrentUsageIdempotency(t, config.Config{
+		DBDriver:            "postgres",
+		PostgresDSN:         dsn,
+		DBPool:              config.DBPoolConfig{MaxOpenConns: 8},
+		RegistrationEnabled: true,
+	}, "postgres")
+}
+
+func TestIntegrationPostgresTransactionDeadlockRetryExactlyOnce(t *testing.T) {
+	dsn := os.Getenv("OPEN_SPANNER_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set OPEN_SPANNER_TEST_POSTGRES_DSN to run Postgres bootstrap integration tests")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	store, err := postgresadapter.NewStore(ctx, dsn, config.DBPoolConfig{MaxOpenConns: 4})
+	if err != nil {
+		t.Fatalf("new postgres store: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("close postgres store: %v", err)
+		}
+	})
+
+	metrics := &postgresTransactionRetryRecorder{}
+	store.SetTransactionRetryMetrics(metrics)
+	table := "transaction_retry_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	if _, err := store.ExecContext(ctx, "CREATE TABLE "+table+" (operation TEXT PRIMARY KEY)"); err != nil {
+		t.Fatalf("create retry table: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := store.ExecContext(context.Background(), "DROP TABLE IF EXISTS "+table); err != nil {
+			t.Fatalf("drop retry table: %v", err)
+		}
+	})
+
+	lockBase := time.Now().UnixNano()
+	firstLocks := make(chan struct{}, 2)
+	releaseSecondLocks := make(chan struct{})
+	errs := make(chan error, 2)
+	var attempts atomic.Int32
+	run := func(operation string, firstLock, secondLock int64) {
+		errs <- store.WithinTransaction(ctx, func(txCtx context.Context) error {
+			attempt := attempts.Add(1)
+			if attempt <= 2 {
+				if _, err := store.ExecContext(txCtx, "SELECT pg_advisory_xact_lock($1)", firstLock); err != nil {
+					return err
+				}
+				select {
+				case firstLocks <- struct{}{}:
+				case <-txCtx.Done():
+					return txCtx.Err()
+				}
+				select {
+				case <-releaseSecondLocks:
+				case <-txCtx.Done():
+					return txCtx.Err()
+				}
+				if _, err := store.ExecContext(txCtx, "SELECT pg_advisory_xact_lock($1)", secondLock); err != nil {
+					return err
+				}
+			}
+			_, err := store.ExecContext(txCtx, "INSERT INTO "+table+" (operation) VALUES ($1)", operation)
+			return err
+		})
+	}
+
+	go run("first", lockBase, lockBase+1)
+	go run("second", lockBase+1, lockBase)
+	for range 2 {
+		select {
+		case <-firstLocks:
+		case <-ctx.Done():
+			t.Fatalf("wait for first advisory locks: %v", ctx.Err())
+		}
+	}
+	close(releaseSecondLocks)
+	for range 2 {
+		if err := <-errs; err != nil {
+			t.Fatalf("deadlocked transaction: %v", err)
+		}
+	}
+
+	var rows int
+	if err := store.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+table).Scan(&rows); err != nil {
+		t.Fatalf("count retry writes: %v", err)
+	}
+	if rows != 2 || attempts.Load() != 3 {
+		t.Fatalf("rows=%d attempts=%d, want 2 exactly-once writes across 3 attempts", rows, attempts.Load())
+	}
+	if metrics.retries.Load() != 1 || metrics.exhausted.Load() != 0 {
+		t.Fatalf("retry metrics retries=%d exhausted=%d", metrics.retries.Load(), metrics.exhausted.Load())
+	}
+}
+
+func TestIntegrationPostgresWorkerReplicasClaimOnceAndRecoverLease(t *testing.T) {
+	dsn := os.Getenv("OPEN_SPANNER_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set OPEN_SPANNER_TEST_POSTGRES_DSN to run Postgres worker replica integration tests")
+	}
+
+	ctx := context.Background()
+	router := chi.NewRouter()
+	app, err := RegisterRoutes(ctx, router, config.Config{
+		DBDriver: "postgres", PostgresDSN: dsn, DBPool: config.DBPoolConfig{MaxOpenConns: 8}, RegistrationEnabled: true,
+	})
+	if err != nil {
+		t.Fatalf("register routes: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := app.Cleanup(); err != nil {
+			t.Fatalf("cleanup: %v", err)
+		}
+	})
+
+	// Leave the shared integration database with no claimable export work so the
+	// contention below targets exactly one job created by this test.
+	for {
+		job, claimed, err := app.UsageService.ClaimExportJob(ctx, appusage.ExportJobClaimCommand{LockTTL: time.Minute, MaxAttempts: 100})
+		if err != nil {
+			t.Fatalf("drain existing export job: %v", err)
+		}
+		if !claimed {
+			break
+		}
+		jobCtx := appauth.WithWorkspaceID(ctx, job.WorkspaceID)
+		if _, err := app.UsageService.CompleteExportJob(jobCtx, appusage.ExportJobCompleteCommand{ID: job.ID, ClaimToken: job.ClaimToken, ArtifactPath: "integration-drain.csv"}); err != nil {
+			t.Fatalf("complete existing export job: %v", err)
+		}
+	}
+
+	suffix := strconv.FormatInt(time.Now().UTC().UnixNano(), 36)
+	identity := createTestDashboardIdentity(t, router, "replicas+"+suffix+"@example.com")
+	principal, err := app.AuthService.AuthenticateAPIKeyPrincipal(ctx, identity.APIKey)
+	if err != nil {
+		t.Fatalf("authenticate worker replica identity: %v", err)
+	}
+	workspaceCtx := appauth.WithWorkspaceID(ctx, principal.WorkspaceID)
+	for {
+		job, claimed, claimErr := app.AlertService.ClaimDeliveryJob(ctx, appalert.ClaimCommand{LockTTL: time.Minute, MaxAttempts: 100})
+		if claimErr != nil {
+			t.Fatalf("drain alert delivery job: %v", claimErr)
+		}
+		if !claimed {
+			break
+		}
+		jobCtx := appauth.WithWorkspaceID(ctx, job.WorkspaceID)
+		if err := app.AlertService.CompleteDeliveryJob(jobCtx, appalert.DeliveryJobCompleteCommand{ID: job.ID, Attempts: job.Attempts, Delivery: appalert.DeliveryCommand{EventID: job.EventID, TriggerType: "webhook", Status: "delivered", StatusCode: http.StatusNoContent}}); err != nil {
+			t.Fatalf("complete existing alert delivery job: %v", err)
+		}
+	}
+
+	// Alert evaluation leases are claimed once across replicas and an expired
+	// owner cannot complete work after another replica has reclaimed it.
+	for {
+		job, claimed, claimErr := app.AlertService.ClaimEvaluationJob(ctx, appalert.ClaimCommand{LockTTL: time.Minute, MaxAttempts: 100})
+		if claimErr != nil {
+			t.Fatalf("drain alert evaluation job: %v", claimErr)
+		}
+		if !claimed {
+			break
+		}
+		jobCtx := appauth.WithWorkspaceID(ctx, job.WorkspaceID)
+		if err := app.AlertService.CompleteEvaluationJob(jobCtx, appalert.CompleteCommand{RuleID: job.RuleID, Attempts: job.Attempts}); err != nil {
+			t.Fatalf("complete existing alert evaluation job: %v", err)
+		}
+	}
+	meterName := "replica_meter_" + suffix
+	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name": meterName, "description": "Replica claim test", "unit": "request", "aggregation": "sum", "dimensions": []any{},
+	}, identity.Headers, nil)
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create replica meter status=%d body=%s", createMeter.Code, createMeter.Body.String())
+	}
+	enabled := true
+	destination, err := app.AlertService.CreateDestination(workspaceCtx, appalert.DestinationSaveCommand{Name: "Replica webhook " + suffix, Type: "webhook", Enabled: &enabled, WebhookURL: "https://example.com/replica"})
+	if err != nil {
+		t.Fatalf("create replica alert destination: %v", err)
+	}
+	rule, err := app.AlertService.Create(workspaceCtx, appalert.SaveCommand{Name: "Replica alert " + suffix, MeterName: meterName, Enabled: &enabled, Window: time.Hour, Comparator: "gte", Threshold: 1, EvaluationInterval: time.Minute, DestinationID: destination.ID})
+	if err != nil {
+		t.Fatalf("create replica alert rule: %v", err)
+	}
+	type alertClaimResult struct {
+		job appalert.EvaluationJobResult
+		ok  bool
+		err error
+	}
+	alertStart := make(chan struct{})
+	alertClaims := make(chan alertClaimResult, 2)
+	for range 2 {
+		go func() {
+			<-alertStart
+			job, ok, claimErr := app.AlertService.ClaimEvaluationJob(ctx, appalert.ClaimCommand{LockTTL: 30 * time.Millisecond, MaxAttempts: 3})
+			alertClaims <- alertClaimResult{job: job, ok: ok, err: claimErr}
+		}()
+	}
+	close(alertStart)
+	var firstAlert appalert.EvaluationJobResult
+	alertClaimCount := 0
+	for range 2 {
+		result := <-alertClaims
+		if result.err != nil {
+			t.Fatalf("concurrent alert claim: %v", result.err)
+		}
+		if result.ok {
+			alertClaimCount++
+			firstAlert = result.job
+		}
+	}
+	if alertClaimCount != 1 || firstAlert.RuleID != rule.ID {
+		t.Fatalf("alert claims=%d job=%+v want rule=%s", alertClaimCount, firstAlert, rule.ID)
+	}
+	time.Sleep(40 * time.Millisecond)
+	recoveredAlert, ok, err := app.AlertService.ClaimEvaluationJob(ctx, appalert.ClaimCommand{LockTTL: time.Minute, MaxAttempts: 3})
+	if err != nil || !ok || recoveredAlert.RuleID != firstAlert.RuleID || recoveredAlert.Attempts != 2 {
+		t.Fatalf("recover alert lease: first=%+v recovered=%+v ok=%v err=%v", firstAlert, recoveredAlert, ok, err)
+	}
+	if err := app.AlertService.CompleteEvaluationJob(workspaceCtx, appalert.CompleteCommand{RuleID: firstAlert.RuleID, Attempts: firstAlert.Attempts}); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("stale alert completion error=%v want not found", err)
+	}
+	if err := app.AlertService.CompleteEvaluationJob(workspaceCtx, appalert.CompleteCommand{RuleID: recoveredAlert.RuleID, Attempts: recoveredAlert.Attempts}); err != nil {
+		t.Fatalf("complete recovered alert job: %v", err)
+	}
+	createAlertUsage := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/usages", map[string]any{
+		"idempotency_key": "replica-alert-" + suffix, "subject": "replica-alert-subject-" + suffix, "meter": meterName, "quantity": 2, "timestamp": time.Now().UTC().Format(time.RFC3339Nano),
+	}, identity.Headers, nil)
+	if createAlertUsage.Code != http.StatusCreated {
+		t.Fatalf("create replica alert usage status=%d body=%s", createAlertUsage.Code, createAlertUsage.Body.String())
+	}
+	evaluation, err := app.AlertService.Evaluate(workspaceCtx, appalert.EvaluateCommand{RuleID: rule.ID})
+	if err != nil || evaluation.Event == nil {
+		t.Fatalf("evaluate replica alert: evaluation=%+v err=%v", evaluation, err)
+	}
+	type deliveryClaimResult struct {
+		job appalert.DeliveryJobResult
+		ok  bool
+		err error
+	}
+	deliveryStart := make(chan struct{})
+	deliveryClaims := make(chan deliveryClaimResult, 2)
+	for range 2 {
+		go func() {
+			<-deliveryStart
+			job, ok, claimErr := app.AlertService.ClaimDeliveryJob(ctx, appalert.ClaimCommand{LockTTL: 30 * time.Millisecond, MaxAttempts: 3})
+			deliveryClaims <- deliveryClaimResult{job: job, ok: ok, err: claimErr}
+		}()
+	}
+	close(deliveryStart)
+	var firstDelivery appalert.DeliveryJobResult
+	deliveryClaimCount := 0
+	for range 2 {
+		result := <-deliveryClaims
+		if result.err != nil {
+			t.Fatalf("concurrent alert delivery claim: %v", result.err)
+		}
+		if result.ok {
+			deliveryClaimCount++
+			firstDelivery = result.job
+		}
+	}
+	if deliveryClaimCount != 1 || firstDelivery.EventID != evaluation.Event.ID {
+		t.Fatalf("delivery claims=%d job=%+v want event=%s", deliveryClaimCount, firstDelivery, evaluation.Event.ID)
+	}
+	time.Sleep(40 * time.Millisecond)
+	recoveredDelivery, ok, err := app.AlertService.ClaimDeliveryJob(ctx, appalert.ClaimCommand{LockTTL: time.Minute, MaxAttempts: 3})
+	if err != nil || !ok || recoveredDelivery.ID != firstDelivery.ID || recoveredDelivery.Attempts != 2 {
+		t.Fatalf("recover alert delivery lease: first=%+v recovered=%+v ok=%v err=%v", firstDelivery, recoveredDelivery, ok, err)
+	}
+	delivered := appalert.DeliveryCommand{EventID: recoveredDelivery.EventID, TriggerType: "webhook", Status: "delivered", StatusCode: http.StatusNoContent}
+	if err := app.AlertService.CompleteDeliveryJob(workspaceCtx, appalert.DeliveryJobCompleteCommand{ID: firstDelivery.ID, Attempts: firstDelivery.Attempts, Delivery: delivered}); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("stale alert delivery completion error=%v want not found", err)
+	}
+	if err := app.AlertService.CompleteDeliveryJob(workspaceCtx, appalert.DeliveryJobCompleteCommand{ID: recoveredDelivery.ID, Attempts: recoveredDelivery.Attempts, Delivery: delivered}); err != nil {
+		t.Fatalf("complete recovered alert delivery job: %v", err)
+	}
+
+	// Entitlement checks use the same attempt fence.
+	for {
+		job, claimed, claimErr := app.EntitlementService.ClaimCheckJob(ctx, appentitlement.ClaimCommand{LockTTL: time.Minute, MaxAttempts: 100})
+		if claimErr != nil {
+			t.Fatalf("drain entitlement job: %v", claimErr)
+		}
+		if !claimed {
+			break
+		}
+		jobCtx := appauth.WithWorkspaceID(ctx, job.Job.WorkspaceID)
+		if err := app.EntitlementService.CompleteCheckJob(jobCtx, appentitlement.CompleteCommand{Subject: job.Job.Subject, Meter: job.Job.MeterName, Attempts: job.Job.Attempts}); err != nil {
+			t.Fatalf("complete existing entitlement job: %v", err)
+		}
+	}
+	entitlementSubject := "replica_subject_" + suffix
+	if err := app.EntitlementService.EnqueueForUsageEvents(workspaceCtx, []appentitlement.UsageEvent{{Subject: entitlementSubject, Meter: meterName, Quantity: 1}}); err != nil {
+		t.Fatalf("enqueue replica entitlement job: %v", err)
+	}
+	type entitlementClaimResult struct {
+		job appentitlement.CheckJobResult
+		ok  bool
+		err error
+	}
+	entitlementStart := make(chan struct{})
+	entitlementClaims := make(chan entitlementClaimResult, 2)
+	for range 2 {
+		go func() {
+			<-entitlementStart
+			job, ok, claimErr := app.EntitlementService.ClaimCheckJob(ctx, appentitlement.ClaimCommand{LockTTL: 30 * time.Millisecond, MaxAttempts: 3})
+			entitlementClaims <- entitlementClaimResult{job: job, ok: ok, err: claimErr}
+		}()
+	}
+	close(entitlementStart)
+	var firstEntitlement appentitlement.CheckJobResult
+	entitlementClaimCount := 0
+	for range 2 {
+		result := <-entitlementClaims
+		if result.err != nil {
+			t.Fatalf("concurrent entitlement claim: %v", result.err)
+		}
+		if result.ok {
+			entitlementClaimCount++
+			firstEntitlement = result.job
+		}
+	}
+	if entitlementClaimCount != 1 || firstEntitlement.Job.Subject != entitlementSubject {
+		t.Fatalf("entitlement claims=%d job=%+v", entitlementClaimCount, firstEntitlement)
+	}
+	time.Sleep(40 * time.Millisecond)
+	recoveredEntitlement, ok, err := app.EntitlementService.ClaimCheckJob(ctx, appentitlement.ClaimCommand{LockTTL: time.Minute, MaxAttempts: 3})
+	if err != nil || !ok || recoveredEntitlement.Job.Subject != entitlementSubject || recoveredEntitlement.Job.Attempts != 2 {
+		t.Fatalf("recover entitlement lease: first=%+v recovered=%+v ok=%v err=%v", firstEntitlement, recoveredEntitlement, ok, err)
+	}
+	if err := app.EntitlementService.CompleteCheckJob(workspaceCtx, appentitlement.CompleteCommand{Subject: firstEntitlement.Job.Subject, Meter: firstEntitlement.Job.MeterName, Attempts: firstEntitlement.Job.Attempts}); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("stale entitlement completion error=%v want not found", err)
+	}
+	if err := app.EntitlementService.CompleteCheckJob(workspaceCtx, appentitlement.CompleteCommand{Subject: recoveredEntitlement.Job.Subject, Meter: recoveredEntitlement.Job.MeterName, Attempts: recoveredEntitlement.Job.Attempts}); err != nil {
+		t.Fatalf("complete recovered entitlement job: %v", err)
+	}
+
+	// Named maintenance leases serialize singleton pruning across API replicas.
+	type maintenanceClaimResult struct {
+		lease appsystem.MaintenanceLease
+		ok    bool
+		err   error
+	}
+	maintenanceStart := make(chan struct{})
+	maintenanceClaims := make(chan maintenanceClaimResult, 2)
+	maintenanceNow := time.Now().UTC()
+	for range 2 {
+		go func() {
+			<-maintenanceStart
+			lease, ok, claimErr := app.SystemService.ClaimMaintenanceLease(ctx, "replica-maintenance-"+suffix, maintenanceNow, maintenanceNow.Add(100*time.Millisecond))
+			maintenanceClaims <- maintenanceClaimResult{lease: lease, ok: ok, err: claimErr}
+		}()
+	}
+	close(maintenanceStart)
+	var firstMaintenance appsystem.MaintenanceLease
+	maintenanceClaimCount := 0
+	for range 2 {
+		result := <-maintenanceClaims
+		if result.err != nil {
+			t.Fatalf("concurrent maintenance claim: %v", result.err)
+		}
+		if result.ok {
+			maintenanceClaimCount++
+			firstMaintenance = result.lease
+		}
+	}
+	if maintenanceClaimCount != 1 {
+		t.Fatalf("maintenance claims=%d want 1", maintenanceClaimCount)
+	}
+	time.Sleep(150 * time.Millisecond)
+	recoveredMaintenance, ok, err := app.SystemService.ClaimMaintenanceLease(ctx, "replica-maintenance-"+suffix, time.Now().UTC(), time.Now().UTC().Add(time.Minute))
+	if err != nil || !ok || recoveredMaintenance.ClaimToken == firstMaintenance.ClaimToken {
+		t.Fatalf("recover maintenance lease: first=%+v recovered=%+v ok=%v err=%v", firstMaintenance, recoveredMaintenance, ok, err)
+	}
+	if err := app.SystemService.ReleaseMaintenanceLease(ctx, firstMaintenance); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("stale maintenance release error=%v want not found", err)
+	}
+	if err := app.SystemService.ReleaseMaintenanceLease(ctx, recoveredMaintenance); err != nil {
+		t.Fatalf("release recovered maintenance lease: %v", err)
+	}
+
+	// Reconciliation schedule claims carry a unique token, so a timed-out scan
+	// cannot commit after another replica takes over.
+	controlStore, err := postgresadapter.NewStore(ctx, dsn, config.DBPoolConfig{MaxOpenConns: 2})
+	if err != nil {
+		t.Fatalf("open reconciliation control store: %v", err)
+	}
+	defer controlStore.Close()
+	if _, err := controlStore.ExecContext(ctx, "INSERT INTO reconciliation_schedules (workspace_id, next_run_at, updated_at) SELECT id, $1, $1 FROM auth_workspaces ON CONFLICT (workspace_id) DO UPDATE SET next_run_at = EXCLUDED.next_run_at, locked_until = NULL, claim_token = NULL, updated_at = EXCLUDED.updated_at", time.Now().UTC().Add(time.Hour)); err != nil {
+		t.Fatalf("park reconciliation schedules: %v", err)
+	}
+	if _, err := controlStore.ExecContext(ctx, "INSERT INTO reconciliation_schedules (workspace_id, next_run_at, updated_at) VALUES ($1, $2, $2) ON CONFLICT (workspace_id) DO UPDATE SET next_run_at = EXCLUDED.next_run_at, locked_until = NULL, claim_token = NULL, updated_at = EXCLUDED.updated_at", principal.WorkspaceID, time.Now().UTC().Add(-time.Minute)); err != nil {
+		t.Fatalf("prepare reconciliation schedule: %v", err)
+	}
+	type reconciliationClaimResult struct {
+		claim appsystem.ReconciliationClaim
+		ok    bool
+		err   error
+	}
+	reconciliationStart := make(chan struct{})
+	reconciliationClaims := make(chan reconciliationClaimResult, 2)
+	for range 2 {
+		go func() {
+			<-reconciliationStart
+			now := time.Now().UTC()
+			claim, ok, claimErr := app.SystemService.ClaimScheduledReconciliation(ctx, now, now.Add(100*time.Millisecond))
+			reconciliationClaims <- reconciliationClaimResult{claim: claim, ok: ok, err: claimErr}
+		}()
+	}
+	close(reconciliationStart)
+	var firstReconciliation appsystem.ReconciliationClaim
+	reconciliationClaimCount := 0
+	for range 2 {
+		result := <-reconciliationClaims
+		if result.err != nil {
+			t.Fatalf("concurrent reconciliation claim: %v", result.err)
+		}
+		if result.ok {
+			reconciliationClaimCount++
+			firstReconciliation = result.claim
+		}
+	}
+	if reconciliationClaimCount != 1 || firstReconciliation.WorkspaceID != principal.WorkspaceID || firstReconciliation.ClaimToken == "" {
+		t.Fatalf("reconciliation claims=%d claim=%+v", reconciliationClaimCount, firstReconciliation)
+	}
+	time.Sleep(150 * time.Millisecond)
+	reconciliationNow := time.Now().UTC()
+	recoveredReconciliation, ok, err := app.SystemService.ClaimScheduledReconciliation(ctx, reconciliationNow, reconciliationNow.Add(time.Minute))
+	if err != nil || !ok || recoveredReconciliation.WorkspaceID != firstReconciliation.WorkspaceID || recoveredReconciliation.ClaimToken == firstReconciliation.ClaimToken {
+		t.Fatalf("recover reconciliation lease: first=%+v recovered=%+v ok=%v err=%v", firstReconciliation, recoveredReconciliation, ok, err)
+	}
+	if err := app.systemRepo.CompleteReconciliationSchedule(ctx, firstReconciliation, "", reconciliationNow.Add(time.Hour)); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("stale reconciliation completion error=%v want not found", err)
+	}
+	if err := app.systemRepo.CompleteReconciliationSchedule(ctx, recoveredReconciliation, "", reconciliationNow.Add(time.Hour)); err != nil {
+		t.Fatalf("complete recovered reconciliation schedule: %v", err)
+	}
+	if _, err := controlStore.ExecContext(ctx, "UPDATE reconciliation_schedules SET next_run_at = $1, locked_until = NULL, claim_token = NULL", time.Now().UTC()); err != nil {
+		t.Fatalf("restore reconciliation schedules: %v", err)
+	}
+	for {
+		notification, claimed, claimErr := app.SystemService.ClaimReconciliationNotification(ctx, time.Now().UTC(), time.Now().UTC().Add(time.Minute))
+		if claimErr != nil {
+			t.Fatalf("drain reconciliation notification: %v", claimErr)
+		}
+		if !claimed {
+			break
+		}
+		if err := app.SystemService.CompleteReconciliationNotification(ctx, notification); err != nil {
+			t.Fatalf("complete existing reconciliation notification: %v", err)
+		}
+	}
+	notificationNow := time.Now().UTC()
+	targetNotification := appsystem.ReconciliationNotification{ID: uuid.Must(uuid.NewV7()).String(), WorkspaceID: principal.WorkspaceID, EventType: "scan_failed", Fingerprint: "replica-notification-" + suffix, Run: appsystem.ReconciliationRun{ID: uuid.Must(uuid.NewV7()).String(), Status: "failed", CreatedAt: notificationNow}, NextAttemptAt: notificationNow, CreatedAt: notificationNow}
+	if err := app.systemRepo.SaveReconciliationNotification(ctx, targetNotification); err != nil {
+		t.Fatalf("save replica reconciliation notification: %v", err)
+	}
+	type notificationClaimResult struct {
+		notification appsystem.ReconciliationNotification
+		ok           bool
+		err          error
+	}
+	notificationStart := make(chan struct{})
+	notificationClaims := make(chan notificationClaimResult, 2)
+	for range 2 {
+		go func() {
+			<-notificationStart
+			now := time.Now().UTC()
+			notification, ok, claimErr := app.SystemService.ClaimReconciliationNotification(ctx, now, now.Add(100*time.Millisecond))
+			notificationClaims <- notificationClaimResult{notification: notification, ok: ok, err: claimErr}
+		}()
+	}
+	close(notificationStart)
+	var firstNotification appsystem.ReconciliationNotification
+	notificationClaimCount := 0
+	for range 2 {
+		result := <-notificationClaims
+		if result.err != nil {
+			t.Fatalf("concurrent reconciliation notification claim: %v", result.err)
+		}
+		if result.ok {
+			notificationClaimCount++
+			firstNotification = result.notification
+		}
+	}
+	if notificationClaimCount != 1 || firstNotification.ID != targetNotification.ID || firstNotification.ClaimToken == "" {
+		t.Fatalf("reconciliation notification claims=%d notification=%+v", notificationClaimCount, firstNotification)
+	}
+	time.Sleep(150 * time.Millisecond)
+	notificationRecoveryNow := time.Now().UTC()
+	recoveredNotification, ok, err := app.SystemService.ClaimReconciliationNotification(ctx, notificationRecoveryNow, notificationRecoveryNow.Add(time.Minute))
+	if err != nil || !ok || recoveredNotification.ID != firstNotification.ID || recoveredNotification.ClaimToken == firstNotification.ClaimToken {
+		t.Fatalf("recover reconciliation notification: first=%+v recovered=%+v ok=%v err=%v", firstNotification, recoveredNotification, ok, err)
+	}
+	if err := app.SystemService.CompleteReconciliationNotification(ctx, firstNotification); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("stale reconciliation notification completion error=%v want not found", err)
+	}
+	if err := app.SystemService.CompleteReconciliationNotification(ctx, recoveredNotification); err != nil {
+		t.Fatalf("complete recovered reconciliation notification: %v", err)
+	}
+
+	queued, err := app.UsageService.CreateExportJob(workspaceCtx, appusage.ExportJobCreateCommand{Kind: "usage_buckets", Format: "csv", QueryJSON: `{}`})
+	if err != nil {
+		t.Fatalf("create replica contention export: %v", err)
+	}
+
+	type claimResult struct {
+		job     appusage.ExportJobResult
+		claimed bool
+		err     error
+	}
+	start := make(chan struct{})
+	claims := make(chan claimResult, 2)
+	for range 2 {
+		go func() {
+			<-start
+			job, claimed, err := app.UsageService.ClaimExportJob(ctx, appusage.ExportJobClaimCommand{LockTTL: 100 * time.Millisecond, MaxAttempts: 3})
+			claims <- claimResult{job: job, claimed: claimed, err: err}
+		}()
+	}
+	close(start)
+
+	claimed := make([]appusage.ExportJobResult, 0, 1)
+	for range 2 {
+		result := <-claims
+		if result.err != nil {
+			t.Fatalf("concurrent replica claim: %v", result.err)
+		}
+		if result.claimed {
+			claimed = append(claimed, result.job)
+		}
+	}
+	if len(claimed) != 1 || claimed[0].ID != queued.ID {
+		t.Fatalf("concurrent replica claims = %+v, want exactly export %s", claimed, queued.ID)
+	}
+
+	if err := app.UsageService.RenewExportJobLease(workspaceCtx, appusage.ExportJobRenewCommand{ID: claimed[0].ID, ClaimToken: claimed[0].ClaimToken, LockTTL: 300 * time.Millisecond}); err != nil {
+		t.Fatalf("renew claimed export lease: %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if unexpected, ok, err := app.UsageService.ClaimExportJob(ctx, appusage.ExportJobClaimCommand{LockTTL: time.Minute, MaxAttempts: 3}); err != nil || ok {
+		t.Fatalf("renewed export was reclaimable: job=%+v claimed=%v err=%v", unexpected, ok, err)
+	}
+
+	// Once the owner stops renewing, another replica can recover the job.
+	time.Sleep(250 * time.Millisecond)
+	recovered, ok, err := app.UsageService.ClaimExportJob(ctx, appusage.ExportJobClaimCommand{LockTTL: time.Minute, MaxAttempts: 3})
+	if err != nil || !ok {
+		t.Fatalf("recover abandoned export lease: job=%+v claimed=%v err=%v", recovered, ok, err)
+	}
+	if recovered.ID != queued.ID || recovered.ClaimToken == claimed[0].ClaimToken || recovered.Attempts != 2 {
+		t.Fatalf("recovered export = %+v, first claim = %+v", recovered, claimed[0])
+	}
+	if _, err := app.UsageService.CompleteExportJob(workspaceCtx, appusage.ExportJobCompleteCommand{ID: recovered.ID, ClaimToken: recovered.ClaimToken, ArtifactPath: "replica-recovered.csv"}); err != nil {
+		t.Fatalf("complete recovered export: %v", err)
+	}
+
+	now := time.Now().UTC()
+	t.Cleanup(func() {
+		for _, instanceID := range []string{"export-pod-1", "export-pod-2"} {
+			if err := app.SystemService.RemoveWorkerHeartbeat(context.Background(), "export", instanceID); err != nil {
+				t.Errorf("remove %s heartbeat: %v", instanceID, err)
+			}
+		}
+	})
+	if err := app.SystemService.RecordWorkerHeartbeat(ctx, "export", "export-pod-1", now.Add(-time.Hour), now); err != nil {
+		t.Fatalf("record healthy replica heartbeat: %v", err)
+	}
+	if err := app.SystemService.RecordWorkerHeartbeat(ctx, "export", "export-pod-2", now.Add(-time.Hour), now.Add(-time.Minute)); err != nil {
+		t.Fatalf("record stale replica heartbeat: %v", err)
+	}
+	stats, err := app.SystemService.Stats(workspaceCtx)
+	if err != nil {
+		t.Fatalf("read replica worker health: %v", err)
+	}
+	if len(stats.WorkerHealth) == 0 || stats.WorkerHealth[0].Status != "degraded" || stats.WorkerHealth[0].ReplicaCount != 2 || stats.WorkerHealth[0].HealthyReplicas != 1 || stats.WorkerHealth[0].StaleReplicas != 1 {
+		t.Fatalf("export replica health = %+v", stats.WorkerHealth)
+	}
+}
+
+type postgresTransactionRetryRecorder struct {
+	retries   atomic.Int32
+	exhausted atomic.Int32
+}
+
+func (r *postgresTransactionRetryRecorder) RecordTransactionRetry(context.Context, string) {
+	r.retries.Add(1)
+}
+
+func (r *postgresTransactionRetryRecorder) RecordTransactionRetryExhausted(context.Context, string) {
+	r.exhausted.Add(1)
+}
+
+func TestIntegrationSQLiteAtomicConsumption(t *testing.T) {
+	runIntegrationAtomicConsumption(t, config.Config{
+		DBDriver: "sqlite", SQLitePath: t.TempDir() + "/atomic-consumption.db", RegistrationEnabled: true,
+		DBPool: config.DBPoolConfig{MaxOpenConns: 8},
+	}, "sqlite")
+}
+
+func TestIntegrationPostgresAtomicConsumption(t *testing.T) {
+	dsn := os.Getenv("OPEN_SPANNER_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set OPEN_SPANNER_TEST_POSTGRES_DSN to run Postgres bootstrap integration tests")
+	}
+	runIntegrationAtomicConsumption(t, config.Config{
+		DBDriver: "postgres", PostgresDSN: dsn, DBPool: config.DBPoolConfig{MaxOpenConns: 8}, RegistrationEnabled: true,
+	}, "postgres")
+}
+
+func runIntegrationAtomicConsumption(t *testing.T, cfg config.Config, namespace string) {
+	t.Helper()
+	ctx := context.Background()
+	router := chi.NewRouter()
+	app, err := RegisterRoutes(ctx, router, cfg)
+	if err != nil {
+		t.Fatalf("register routes: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := app.Cleanup(); err != nil {
+			t.Fatalf("cleanup: %v", err)
+		}
+	})
+
+	suffix := namespace + "_consume_" + strconv.FormatInt(time.Now().UTC().UnixNano(), 36)
+	identity := createTestDashboardIdentity(t, router, "consume+"+suffix+"@example.com")
+	meterName := "consume_requests_" + suffix
+	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name": meterName, "unit": "request", "aggregation": "sum", "dimensions": []any{},
+	}, identity.Headers, nil)
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create consume meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
+	}
+
+	createAssignedPlan := func(subject, enforcement string, limit int) {
+		t.Helper()
+		planRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/plans", map[string]any{
+			"name": enforcement + " " + suffix + " " + subject,
+			"limits": []map[string]any{{
+				"meter": meterName, "period": "month", "limit": limit, "warning_percent": 80,
+				"enforcement": enforcement, "failure_policy": "fail_open",
+			}},
+		}, identity.Headers, nil)
+		if planRes.Code != http.StatusCreated {
+			t.Fatalf("create %s plan status = %d, want %d: %s", enforcement, planRes.Code, http.StatusCreated, planRes.Body.String())
+		}
+		var plan planTestResponse
+		decodeJSON(t, planRes, &plan)
+		if len(plan.Limits) != 1 || plan.Limits[0].Enforcement != enforcement || plan.Limits[0].FailurePolicy != "fail_open" {
+			t.Fatalf("created %s plan limit = %#v", enforcement, plan.Limits)
+		}
+		assignRes := requestJSONWithHeaders(t, router, http.MethodPut, "/v1/plans/subjects/"+url.PathEscape(subject), map[string]any{
+			"plan_id": plan.ID,
+		}, identity.Headers, nil)
+		if assignRes.Code != http.StatusOK {
+			t.Fatalf("assign %s plan status = %d, want %d: %s", enforcement, assignRes.Code, http.StatusOK, assignRes.Body.String())
+		}
+	}
+
+	hardSubject := "hard_" + suffix
+	advisorySubject := "advisory_" + suffix
+	createAssignedPlan(hardSubject, "hard", 10)
+	createAssignedPlan(advisorySubject, "advisory", 3)
+
+	type consumeResult struct {
+		status int
+		body   string
+		key    string
+		value  consumeTestResponse
+	}
+	runConcurrent := func(subject, keyPrefix string, count int, sharedKey ...bool) []consumeResult {
+		t.Helper()
+		results := make(chan consumeResult, count)
+		start := make(chan struct{})
+		var ready sync.WaitGroup
+		ready.Add(count)
+		for index := range count {
+			go func() {
+				ready.Done()
+				<-start
+				key := keyPrefix + strconv.Itoa(index)
+				if len(sharedKey) > 0 && sharedKey[0] {
+					key = keyPrefix
+				}
+				payload, marshalErr := json.Marshal(map[string]any{
+					"idempotency_key": key,
+					"subject":         subject, "meter": meterName, "quantity": 1, "metadata": map[string]any{},
+				})
+				if marshalErr != nil {
+					results <- consumeResult{body: marshalErr.Error()}
+					return
+				}
+				req := httptest.NewRequest(http.MethodPost, "/v1/entitlements/consume", bytes.NewReader(payload))
+				req.Header.Set("Content-Type", "application/json")
+				for key, value := range identity.Headers {
+					req.Header.Set(key, value)
+				}
+				res := httptest.NewRecorder()
+				router.ServeHTTP(res, req)
+				body := res.Body.String()
+				var value consumeTestResponse
+				_ = json.Unmarshal([]byte(body), &value)
+				results <- consumeResult{status: res.Code, body: body, key: key, value: value}
+			}()
+		}
+		ready.Wait()
+		close(start)
+		collected := make([]consumeResult, 0, count)
+		for range count {
+			collected = append(collected, <-results)
+		}
+		return collected
+	}
+
+	hardResults := runConcurrent(hardSubject, "hard-consume-"+suffix+"-", 20)
+	hardAccepted, hardRejected := 0, 0
+	acceptedKey := ""
+	acceptedPeriodStart := ""
+	rejectedKey := ""
+	var rejectedDecision consumeTestResponse
+	for _, result := range hardResults {
+		switch result.status {
+		case http.StatusCreated:
+			hardAccepted++
+			if !result.value.Accepted || result.value.Quota.Enforcement != "hard" {
+				t.Errorf("hard accepted response = %s", result.body)
+			}
+			if acceptedKey == "" && result.value.Event != nil {
+				acceptedKey = result.value.Event.IdempotencyKey
+				acceptedPeriodStart = result.value.Quota.From
+			}
+		case http.StatusTooManyRequests:
+			hardRejected++
+			if result.value.Accepted || result.value.Quota.State != "exceeded" {
+				t.Errorf("hard rejected response = %s", result.body)
+			}
+			if rejectedKey == "" {
+				rejectedKey = result.key
+				rejectedDecision = result.value
+			}
+		default:
+			t.Errorf("hard consume status = %d, want 201 or 429: %s", result.status, result.body)
+		}
+	}
+	if hardAccepted != 10 || hardRejected != 10 {
+		t.Fatalf("hard consume accepted/rejected = %d/%d, want 10/10", hardAccepted, hardRejected)
+	}
+	if acceptedKey == "" {
+		t.Fatal("hard consumption returned no accepted idempotency key")
+	}
+	if acceptedPeriodStart == "" {
+		t.Fatal("hard consumption returned no quota period start")
+	}
+	if rejectedKey == "" {
+		t.Fatal("hard consumption returned no rejected idempotency key")
+	}
+	replayRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/entitlements/consume", map[string]any{
+		"idempotency_key": acceptedKey, "subject": hardSubject, "meter": meterName, "quantity": 1,
+	}, identity.Headers, nil)
+	if replayRes.Code != http.StatusCreated {
+		t.Fatalf("hard replay status = %d, want %d: %s", replayRes.Code, http.StatusCreated, replayRes.Body.String())
+	}
+	var replay consumeTestResponse
+	decodeJSON(t, replayRes, &replay)
+	if !replay.Accepted || !replay.Replayed || replay.Event == nil || replay.Event.IdempotencyKey != acceptedKey {
+		t.Fatalf("hard replay response = %#v", replay)
+	}
+	rejectedReplayRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/entitlements/consume", map[string]any{
+		"idempotency_key": rejectedKey, "subject": hardSubject, "meter": meterName, "quantity": 99,
+	}, identity.Headers, nil)
+	if rejectedReplayRes.Code != http.StatusTooManyRequests {
+		t.Fatalf("hard rejected replay status = %d, want %d: %s", rejectedReplayRes.Code, http.StatusTooManyRequests, rejectedReplayRes.Body.String())
+	}
+	var rejectedReplay consumeTestResponse
+	decodeJSON(t, rejectedReplayRes, &rejectedReplay)
+	if rejectedReplay.Accepted || !rejectedReplay.Replayed || rejectedReplay.Event != nil {
+		t.Fatalf("hard rejected replay response = %#v", rejectedReplay)
+	}
+	if rejectedReplay.Quota.Current != rejectedDecision.Quota.Current ||
+		rejectedReplay.Quota.Projected != rejectedDecision.Quota.Projected ||
+		rejectedReplay.Quota.Limit != rejectedDecision.Quota.Limit {
+		t.Fatalf("hard rejected replay quota = %#v, want original %#v", rejectedReplay.Quota, rejectedDecision.Quota)
+	}
+	sharedRejected := runConcurrent(hardSubject, "hard-shared-rejection-"+suffix, 8, true)
+	sharedOriginals, sharedReplays := 0, 0
+	for _, result := range sharedRejected {
+		if result.status != http.StatusTooManyRequests || result.value.Accepted {
+			t.Fatalf("shared rejected decision status = %d: %s", result.status, result.body)
+		}
+		if result.value.Replayed {
+			sharedReplays++
+		} else {
+			sharedOriginals++
+		}
+	}
+	if sharedOriginals != 1 || sharedReplays != 7 {
+		t.Fatalf("shared rejected originals/replays = %d/%d, want 1/7", sharedOriginals, sharedReplays)
+	}
+
+	advisoryResults := runConcurrent(advisorySubject, "advisory-consume-"+suffix+"-", 5)
+	advisoryExceeded := false
+	for _, result := range advisoryResults {
+		if result.status != http.StatusCreated || !result.value.Accepted {
+			t.Errorf("advisory consume status = %d, want accepted: %s", result.status, result.body)
+		}
+		if result.value.Quota.State == "exceeded" {
+			advisoryExceeded = true
+		}
+	}
+	if !advisoryExceeded {
+		t.Fatal("advisory consumption never reported exceeded quota")
+	}
+
+	auditPageRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/entitlements/decisions?limit=5", nil, identity.Headers, nil)
+	if auditPageRes.Code != http.StatusOK {
+		t.Fatalf("decision audit page status = %d: %s", auditPageRes.Code, auditPageRes.Body.String())
+	}
+	var auditPage struct {
+		Items []struct {
+			IdempotencyKey string `json:"idempotency_key"`
+			Accepted       bool   `json:"accepted"`
+			EventID        string `json:"event_id"`
+			Quota          struct {
+				Subject string `json:"subject"`
+				Meter   string `json:"meter"`
+			} `json:"quota"`
+		} `json:"items"`
+		NextCursor string `json:"next_cursor"`
+	}
+	decodeJSON(t, auditPageRes, &auditPage)
+	if len(auditPage.Items) != 5 || auditPage.NextCursor == "" {
+		t.Fatalf("decision audit page = %#v", auditPage)
+	}
+	for _, item := range auditPage.Items {
+		if item.IdempotencyKey == "" || item.Quota.Meter != meterName || item.Quota.Subject == "" {
+			t.Fatalf("unsafe or incomplete decision audit item = %#v", item)
+		}
+	}
+	rejectedAuditRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/entitlements/decisions?outcome=rejected&subject="+url.QueryEscape(hardSubject)+"&meter="+url.QueryEscape(meterName), nil, identity.Headers, nil)
+	if rejectedAuditRes.Code != http.StatusOK {
+		t.Fatalf("rejected decision audit status = %d: %s", rejectedAuditRes.Code, rejectedAuditRes.Body.String())
+	}
+	var rejectedAudit struct {
+		Items []struct {
+			Accepted bool   `json:"accepted"`
+			EventID  string `json:"event_id"`
+		} `json:"items"`
+	}
+	decodeJSON(t, rejectedAuditRes, &rejectedAudit)
+	if len(rejectedAudit.Items) != 11 {
+		t.Fatalf("rejected decision audit count = %d, want 11", len(rejectedAudit.Items))
+	}
+	for _, item := range rejectedAudit.Items {
+		if item.Accepted || item.EventID != "" {
+			t.Fatalf("rejected audit item = %#v", item)
+		}
+	}
+	detailRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/entitlements/decisions/"+url.PathEscape(acceptedKey), nil, identity.Headers, nil)
+	if detailRes.Code != http.StatusOK {
+		t.Fatalf("decision detail status = %d: %s", detailRes.Code, detailRes.Body.String())
+	}
+	if strings.Contains(detailRes.Body.String(), "metadata") {
+		t.Fatalf("decision detail exposed metadata: %s", detailRes.Body.String())
+	}
+	reconciliationRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/system/reconciliation?limit=100&lookback_hours=24", nil, identity.Headers, nil)
+	if reconciliationRes.Code != http.StatusOK {
+		t.Fatalf("quota reconciliation status = %d: %s", reconciliationRes.Code, reconciliationRes.Body.String())
+	}
+	var reconciliation struct {
+		Status           string `json:"status"`
+		DecisionsChecked int    `json:"decisions_checked"`
+		CountersChecked  int    `json:"counters_checked"`
+		Issues           []any  `json:"issues"`
+		Truncated        bool   `json:"truncated"`
+	}
+	decodeJSON(t, reconciliationRes, &reconciliation)
+	if reconciliation.Status != "healthy" || reconciliation.DecisionsChecked == 0 || reconciliation.CountersChecked == 0 || len(reconciliation.Issues) != 0 || reconciliation.Truncated {
+		t.Fatalf("quota reconciliation = %#v body=%s", reconciliation, reconciliationRes.Body.String())
+	}
+	monitor := reconciliationworker.NewWorker(app.SystemService, reconciliationworker.Options{
+		LockTTL: time.Minute, ScheduleInterval: 15 * time.Minute, RetryAfter: time.Minute,
+		Limit: 100, LookbackHours: 24, Logger: func(string, ...any) {},
+	})
+	processed := false
+	for range 100 {
+		var err error
+		processed, err = monitor.ProcessOnce(ctx)
+		if err != nil {
+			t.Fatalf("scheduled reconciliation err=%v", err)
+		}
+		if !processed {
+			break
+		}
+	}
+	if processed {
+		t.Fatal("scheduled reconciliation did not drain due workspaces")
+	}
+	runsRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/system/reconciliation/runs?limit=10", nil, identity.Headers, nil)
+	if runsRes.Code != http.StatusOK {
+		t.Fatalf("scheduled reconciliation runs status = %d: %s", runsRes.Code, runsRes.Body.String())
+	}
+	var scheduledRuns struct {
+		Items []struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		} `json:"items"`
+	}
+	decodeJSON(t, runsRes, &scheduledRuns)
+	if len(scheduledRuns.Items) != 1 || scheduledRuns.Items[0].ID == "" || scheduledRuns.Items[0].Status != "healthy" {
+		t.Fatalf("scheduled reconciliation runs = %#v", scheduledRuns)
+	}
+	processed, err = monitor.ProcessOnce(ctx)
+	if err != nil || processed {
+		t.Fatalf("duplicate scheduled reconciliation processed=%v err=%v", processed, err)
+	}
+	failure := errors.New("forced reconciliation failure")
+	future := time.Now().UTC().Add(time.Hour)
+	monitoringPrincipal, err := app.AuthService.AuthenticateAPIKeyPrincipal(ctx, identity.APIKey)
+	if err != nil {
+		t.Fatalf("authenticate reconciliation context: %v", err)
+	}
+	claimTarget := func(at time.Time) appsystem.ReconciliationClaim {
+		t.Helper()
+		for range 100 {
+			claim, ok, claimErr := app.SystemService.ClaimScheduledReconciliation(ctx, at, at.Add(time.Minute))
+			if claimErr != nil || !ok {
+				t.Fatalf("claim target reconciliation workspace ok=%v err=%v", ok, claimErr)
+			}
+			if claim.WorkspaceID == monitoringPrincipal.WorkspaceID {
+				return claim
+			}
+			if _, _, runErr := app.SystemService.RunScheduledReconciliation(ctx, claim, 2*time.Hour, appsystem.ReconciliationQuery{Limit: 100, LookbackHours: 24}); runErr != nil {
+				t.Fatalf("advance other reconciliation workspace: %v", runErr)
+			}
+		}
+		t.Fatal("target reconciliation workspace was not claimed")
+		return appsystem.ReconciliationClaim{}
+	}
+	failureClaim := claimTarget(future)
+	if err := app.SystemService.FailScheduledReconciliation(ctx, failureClaim, future.Add(2*time.Minute), failure); err != nil {
+		t.Fatalf("save forced reconciliation failure: %v", err)
+	}
+	monitoringCtx := appauth.WithPrincipal(ctx, monitoringPrincipal)
+	targetNotifications, err := app.SystemService.ListReconciliationNotifications(monitoringCtx, 10)
+	if err != nil || len(targetNotifications) != 1 {
+		t.Fatalf("target reconciliation notifications = %#v err=%v", targetNotifications, err)
+	}
+	targetNotificationID := targetNotifications[0].ID
+	var deliveredType string
+	var deliveredNotificationID string
+	webhook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Type           string `json:"type"`
+			NotificationID string `json:"notification_id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+		deliveredType = payload.Type
+		deliveredNotificationID = payload.NotificationID
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer webhook.Close()
+	deliveryWorker := reconciliationworker.NewWorker(app.SystemService, reconciliationworker.Options{LockTTL: time.Minute, RetryAfter: time.Second, MaxAttempts: 3, Notifier: reconciliationworker.NewWebhookNotifier(webhook.URL, "", webhook.Client()), Logger: func(string, ...any) {}})
+	delivered := false
+	for range 100 {
+		delivered, err = deliveryWorker.ProcessDeliveryOnce(ctx)
+		if err != nil || !delivered || deliveredNotificationID == targetNotificationID {
+			break
+		}
+	}
+	if err != nil || !delivered || deliveredNotificationID != targetNotificationID || deliveredType != "reconciliation.scan_failed" {
+		t.Fatalf("failure notification delivered=%v type=%q err=%v", delivered, deliveredType, err)
+	}
+
+	secondClaim := claimTarget(future.Add(3 * time.Minute))
+	if err := app.SystemService.FailScheduledReconciliation(ctx, secondClaim, future.Add(5*time.Minute), failure); err != nil {
+		t.Fatalf("save duplicate reconciliation failure: %v", err)
+	}
+	notificationRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/system/reconciliation/notifications?limit=10", nil, identity.Headers, nil)
+	if notificationRes.Code != http.StatusOK {
+		t.Fatalf("reconciliation notifications status = %d: %s", notificationRes.Code, notificationRes.Body.String())
+	}
+	var notifications struct {
+		Items []struct {
+			Status         string `json:"status"`
+			Attempts       int    `json:"attempts"`
+			TotalAttempts  int    `json:"total_attempts"`
+			AttemptHistory []struct {
+				Status string `json:"status"`
+			} `json:"attempt_history"`
+		} `json:"items"`
+	}
+	decodeJSON(t, notificationRes, &notifications)
+	if len(notifications.Items) != 1 || notifications.Items[0].Status != "delivered" || notifications.Items[0].Attempts != 1 || notifications.Items[0].TotalAttempts != 1 || len(notifications.Items[0].AttemptHistory) != 1 || notifications.Items[0].AttemptHistory[0].Status != "delivered" {
+		t.Fatalf("reconciliation notifications = %#v", notifications)
+	}
+
+	recoveryClaim := claimTarget(future.Add(6 * time.Minute))
+	if _, _, err := app.SystemService.RunScheduledReconciliation(ctx, recoveryClaim, 15*time.Minute, appsystem.ReconciliationQuery{Limit: 100, LookbackHours: 24}); err != nil {
+		t.Fatalf("run reconciliation recovery: %v", err)
+	}
+	recurrenceAt := future.Add(30 * time.Minute)
+	recurrenceClaim := claimTarget(recurrenceAt)
+	if err := app.SystemService.FailScheduledReconciliation(ctx, recurrenceClaim, recurrenceAt.Add(2*time.Minute), failure); err != nil {
+		t.Fatalf("save recurring reconciliation failure: %v", err)
+	}
+	deadLetter, ok, err := app.SystemService.ClaimReconciliationNotification(ctx, recurrenceAt.Add(time.Minute), recurrenceAt.Add(2*time.Minute))
+	if err != nil || !ok {
+		t.Fatalf("claim recurring notification ok=%v err=%v", ok, err)
+	}
+	if err := app.SystemService.RetryReconciliationNotification(ctx, deadLetter, recurrenceAt.Add(2*time.Minute), 1, errors.New("webhook unavailable")); err != nil {
+		t.Fatalf("dead-letter recurring notification: %v", err)
+	}
+	notificationRes = requestJSONWithHeaders(t, router, http.MethodGet, "/v1/system/reconciliation/notifications?limit=10", nil, identity.Headers, nil)
+	decodeJSON(t, notificationRes, &notifications)
+	if len(notifications.Items) != 2 || notifications.Items[0].Status != "dead_letter" || notifications.Items[0].Attempts != 1 {
+		t.Fatalf("reconciliation recurrence notifications = %#v", notifications)
+	}
+	requeueRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/system/reconciliation/notifications/"+url.PathEscape(deadLetter.ID)+"/retry", nil, identity.Headers, nil)
+	if requeueRes.Code != http.StatusNoContent {
+		t.Fatalf("requeue reconciliation notification status = %d: %s", requeueRes.Code, requeueRes.Body.String())
+	}
+	deliveredNotificationID = ""
+	for range 100 {
+		delivered, err = deliveryWorker.ProcessDeliveryOnce(ctx)
+		if err != nil || !delivered || deliveredNotificationID == deadLetter.ID {
+			break
+		}
+	}
+	if err != nil || !delivered || deliveredNotificationID != deadLetter.ID {
+		t.Fatalf("redeliver reconciliation notification delivered=%v err=%v", delivered, err)
+	}
+	notificationRes = requestJSONWithHeaders(t, router, http.MethodGet, "/v1/system/reconciliation/notifications?limit=10", nil, identity.Headers, nil)
+	decodeJSON(t, notificationRes, &notifications)
+	if len(notifications.Items) != 2 || notifications.Items[0].Status != "delivered" || notifications.Items[0].TotalAttempts != 2 || len(notifications.Items[0].AttemptHistory) != 2 || notifications.Items[0].AttemptHistory[0].Status != "failed" || notifications.Items[0].AttemptHistory[1].Status != "delivered" {
+		t.Fatalf("requeued reconciliation attempt history = %#v", notifications.Items[0])
+	}
+	finalRecoveryClaim := claimTarget(recurrenceAt.Add(3 * time.Minute))
+	if _, _, err := app.SystemService.RunScheduledReconciliation(ctx, finalRecoveryClaim, 15*time.Minute, appsystem.ReconciliationQuery{Limit: 100, LookbackHours: 24}); err != nil {
+		t.Fatalf("run final reconciliation recovery: %v", err)
+	}
+	previewRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/system/reconciliation/repairs", map[string]any{
+		"subject": hardSubject, "meter": meterName, "period": "month", "period_start": acceptedPeriodStart, "dry_run": true,
+	}, identity.Headers, nil)
+	if previewRes.Code != http.StatusOK {
+		t.Fatalf("quota repair preview status = %d: %s", previewRes.Code, previewRes.Body.String())
+	}
+	var preview struct {
+		ID               string `json:"id"`
+		DryRun           bool   `json:"dry_run"`
+		Applied          bool   `json:"applied"`
+		CounterUpdatedAt string `json:"counter_updated_at"`
+	}
+	decodeJSON(t, previewRes, &preview)
+	if preview.ID == "" || !preview.DryRun || preview.Applied || preview.CounterUpdatedAt == "" {
+		t.Fatalf("quota repair preview = %#v", preview)
+	}
+	applyRes := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/system/reconciliation/repairs", map[string]any{
+		"subject": hardSubject, "meter": meterName, "period": "month", "period_start": acceptedPeriodStart,
+		"dry_run": false, "expected_updated_at": preview.CounterUpdatedAt,
+	}, identity.Headers, nil)
+	if applyRes.Code != http.StatusOK {
+		t.Fatalf("quota repair apply status = %d: %s", applyRes.Code, applyRes.Body.String())
+	}
+	var applied struct {
+		ID      string `json:"id"`
+		Applied bool   `json:"applied"`
+		DryRun  bool   `json:"dry_run"`
+	}
+	decodeJSON(t, applyRes, &applied)
+	if applied.ID == "" || !applied.Applied || applied.DryRun {
+		t.Fatalf("quota repair apply = %#v", applied)
+	}
+	repairRunsRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/system/reconciliation/repairs?limit=10", nil, identity.Headers, nil)
+	if repairRunsRes.Code != http.StatusOK {
+		t.Fatalf("quota repair runs status = %d: %s", repairRunsRes.Code, repairRunsRes.Body.String())
+	}
+	var repairRuns struct {
+		Items []any `json:"items"`
+	}
+	decodeJSON(t, repairRunsRes, &repairRuns)
+	if len(repairRuns.Items) != 2 {
+		t.Fatalf("quota repair runs = %#v", repairRuns)
+	}
+	otherIdentity := createTestDashboardIdentity(t, router, "consume-other+"+suffix+"@example.com")
+	isolatedRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/entitlements/decisions/"+url.PathEscape(acceptedKey), nil, otherIdentity.Headers, nil)
+	if isolatedRes.Code != http.StatusNotFound {
+		t.Fatalf("cross-workspace decision detail status = %d, want 404: %s", isolatedRes.Code, isolatedRes.Body.String())
+	}
+
+	assertStored := func(subject string, want int) {
+		t.Helper()
+		res := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/usageevents?meter="+url.QueryEscape(meterName)+"&subject="+url.QueryEscape(subject), nil, identity.Headers, nil)
+		if res.Code != http.StatusOK {
+			t.Fatalf("list %s events status = %d: %s", subject, res.Code, res.Body.String())
+		}
+		var events usageEventListResponse
+		decodeJSON(t, res, &events)
+		if len(events.Items) != want {
+			t.Fatalf("stored %s events = %d, want %d", subject, len(events.Items), want)
+		}
+	}
+	assertStored(hardSubject, 10)
+	assertStored(advisorySubject, 5)
+
+	principal, err := app.AuthService.AuthenticateAPIKeyPrincipal(ctx, identity.APIKey)
+	if err != nil {
+		t.Fatalf("authenticate consumption prune context: %v", err)
+	}
+	pruneCtx := appauth.WithPrincipal(ctx, principal)
+	cutoff := time.Now().UTC().Add(time.Hour)
+	dryRun, err := app.ConsumptionService.PruneDecisions(pruneCtx, appconsumption.PruneCommand{Before: cutoff, DryRun: true})
+	if err != nil || dryRun.Deleted == 0 {
+		t.Fatalf("dry-run decision prune = %#v, %v", dryRun, err)
+	}
+	pruned, err := app.ConsumptionService.PruneDecisions(pruneCtx, appconsumption.PruneCommand{Before: cutoff})
+	if err != nil || pruned.Deleted != dryRun.Deleted {
+		t.Fatalf("decision prune = %#v, want deleted %d: %v", pruned, dryRun.Deleted, err)
+	}
+	statsRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/system/stats", nil, identity.Headers, nil)
+	if statsRes.Code != http.StatusOK {
+		t.Fatalf("system stats after decision prune status = %d: %s", statsRes.Code, statsRes.Body.String())
+	}
+	var stats struct {
+		ConsumptionDecisions int `json:"consumption_decisions"`
+		DecisionPruneRuns    int `json:"decision_prune_runs"`
+		LastDecisionPruneRun *struct {
+			Deleted int  `json:"deleted"`
+			DryRun  bool `json:"dry_run"`
+		} `json:"last_decision_prune_run"`
+		LastReconciliationRun *struct {
+			Status string `json:"status"`
+		} `json:"last_reconciliation_run"`
+		ReconciliationHealth struct {
+			Status                  string `json:"status"`
+			DeadLetterNotifications int    `json:"dead_letter_notifications"`
+		} `json:"reconciliation_health"`
+	}
+	decodeJSON(t, statsRes, &stats)
+	if stats.ConsumptionDecisions != 0 || stats.DecisionPruneRuns != 2 || stats.LastDecisionPruneRun == nil || stats.LastDecisionPruneRun.DryRun || stats.LastDecisionPruneRun.Deleted != pruned.Deleted || stats.LastReconciliationRun == nil || stats.LastReconciliationRun.Status != "healthy" || stats.ReconciliationHealth.Status != "healthy" || stats.ReconciliationHealth.DeadLetterNotifications != 0 {
+		t.Fatalf("decision retention stats = %#v last=%#v pruned=%#v body=%s", stats, stats.LastDecisionPruneRun, pruned, statsRes.Body.String())
+	}
+}
+
+func runIntegrationConcurrentUsageIdempotency(t *testing.T, cfg config.Config, namespace string) {
+	t.Helper()
+
+	ctx := context.Background()
+	router := chi.NewRouter()
+	app, err := RegisterRoutes(ctx, router, cfg)
+	if err != nil {
+		t.Fatalf("register routes: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := app.Cleanup(); err != nil {
+			t.Fatalf("cleanup: %v", err)
+		}
+	})
+
+	suffix := namespace + "_concurrent_" + strconv.FormatInt(time.Now().UTC().UnixNano(), 36)
+	meterName := "requests_" + suffix
+	subject := "subject_" + suffix
+	authHeaders := map[string]string{
+		"Authorization": "Bearer " + createTestDashboardAPIKey(t, router, "concurrent+"+suffix+"@example.com"),
+	}
+	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
+		"name":        meterName,
+		"description": "Concurrent idempotency test",
+		"unit":        "request",
+		"aggregation": "sum",
+		"dimensions":  []any{},
+	}, authHeaders, nil)
+	if createMeter.Code != http.StatusCreated {
+		t.Fatalf("create meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
+	}
+
+	payload, err := json.Marshal(map[string]any{
+		"idempotency_key": "concurrent-event-" + suffix,
+		"subject":         subject,
+		"meter":           meterName,
+		"quantity":        1,
+		"timestamp":       "2026-06-08T10:00:00Z",
+		"metadata":        map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("marshal usage payload: %v", err)
+	}
+
+	const requests = 16
+	type response struct {
+		status int
+		body   string
+		event  usageEventResponse
+		err    error
+	}
+	responses := make(chan response, requests)
+	start := make(chan struct{})
+	var ready sync.WaitGroup
+	ready.Add(requests)
+	for range requests {
+		go func() {
+			ready.Done()
+			<-start
+			req := httptest.NewRequest(http.MethodPost, "/v1/usages", bytes.NewReader(payload))
+			req.Header.Set("Content-Type", "application/json")
+			for key, value := range authHeaders {
+				req.Header.Set(key, value)
+			}
+			res := httptest.NewRecorder()
+			router.ServeHTTP(res, req)
+			var event usageEventResponse
+			decodeErr := json.NewDecoder(res.Body).Decode(&event)
+			responses <- response{status: res.Code, body: res.Body.String(), event: event, err: decodeErr}
+		}()
+	}
+	ready.Wait()
+	close(start)
+
+	eventIDs := map[string]struct{}{}
+	for range requests {
+		res := <-responses
+		if res.status != http.StatusCreated {
+			t.Errorf("concurrent create status = %d, want %d: %s", res.status, http.StatusCreated, res.body)
+			continue
+		}
+		if res.err != nil {
+			t.Errorf("decode concurrent create response: %v", res.err)
+			continue
+		}
+		eventIDs[res.event.ID] = struct{}{}
+	}
+	if len(eventIDs) != 1 {
+		t.Fatalf("concurrent create returned %d event IDs, want one: %#v", len(eventIDs), eventIDs)
+	}
+
+	bulkPayload, err := json.Marshal([]map[string]any{
+		{
+			"idempotency_key": "concurrent-bulk-event-1-" + suffix,
+			"subject":         subject,
+			"meter":           meterName,
+			"quantity":        2,
+			"timestamp":       "2026-06-08T11:00:00Z",
+			"metadata":        map[string]any{},
+		},
+		{
+			"idempotency_key": "concurrent-bulk-event-2-" + suffix,
+			"subject":         subject,
+			"meter":           meterName,
+			"quantity":        3,
+			"timestamp":       "2026-06-08T12:00:00Z",
+			"metadata":        map[string]any{},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal bulk usage payload: %v", err)
+	}
+	type bulkResponse struct {
+		AcceptedCount int                  `json:"accepted"`
+		Accepted      []usageEventResponse `json:"accepted_items"`
+	}
+	type bulkResult struct {
+		status int
+		body   string
+		result bulkResponse
+		err    error
+	}
+	bulkResponses := make(chan bulkResult, requests)
+	bulkStart := make(chan struct{})
+	ready = sync.WaitGroup{}
+	ready.Add(requests)
+	for range requests {
+		go func() {
+			ready.Done()
+			<-bulkStart
+			req := httptest.NewRequest(http.MethodPost, "/v1/usages/bulk", bytes.NewReader(bulkPayload))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Idempotency-Key", "concurrent-bulk-"+suffix)
+			for key, value := range authHeaders {
+				req.Header.Set(key, value)
+			}
+			res := httptest.NewRecorder()
+			router.ServeHTTP(res, req)
+			body := res.Body.String()
+			var result bulkResponse
+			decodeErr := json.Unmarshal([]byte(body), &result)
+			bulkResponses <- bulkResult{status: res.Code, body: body, result: result, err: decodeErr}
+		}()
+	}
+	ready.Wait()
+	close(bulkStart)
+
+	bulkEventIDSets := map[string]struct{}{}
+	for range requests {
+		res := <-bulkResponses
+		if res.status != http.StatusCreated {
+			t.Errorf("concurrent bulk status = %d, want %d: %s", res.status, http.StatusCreated, res.body)
+			continue
+		}
+		if res.err != nil {
+			t.Errorf("decode concurrent bulk response: %v", res.err)
+			continue
+		}
+		if res.result.AcceptedCount != 2 || len(res.result.Accepted) != 2 {
+			t.Errorf("concurrent bulk accepted = %d/%d, want 2/2: %s", res.result.AcceptedCount, len(res.result.Accepted), res.body)
+			continue
+		}
+		ids := []string{res.result.Accepted[0].ID, res.result.Accepted[1].ID}
+		sort.Strings(ids)
+		bulkEventIDSets[strings.Join(ids, ",")] = struct{}{}
+	}
+	if len(bulkEventIDSets) != 1 {
+		t.Fatalf("concurrent bulk returned %d event ID sets, want one: %#v", len(bulkEventIDSets), bulkEventIDSets)
+	}
+
+	eventsRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/usageevents?meter="+url.QueryEscape(meterName)+"&subject="+url.QueryEscape(subject), nil, authHeaders, nil)
+	if eventsRes.Code != http.StatusOK {
+		t.Fatalf("list usage events status = %d, want %d: %s", eventsRes.Code, http.StatusOK, eventsRes.Body.String())
+	}
+	var events usageEventListResponse
+	decodeJSON(t, eventsRes, &events)
+	if len(events.Items) != 3 {
+		t.Fatalf("stored concurrent usage events = %d, want three: %#v", len(events.Items), events.Items)
+	}
+
+	dispatchedEventIDs := map[string]struct{}{}
+	for range 3 {
+		message, ok, err := app.UsageService.ClaimOutbox(ctx, appusage.OutboxClaimCommand{LockTTL: time.Minute, MaxAttempts: 3})
+		if err != nil || !ok {
+			t.Fatalf("claim concurrent usage outbox ok=%v err=%v", ok, err)
+		}
+		dispatchedEventIDs[message.EventID] = struct{}{}
+		if err := app.UsageService.CompleteOutbox(ctx, appusage.OutboxCompleteCommand{ID: message.ID, ClaimToken: message.ClaimToken}); err != nil {
+			t.Fatalf("complete concurrent usage outbox: %v", err)
+		}
+	}
+	if len(dispatchedEventIDs) != 3 {
+		t.Fatalf("usage outbox has %d unique events, want three: %#v", len(dispatchedEventIDs), dispatchedEventIDs)
+	}
+	if _, ok, err := app.UsageService.ClaimOutbox(ctx, appusage.OutboxClaimCommand{LockTTL: time.Minute, MaxAttempts: 3}); err != nil || ok {
+		t.Fatalf("extra usage outbox claim ok=%v err=%v, want empty", ok, err)
+	}
+
+	statsRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/system/stats", nil, authHeaders, nil)
+	if statsRes.Code != http.StatusOK {
+		t.Fatalf("concurrent usage stats status = %d, want %d: %s", statsRes.Code, http.StatusOK, statsRes.Body.String())
+	}
+	var stats struct {
+		UsageEvents     int64 `json:"usage_events"`
+		IngestionSafety struct {
+			AcceptedEvents int64 `json:"accepted_events"`
+		} `json:"ingestion_safety"`
+	}
+	decodeJSON(t, statsRes, &stats)
+	if stats.UsageEvents != 3 {
+		t.Fatalf("concurrent usage-event stats = %d, want 3 unique events", stats.UsageEvents)
+	}
+	if stats.IngestionSafety.AcceptedEvents != 3 {
+		t.Fatalf("concurrent accepted-event audit = %d, want 3 unique events", stats.IngestionSafety.AcceptedEvents)
+	}
+
+	runsRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/usageingestions?limit=50", nil, authHeaders, nil)
+	if runsRes.Code != http.StatusOK {
+		t.Fatalf("concurrent ingestion runs status = %d, want %d: %s", runsRes.Code, http.StatusOK, runsRes.Body.String())
+	}
+	var runs struct {
+		Items []struct {
+			Accepted   int `json:"accepted"`
+			Duplicates int `json:"duplicates"`
+		} `json:"items"`
+	}
+	decodeJSON(t, runsRes, &runs)
+	accepted, duplicates := 0, 0
+	for _, run := range runs.Items {
+		accepted += run.Accepted
+		duplicates += run.Duplicates
+	}
+	if accepted != 3 || duplicates != 45 {
+		t.Fatalf("concurrent ingestion audit accepted=%d duplicates=%d, want 3 and 45", accepted, duplicates)
+	}
 }
 
 func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace string) {
 	t.Helper()
 
+	// Exercise the distributed database-backed limiter in both SQLite and
+	// PostgreSQL integration flows without constraining the broader SDK suite.
+	if cfg.IngestionRateLimitEvents == 0 {
+		cfg.IngestionRateLimitEvents = 100000
+		cfg.IngestionRateLimitWindow = time.Hour
+	}
 	if cfg.ExportStoragePath == "" {
 		cfg.ExportStoragePath = t.TempDir()
 	}
@@ -280,11 +2074,12 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 	runIntegrationDimensionNameValidationFlow(t, router, authHeaders, suffix)
 
 	createMeter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/meters", map[string]any{
-		"name":        meterName,
-		"description": "API calls",
-		"unit":        "call",
-		"aggregation": "sum",
-		"dimensions":  meterDimensionsFromSchema(map[string]string{"endpoint": "string", "status": "number"}),
+		"name":                 meterName,
+		"description":          "API calls",
+		"unit":                 "call",
+		"aggregation":          "sum",
+		"event_retention_days": 1,
+		"dimensions":           meterDimensionsFromSchema(map[string]string{"endpoint": "string", "status": "number"}),
 	}, authHeaders, nil)
 	if createMeter.Code != http.StatusCreated {
 		t.Fatalf("create meter status = %d, want %d: %s", createMeter.Code, http.StatusCreated, createMeter.Body.String())
@@ -501,7 +2296,46 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 		t.Fatalf("retried export job = %#v", retriedExportJob)
 	}
 
-	worker := exportworker.NewWorker(app.UsageService, fileexport.NewStore(cfg.ExportStoragePath), time.Millisecond, time.Minute, time.Minute, 3, t.Logf)
+	principal, err := app.AuthService.AuthenticateAPIKeyPrincipal(context.Background(), apiKey)
+	if err != nil {
+		t.Fatalf("authenticate export worker principal: %v", err)
+	}
+	var claimedExportJob appusage.ExportJobResult
+	for attempt := 0; attempt < 50; attempt++ {
+		candidate, claimed, claimErr := app.UsageService.ClaimExportJob(context.Background(), appusage.ExportJobClaimCommand{LockTTL: 20 * time.Millisecond, MaxAttempts: 3})
+		if claimErr != nil || !claimed {
+			t.Fatalf("claim export job: job=%#v claimed=%v err=%v", candidate, claimed, claimErr)
+		}
+		if candidate.WorkspaceID == principal.WorkspaceID && candidate.ID == exportJob.ID {
+			claimedExportJob = candidate
+			break
+		}
+		candidateCtx := appauth.WithWorkspaceID(context.Background(), candidate.WorkspaceID)
+		if _, failErr := app.UsageService.FailExportJob(candidateCtx, appusage.ExportJobFailCommand{ID: candidate.ID, ClaimToken: candidate.ClaimToken, ErrorMessage: "released by integration test"}); failErr != nil {
+			t.Fatalf("release foreign export job: %v", failErr)
+		}
+	}
+	if claimedExportJob.ID == "" || claimedExportJob.ClaimToken == "" {
+		t.Fatalf("did not claim export job %s for workspace %s", exportJob.ID, principal.WorkspaceID)
+	}
+	exportWorkerCtx := appauth.WithWorkspaceID(context.Background(), principal.WorkspaceID)
+	wrongClaimToken := "22222222-2222-4222-8222-222222222222"
+	if err := app.UsageService.RenewExportJobLease(exportWorkerCtx, appusage.ExportJobRenewCommand{ID: claimedExportJob.ID, ClaimToken: wrongClaimToken, LockTTL: time.Minute}); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("renew export job with stale token error=%v, want not found", err)
+	}
+	if _, err := app.UsageService.CompleteExportJob(exportWorkerCtx, appusage.ExportJobCompleteCommand{ID: claimedExportJob.ID, ClaimToken: wrongClaimToken, ArtifactPath: "stale.csv", ArtifactSize: 1}); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("complete export job with stale token error=%v, want not found", err)
+	}
+	if err := app.UsageService.RenewExportJobLease(exportWorkerCtx, appusage.ExportJobRenewCommand{ID: claimedExportJob.ID, ClaimToken: claimedExportJob.ClaimToken, LockTTL: 20 * time.Millisecond}); err != nil {
+		t.Fatalf("renew export job lease: %v", err)
+	}
+	time.Sleep(25 * time.Millisecond)
+
+	exportStore, err := NewExportStore(ctx, cfg)
+	if err != nil {
+		t.Fatalf("create export store: %v", err)
+	}
+	worker := exportworker.NewWorker(app.UsageService, exportStore, time.Millisecond, time.Minute, 3, t.Logf)
 	var completedExportJob usageExportJobResponse
 	for attempt := 0; attempt < 25; attempt++ {
 		processed, err := worker.ProcessOnce(ctx)
@@ -537,6 +2371,39 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 		t.Fatalf("downloaded export csv = %q", csvBody)
 	}
 
+	headReq := httptest.NewRequest(http.MethodHead, completedExportJob.DownloadURL, nil)
+	headReq.Header.Set("Authorization", "Bearer "+apiKey)
+	headRes := httptest.NewRecorder()
+	router.ServeHTTP(headRes, headReq)
+	if headRes.Code != http.StatusOK || headRes.Body.Len() != 0 || headRes.Header().Get("Content-Length") != strconv.Itoa(len(csvBody)) || headRes.Header().Get("Accept-Ranges") != "bytes" {
+		t.Fatalf("HEAD export status=%d headers=%v body=%q", headRes.Code, headRes.Header(), headRes.Body.String())
+	}
+
+	rangeReq := httptest.NewRequest(http.MethodGet, completedExportJob.DownloadURL, nil)
+	rangeReq.Header.Set("Authorization", "Bearer "+apiKey)
+	rangeReq.Header.Set("Range", "bytes=0-15")
+	rangeRes := httptest.NewRecorder()
+	router.ServeHTTP(rangeRes, rangeReq)
+	if rangeRes.Code != http.StatusPartialContent || rangeRes.Body.String() != csvBody[:16] || rangeRes.Header().Get("Content-Range") != fmt.Sprintf("bytes 0-15/%d", len(csvBody)) {
+		t.Fatalf("range export status=%d headers=%v body=%q", rangeRes.Code, rangeRes.Header(), rangeRes.Body.String())
+	}
+
+	cleanupWorker := exportworker.NewWorker(app.UsageService, exportStore, time.Millisecond, time.Minute, 3, t.Logf).WithCleanup(time.Nanosecond, time.Hour, 1000)
+	expired, err := cleanupWorker.CleanupOnce(ctx)
+	if err != nil || expired == 0 {
+		t.Fatalf("cleanup export artifacts expired=%d err=%v", expired, err)
+	}
+	expiredJobRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/exports/"+exportJob.ID, nil, authHeaders, nil)
+	var expiredJob usageExportJobResponse
+	decodeJSON(t, expiredJobRes, &expiredJob)
+	if expiredJob.ExpiredAt == "" || expiredJob.DownloadURL != "" || expiredJob.Status != "completed" {
+		t.Fatalf("expired export job = %#v", expiredJob)
+	}
+	expiredDownloadRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/exports/"+exportJob.ID+"/download", nil, authHeaders, nil)
+	if expiredDownloadRes.Code != http.StatusConflict {
+		t.Fatalf("expired export download status = %d, want %d: %s", expiredDownloadRes.Code, http.StatusConflict, expiredDownloadRes.Body.String())
+	}
+
 	runIntegrationHyphenatedDimensionFlow(t, router, authHeaders, suffix)
 	runIntegrationDottedDimensionParityFlow(t, router, authHeaders, suffix)
 	runIntegrationFirstAggregationFlow(t, router, authHeaders, suffix)
@@ -545,6 +2412,50 @@ func runIntegrationSDKUsageFlow(t *testing.T, cfg config.Config, namespace strin
 	runIntegrationSummaryAggregationFlow(t, router, authHeaders, suffix)
 	runIntegrationFilterOperatorFlow(t, router, authHeaders, suffix)
 	runIntegrationDynamicSQLParityFlow(t, router, authHeaders, suffix)
+
+	principal, err = app.AuthService.AuthenticateAPIKeyPrincipal(ctx, apiKey)
+	if err != nil {
+		t.Fatalf("authenticate rollup prune principal: %v", err)
+	}
+	if _, err := app.UsageService.PruneEvents(appauth.WithPrincipal(ctx, principal), appusage.PruneCommand{}); err != nil {
+		t.Fatalf("prune usage into hourly rollups: %v", err)
+	}
+	rolledUpBuckets := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/usages?"+query.Encode(), nil, authHeaders, nil)
+	if rolledUpBuckets.Code != http.StatusOK {
+		t.Fatalf("rolled-up usages status = %d, want %d: %s", rolledUpBuckets.Code, http.StatusOK, rolledUpBuckets.Body.String())
+	}
+	var rolledUpUsage []usageBucketResponse
+	decodeJSON(t, rolledUpBuckets, &rolledUpUsage)
+	if len(rolledUpUsage) != 1 || rolledUpUsage[0].Quantity != 2 {
+		t.Fatalf("rolled-up usages = %#v, want quantity 2", rolledUpUsage)
+	}
+	rollupStatsRes := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/system/stats", nil, authHeaders, nil)
+	if rollupStatsRes.Code != http.StatusOK {
+		t.Fatalf("rollup health stats status = %d, want %d: %s", rollupStatsRes.Code, http.StatusOK, rollupStatsRes.Body.String())
+	}
+	var rollupStats struct {
+		RollupHealth struct {
+			Status string `json:"status"`
+			Items  []struct {
+				Meter  string `json:"meter"`
+				Status string `json:"status"`
+			} `json:"items"`
+		} `json:"rollup_health"`
+	}
+	decodeJSON(t, rollupStatsRes, &rollupStats)
+	if rollupStats.RollupHealth.Status != "healthy" {
+		t.Fatalf("rollup health = %#v, want healthy", rollupStats.RollupHealth)
+	}
+	foundHealthyMeter := false
+	for _, item := range rollupStats.RollupHealth.Items {
+		if item.Meter == meterName && item.Status == "healthy" {
+			foundHealthyMeter = true
+			break
+		}
+	}
+	if !foundHealthyMeter {
+		t.Fatalf("rollup health missing healthy meter %q: %#v", meterName, rollupStats.RollupHealth.Items)
+	}
 }
 
 func runIntegrationWorkspaceIsolationFlow(t *testing.T, cfg config.Config, namespace string) {
@@ -755,6 +2666,9 @@ func runIntegrationPlanEntitlementFlow(t *testing.T, cfg config.Config, namespac
 	if plan.ID == "" || len(plan.Limits) != 1 || plan.Limits[0].Meter != meterName {
 		t.Fatalf("created plan = %#v, want one limit for %q", plan, meterName)
 	}
+	if plan.Limits[0].Enforcement != "advisory" || plan.Limits[0].FailurePolicy != "fail_open" {
+		t.Fatalf("default plan enforcement = %q/%q, want advisory/fail_open", plan.Limits[0].Enforcement, plan.Limits[0].FailurePolicy)
+	}
 	if plan.Version != 1 || !plan.IsCurrent {
 		t.Fatalf("created plan version = %#v, want current v1", plan)
 	}
@@ -883,6 +2797,51 @@ func runIntegrationPlanEntitlementFlow(t *testing.T, cfg config.Config, namespac
 	}, sdkHeaders, nil)
 	if replayUsage.Code != http.StatusCreated {
 		t.Fatalf("replay entitlement usage status = %d, want %d: %s", replayUsage.Code, http.StatusCreated, replayUsage.Body.String())
+	}
+
+	drainUsageOutbox(t, app)
+	principal, err := app.AuthService.AuthenticateAPIKeyPrincipal(context.Background(), identity.APIKey)
+	if err != nil {
+		t.Fatalf("authenticate entitlement worker principal: %v", err)
+	}
+	var failedJob appentitlement.CheckJobResult
+	for attempt := 0; attempt < 20; attempt++ {
+		candidate, ok, claimErr := app.EntitlementService.ClaimCheckJob(context.Background(), appentitlement.ClaimCommand{LockTTL: time.Minute, MaxAttempts: 3})
+		if claimErr != nil || !ok {
+			t.Fatalf("claim entitlement job for dead-letter test: ok=%v err=%v", ok, claimErr)
+		}
+		candidateCtx := appauth.WithWorkspaceID(context.Background(), candidate.Job.WorkspaceID)
+		if candidate.Job.WorkspaceID == principal.WorkspaceID {
+			failedJob = candidate
+			break
+		}
+		if err := app.EntitlementService.FailCheckJob(candidateCtx, appentitlement.FailCommand{Subject: candidate.Job.Subject, Meter: candidate.Job.MeterName, Attempts: candidate.Job.Attempts, RetryAfter: time.Minute, Error: "deferred by integration test"}); err != nil {
+			t.Fatalf("release foreign entitlement job: %v", err)
+		}
+	}
+	if failedJob.Job.WorkspaceID == "" {
+		t.Fatal("did not claim entitlement job for test workspace")
+	}
+	workerCtx := appauth.WithWorkspaceID(context.Background(), failedJob.Job.WorkspaceID)
+	if err := app.EntitlementService.DeadLetterCheckJob(workerCtx, appentitlement.DeadLetterCommand{Subject: failedJob.Job.Subject, Meter: failedJob.Job.MeterName, Attempts: failedJob.Job.Attempts, Error: "synthetic terminal entitlement failure"}); err != nil {
+		t.Fatalf("dead-letter entitlement job: %v", err)
+	}
+	deadLetters := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/system/workers/dead-letters", nil, identity.Headers, nil)
+	if deadLetters.Code != http.StatusOK || !strings.Contains(deadLetters.Body.String(), `"worker_name":"entitlement"`) || !strings.Contains(deadLetters.Body.String(), "synthetic terminal entitlement failure") {
+		t.Fatalf("list entitlement dead letters status=%d body=%s", deadLetters.Code, deadLetters.Body.String())
+	}
+	var entitlementDeadLetters struct {
+		Items []struct {
+			ID string `json:"id"`
+		} `json:"items"`
+	}
+	decodeJSON(t, deadLetters, &entitlementDeadLetters)
+	if len(entitlementDeadLetters.Items) == 0 {
+		t.Fatal("entitlement dead-letter audit is empty")
+	}
+	retryDeadLetter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/system/workers/dead-letters/"+url.PathEscape(entitlementDeadLetters.Items[0].ID)+"/retry", nil, identity.Headers, nil)
+	if retryDeadLetter.Code != http.StatusNoContent {
+		t.Fatalf("retry entitlement dead letter status=%d body=%s", retryDeadLetter.Code, retryDeadLetter.Body.String())
 	}
 
 	entitlementWorker := entitlementworker.NewWorker(app.EntitlementService, time.Millisecond, time.Minute, time.Minute, time.Second, 3, 10, t.Logf)
@@ -1035,6 +2994,7 @@ func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handl
 	t.Helper()
 
 	webhookRequests := make(chan alertWebhookRequest, 1)
+	var webhookAttempts atomic.Int32
 	webhookServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("webhook method = %s, want POST", r.Method)
@@ -1051,6 +3011,10 @@ func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handl
 		if err := json.Unmarshal(body, &payload); err != nil {
 			t.Errorf("decode webhook payload: %v", err)
 			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if webhookAttempts.Add(1) == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
 		webhookRequests <- alertWebhookRequest{
@@ -1096,6 +3060,39 @@ func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handl
 	}
 	if listedDestination.ID == "" || listedDestination.WebhookSigning.Secret != "" {
 		t.Fatalf("listed alert destinations = %#v, want created destination without secret", destinationList)
+	}
+
+	createEmptyAlert := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/alerts", map[string]any{
+		"name":                        "No usage alert " + suffix,
+		"meter":                       meterName,
+		"subject":                     "org_without_usage_" + suffix,
+		"window_seconds":              3600,
+		"comparator":                  "gte",
+		"threshold":                   1,
+		"evaluation_interval_seconds": 60,
+		"destination_id":              destination.ID,
+	}, authHeaders, nil)
+	if createEmptyAlert.Code != http.StatusCreated {
+		t.Fatalf("create no-usage alert status = %d, want %d: %s", createEmptyAlert.Code, http.StatusCreated, createEmptyAlert.Body.String())
+	}
+	var emptyAlert alertRuleResponse
+	decodeJSON(t, createEmptyAlert, &emptyAlert)
+
+	evaluateEmptyAlert := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/alerts/"+emptyAlert.ID+"/evaluate", nil, authHeaders, nil)
+	if evaluateEmptyAlert.Code != http.StatusOK {
+		t.Fatalf("evaluate no-usage alert status = %d, want %d: %s", evaluateEmptyAlert.Code, http.StatusOK, evaluateEmptyAlert.Body.String())
+	}
+	var emptyEvaluation struct {
+		State alertStateResponse `json:"state"`
+	}
+	decodeJSON(t, evaluateEmptyAlert, &emptyEvaluation)
+	if emptyEvaluation.State.Status != "no_data" || emptyEvaluation.State.Value != 0 {
+		t.Fatalf("no-usage alert state = %#v, want no_data with value 0", emptyEvaluation.State)
+	}
+
+	deleteEmptyAlert := requestJSONWithHeaders(t, router, http.MethodDelete, "/v1/alerts/"+emptyAlert.ID, nil, authHeaders, nil)
+	if deleteEmptyAlert.Code != http.StatusNoContent {
+		t.Fatalf("delete no-usage alert status = %d, want %d: %s", deleteEmptyAlert.Code, http.StatusNoContent, deleteEmptyAlert.Body.String())
 	}
 
 	rotateDestination := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/alerts/destinations/"+destination.ID+"/webhook-secret/rotate", nil, authHeaders, nil)
@@ -1174,6 +3171,60 @@ func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handl
 		t.Fatalf("create low alert usage status = %d, want %d: %s", createLowUsage.Code, http.StatusCreated, createLowUsage.Body.String())
 	}
 
+	drainUsageOutbox(t, app)
+	principal, err := app.AuthService.AuthenticateAPIKeyPrincipal(context.Background(), strings.TrimPrefix(authHeaders["Authorization"], "Bearer "))
+	if err != nil {
+		t.Fatalf("authenticate alert worker principal: %v", err)
+	}
+	var failedJob appalert.EvaluationJobResult
+	for attempt := 0; attempt < 20; attempt++ {
+		candidate, ok, claimErr := app.AlertService.ClaimEvaluationJob(context.Background(), appalert.ClaimCommand{LockTTL: time.Minute, MaxAttempts: 3})
+		if claimErr != nil || !ok {
+			t.Fatalf("claim alert job for dead-letter test: ok=%v err=%v", ok, claimErr)
+		}
+		candidateCtx := appauth.WithWorkspaceID(context.Background(), candidate.WorkspaceID)
+		if candidate.WorkspaceID == principal.WorkspaceID {
+			failedJob = candidate
+			break
+		}
+		if err := app.AlertService.FailEvaluationJob(candidateCtx, appalert.FailCommand{RuleID: candidate.RuleID, Attempts: candidate.Attempts, RetryAfter: time.Minute, Error: "deferred by integration test"}); err != nil {
+			t.Fatalf("release foreign alert job: %v", err)
+		}
+	}
+	if failedJob.WorkspaceID == "" {
+		t.Fatal("did not claim alert job for test workspace")
+	}
+	workerCtx := appauth.WithWorkspaceID(context.Background(), failedJob.WorkspaceID)
+	if err := app.AlertService.DeadLetterEvaluationJob(workerCtx, appalert.DeadLetterCommand{RuleID: failedJob.RuleID, Attempts: failedJob.Attempts, Error: "synthetic terminal alert failure"}); err != nil {
+		t.Fatalf("dead-letter alert job: %v", err)
+	}
+	deadLetters := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/system/workers/dead-letters", nil, authHeaders, nil)
+	if deadLetters.Code != http.StatusOK || !strings.Contains(deadLetters.Body.String(), `"worker_name":"alert"`) || !strings.Contains(deadLetters.Body.String(), "synthetic terminal alert failure") {
+		t.Fatalf("list alert dead letters status=%d body=%s", deadLetters.Code, deadLetters.Body.String())
+	}
+	var alertDeadLetters struct {
+		Items []struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		} `json:"items"`
+	}
+	decodeJSON(t, deadLetters, &alertDeadLetters)
+	if len(alertDeadLetters.Items) == 0 {
+		t.Fatal("alert dead-letter audit is empty")
+	}
+	retryDeadLetter := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/system/workers/dead-letters/"+url.PathEscape(alertDeadLetters.Items[0].ID)+"/retry", nil, authHeaders, nil)
+	if retryDeadLetter.Code != http.StatusNoContent {
+		t.Fatalf("retry alert dead letter status=%d body=%s", retryDeadLetter.Code, retryDeadLetter.Body.String())
+	}
+	retryAgain := requestJSONWithHeaders(t, router, http.MethodPost, "/v1/system/workers/dead-letters/"+url.PathEscape(alertDeadLetters.Items[0].ID)+"/retry", nil, authHeaders, nil)
+	if retryAgain.Code != http.StatusConflict {
+		t.Fatalf("retry alert dead letter twice status=%d body=%s", retryAgain.Code, retryAgain.Body.String())
+	}
+	deadLetters = requestJSONWithHeaders(t, router, http.MethodGet, "/v1/system/workers/dead-letters", nil, authHeaders, nil)
+	if !strings.Contains(deadLetters.Body.String(), `"status":"requeued"`) {
+		t.Fatalf("requeued alert audit body=%s", deadLetters.Body.String())
+	}
+
 	worker := alertworker.NewWorker(app.AlertService, time.Millisecond, time.Minute, time.Minute, time.Second, 3, 10, t.Logf)
 	var request alertWebhookRequest
 	var payload alertWebhookPayload
@@ -1199,6 +3250,9 @@ func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handl
 	}
 	if !delivered {
 		t.Fatal("alert webhook was not delivered")
+	}
+	if webhookAttempts.Load() != 2 {
+		t.Fatalf("webhook attempts = %d, want one retry after the initial failure", webhookAttempts.Load())
 	}
 	if payload.Event.Type != "triggered" || payload.Event.Value != 12 || payload.Event.GroupKey != "subject" || payload.Event.GroupValue != alertSubject || payload.Rule.Meter != meterName || payload.Rule.GroupBy != "subject" || payload.Rule.DestinationID != destination.ID || payload.Rule.DestinationName != destination.Name || payload.State.Status != "alerting" || payload.State.GroupValue != alertSubject {
 		t.Fatalf("webhook payload = %#v, want triggered value 12 for grouped subject %s", payload, alertSubject)
@@ -1234,6 +3288,10 @@ func runIntegrationAlertEvaluationFlow(t *testing.T, app *App, router http.Handl
 	}
 	if alertEvents.Items[0].Delivery == nil || alertEvents.Items[0].Delivery.Status != "delivered" || alertEvents.Items[0].Delivery.StatusCode != http.StatusNoContent || alertEvents.Items[0].Delivery.TriggerType != "webhook" {
 		t.Fatalf("alert event delivery = %#v, want delivered webhook with status %d", alertEvents.Items[0].Delivery, http.StatusNoContent)
+	}
+	deliveryJobs := requestJSONWithHeaders(t, router, http.MethodGet, "/v1/alerts/delivery-jobs?limit=10", nil, authHeaders, nil)
+	if deliveryJobs.Code != http.StatusOK || !strings.Contains(deliveryJobs.Body.String(), `"status":"delivered"`) || !strings.Contains(deliveryJobs.Body.String(), `"attempts":2`) {
+		t.Fatalf("alert delivery jobs status=%d body=%s, want delivered job with two attempts", deliveryJobs.Code, deliveryJobs.Body.String())
 	}
 }
 
@@ -2594,6 +4652,7 @@ func fullAccessAPIKeyPayload(name string) map[string]any {
 			"plans:write",
 			"plans:read",
 			"system:read",
+			"system:write",
 		},
 	}
 }
@@ -2788,6 +4847,7 @@ type usageExportJobResponse struct {
 	CreatedAt    string         `json:"created_at"`
 	UpdatedAt    string         `json:"updated_at"`
 	CompletedAt  string         `json:"completed_at"`
+	ExpiredAt    string         `json:"expired_at"`
 }
 
 type usageExportJobListTestResponse struct {
@@ -2800,6 +4860,26 @@ type planLimitTestResponse struct {
 	Period         string  `json:"period"`
 	Limit          float64 `json:"limit"`
 	WarningPercent float64 `json:"warning_percent"`
+	Enforcement    string  `json:"enforcement"`
+	FailurePolicy  string  `json:"failure_policy"`
+}
+
+type consumeTestResponse struct {
+	Accepted         bool                `json:"accepted"`
+	Replayed         bool                `json:"replayed"`
+	EvaluationFailed bool                `json:"evaluation_failed"`
+	Event            *usageEventResponse `json:"event"`
+	Quota            struct {
+		Allowed       bool    `json:"allowed"`
+		State         string  `json:"state"`
+		Current       float64 `json:"current"`
+		Projected     float64 `json:"projected"`
+		Limit         float64 `json:"limit"`
+		Enforcement   string  `json:"enforcement"`
+		FailurePolicy string  `json:"failure_policy"`
+		Period        string  `json:"period"`
+		From          string  `json:"from"`
+	} `json:"quota"`
 }
 
 type planTestResponse struct {

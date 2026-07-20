@@ -21,7 +21,7 @@ plugins:
       - module=github.com/ssubedir/open-spanner/sdk/go
       - require_unimplemented_servers=false
       - Mopen_spanner/v1/usage.proto=github.com/ssubedir/open-spanner/sdk/go/grpc/pb
-  - remote: buf.build/community/stephenh-ts-proto
+  - remote: buf.build/community/stephenh-ts-proto:v2.11.8
     out: sdk/typescript/src/grpc/pb
     opt:
       - env=node

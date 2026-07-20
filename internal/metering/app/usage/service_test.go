@@ -3,6 +3,9 @@ package usage
 import (
 	"context"
 	"errors"
+	"fmt"
+	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -433,6 +436,87 @@ func TestServicePruneEventsUsesMeterRetention(t *testing.T) {
 	}
 	if len(remaining.Items) != 1 || remaining.Items[0].Quantity != 2 {
 		t.Fatalf("remaining events = %#v", remaining)
+	}
+}
+
+func TestServicePrunePreservesHourlyRollupAnalytics(t *testing.T) {
+	ctx := testContext()
+	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
+	service := NewService(meterRepo, usageRepo, store).(*service)
+	service.now = func() time.Time { return time.Date(2026, 6, 10, 12, 30, 0, 0, time.UTC) }
+
+	expected := map[domainmeter.Aggregation]float64{
+		domainmeter.AggregationSum: 9, domainmeter.AggregationCount: 3,
+		domainmeter.AggregationAverage: 3, domainmeter.AggregationMinimum: 2,
+		domainmeter.AggregationMaximum: 4, domainmeter.AggregationFirst: 2,
+		domainmeter.AggregationLast: 4, domainmeter.AggregationRate: 3.0 / 86400.0,
+	}
+	createdAt := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	for aggregation := range expected {
+		name := "rollup_" + string(aggregation)
+		meter, err := domainmeter.NewWithDimensions(
+			"meter-"+string(aggregation), name, name, "unit", aggregation,
+			[]domainmeter.Dimension{mustDimension(t, "region", domainmeter.MetadataString)}, 1, createdAt,
+		)
+		if err != nil {
+			t.Fatalf("new %s meter: %v", aggregation, err)
+		}
+		if _, err := meterRepo.Save(ctx, meter); err != nil {
+			t.Fatalf("save %s meter: %v", aggregation, err)
+		}
+		for index, sample := range []struct {
+			quantity float64
+			at       time.Time
+		}{{2, time.Date(2026, 6, 9, 10, 5, 0, 0, time.UTC)}, {3, time.Date(2026, 6, 9, 10, 10, 0, 0, time.UTC)}, {4, time.Date(2026, 6, 9, 13, 0, 0, 0, time.UTC)}} {
+			_, err := service.Create(ctx, CreateCommand{
+				IdempotencyKey: fmt.Sprintf("%s-%d", name, index), Subject: "org_123",
+				MeterName: name, Quantity: sample.quantity, EventTime: sample.at,
+				Metadata: map[string]any{"region": "us-east"},
+			})
+			if err != nil {
+				t.Fatalf("create %s sample: %v", aggregation, err)
+			}
+		}
+	}
+
+	if _, err := service.PruneEvents(ctx, PruneCommand{}); err != nil {
+		t.Fatalf("prune into hourly rollups: %v", err)
+	}
+	from, to := time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC), time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+	for aggregation, want := range expected {
+		items, err := service.List(ctx, ListQuery{
+			MeterName: "rollup_" + string(aggregation), From: from, To: to,
+			BucketSize: domainusage.BucketDay, Metadata: map[string]string{"region": "us-east"},
+		})
+		if err != nil {
+			t.Fatalf("query %s rollup: %v", aggregation, err)
+		}
+		if len(items) != 1 || math.Abs(items[0].Quantity-want) > 1e-9 {
+			t.Fatalf("%s rollup = %#v, want %v", aggregation, items, want)
+		}
+	}
+
+	dimensions, err := service.ListDimensionValues(ctx, DimensionValueListQuery{
+		MeterName: "rollup_sum", Field: "region", From: from, To: to,
+	})
+	if err != nil || len(dimensions.Items) != 1 || dimensions.Items[0].UsageEvents != 3 {
+		t.Fatalf("rollup dimensions = %#v, err = %v", dimensions, err)
+	}
+	if _, err := service.List(ctx, ListQuery{
+		MeterName: "rollup_sum", From: from.Add(30 * time.Minute), To: to,
+		BucketSize: domainusage.BucketDay,
+	}); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("partial-hour retained query error = %v, want conflict", err)
+	}
+	quantityFilter, err := domainusage.NewFilterCondition("quantity", domainusage.FilterOpGreaterThan, 1, true)
+	if err != nil {
+		t.Fatalf("new quantity filter: %v", err)
+	}
+	if _, err := service.List(ctx, ListQuery{
+		MeterName: "rollup_sum", From: from, To: to,
+		BucketSize: domainusage.BucketDay, Filter: quantityFilter,
+	}); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("event-only retained filter error = %v, want conflict", err)
 	}
 }
 
@@ -1007,6 +1091,185 @@ func TestServiceCreateMissingMeterReturnsNotFound(t *testing.T) {
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("missing meter error = %v, want ErrNotFound", err)
 	}
+}
+
+func TestServiceRecordsIngestionMetricsAfterPersistence(t *testing.T) {
+	ctx := testContext()
+	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
+	recorder := &ingestionMetricRecorder{}
+	service := NewService(meterRepo, usageRepo, store, IngestionLimits{Metrics: recorder})
+
+	if _, err := service.RecordIngestion(ctx, IngestionCommand{Kind: "bulk", Accepted: 3, Duplicates: 2, Failed: 1}); err != nil {
+		t.Fatalf("record ingestion: %v", err)
+	}
+	want := []string{"bulk:accepted:3", "bulk:duplicate:2", "bulk:rejected:1"}
+	if fmt.Sprint(recorder.calls) != fmt.Sprint(want) {
+		t.Fatalf("metric calls = %v, want %v", recorder.calls, want)
+	}
+}
+
+func TestCreateIngestionRecordsReplayOutcome(t *testing.T) {
+	ctx := testContext()
+	service, usageRepo, _ := newIngestionTestService(t, ctx)
+	cmd := CreateCommand{IdempotencyKey: "replay-1", Subject: "org", MeterName: "api_calls", Quantity: 1}
+
+	first, err := service.CreateIngestion(ctx, "single", cmd)
+	if err != nil {
+		t.Fatalf("create ingestion: %v", err)
+	}
+	second, err := service.CreateIngestion(ctx, "single", cmd)
+	if err != nil {
+		t.Fatalf("replay ingestion: %v", err)
+	}
+	if first.Replayed || !second.Replayed || first.ID != second.ID {
+		t.Fatalf("replay outcomes first=%#v second=%#v", first, second)
+	}
+	runs, err := service.ListIngestions(ctx, IngestionListQuery{Limit: 10})
+	if err != nil {
+		t.Fatalf("list ingestion runs: %v", err)
+	}
+	accepted, duplicates := 0, 0
+	for _, run := range runs.Items {
+		accepted += run.Accepted
+		duplicates += run.Duplicates
+	}
+	if accepted != 1 || duplicates != 1 {
+		t.Fatalf("ingestion audit accepted=%d duplicates=%d, want 1 and 1", accepted, duplicates)
+	}
+	count, err := usageRepo.CountEvents(ctx)
+	if err != nil || count != 1 {
+		t.Fatalf("stored events = %d err=%v, want 1", count, err)
+	}
+}
+
+func TestCreateIngestionRollsBackWhenAuditFails(t *testing.T) {
+	ctx := testContext()
+	service, usageRepo, store := newIngestionTestService(t, ctx)
+	if _, err := store.ExecContext(ctx, `CREATE TRIGGER fail_usage_ingestion BEFORE INSERT ON usage_ingestions
+		BEGIN SELECT RAISE(FAIL, 'synthetic audit failure'); END`); err != nil {
+		t.Fatalf("create failure trigger: %v", err)
+	}
+
+	_, err := service.CreateIngestion(ctx, "single", CreateCommand{
+		IdempotencyKey: "rollback-1", Subject: "org", MeterName: "api_calls", Quantity: 1,
+	})
+	if err == nil || !strings.Contains(err.Error(), "synthetic audit failure") {
+		t.Fatalf("create ingestion error = %v, want synthetic audit failure", err)
+	}
+	count, countErr := usageRepo.CountEvents(ctx)
+	if countErr != nil || count != 0 {
+		t.Fatalf("stored events after audit failure = %d err=%v, want 0", count, countErr)
+	}
+}
+
+func TestCreatePersistsOneOutboxMessageAcrossReplay(t *testing.T) {
+	ctx := testContext()
+	service, _, _ := newIngestionTestService(t, ctx)
+	cmd := CreateCommand{
+		IdempotencyKey: "outbox-replay-1", Subject: "org", MeterName: "api_calls", Quantity: 4,
+		Metadata: map[string]any{"region": "us-east-1"},
+	}
+
+	first, err := service.Create(ctx, cmd)
+	if err != nil {
+		t.Fatalf("create usage: %v", err)
+	}
+	replayed, err := service.Create(ctx, cmd)
+	if err != nil {
+		t.Fatalf("replay usage: %v", err)
+	}
+	if first.ID != replayed.ID {
+		t.Fatalf("replay ID=%q, want %q", replayed.ID, first.ID)
+	}
+
+	message, ok, err := service.ClaimOutbox(ctx, OutboxClaimCommand{LockTTL: time.Minute, MaxAttempts: 3})
+	if err != nil || !ok {
+		t.Fatalf("claim outbox ok=%v err=%v", ok, err)
+	}
+	if message.EventID != first.ID || message.WorkspaceID != appauth.DefaultWorkspaceID || message.Subject != "org" || message.MeterName != "api_calls" || message.Quantity != 4 || message.Metadata["region"] != "us-east-1" {
+		t.Fatalf("outbox message=%#v", message)
+	}
+	if err := service.CompleteOutbox(ctx, OutboxCompleteCommand{ID: message.ID, ClaimToken: "00000000-0000-4000-8000-000000000001"}); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("stale completion error=%v, want ErrNotFound", err)
+	}
+	if err := service.CompleteOutbox(ctx, OutboxCompleteCommand{ID: message.ID, ClaimToken: message.ClaimToken}); err != nil {
+		t.Fatalf("complete outbox: %v", err)
+	}
+	if _, ok, err := service.ClaimOutbox(ctx, OutboxClaimCommand{LockTTL: time.Minute, MaxAttempts: 3}); err != nil || ok {
+		t.Fatalf("second claim ok=%v err=%v, want empty", ok, err)
+	}
+}
+
+func TestCreateRollsBackWhenOutboxInsertFails(t *testing.T) {
+	ctx := testContext()
+	service, usageRepo, store := newIngestionTestService(t, ctx)
+	if _, err := store.ExecContext(ctx, `CREATE TRIGGER fail_usage_outbox BEFORE INSERT ON usage_event_outbox
+		BEGIN SELECT RAISE(FAIL, 'synthetic outbox failure'); END`); err != nil {
+		t.Fatalf("create failure trigger: %v", err)
+	}
+
+	_, err := service.Create(ctx, CreateCommand{
+		IdempotencyKey: "outbox-rollback-1", Subject: "org", MeterName: "api_calls", Quantity: 1,
+	})
+	if err == nil || !strings.Contains(err.Error(), "synthetic outbox failure") {
+		t.Fatalf("create usage error=%v, want synthetic outbox failure", err)
+	}
+	count, countErr := usageRepo.CountEvents(ctx)
+	if countErr != nil || count != 0 {
+		t.Fatalf("stored events after outbox failure=%d err=%v, want 0", count, countErr)
+	}
+}
+
+func TestExpiredOutboxLeaseIsReclaimedAndFenced(t *testing.T) {
+	ctx := testContext()
+	service, usageRepo, _ := newIngestionTestService(t, ctx)
+	if _, err := service.Create(ctx, CreateCommand{
+		IdempotencyKey: "outbox-lease-1", Subject: "org", MeterName: "api_calls", Quantity: 1,
+	}); err != nil {
+		t.Fatalf("create usage: %v", err)
+	}
+
+	now := time.Now().UTC().Add(time.Hour)
+	firstToken := "00000000-0000-4000-8000-000000000001"
+	first, err := usageRepo.ClaimOutbox(ctx, now, now.Add(time.Second), firstToken, 3)
+	if err != nil {
+		t.Fatalf("first claim: %v", err)
+	}
+	secondToken := "00000000-0000-4000-8000-000000000002"
+	second, err := usageRepo.ClaimOutbox(ctx, now.Add(2*time.Second), now.Add(time.Minute), secondToken, 3)
+	if err != nil {
+		t.Fatalf("reclaim expired lease: %v", err)
+	}
+	if first.ID != second.ID || first.Attempts != 1 || second.Attempts != 2 || second.ClaimToken != secondToken {
+		t.Fatalf("first=%#v second=%#v", first, second)
+	}
+	if err := usageRepo.CompleteOutbox(ctx, first.ID, firstToken, now); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("stale owner completion error=%v, want ErrNotFound", err)
+	}
+	if err := usageRepo.CompleteOutbox(ctx, second.ID, secondToken, now); err != nil {
+		t.Fatalf("current owner completion: %v", err)
+	}
+}
+
+func newIngestionTestService(t *testing.T, ctx context.Context) (Service, *sqlite.UsageRepository, *sqlite.Store) {
+	t.Helper()
+	store, meterRepo, usageRepo := newTestRepositories(t, ctx)
+	meter, err := domainmeter.NewWithDimensions(
+		"meter-ingestion", "api_calls", "API calls", "call", domainmeter.AggregationSum, nil, 0, time.Now().UTC(),
+	)
+	if err != nil {
+		t.Fatalf("new ingestion meter: %v", err)
+	}
+	if _, err := meterRepo.Save(ctx, meter); err != nil {
+		t.Fatalf("save ingestion meter: %v", err)
+	}
+	return NewService(meterRepo, usageRepo, store), usageRepo, store
+}
+
+type ingestionMetricRecorder struct{ calls []string }
+
+func (r *ingestionMetricRecorder) RecordIngestion(_ context.Context, kind, outcome string, count int) {
+	r.calls = append(r.calls, fmt.Sprintf("%s:%s:%d", kind, outcome, count))
 }
 
 func TestServiceListInvalidTimeRangeReturnsInvalidInput(t *testing.T) {

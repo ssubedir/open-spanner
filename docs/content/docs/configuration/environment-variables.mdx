@@ -5,8 +5,18 @@ description: Runtime configuration for the Open Spanner service.
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `OPEN_SPANNER_HTTP_ADDR` | `:18081` | API listen address. |
+| `OPEN_SPANNER_HTTP_ADDR` | `:18080` | Internal API, health, readiness, and metrics listen address. |
 | `OPEN_SPANNER_GRPC_ADDR` | `:18090` | gRPC listen address for backend usage ingestion. |
+| `OPEN_SPANNER_EXPORT_WORKER_HEALTH_ADDR` | `:18082` | Export-worker liveness and readiness listen address. |
+| `OPEN_SPANNER_ALERT_WORKER_HEALTH_ADDR` | `:18083` | Alert-worker liveness and readiness listen address. |
+| `OPEN_SPANNER_ENTITLEMENT_WORKER_HEALTH_ADDR` | `:18084` | Entitlement-worker liveness and readiness listen address. |
+| `OPEN_SPANNER_USAGE_WORKER_HEALTH_ADDR` | `:18085` | Usage-outbox-worker liveness and readiness listen address. |
+| `OPEN_SPANNER_INGESTION_MAX_BODY_BYTES` | `1048576` | Maximum REST usage request body and gRPC receive message size in bytes. |
+| `OPEN_SPANNER_INGESTION_MAX_BULK_EVENTS` | `1000` | Maximum events in one REST or unary gRPC bulk ingestion request. |
+| `OPEN_SPANNER_INGESTION_MAX_STREAM_EVENTS` | `1000` | Maximum events accepted by one gRPC client stream. |
+| `OPEN_SPANNER_INGESTION_RATE_LIMIT_EVENTS` | `10000` | Events each workspace may submit during one ingestion rate window. |
+| `OPEN_SPANNER_INGESTION_RATE_LIMIT_WINDOW` | `1m` | Fixed window used by the database-backed, cross-replica ingestion limiter. |
+| `OPEN_SPANNER_REGISTRATION_ENABLED` | `true` | Allows new password and OAuth dashboard accounts. Existing users can still sign in when disabled. |
 | `OPEN_SPANNER_GITHUB_OAUTH_ENABLED` | `true` | Enables GitHub OAuth login when credentials are configured. |
 | `OPEN_SPANNER_GITHUB_OAUTH_CLIENT_ID` | | Enables GitHub OAuth login when set with `OPEN_SPANNER_GITHUB_OAUTH_CLIENT_SECRET`. |
 | `OPEN_SPANNER_GITHUB_OAUTH_CLIENT_SECRET` | | GitHub OAuth client secret. |
@@ -18,15 +28,26 @@ description: Runtime configuration for the Open Spanner service.
 | `OPEN_SPANNER_DB_DRIVER` | `sqlite` | Storage driver: `sqlite` or `postgres`. |
 | `OPEN_SPANNER_SQLITE_PATH` | `open-spanner.db` | SQLite database path. |
 | `OPEN_SPANNER_POSTGRES_DSN` | | Postgres connection string when `OPEN_SPANNER_DB_DRIVER=postgres`. |
-| `OPEN_SPANNER_DB_MAX_OPEN_CONNS` | `0` | Maximum open SQL connections; `0` keeps Go's default. |
-| `OPEN_SPANNER_DB_MAX_IDLE_CONNS` | `0` | Maximum idle SQL connections; `0` keeps Go's default. |
+| `OPEN_SPANNER_DB_MAX_OPEN_CONNS` | `0` | Maximum open SQL connections owned by this process; `0` keeps Go's default. Budget this per API or worker deployment. |
+| `OPEN_SPANNER_DB_MAX_IDLE_CONNS` | `0` | Maximum idle SQL connections owned by this process; `0` keeps Go's default and a configured value cannot exceed the open limit. |
 | `OPEN_SPANNER_DB_CONN_MAX_LIFETIME` | `0` | Maximum SQL connection lifetime; `0` disables recycling. |
 | `OPEN_SPANNER_DB_CONN_MAX_IDLE_TIME` | `0` | Maximum SQL connection idle time; `0` disables idle-time recycling. |
 | `OPEN_SPANNER_EXPORT_STORAGE_PATH` | `open-spanner-exports` | Directory used by the API and export worker for generated export files. |
+| `OPEN_SPANNER_EXPORT_STORAGE_DRIVER` | `filesystem` | Export artifact backend: `filesystem` or `s3`. The API and export workers must use identical settings. |
+| `OPEN_SPANNER_EXPORT_S3_BUCKET` | empty | Bucket used by S3 export storage. Required when the driver is `s3`. |
+| `OPEN_SPANNER_EXPORT_S3_REGION` | `us-east-1` | S3 signing region. |
+| `OPEN_SPANNER_EXPORT_S3_ENDPOINT` | empty | Optional absolute endpoint URL for S3-compatible services. |
+| `OPEN_SPANNER_EXPORT_S3_ACCESS_KEY_ID` | empty | Optional static access key. When omitted, the AWS default credential chain is used. |
+| `OPEN_SPANNER_EXPORT_S3_SECRET_ACCESS_KEY` | empty | Static secret key; must be set with the access key. |
+| `OPEN_SPANNER_EXPORT_S3_SESSION_TOKEN` | empty | Optional token for temporary static credentials. |
+| `OPEN_SPANNER_EXPORT_S3_PREFIX` | empty | Object key prefix for export artifacts. |
+| `OPEN_SPANNER_EXPORT_S3_FORCE_PATH_STYLE` | endpoint-dependent | Uses path-style bucket addressing. Defaults to `true` for custom endpoints and `false` for AWS. |
 | `OPEN_SPANNER_EXPORT_WORKER_INTERVAL` | `5s` | How often the export worker checks for queued jobs. |
 | `OPEN_SPANNER_EXPORT_WORKER_LOCK_TTL` | `5m` | Lease duration for a claimed export job. |
-| `OPEN_SPANNER_EXPORT_WORKER_TIMEOUT` | `10m` | Maximum processing time for one export job. |
 | `OPEN_SPANNER_EXPORT_WORKER_MAX_ATTEMPTS` | `3` | Maximum claim attempts before expired running jobs stop being retried. |
+| `OPEN_SPANNER_EXPORT_RETENTION` | `168h` | How long completed export artifacts remain downloadable. Job history is retained after expiration. |
+| `OPEN_SPANNER_EXPORT_CLEANUP_INTERVAL` | `1h` | How often the export worker cleans expired artifacts. |
+| `OPEN_SPANNER_EXPORT_CLEANUP_BATCH_SIZE` | `1000` | Maximum artifacts considered in one cleanup run. |
 | `OPEN_SPANNER_ALERT_WORKER_INTERVAL` | `5s` | How often the alert worker checks for queued alert evaluations. |
 | `OPEN_SPANNER_ALERT_WORKER_LOCK_TTL` | `5m` | Lease duration for a claimed alert evaluation job. |
 | `OPEN_SPANNER_ALERT_WORKER_TIMEOUT` | `1m` | Maximum processing time for one alert evaluation job. |
@@ -39,79 +60,47 @@ description: Runtime configuration for the Open Spanner service.
 | `OPEN_SPANNER_ENTITLEMENT_WORKER_RETRY_AFTER` | `30s` | How long to wait before a failed entitlement job can be claimed again. |
 | `OPEN_SPANNER_ENTITLEMENT_WORKER_MAX_ATTEMPTS` | `3` | Maximum claim attempts before expired running entitlement jobs stop being retried. |
 | `OPEN_SPANNER_ENTITLEMENT_WORKER_BATCH_SIZE` | `100` | Maximum entitlement jobs claimed in one worker polling cycle. |
+| `OPEN_SPANNER_USAGE_WORKER_INTERVAL` | `1s` | How often the usage worker checks for committed outbox messages. |
+| `OPEN_SPANNER_USAGE_WORKER_LOCK_TTL` | `1m` | Lease duration for a claimed usage outbox message. |
+| `OPEN_SPANNER_USAGE_WORKER_TIMEOUT` | `30s` | Maximum time for one alert-and-entitlement fanout attempt. |
+| `OPEN_SPANNER_USAGE_WORKER_RETRY_AFTER` | `5s` | Initial retry delay after failed fanout; subsequent retries back off exponentially. |
+| `OPEN_SPANNER_USAGE_WORKER_MAX_ATTEMPTS` | `10` | Attempts before a usage outbox message enters dead-letter state. |
+| `OPEN_SPANNER_USAGE_WORKER_BATCH_SIZE` | `100` | Maximum usage messages drained in one polling cycle. |
 | `OPEN_SPANNER_RETENTION_PRUNE_ENABLED` | `false` | Enable automatic retention pruning. |
 | `OPEN_SPANNER_RETENTION_PRUNE_INTERVAL` | `1h` | Background prune interval. |
 | `OPEN_SPANNER_RETENTION_PRUNE_TIMEOUT` | `30m` | Maximum duration for one background prune run. |
+| `OPEN_SPANNER_RECONCILIATION_ENABLED` | `false` | Enable scheduled read-only reconciliation monitoring. |
+| `OPEN_SPANNER_RECONCILIATION_POLL_INTERVAL` | `5s` | Schedule and notification polling interval. |
+| `OPEN_SPANNER_RECONCILIATION_SCHEDULE` | `15m` | Interval between scans for each workspace. |
+| `OPEN_SPANNER_RECONCILIATION_LOCK_TTL` | `5m` | Claim lease for scans and notification deliveries. |
+| `OPEN_SPANNER_RECONCILIATION_TIMEOUT` | `2m` | Maximum duration for one worker iteration. |
+| `OPEN_SPANNER_RECONCILIATION_RETRY_AFTER` | `1m` | Scan retry delay and initial webhook retry delay. |
+| `OPEN_SPANNER_RECONCILIATION_STALE_AFTER` | `30m` | Grace period before an overdue schedule is marked stale. |
+| `OPEN_SPANNER_RECONCILIATION_LIMIT` | `100` | Decisions and counters inspected per scheduled scan. |
+| `OPEN_SPANNER_RECONCILIATION_LOOKBACK_HOURS` | `24` | Decision history inspected by scheduled scans. |
+| `OPEN_SPANNER_RECONCILIATION_MAX_ATTEMPTS` | `5` | Webhook attempts before dead-letter state. |
+| `OPEN_SPANNER_RECONCILIATION_WEBHOOK_URL` | empty | Optional reconciliation notification endpoint. |
+| `OPEN_SPANNER_RECONCILIATION_WEBHOOK_SECRET` | empty | Optional HMAC-SHA256 webhook signing secret. |
+| `OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION` | `720h` | Retention window for accepted and rejected consume decisions. |
+| `OPEN_SPANNER_OPERATIONAL_HISTORY_RETENTION` | `720h` | Retention window for terminal operational audit, job, delivery, and maintenance-run history. |
+| `OPEN_SPANNER_OPERATIONAL_HISTORY_INTERVAL` | `1h` | Interval between operational-history cleanup passes. |
+| `OPEN_SPANNER_OPERATIONAL_HISTORY_TIMEOUT` | `5m` | Maximum duration of one operational-history cleanup pass. |
+| `OPEN_SPANNER_OPERATIONAL_HISTORY_BATCH_SIZE` | `1000` | Maximum rows deleted from each eligible table per pass; range 1–10,000. |
 
-## Social Login
-
-Open Spanner supports dashboard sign-in with email/password and configured OAuth providers. Google and GitHub are built in today, and each provider follows the same variable pattern:
-
-```text
-OPEN_SPANNER_<PROVIDER>_OAUTH_ENABLED
-OPEN_SPANNER_<PROVIDER>_OAUTH_CLIENT_ID
-OPEN_SPANNER_<PROVIDER>_OAUTH_CLIENT_SECRET
-OPEN_SPANNER_<PROVIDER>_OAUTH_REDIRECT_URL
-```
-
-Use `GOOGLE` or `GITHUB` for the built-in providers. Social login creates the same HttpOnly dashboard session cookies as password login.
-
-Provider buttons are shown only when the provider is enabled and has credentials. To keep credentials configured but hide a provider:
-
-```sh
-OPEN_SPANNER_GOOGLE_OAUTH_ENABLED=false
-OPEN_SPANNER_GITHUB_OAUTH_ENABLED=true
-```
-
-The local callback URLs are:
-
-```text
-http://localhost:18081/v1/auth/oauth/google/callback
-http://localhost:18081/v1/auth/oauth/github/callback
-```
-
-When using the Vite dashboard dev server, also add:
-
-```text
-http://localhost:5173/v1/auth/oauth/google/callback
-http://localhost:5173/v1/auth/oauth/github/callback
-```
-
-Set explicit redirect URLs when the public browser URL differs from the API listen address:
-
-```sh
-OPEN_SPANNER_GOOGLE_OAUTH_REDIRECT_URL=https://open-spanner.example.com/v1/auth/oauth/google/callback
-OPEN_SPANNER_GITHUB_OAUTH_REDIRECT_URL=https://open-spanner.example.com/v1/auth/oauth/github/callback
-```
-
-For Google, create a Web application OAuth client and add the callback URL under authorized redirect URIs. For GitHub, create an OAuth App and use the matching callback URL.
-
-## Docker Compose Variables
-
-These variables are read by `docker-compose.app.yml` before the Open Spanner container starts:
+The Next.js web process uses one runtime variable:
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `OPEN_SPANNER_HTTP_PORT` | `18081` | Host port published for the app container. |
-| `OPEN_SPANNER_GRPC_PORT` | `18090` | Host port published for the app container's gRPC listener. |
-| `OPEN_SPANNER_POSTGRES_PASSWORD` | `open_spanner` | Password for the bundled Postgres service and the app connection string. |
-| `OPEN_SPANNER_EXPORT_WORKER_INTERVAL` | `5s` | Passed through to the export worker container. |
-| `OPEN_SPANNER_EXPORT_WORKER_LOCK_TTL` | `5m` | Passed through to the export worker container. |
-| `OPEN_SPANNER_EXPORT_WORKER_TIMEOUT` | `10m` | Passed through to the export worker container. |
-| `OPEN_SPANNER_EXPORT_WORKER_MAX_ATTEMPTS` | `3` | Passed through to the export worker container. |
-| `OPEN_SPANNER_ALERT_WORKER_INTERVAL` | `5s` | Passed through to the alert worker container. |
-| `OPEN_SPANNER_ALERT_WORKER_LOCK_TTL` | `5m` | Passed through to the alert worker container. |
-| `OPEN_SPANNER_ALERT_WORKER_TIMEOUT` | `1m` | Passed through to the alert worker container. |
-| `OPEN_SPANNER_ALERT_WORKER_RETRY_AFTER` | `30s` | Passed through to the alert worker container. |
-| `OPEN_SPANNER_ALERT_WORKER_MAX_ATTEMPTS` | `3` | Passed through to the alert worker container. |
-| `OPEN_SPANNER_ALERT_WORKER_BATCH_SIZE` | `100` | Passed through to the alert worker container. |
-| `OPEN_SPANNER_ENTITLEMENT_WORKER_INTERVAL` | `5s` | Passed through to the entitlement worker container. |
-| `OPEN_SPANNER_ENTITLEMENT_WORKER_LOCK_TTL` | `5m` | Passed through to the entitlement worker container. |
-| `OPEN_SPANNER_ENTITLEMENT_WORKER_TIMEOUT` | `1m` | Passed through to the entitlement worker container. |
-| `OPEN_SPANNER_ENTITLEMENT_WORKER_RETRY_AFTER` | `30s` | Passed through to the entitlement worker container. |
-| `OPEN_SPANNER_ENTITLEMENT_WORKER_MAX_ATTEMPTS` | `3` | Passed through to the entitlement worker container. |
-| `OPEN_SPANNER_ENTITLEMENT_WORKER_BATCH_SIZE` | `100` | Passed through to the entitlement worker container. |
-| `OPEN_SPANNER_RETENTION_PRUNE_ENABLED` | `false` | Passed through to the app container. |
+| `OPEN_SPANNER_API_PROXY_URL` | `http://127.0.0.1:18080` | Private API origin used for `/v1` requests. Do not point this at the public web origin. |
+
+## Related Configuration
+
+- See [Auth Model](/docs/concepts/auth-model) for registration and OAuth setup.
+- See [Production Deployment](/docs/configuration/deployment) for per-process
+  connection budgets, worker topology, storage, and networking.
+- Use the repository `.env.example` as the complete Docker Compose template;
+  Compose-only port, password, and per-process pool variables are documented
+  inline there.
 
 ## Postgres Example
 

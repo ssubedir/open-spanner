@@ -3,6 +3,7 @@ package usage
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	appauth "github.com/ssubedir/open-spanner/internal/auth"
@@ -29,13 +30,21 @@ type ExportJobClaimCommand struct {
 
 type ExportJobCompleteCommand struct {
 	ID           string
+	ClaimToken   string
 	ArtifactPath string
 	ArtifactSize int64
 }
 
 type ExportJobFailCommand struct {
 	ID           string
+	ClaimToken   string
 	ErrorMessage string
+}
+
+type ExportJobRenewCommand struct {
+	ID         string
+	ClaimToken string
+	LockTTL    time.Duration
 }
 
 type ExportJobCancelCommand struct {
@@ -44,6 +53,14 @@ type ExportJobCancelCommand struct {
 
 type ExportJobRetryCommand struct {
 	ID string
+}
+
+type ExportCleanupRunCommand struct {
+	WorkspaceID    string
+	ExpiredBefore  time.Time
+	FilesDeleted   int
+	BytesReclaimed int64
+	Failures       int
 }
 
 func (s *service) CreateExportJob(ctx context.Context, cmd ExportJobCreateCommand) (ExportJobResult, error) {
@@ -72,9 +89,11 @@ func (s *service) CreateExportJob(ctx context.Context, cmd ExportJobCreateComman
 		0,
 		timeZero(),
 		"",
+		"",
 		0,
 		now,
 		now,
+		timeZero(),
 		timeZero(),
 	)
 	if err != nil {
@@ -136,7 +155,7 @@ func (s *service) ClaimExportJob(ctx context.Context, cmd ExportJobClaimCommand)
 	}
 
 	now := s.now()
-	job, err := s.usageRepo.ClaimExportJob(ctx, now, now.Add(cmd.LockTTL), cmd.MaxAttempts)
+	job, err := s.usageRepo.ClaimExportJob(ctx, now, now.Add(cmd.LockTTL), newID(), cmd.MaxAttempts)
 	if errors.Is(err, domain.ErrNotFound) {
 		return ExportJobResult{}, false, nil
 	}
@@ -147,8 +166,16 @@ func (s *service) ClaimExportJob(ctx context.Context, cmd ExportJobClaimCommand)
 	return exportJobResultFromDomain(job), true, nil
 }
 
+func (s *service) RenewExportJobLease(ctx context.Context, cmd ExportJobRenewCommand) error {
+	if strings.TrimSpace(cmd.ID) == "" || strings.TrimSpace(cmd.ClaimToken) == "" || cmd.LockTTL <= 0 {
+		return domain.ErrInvalidInput
+	}
+	now := s.now()
+	return s.usageRepo.RenewExportJobLease(ctx, cmd.ID, cmd.ClaimToken, now.Add(cmd.LockTTL), now)
+}
+
 func (s *service) CompleteExportJob(ctx context.Context, cmd ExportJobCompleteCommand) (ExportJobResult, error) {
-	job, err := s.usageRepo.CompleteExportJob(ctx, cmd.ID, cmd.ArtifactPath, cmd.ArtifactSize, s.now())
+	job, err := s.usageRepo.CompleteExportJob(ctx, cmd.ID, cmd.ClaimToken, cmd.ArtifactPath, cmd.ArtifactSize, s.now())
 	if err != nil {
 		return ExportJobResult{}, err
 	}
@@ -156,7 +183,7 @@ func (s *service) CompleteExportJob(ctx context.Context, cmd ExportJobCompleteCo
 }
 
 func (s *service) FailExportJob(ctx context.Context, cmd ExportJobFailCommand) (ExportJobResult, error) {
-	job, err := s.usageRepo.FailExportJob(ctx, cmd.ID, cmd.ErrorMessage, s.now())
+	job, err := s.usageRepo.FailExportJob(ctx, cmd.ID, cmd.ClaimToken, cmd.ErrorMessage, s.now())
 	if err != nil {
 		return ExportJobResult{}, err
 	}
@@ -193,6 +220,40 @@ func (s *service) RetryExportJob(ctx context.Context, cmd ExportJobRetryCommand)
 		return ExportJobResult{}, err
 	}
 	return exportJobResultFromDomain(job), nil
+}
+
+func (s *service) ListExpiredExportJobs(ctx context.Context, expiredBefore time.Time, limit int) ([]ExportJobResult, error) {
+	if expiredBefore.IsZero() || limit <= 0 || limit > 1000 {
+		return nil, domain.ErrInvalidInput
+	}
+	jobs, err := s.usageRepo.FindExpiredExportJobs(ctx, expiredBefore, limit)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]ExportJobResult, 0, len(jobs))
+	for _, job := range jobs {
+		results = append(results, exportJobResultFromDomain(job))
+	}
+	return results, nil
+}
+
+func (s *service) ExpireExportJob(ctx context.Context, id string) (bool, error) {
+	if strings.TrimSpace(id) == "" {
+		return false, domain.ErrInvalidInput
+	}
+	return s.usageRepo.ExpireExportJob(ctx, id, s.now())
+}
+
+func (s *service) RecordExportCleanupRun(ctx context.Context, cmd ExportCleanupRunCommand) (ExportCleanupRunResult, error) {
+	run, err := domainusage.NewExportCleanupRun(newID(), cmd.WorkspaceID, cmd.ExpiredBefore, cmd.FilesDeleted, cmd.BytesReclaimed, cmd.Failures, s.now())
+	if err != nil {
+		return ExportCleanupRunResult{}, err
+	}
+	run, err = s.usageRepo.SaveExportCleanupRun(ctx, run)
+	if err != nil {
+		return ExportCleanupRunResult{}, err
+	}
+	return exportCleanupRunResultFromDomain(run), nil
 }
 
 func timeZero() time.Time {

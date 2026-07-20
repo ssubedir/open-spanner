@@ -16,6 +16,8 @@ func (h *Handler) RegisterRoutes(router chi.Router, authorizer access.Authorizer
 		r.Get("/", h.List, access.AlertsRead(alertListResource))
 		r.Post("/", h.Create, access.AlertsWrite(createAlertResource))
 		r.Get("/events", h.ListEvents, access.AlertsRead(h.alertEventResource))
+		r.Get("/delivery-jobs", h.ListDeliveryJobs, access.AlertsRead(alertDestinationResource))
+		r.Post("/delivery-jobs/{id}/retry", h.RetryDeliveryJob, access.AlertsWrite(alertDestinationResource))
 
 		r.Route("/destinations", func(destinations access.Router) {
 			destinations.Get("/", h.ListDestinations, access.AlertsRead(alertDestinationResource))

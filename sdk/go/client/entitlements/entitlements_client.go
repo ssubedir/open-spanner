@@ -58,6 +58,24 @@ type ClientOption func(*runtime.ClientOperation)
 // ClientService is the interface for Client methods.
 type ClientService interface {
 
+	// ConsumeEntitlement atomically consume quota.
+	ConsumeEntitlement(params *ConsumeEntitlementParams, opts ...ClientOption) (*ConsumeEntitlementCreated, error)
+
+	// ConsumeEntitlementContext atomically consume quota.
+	ConsumeEntitlementContext(ctx context.Context, params *ConsumeEntitlementParams, opts ...ClientOption) (*ConsumeEntitlementCreated, error)
+
+	// GetConsumptionDecision get consumption decision.
+	GetConsumptionDecision(params *GetConsumptionDecisionParams, opts ...ClientOption) (*GetConsumptionDecisionOK, error)
+
+	// GetConsumptionDecisionContext get consumption decision.
+	GetConsumptionDecisionContext(ctx context.Context, params *GetConsumptionDecisionParams, opts ...ClientOption) (*GetConsumptionDecisionOK, error)
+
+	// ListConsumptionDecisions list consumption decisions.
+	ListConsumptionDecisions(params *ListConsumptionDecisionsParams, opts ...ClientOption) (*ListConsumptionDecisionsOK, error)
+
+	// ListConsumptionDecisionsContext list consumption decisions.
+	ListConsumptionDecisionsContext(ctx context.Context, params *ListConsumptionDecisionsParams, opts ...ClientOption) (*ListConsumptionDecisionsOK, error)
+
 	// ListEntitlementStates list entitlement states.
 	ListEntitlementStates(params *ListEntitlementStatesParams, opts ...ClientOption) (*ListEntitlementStatesOK, error)
 
@@ -65,6 +83,208 @@ type ClientService interface {
 	ListEntitlementStatesContext(ctx context.Context, params *ListEntitlementStatesParams, opts ...ClientOption) (*ListEntitlementStatesOK, error)
 
 	SetTransport(transport runtime.ContextualTransport)
+}
+
+/*
+ConsumeEntitlementatomicallies consume quota.
+
+Evaluates projected quota under a subject lock. Advisory limits always accept usage; hard limits reject usage that would exceed quota. Accepted and rejected decisions are stored by idempotency key and replayed without reevaluation..
+
+This method does not support injected context.
+However, timeout and opentracing contexts are honored whenever enabled.
+
+If you need to pass a specific context, use [Client.ConsumeEntitlementContext] instead.
+*/
+func (a *Client) ConsumeEntitlement(params *ConsumeEntitlementParams, opts ...ClientOption) (*ConsumeEntitlementCreated, error) {
+	var ctx context.Context
+	if params.inner.ctx != nil {
+		ctx = params.inner.ctx
+	} else {
+		ctx = context.Background()
+	}
+
+	return a.ConsumeEntitlementContext(ctx, params, opts...)
+}
+
+/*
+ConsumeEntitlementContextatomicallies consume quota.
+
+Evaluates projected quota under a subject lock. Advisory limits always accept usage; hard limits reject usage that would exceed quota. Accepted and rejected decisions are stored by idempotency key and replayed without reevaluation..
+
+Do not use the deprecated [ConsumeEntitlementParams.Context] with this method: it would be ignored.
+*/
+func (a *Client) ConsumeEntitlementContext(ctx context.Context, params *ConsumeEntitlementParams, opts ...ClientOption) (*ConsumeEntitlementCreated, error) {
+	// NOTE: parameters are not validated before sending
+	if params == nil {
+		params = NewConsumeEntitlementParams()
+	}
+
+	op := &runtime.ClientOperation{
+		ID:                 "consumeEntitlement",
+		Method:             "POST",
+		PathPattern:        "/v1/entitlements/consume",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http"},
+		Params:             params,
+		Reader:             &ConsumeEntitlementReader{formats: a.formats},
+		Client:             params.HTTPClient,
+	}
+
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.SubmitContext(ctx, op)
+	if err != nil {
+		return nil, err
+	}
+
+	// only one success response has to be checked
+	success, ok := result.(*ConsumeEntitlementCreated)
+	if ok {
+		return success, nil
+	}
+
+	// unexpected success response.
+
+	// no default response is defined.
+	//
+	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for consumeEntitlement: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+GetConsumptionDecisiongets consumption decision.
+
+This method does not support injected context.
+However, timeout and opentracing contexts are honored whenever enabled.
+
+If you need to pass a specific context, use [Client.GetConsumptionDecisionContext] instead.
+*/
+func (a *Client) GetConsumptionDecision(params *GetConsumptionDecisionParams, opts ...ClientOption) (*GetConsumptionDecisionOK, error) {
+	var ctx context.Context
+	if params.inner.ctx != nil {
+		ctx = params.inner.ctx
+	} else {
+		ctx = context.Background()
+	}
+
+	return a.GetConsumptionDecisionContext(ctx, params, opts...)
+}
+
+/*
+GetConsumptionDecisionContextgets consumption decision.
+
+Do not use the deprecated [GetConsumptionDecisionParams.Context] with this method: it would be ignored.
+*/
+func (a *Client) GetConsumptionDecisionContext(ctx context.Context, params *GetConsumptionDecisionParams, opts ...ClientOption) (*GetConsumptionDecisionOK, error) {
+	// NOTE: parameters are not validated before sending
+	if params == nil {
+		params = NewGetConsumptionDecisionParams()
+	}
+
+	op := &runtime.ClientOperation{
+		ID:                 "getConsumptionDecision",
+		Method:             "GET",
+		PathPattern:        "/v1/entitlements/decisions/{idempotency_key}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http"},
+		Params:             params,
+		Reader:             &GetConsumptionDecisionReader{formats: a.formats},
+		Client:             params.HTTPClient,
+	}
+
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.SubmitContext(ctx, op)
+	if err != nil {
+		return nil, err
+	}
+
+	// only one success response has to be checked
+	success, ok := result.(*GetConsumptionDecisionOK)
+	if ok {
+		return success, nil
+	}
+
+	// unexpected success response.
+
+	// no default response is defined.
+	//
+	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for getConsumptionDecision: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+ListConsumptionDecisionslists consumption decisions.
+
+This method does not support injected context.
+However, timeout and opentracing contexts are honored whenever enabled.
+
+If you need to pass a specific context, use [Client.ListConsumptionDecisionsContext] instead.
+*/
+func (a *Client) ListConsumptionDecisions(params *ListConsumptionDecisionsParams, opts ...ClientOption) (*ListConsumptionDecisionsOK, error) {
+	var ctx context.Context
+	if params.inner.ctx != nil {
+		ctx = params.inner.ctx
+	} else {
+		ctx = context.Background()
+	}
+
+	return a.ListConsumptionDecisionsContext(ctx, params, opts...)
+}
+
+/*
+ListConsumptionDecisionsContextlists consumption decisions.
+
+Do not use the deprecated [ListConsumptionDecisionsParams.Context] with this method: it would be ignored.
+*/
+func (a *Client) ListConsumptionDecisionsContext(ctx context.Context, params *ListConsumptionDecisionsParams, opts ...ClientOption) (*ListConsumptionDecisionsOK, error) {
+	// NOTE: parameters are not validated before sending
+	if params == nil {
+		params = NewListConsumptionDecisionsParams()
+	}
+
+	op := &runtime.ClientOperation{
+		ID:                 "listConsumptionDecisions",
+		Method:             "GET",
+		PathPattern:        "/v1/entitlements/decisions",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http"},
+		Params:             params,
+		Reader:             &ListConsumptionDecisionsReader{formats: a.formats},
+		Client:             params.HTTPClient,
+	}
+
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.SubmitContext(ctx, op)
+	if err != nil {
+		return nil, err
+	}
+
+	// only one success response has to be checked
+	success, ok := result.(*ListConsumptionDecisionsOK)
+	if ok {
+		return success, nil
+	}
+
+	// unexpected success response.
+
+	// no default response is defined.
+	//
+	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for listConsumptionDecisions: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*

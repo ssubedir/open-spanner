@@ -23,17 +23,41 @@ func TestLoadDefaultsToSQLite(t *testing.T) {
 	if cfg.GRPCAddr != ":18090" {
 		t.Fatalf("grpc addr = %q, want :18090", cfg.GRPCAddr)
 	}
+	if cfg.HTTPAddr != ":18080" {
+		t.Fatalf("http addr = %q, want :18080", cfg.HTTPAddr)
+	}
+	if cfg.ExportWorkerHealthAddr != ":18082" || cfg.AlertWorkerHealthAddr != ":18083" || cfg.EntitlementWorkerHealthAddr != ":18084" {
+		t.Fatalf("worker health addresses = %q %q %q", cfg.ExportWorkerHealthAddr, cfg.AlertWorkerHealthAddr, cfg.EntitlementWorkerHealthAddr)
+	}
+	if cfg.ExportStorageDriver != "filesystem" {
+		t.Fatalf("export storage driver = %q, want filesystem", cfg.ExportStorageDriver)
+	}
+	if cfg.IngestionMaxBodyBytes != 1024*1024 || cfg.IngestionMaxBulkEvents != 1000 || cfg.IngestionMaxStreamEvents != 1000 || cfg.IngestionRateLimitEvents != 10000 || cfg.IngestionRateLimitWindow != time.Minute {
+		t.Fatalf("ingestion safety defaults = %#v", cfg)
+	}
+	if !cfg.RegistrationEnabled {
+		t.Fatal("registration should be enabled by default")
+	}
 	if cfg.RetentionPruneInterval != time.Hour {
 		t.Fatalf("retention interval = %s, want 1h", cfg.RetentionPruneInterval)
 	}
 	if cfg.RetentionPruneTimeout != 30*time.Minute {
 		t.Fatalf("retention timeout = %s, want 30m", cfg.RetentionPruneTimeout)
 	}
+	if cfg.ConsumptionDecisionRetention != 30*24*time.Hour {
+		t.Fatalf("decision retention = %s, want 720h", cfg.ConsumptionDecisionRetention)
+	}
+	if cfg.OperationalHistoryRetention != 30*24*time.Hour || cfg.OperationalHistoryInterval != time.Hour || cfg.OperationalHistoryTimeout != 5*time.Minute || cfg.OperationalHistoryBatchSize != 1000 {
+		t.Fatalf("operational history defaults = %#v", cfg)
+	}
 	if cfg.AlertWorkerInterval != 5*time.Second {
 		t.Fatalf("alert worker interval = %s, want 5s", cfg.AlertWorkerInterval)
 	}
 	if cfg.AlertWorkerTimeout != time.Minute {
 		t.Fatalf("alert worker timeout = %s, want 1m", cfg.AlertWorkerTimeout)
+	}
+	if cfg.ReconciliationEnabled || cfg.ReconciliationPollInterval != 5*time.Second || cfg.ReconciliationSchedule != 15*time.Minute || cfg.ReconciliationStaleAfter != 30*time.Minute || cfg.ReconciliationLimit != 100 || cfg.ReconciliationLookbackHours != 24 || cfg.ReconciliationMaxAttempts != 5 {
+		t.Fatalf("reconciliation defaults = %#v", cfg)
 	}
 	if cfg.OAuth.GitHub.ClientID != "" || cfg.OAuth.GitHub.ClientSecret != "" || !cfg.OAuth.GitHub.Enabled || cfg.OAuth.GitHub.RedirectURL != "" {
 		t.Fatalf("github oauth config = %#v, want empty defaults", cfg.OAuth.GitHub)
@@ -77,6 +101,35 @@ func TestLoadRejectsUnsupportedDriver(t *testing.T) {
 	}
 }
 
+func TestLoadAcceptsS3ExportStorage(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("OPEN_SPANNER_EXPORT_STORAGE_DRIVER", "s3")
+	t.Setenv("OPEN_SPANNER_EXPORT_S3_BUCKET", "exports")
+	t.Setenv("OPEN_SPANNER_EXPORT_S3_ENDPOINT", "http://localhost:9000")
+	t.Setenv("OPEN_SPANNER_EXPORT_S3_ACCESS_KEY_ID", "test")
+	t.Setenv("OPEN_SPANNER_EXPORT_S3_SECRET_ACCESS_KEY", "secret")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.ExportStorageDriver != "s3" || cfg.ExportS3Bucket != "exports" || !cfg.ExportS3ForcePathStyle {
+		t.Fatalf("S3 config = %#v", cfg)
+	}
+}
+
+func TestLoadRejectsIncompleteS3ExportStorage(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("OPEN_SPANNER_EXPORT_STORAGE_DRIVER", "s3")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "OPEN_SPANNER_EXPORT_S3_BUCKET") {
+		t.Fatalf("load error = %v", err)
+	}
+	t.Setenv("OPEN_SPANNER_EXPORT_S3_BUCKET", "exports")
+	t.Setenv("OPEN_SPANNER_EXPORT_S3_ACCESS_KEY_ID", "test")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "must be set together") {
+		t.Fatalf("load error = %v", err)
+	}
+}
+
 func TestLoadRejectsInvalidPoolConfig(t *testing.T) {
 	clearEnv(t)
 	t.Setenv("OPEN_SPANNER_DB_MAX_OPEN_CONNS", "-1")
@@ -84,6 +137,17 @@ func TestLoadRejectsInvalidPoolConfig(t *testing.T) {
 	_, err := Load()
 	if err == nil || !strings.Contains(err.Error(), "OPEN_SPANNER_DB_MAX_OPEN_CONNS") {
 		t.Fatalf("load error = %v, want max open conns error", err)
+	}
+}
+
+func TestLoadRejectsIdlePoolLargerThanOpenPool(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("OPEN_SPANNER_DB_MAX_OPEN_CONNS", "4")
+	t.Setenv("OPEN_SPANNER_DB_MAX_IDLE_CONNS", "5")
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "OPEN_SPANNER_DB_MAX_IDLE_CONNS cannot exceed OPEN_SPANNER_DB_MAX_OPEN_CONNS") {
+		t.Fatalf("load error = %v, want idle pool size error", err)
 	}
 }
 
@@ -107,12 +171,31 @@ func TestLoadRejectsInvalidRetentionTimeout(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsInvalidConsumptionDecisionRetention(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION", "0s")
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION") {
+		t.Fatalf("load error = %v, want decision retention error", err)
+	}
+}
+
 func clearEnv(t *testing.T) {
 	t.Helper()
 
 	for _, key := range []string{
 		"OPEN_SPANNER_HTTP_ADDR",
 		"OPEN_SPANNER_GRPC_ADDR",
+		"OPEN_SPANNER_EXPORT_WORKER_HEALTH_ADDR",
+		"OPEN_SPANNER_ALERT_WORKER_HEALTH_ADDR",
+		"OPEN_SPANNER_ENTITLEMENT_WORKER_HEALTH_ADDR",
+		"OPEN_SPANNER_REGISTRATION_ENABLED",
+		"OPEN_SPANNER_INGESTION_MAX_BODY_BYTES",
+		"OPEN_SPANNER_INGESTION_MAX_BULK_EVENTS",
+		"OPEN_SPANNER_INGESTION_MAX_STREAM_EVENTS",
+		"OPEN_SPANNER_INGESTION_RATE_LIMIT_EVENTS",
+		"OPEN_SPANNER_INGESTION_RATE_LIMIT_WINDOW",
 		"OPEN_SPANNER_GITHUB_OAUTH_ENABLED",
 		"OPEN_SPANNER_GITHUB_OAUTH_CLIENT_ID",
 		"OPEN_SPANNER_GITHUB_OAUTH_CLIENT_SECRET",
@@ -131,17 +214,45 @@ func clearEnv(t *testing.T) {
 		"OPEN_SPANNER_RETENTION_PRUNE_ENABLED",
 		"OPEN_SPANNER_RETENTION_PRUNE_INTERVAL",
 		"OPEN_SPANNER_RETENTION_PRUNE_TIMEOUT",
+		"OPEN_SPANNER_CONSUMPTION_DECISION_RETENTION",
+		"OPEN_SPANNER_OPERATIONAL_HISTORY_RETENTION",
+		"OPEN_SPANNER_OPERATIONAL_HISTORY_INTERVAL",
+		"OPEN_SPANNER_OPERATIONAL_HISTORY_TIMEOUT",
+		"OPEN_SPANNER_OPERATIONAL_HISTORY_BATCH_SIZE",
 		"OPEN_SPANNER_EXPORT_STORAGE_PATH",
+		"OPEN_SPANNER_EXPORT_STORAGE_DRIVER",
+		"OPEN_SPANNER_EXPORT_S3_BUCKET",
+		"OPEN_SPANNER_EXPORT_S3_REGION",
+		"OPEN_SPANNER_EXPORT_S3_ENDPOINT",
+		"OPEN_SPANNER_EXPORT_S3_ACCESS_KEY_ID",
+		"OPEN_SPANNER_EXPORT_S3_SECRET_ACCESS_KEY",
+		"OPEN_SPANNER_EXPORT_S3_SESSION_TOKEN",
+		"OPEN_SPANNER_EXPORT_S3_PREFIX",
+		"OPEN_SPANNER_EXPORT_S3_FORCE_PATH_STYLE",
 		"OPEN_SPANNER_EXPORT_WORKER_INTERVAL",
 		"OPEN_SPANNER_EXPORT_WORKER_LOCK_TTL",
-		"OPEN_SPANNER_EXPORT_WORKER_TIMEOUT",
 		"OPEN_SPANNER_EXPORT_WORKER_MAX_ATTEMPTS",
+		"OPEN_SPANNER_EXPORT_RETENTION",
+		"OPEN_SPANNER_EXPORT_CLEANUP_INTERVAL",
+		"OPEN_SPANNER_EXPORT_CLEANUP_BATCH_SIZE",
 		"OPEN_SPANNER_ALERT_WORKER_INTERVAL",
 		"OPEN_SPANNER_ALERT_WORKER_LOCK_TTL",
 		"OPEN_SPANNER_ALERT_WORKER_TIMEOUT",
 		"OPEN_SPANNER_ALERT_WORKER_RETRY_AFTER",
 		"OPEN_SPANNER_ALERT_WORKER_MAX_ATTEMPTS",
 		"OPEN_SPANNER_ALERT_WORKER_BATCH_SIZE",
+		"OPEN_SPANNER_RECONCILIATION_ENABLED",
+		"OPEN_SPANNER_RECONCILIATION_POLL_INTERVAL",
+		"OPEN_SPANNER_RECONCILIATION_SCHEDULE",
+		"OPEN_SPANNER_RECONCILIATION_LOCK_TTL",
+		"OPEN_SPANNER_RECONCILIATION_TIMEOUT",
+		"OPEN_SPANNER_RECONCILIATION_RETRY_AFTER",
+		"OPEN_SPANNER_RECONCILIATION_STALE_AFTER",
+		"OPEN_SPANNER_RECONCILIATION_LIMIT",
+		"OPEN_SPANNER_RECONCILIATION_LOOKBACK_HOURS",
+		"OPEN_SPANNER_RECONCILIATION_MAX_ATTEMPTS",
+		"OPEN_SPANNER_RECONCILIATION_WEBHOOK_URL",
+		"OPEN_SPANNER_RECONCILIATION_WEBHOOK_SECRET",
 	} {
 		t.Setenv(key, "")
 	}

@@ -11,54 +11,77 @@ Run Open Spanner as separate processes against the same Postgres database:
 
 | Process | Purpose | Required when |
 | --- | --- | --- |
-| API | Serves the dashboard, REST API, and gRPC usage ingestion. | Always |
+| Web | Serves the Next.js dashboard and proxies public `/v1` REST requests. | Always |
+| API | Serves private REST, gRPC usage ingestion, migrations, metrics, and health probes. | Always |
 | Export worker | Claims queued export jobs and writes CSV artifacts. | Dashboard export jobs are enabled |
 | Alert worker | Evaluates alert rules and delivers webhooks. | Alerts are enabled |
 | Entitlement worker | Refreshes quota state, entitlement events, and period snapshots. | Plans and entitlements are enabled |
+| Usage worker | Durably fans committed usage events into alert and entitlement queues. | Always |
 | Postgres | Stores users, sessions, API keys, meters, plans, usage events, jobs, alerts, and query state. | Production deployments |
 
 SQLite is useful for demos and small single-node installs. Use Postgres when you need normal production operations such as backups, connection pooling, multiple API instances, multiple workers, or managed database observability.
 
 ## Container Image
 
-Release images are published to Docker Hub:
+Release images are published to Docker Hub as separate API and control-plane images:
 
 ```sh
 docker pull ssubedir/open-spanner:latest
+docker pull ssubedir/open-spanner-control-plane:latest
 ```
 
 Use `latest` for a quick trial. Pin a version tag for production:
 
 ```sh
-docker pull ssubedir/open-spanner:0.1.12
+docker pull ssubedir/open-spanner:0.1.13
+docker pull ssubedir/open-spanner-control-plane:0.1.13
 ```
 
-The image contains the API binary and worker binaries:
+The API image contains the API binary and worker binaries:
 
 ```text
 /usr/local/bin/open-spanner
 /usr/local/bin/open-spanner-export-worker
 /usr/local/bin/open-spanner-alert-worker
 /usr/local/bin/open-spanner-entitlement-worker
+/usr/local/bin/open-spanner-usage-worker
 ```
 
 ## API Process
 
-Point the API at Postgres and publish HTTP plus gRPC only where your backend services need access:
+Point the API at Postgres. Keep HTTP on `18080` private to the deployment network and publish gRPC only where trusted backend services need it:
 
 ```sh
+docker network create open-spanner
+
 docker run --detach \
-  --name open-spanner \
-  --publish 18081:18081 \
+  --name open-spanner-api \
+  --network open-spanner \
+  --env OPEN_SPANNER_HTTP_ADDR=:18080 \
   --publish 18090:18090 \
   --env OPEN_SPANNER_DB_DRIVER=postgres \
   --env OPEN_SPANNER_POSTGRES_DSN="postgres://open_spanner:change-me@postgres.example.com:5432/open_spanner?sslmode=require" \
   --env OPEN_SPANNER_EXPORT_STORAGE_PATH=/data/exports \
   --volume open-spanner-exports:/data/exports \
-  ssubedir/open-spanner:0.1.12
+  ssubedir/open-spanner:0.1.13
 ```
 
 The API runs database migrations on startup. Back up Postgres before upgrading across releases, especially while Open Spanner is pre-1.0.
+
+## Control Plane Process
+
+Run the matching control-plane image on the public HTTP port and point its runtime proxy at the private API service:
+
+```sh
+docker run --detach \
+  --name open-spanner-control-plane \
+  --network open-spanner \
+  --publish 18081:18081 \
+  --env OPEN_SPANNER_API_PROXY_URL=http://open-spanner-api:18080 \
+  ssubedir/open-spanner-control-plane:0.1.13
+```
+
+The web process forwards every `/v1` request without buffering response bodies, so SDK calls, CSV downloads, dashboard sessions, and OAuth callbacks use the same public origin. Do not expose the private API HTTP port through the ingress.
 
 ## Worker Processes
 
@@ -72,46 +95,70 @@ docker run --detach \
   --env OPEN_SPANNER_EXPORT_STORAGE_PATH=/data/exports \
   --volume open-spanner-exports:/data/exports \
   --entrypoint /usr/local/bin/open-spanner-export-worker \
-  ssubedir/open-spanner:0.1.12
+  ssubedir/open-spanner:0.1.13
 
 docker run --detach \
   --name open-spanner-alert-worker \
   --env OPEN_SPANNER_DB_DRIVER=postgres \
   --env OPEN_SPANNER_POSTGRES_DSN="postgres://open_spanner:change-me@postgres.example.com:5432/open_spanner?sslmode=require" \
   --entrypoint /usr/local/bin/open-spanner-alert-worker \
-  ssubedir/open-spanner:0.1.12
+  ssubedir/open-spanner:0.1.13
 
 docker run --detach \
   --name open-spanner-entitlement-worker \
   --env OPEN_SPANNER_DB_DRIVER=postgres \
   --env OPEN_SPANNER_POSTGRES_DSN="postgres://open_spanner:change-me@postgres.example.com:5432/open_spanner?sslmode=require" \
   --entrypoint /usr/local/bin/open-spanner-entitlement-worker \
-  ssubedir/open-spanner:0.1.12
+  ssubedir/open-spanner:0.1.13
+
+docker run --detach \
+  --name open-spanner-usage-worker \
+  --env OPEN_SPANNER_DB_DRIVER=postgres \
+  --env OPEN_SPANNER_POSTGRES_DSN="postgres://open_spanner:change-me@postgres.example.com:5432/open_spanner?sslmode=require" \
+  --entrypoint /usr/local/bin/open-spanner-usage-worker \
+  ssubedir/open-spanner:0.1.13
 ```
 
-Queued exports need shared artifact storage. In a single-host Docker setup, a shared Docker volume is enough. In a multi-host deployment, the API and export workers need the same mounted filesystem path, or exports should stay co-located until external artifact storage is added.
+Queued exports need shared artifact storage. In a single-host Docker setup, the default shared Docker volume is enough. Multi-host deployments should set `OPEN_SPANNER_EXPORT_STORAGE_DRIVER=s3` on both the API and every export worker, with the same bucket, region, endpoint, and prefix. AWS S3 uses the default AWS credential chain when Open Spanner-specific static credentials are omitted; custom S3-compatible endpoints default to path-style addressing.
 
-With Postgres, multiple export, alert, and entitlement workers can run at the same time. Jobs are claimed through database locks so replicas can share the queue.
+Use a dedicated bucket or prefix. Retention deletes the current object version; when bucket versioning is enabled, configure a bucket lifecycle rule to remove noncurrent versions if physical storage reclamation is required.
+
+With Postgres, multiple usage, export, alert, and entitlement workers can run at the same time. Jobs are claimed through database locks so replicas can share the queue. The usage worker is required: accepted events and their outbox records commit atomically, then this worker durably fans each event into the alert and entitlement queues.
 
 ## Network And TLS
 
 Keep Postgres private to the deployment network. Expose:
 
-- HTTP for dashboard, REST, health checks, and readiness checks.
+- Web HTTP for the dashboard and proxied REST API.
 - gRPC only to trusted backend services that use stream ingestion.
+
+Keep API HTTP, worker probes, and metrics private to the deployment or monitoring network.
 
 Open Spanner does not terminate TLS itself. Put it behind your platform ingress, load balancer, or reverse proxy and terminate TLS there. If you expose gRPC outside a private network, use a proxy that supports gRPC over HTTP/2.
 
 ## Health Checks
 
-Use these endpoints from your orchestrator:
+Use these private API endpoints from your orchestrator:
 
 | Endpoint | Use |
 | --- | --- |
 | `/health` | Liveness check that the process is running. |
 | `/ready` | Readiness check that the service can accept traffic. |
+| `/metrics` | OpenTelemetry operational metrics in Prometheus format. |
 
 The Docker Compose app stack uses `/ready` for the API container health check.
+
+The web container uses `/ready` for its health check. That endpoint returns success only when the Next.js server can reach the private API and the API can reach its configured database, so it represents end-to-end public REST readiness. The API also exposes its private `/health` liveness and `/ready` storage-readiness endpoints for direct orchestration probes.
+
+Each worker binary exposes the same `/health` and `/ready` contract on its own probe address. Readiness verifies database connectivity and becomes unavailable before the worker drains during shutdown. The defaults are `:18082` for export, `:18083` for alert, `:18084` for entitlement, and `:18085` for usage; use these endpoints for container or Kubernetes probes. Docker Compose health-checks every worker through `/ready`.
+
+During shutdown, the API marks `/ready` unavailable before it stops accepting traffic. It then drains in-flight HTTP requests and gRPC streams, stops API-owned workers and heartbeats, and closes database and telemetry resources last. Draining is bounded and connections that exceed the shutdown deadline are forced closed, so clients should retry interrupted ingestion with the same idempotency keys.
+
+Scrape `/metrics` from a trusted monitoring network. See [Observability](/docs/configuration/observability) for metric families, cardinality guarantees, and suggested alerts.
+
+The authenticated `GET /v1/system/stats` response and Overview dashboard also report durable heartbeats for export, alert, entitlement, retention, operational-history, and reconciliation workers. A worker is `healthy` when its heartbeat is less than 30 seconds old, `stale` after that threshold, `disabled` when its feature is turned off, and `not_started` when no heartbeat has been recorded. Use this view for operator diagnosis; external monitoring can poll the same API.
+
+The same system stats include retention rollup coverage for every retention-enabled meter. Coverage becomes `stale` when its finalized cutoff trails the current policy cutoff by more than twice the configured prune interval, and `degraded` when stored rollup invariants fail or raw events remain behind a finalized cutoff.
 
 ## Secrets
 
@@ -129,7 +176,7 @@ Back up Postgres. It is the system of record for meters, plans, subject assignme
 
 Export CSV files are generated artifacts. If your finance or audit workflow treats generated files as evidence, back up the export storage path too. Otherwise, export files can be regenerated while the source usage events are still retained.
 
-Retention pruning permanently deletes raw usage events older than each meter's retention policy. Enable pruning only after choosing retention windows that match your billing, audit, and reporting requirements.
+Retention pruning permanently deletes raw usage events older than each meter's retention policy after atomically materializing hourly aggregate rollups. Enable pruning only after choosing a window that matches individual-event audit requirements.
 
 ## Upgrade Checklist
 
@@ -137,7 +184,8 @@ Before upgrading a production deployment:
 
 1. Pin the target image tag instead of using `latest`.
 2. Back up Postgres.
-3. Confirm API, export worker, alert worker, and entitlement worker containers use the same image version.
+3. Confirm web, API, export worker, alert worker, entitlement worker, and usage worker containers use the same release version.
 4. Start the API and wait for `/ready`.
 5. Restart workers after the API has completed migrations.
-6. Check the dashboard, queued exports, and alert events after the rollout.
+6. Start the web deployment and wait for `/login`.
+7. Check the dashboard, usage outbox backlog, queued exports, and alert events after the rollout.

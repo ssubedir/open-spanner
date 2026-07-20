@@ -34,6 +34,7 @@ const (
 	ActionPlansRead    Action = "plans:read"
 	ActionPlansWrite   Action = "plans:write"
 	ActionSystemRead   Action = "system:read"
+	ActionSystemWrite  Action = "system:write"
 )
 
 const (
@@ -65,6 +66,7 @@ var allowedAPIKeyScopes = map[string]struct{}{
 	string(ActionPlansRead):    {},
 	string(ActionPlansWrite):   {},
 	string(ActionSystemRead):   {},
+	string(ActionSystemWrite):  {},
 	"usage:*":                  {},
 	"meters:*":                 {},
 	"alerts:*":                 {},
@@ -79,6 +81,7 @@ type Principal struct {
 	ID            string
 	User          UserResult
 	WorkspaceID   string
+	Role          string
 	APIKeyID      string
 	Scopes        []string
 	AllowedMeters []string
@@ -138,6 +141,7 @@ m = (p.sub == "*" || p.sub == r.sub) && (p.obj == "*" || p.obj == r.obj) && (p.a
 		{string(PrincipalKindAPIKey), ResourcePlan, string(ActionPlansRead)},
 		{string(PrincipalKindAPIKey), ResourcePlan, string(ActionPlansWrite)},
 		{string(PrincipalKindAPIKey), ResourceSystem, string(ActionSystemRead)},
+		{string(PrincipalKindAPIKey), ResourceSystem, string(ActionSystemWrite)},
 	} {
 		if _, err := enforcer.AddPolicy(policy); err != nil {
 			return nil, err
@@ -161,9 +165,28 @@ func (a *CasbinAuthorizer) Can(_ context.Context, principal Principal, action Ac
 	}
 
 	if principal.Kind == PrincipalKindSession {
-		return nil
+		switch principal.Role {
+		case "owner", "admin":
+			return nil
+		case "viewer":
+			if strings.HasSuffix(string(action), ":read") {
+				return nil
+			}
+			return forbidden(action, resource)
+		default:
+			return errors.Join(domain.ErrForbidden, errors.New("workspace membership is required"))
+		}
 	}
-	if principal.RevokedAt != nil {
+	switch principal.Role {
+	case RoleOwner, RoleAdmin:
+	case RoleViewer:
+		if !strings.HasSuffix(string(action), ":read") {
+			return forbidden(action, resource)
+		}
+	default:
+		return errors.Join(domain.ErrForbidden, errors.New("workspace membership is required"))
+	}
+	if principal.RevokedAt != nil && !principal.RevokedAt.After(time.Now().UTC()) {
 		return errors.Join(domain.ErrForbidden, errors.New("api key is revoked"))
 	}
 	if principal.ExpiresAt != nil && !principal.ExpiresAt.After(time.Now().UTC()) {

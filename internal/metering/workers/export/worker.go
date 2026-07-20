@@ -16,26 +16,40 @@ import (
 
 type Service interface {
 	ClaimExportJob(ctx context.Context, cmd appusage.ExportJobClaimCommand) (appusage.ExportJobResult, bool, error)
+	RenewExportJobLease(ctx context.Context, cmd appusage.ExportJobRenewCommand) error
 	CompleteExportJob(ctx context.Context, cmd appusage.ExportJobCompleteCommand) (appusage.ExportJobResult, error)
 	FailExportJob(ctx context.Context, cmd appusage.ExportJobFailCommand) (appusage.ExportJobResult, error)
 	List(ctx context.Context, query appusage.ListQuery) ([]appusage.ListItemResult, error)
 }
 
-type Logger func(format string, args ...any)
-
-var errExportJobNoLongerRunning = errors.New("export job is no longer running")
-
-type Worker struct {
-	service     Service
-	store       fileexport.Store
-	interval    time.Duration
-	lockTTL     time.Duration
-	timeout     time.Duration
-	maxAttempts int
-	logger      Logger
+type CleanupService interface {
+	ListExpiredExportJobs(ctx context.Context, expiredBefore time.Time, limit int) ([]appusage.ExportJobResult, error)
+	ExpireExportJob(ctx context.Context, id string) (bool, error)
+	RecordExportCleanupRun(ctx context.Context, cmd appusage.ExportCleanupRunCommand) (appusage.ExportCleanupRunResult, error)
 }
 
-func NewWorker(service Service, store fileexport.Store, interval time.Duration, lockTTL time.Duration, timeout time.Duration, maxAttempts int, logger Logger) *Worker {
+type Logger func(format string, args ...any)
+
+type Worker struct {
+	service          Service
+	store            fileexport.Store
+	interval         time.Duration
+	lockTTL          time.Duration
+	maxAttempts      int
+	retention        time.Duration
+	cleanupInterval  time.Duration
+	cleanupBatchSize int
+	logger           Logger
+}
+
+func (w *Worker) WithCleanup(retention, interval time.Duration, batchSize int) *Worker {
+	if retention > 0 && interval > 0 && batchSize > 0 {
+		w.retention, w.cleanupInterval, w.cleanupBatchSize = retention, interval, batchSize
+	}
+	return w
+}
+
+func NewWorker(service Service, store fileexport.Store, interval time.Duration, lockTTL time.Duration, maxAttempts int, logger Logger) *Worker {
 	if logger == nil {
 		logger = log.Printf
 	}
@@ -44,7 +58,6 @@ func NewWorker(service Service, store fileexport.Store, interval time.Duration, 
 		store:       store,
 		interval:    interval,
 		lockTTL:     lockTTL,
-		timeout:     timeout,
 		maxAttempts: maxAttempts,
 		logger:      logger,
 	}
@@ -75,8 +88,18 @@ func (w *Worker) run(ctx context.Context) {
 
 	ticker := time.NewTicker(w.interval)
 	defer ticker.Stop()
+	var cleanupTicker *time.Ticker
+	var cleanupC <-chan time.Time
+	if w.retention > 0 {
+		cleanupTicker = time.NewTicker(w.cleanupInterval)
+		cleanupC = cleanupTicker.C
+		defer cleanupTicker.Stop()
+		if _, err := w.CleanupOnce(ctx); err != nil {
+			w.logger("export artifact cleanup failed: error=%v", err)
+		}
+	}
 
-	w.logger("export worker started: interval=%s lock_ttl=%s timeout=%s max_attempts=%d", w.interval, w.lockTTL, w.timeout, w.maxAttempts)
+	w.logger("export worker started: interval=%s lock_ttl=%s max_attempts=%d", w.interval, w.lockTTL, w.maxAttempts)
 	defer w.logger("export worker stopped")
 
 	for {
@@ -86,8 +109,71 @@ func (w *Worker) run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+		case <-cleanupC:
+			if _, err := w.CleanupOnce(ctx); err != nil {
+				w.logger("export artifact cleanup failed: error=%v", err)
+			}
 		}
 	}
+}
+
+type cleanupMetrics struct {
+	files    int
+	bytes    int64
+	failures int
+}
+
+func (w *Worker) CleanupOnce(ctx context.Context) (int, error) {
+	if w.service == nil || w.retention <= 0 || w.cleanupBatchSize <= 0 {
+		return 0, nil
+	}
+	expiredBefore := time.Now().UTC().Add(-w.retention)
+	service, ok := w.service.(CleanupService)
+	if !ok {
+		return 0, errors.New("export cleanup service is unavailable")
+	}
+	jobs, err := service.ListExpiredExportJobs(ctx, expiredBefore, w.cleanupBatchSize)
+	if err != nil {
+		return 0, err
+	}
+	metrics := map[string]*cleanupMetrics{}
+	expired := 0
+	var cleanupErr error
+	for _, job := range jobs {
+		metric := metrics[job.WorkspaceID]
+		if metric == nil {
+			metric = &cleanupMetrics{}
+			metrics[job.WorkspaceID] = metric
+		}
+		if err := w.store.Remove(ctx, job.ArtifactPath); err != nil {
+			metric.failures++
+			cleanupErr = errors.Join(cleanupErr, err)
+			continue
+		}
+		jobCtx := appauth.WithWorkspaceID(ctx, job.WorkspaceID)
+		marked, err := service.ExpireExportJob(jobCtx, job.ID)
+		if err != nil {
+			metric.failures++
+			cleanupErr = errors.Join(cleanupErr, err)
+			continue
+		}
+		if !marked {
+			continue
+		}
+		metric.files++
+		metric.bytes += job.ArtifactSize
+		expired++
+	}
+	for workspaceID, metric := range metrics {
+		_, err := service.RecordExportCleanupRun(appauth.WithWorkspaceID(ctx, workspaceID), appusage.ExportCleanupRunCommand{WorkspaceID: workspaceID, ExpiredBefore: expiredBefore, FilesDeleted: metric.files, BytesReclaimed: metric.bytes, Failures: metric.failures})
+		if err != nil {
+			cleanupErr = errors.Join(cleanupErr, err)
+		}
+	}
+	if len(jobs) > 0 {
+		w.logger("export artifact cleanup finished: candidates=%d expired=%d", len(jobs), expired)
+	}
+	return expired, cleanupErr
 }
 
 func (w *Worker) drain(ctx context.Context) {
@@ -114,21 +200,34 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 
 	startedAt := time.Now()
 	baseCtx := appauth.WithWorkspaceID(ctx, job.WorkspaceID)
-	jobCtx := baseCtx
-	cancel := func() {}
-	if w.timeout > 0 {
-		jobCtx, cancel = context.WithTimeout(baseCtx, w.timeout)
-	}
-	defer cancel()
+	jobCtx, cancelJob := context.WithCancel(baseCtx)
+	leaseCtx, stopLease := context.WithCancel(baseCtx)
+	leaseResult := make(chan error, 1)
+	go func() { leaseResult <- w.maintainLease(leaseCtx, job, cancelJob) }()
 
-	err = w.process(jobCtx, job)
+	artifact, err := w.process(jobCtx, job)
+	stopLease()
+	leaseErr := <-leaseResult
+	cancelJob()
 	duration := time.Since(startedAt).Round(time.Millisecond)
-	if err == nil {
-		w.logger("export job completed: job_id=%s duration=%s", job.ID, duration)
+	if leaseErr != nil {
+		if artifact.Name != "" {
+			_ = w.store.Remove(baseCtx, artifact.Name)
+		}
+		w.logger("export job lease lost: job_id=%s duration=%s error=%v", job.ID, duration, leaseErr)
 		return true, nil
 	}
-	if errors.Is(err, errExportJobNoLongerRunning) {
-		w.logger("export job skipped because it is no longer running: job_id=%s duration=%s", job.ID, duration)
+	if err == nil {
+		_, err = w.service.CompleteExportJob(baseCtx, appusage.ExportJobCompleteCommand{ID: job.ID, ClaimToken: job.ClaimToken, ArtifactPath: artifact.Name, ArtifactSize: artifact.Size})
+		if errors.Is(err, domain.ErrNotFound) {
+			_ = w.store.Remove(baseCtx, artifact.Name)
+			w.logger("export job completion fenced because ownership changed: job_id=%s duration=%s", job.ID, duration)
+			return true, nil
+		}
+		if err != nil {
+			return true, err
+		}
+		w.logger("export job completed: job_id=%s duration=%s", job.ID, duration)
 		return true, nil
 	}
 	if ctx.Err() != nil && errors.Is(err, context.Canceled) {
@@ -140,6 +239,7 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 	defer failCancel()
 	if _, failErr := w.service.FailExportJob(failCtx, appusage.ExportJobFailCommand{
 		ID:           job.ID,
+		ClaimToken:   job.ClaimToken,
 		ErrorMessage: err.Error(),
 	}); failErr != nil {
 		if errors.Is(failErr, domain.ErrNotFound) {
@@ -152,31 +252,46 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-func (w *Worker) process(ctx context.Context, job appusage.ExportJobResult) error {
+func (w *Worker) maintainLease(ctx context.Context, job appusage.ExportJobResult, cancelJob context.CancelFunc) error {
+	interval := w.lockTTL / 3
+	if interval <= 0 {
+		interval = time.Millisecond
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			err := w.service.RenewExportJobLease(ctx, appusage.ExportJobRenewCommand{ID: job.ID, ClaimToken: job.ClaimToken, LockTTL: w.lockTTL})
+			if err != nil {
+				if ctx.Err() != nil {
+					return nil
+				}
+				cancelJob()
+				return err
+			}
+		}
+	}
+}
+
+func (w *Worker) process(ctx context.Context, job appusage.ExportJobResult) (fileexport.Artifact, error) {
 	query, err := appusage.ParseExportListQueryJSON(job.QueryJSON)
 	if err != nil {
-		return err
+		return fileexport.Artifact{}, err
 	}
 
 	buckets, err := w.service.List(ctx, query)
 	if err != nil {
-		return err
+		return fileexport.Artifact{}, err
 	}
 
-	artifact, err := w.store.Write(ctx, job.ID+".csv", func(writer io.Writer) error {
+	artifact, err := w.store.Write(ctx, job.ID+"-"+job.ClaimToken+".csv", func(writer io.Writer) error {
 		return appusage.WriteBucketCSV(writer, query.GroupBy, buckets)
 	})
 	if err != nil {
-		return err
+		return fileexport.Artifact{}, err
 	}
-
-	_, err = w.service.CompleteExportJob(ctx, appusage.ExportJobCompleteCommand{
-		ID:           job.ID,
-		ArtifactPath: artifact.Name,
-		ArtifactSize: artifact.Size,
-	})
-	if errors.Is(err, domain.ErrNotFound) {
-		return errExportJobNoLongerRunning
-	}
-	return err
+	return artifact, nil
 }

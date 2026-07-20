@@ -25,7 +25,9 @@ func TestGoStreamClientUsageFlow(t *testing.T) {
 	suffix := fmt.Sprintf("%d", time.Now().UTC().UnixNano())
 	apiKey := createAPIKey(t, baseURL, suffix)
 	meterName := "sdk_stream_requests_" + suffix
+	subject := "org_sdk_stream_" + suffix
 	createMeter(t, baseURL, apiKey, meterName)
+	createPlanAssignment(t, baseURL, apiKey, suffix, meterName, subject)
 
 	client, err := stream.NewClient(grpcAddr, apiKey)
 	if err != nil {
@@ -39,8 +41,8 @@ func TestGoStreamClientUsageFlow(t *testing.T) {
 
 	now := time.Now().UTC()
 	bulk, err := client.TrackBulk(t.Context(), "sdk-stream-bulk-"+suffix, []stream.Event{
-		usageEvent("sdk-stream-bulk-"+suffix+"-1", "org_sdk_stream_"+suffix, meterName, 2, now, map[string]any{"endpoint": "/orders", "status": 200}),
-		usageEvent("sdk-stream-bulk-"+suffix+"-2", "org_sdk_stream_"+suffix, meterName, 3, now.Add(time.Second), map[string]any{"endpoint": "/users", "status": 201}),
+		usageEvent("sdk-stream-bulk-"+suffix+"-1", subject, meterName, 2, now, map[string]any{"endpoint": "/orders", "status": 200}),
+		usageEvent("sdk-stream-bulk-"+suffix+"-2", subject, meterName, 3, now.Add(time.Second), map[string]any{"endpoint": "/users", "status": 201}),
 	})
 	if err != nil {
 		t.Fatalf("track bulk usage: %v", err)
@@ -53,7 +55,7 @@ func TestGoStreamClientUsageFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open usage stream: %v", err)
 	}
-	if err := usageStream.Track(usageEvent("sdk-stream-"+suffix+"-1", "org_sdk_stream_"+suffix, meterName, 7, now.Add(2*time.Second), map[string]any{"endpoint": "/checkout", "status": 200})); err != nil {
+	if err := usageStream.Track(usageEvent("sdk-stream-"+suffix+"-1", subject, meterName, 7, now.Add(2*time.Second), map[string]any{"endpoint": "/checkout", "status": 200})); err != nil {
 		t.Fatalf("track streamed usage: %v", err)
 	}
 	streamed, err := usageStream.Close()
@@ -68,6 +70,7 @@ func TestGoStreamClientUsageFlow(t *testing.T) {
 	if len(events.Items) != 3 {
 		t.Fatalf("usage events = %d, want 3", len(events.Items))
 	}
+	waitForEntitlementExceeded(t, baseURL, apiKey, meterName, subject)
 }
 
 func startOpenSpanner(t *testing.T, httpAddr string, grpcAddr string) string {
@@ -82,7 +85,19 @@ func startOpenSpanner(t *testing.T, httpAddr string, grpcAddr string) string {
 	if runtime.GOOS == "windows" {
 		binaryName += ".exe"
 	}
-	binaryPath := filepath.Join(t.TempDir(), binaryName)
+	tempDir := t.TempDir()
+	binaryPath := filepath.Join(tempDir, binaryName)
+	workerName := "open-spanner-entitlement-worker-test"
+	if runtime.GOOS == "windows" {
+		workerName += ".exe"
+	}
+	workerPath := filepath.Join(tempDir, workerName)
+	usageWorkerName := "open-spanner-usage-worker-test"
+	if runtime.GOOS == "windows" {
+		usageWorkerName += ".exe"
+	}
+	usageWorkerPath := filepath.Join(tempDir, usageWorkerName)
+	dbPath := filepath.Join(tempDir, "open-spanner.db")
 
 	var buildLog bytes.Buffer
 	build := exec.Command("go", "build", "-o", binaryPath, "./cmd/api")
@@ -91,6 +106,22 @@ func startOpenSpanner(t *testing.T, httpAddr string, grpcAddr string) string {
 	build.Stderr = &buildLog
 	if err := build.Run(); err != nil {
 		t.Fatalf("build API binary: %v\n%s", err, buildLog.String())
+	}
+	buildLog.Reset()
+	buildWorker := exec.Command("go", "build", "-o", workerPath, "./cmd/entitlement-worker")
+	buildWorker.Dir = repoRoot
+	buildWorker.Stdout = &buildLog
+	buildWorker.Stderr = &buildLog
+	if err := buildWorker.Run(); err != nil {
+		t.Fatalf("build entitlement worker binary: %v\n%s", err, buildLog.String())
+	}
+	buildLog.Reset()
+	buildUsageWorker := exec.Command("go", "build", "-o", usageWorkerPath, "./cmd/usage-worker")
+	buildUsageWorker.Dir = repoRoot
+	buildUsageWorker.Stdout = &buildLog
+	buildUsageWorker.Stderr = &buildLog
+	if err := buildUsageWorker.Run(); err != nil {
+		t.Fatalf("build usage worker binary: %v\n%s", err, buildLog.String())
 	}
 
 	var serverLog bytes.Buffer
@@ -102,8 +133,8 @@ func startOpenSpanner(t *testing.T, httpAddr string, grpcAddr string) string {
 		"OPEN_SPANNER_HTTP_ADDR="+httpAddr,
 		"OPEN_SPANNER_GRPC_ADDR="+grpcAddr,
 		"OPEN_SPANNER_DB_DRIVER=sqlite",
-		"OPEN_SPANNER_SQLITE_PATH="+filepath.Join(t.TempDir(), "open-spanner.db"),
-		"OPEN_SPANNER_EXPORT_STORAGE_PATH="+t.TempDir(),
+		"OPEN_SPANNER_SQLITE_PATH="+dbPath,
+		"OPEN_SPANNER_EXPORT_STORAGE_PATH="+tempDir,
 	)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start API binary: %v", err)
@@ -127,6 +158,70 @@ func startOpenSpanner(t *testing.T, httpAddr string, grpcAddr string) string {
 
 	baseURL := "http://" + httpAddr
 	waitForReady(t, baseURL, done, &serverLog)
+
+	workerHealthAddr := freeTCPAddr(t)
+	var workerLog bytes.Buffer
+	worker := exec.Command(workerPath)
+	worker.Dir = repoRoot
+	worker.Stdout = &workerLog
+	worker.Stderr = &workerLog
+	worker.Env = append(os.Environ(),
+		"OPEN_SPANNER_DB_DRIVER=sqlite",
+		"OPEN_SPANNER_SQLITE_PATH="+dbPath,
+		"OPEN_SPANNER_ENTITLEMENT_WORKER_HEALTH_ADDR="+workerHealthAddr,
+		"OPEN_SPANNER_ENTITLEMENT_WORKER_INTERVAL=50ms",
+	)
+	if err := worker.Start(); err != nil {
+		t.Fatalf("start entitlement worker: %v", err)
+	}
+	workerDone := make(chan error, 1)
+	go func() {
+		workerDone <- worker.Wait()
+	}()
+	t.Cleanup(func() {
+		if worker.ProcessState != nil && worker.ProcessState.Exited() {
+			return
+		}
+		_ = worker.Process.Kill()
+		select {
+		case <-workerDone:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("entitlement worker did not exit after kill")
+		}
+	})
+	waitForReady(t, "http://"+workerHealthAddr, workerDone, &workerLog)
+
+	usageWorkerHealthAddr := freeTCPAddr(t)
+	var usageWorkerLog bytes.Buffer
+	usageWorker := exec.Command(usageWorkerPath)
+	usageWorker.Dir = repoRoot
+	usageWorker.Stdout = &usageWorkerLog
+	usageWorker.Stderr = &usageWorkerLog
+	usageWorker.Env = append(os.Environ(),
+		"OPEN_SPANNER_DB_DRIVER=sqlite",
+		"OPEN_SPANNER_SQLITE_PATH="+dbPath,
+		"OPEN_SPANNER_USAGE_WORKER_HEALTH_ADDR="+usageWorkerHealthAddr,
+		"OPEN_SPANNER_USAGE_WORKER_INTERVAL=50ms",
+	)
+	if err := usageWorker.Start(); err != nil {
+		t.Fatalf("start usage worker: %v", err)
+	}
+	usageWorkerDone := make(chan error, 1)
+	go func() {
+		usageWorkerDone <- usageWorker.Wait()
+	}()
+	t.Cleanup(func() {
+		if usageWorker.ProcessState != nil && usageWorker.ProcessState.Exited() {
+			return
+		}
+		_ = usageWorker.Process.Kill()
+		select {
+		case <-usageWorkerDone:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("usage worker did not exit after kill")
+		}
+	})
+	waitForReady(t, "http://"+usageWorkerHealthAddr, usageWorkerDone, &usageWorkerLog)
 	return baseURL
 }
 
@@ -190,7 +285,8 @@ func createAPIKey(t *testing.T, baseURL string, suffix string) string {
 		Key string `json:"key"`
 	}
 	postJSON(t, &client, baseURL+"/v1/auth/api-keys", map[string]any{
-		"name": "sdk stream test " + suffix,
+		"name":   "sdk stream test " + suffix,
+		"scopes": []string{"usage:read", "usage:write", "meters:read", "meters:write", "plans:read", "plans:write"},
 	}, nil, sessionRes.Cookies(), http.StatusCreated, &apiKey)
 	if apiKey.Key == "" {
 		t.Fatalf("api key response did not include key")
@@ -215,6 +311,63 @@ func createMeter(t *testing.T, baseURL string, apiKey string, meterName string) 
 	}, map[string]string{
 		"Authorization": "Bearer " + apiKey,
 	}, nil, http.StatusCreated, nil)
+}
+
+func createPlanAssignment(t *testing.T, baseURL string, apiKey string, suffix string, meterName string, subject string) {
+	t.Helper()
+
+	headers := map[string]string{"Authorization": "Bearer " + apiKey}
+	var plan struct {
+		ID string `json:"id"`
+	}
+	postJSON(t, &http.Client{Timeout: 5 * time.Second}, baseURL+"/v1/plans", map[string]any{
+		"name": "SDK stream plan " + suffix,
+		"limits": []map[string]any{{
+			"meter":           meterName,
+			"period":          "month",
+			"limit":           10,
+			"warning_percent": 80,
+		}},
+	}, headers, nil, http.StatusCreated, &plan)
+	if plan.ID == "" {
+		t.Fatal("plan response did not include id")
+	}
+	putJSON(t, &http.Client{Timeout: 5 * time.Second}, baseURL+"/v1/plans/subjects/"+url.PathEscape(subject), map[string]any{
+		"plan_id": plan.ID,
+	}, headers, http.StatusOK, nil)
+}
+
+func waitForEntitlementExceeded(t *testing.T, baseURL string, apiKey string, meterName string, subject string) {
+	t.Helper()
+
+	headers := map[string]string{"Authorization": "Bearer " + apiKey}
+	client := &http.Client{Timeout: 5 * time.Second}
+	query := "?subject=" + url.QueryEscape(subject) + "&meter=" + url.QueryEscape(meterName)
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		var states struct {
+			Items []struct {
+				State   string  `json:"state"`
+				Current float64 `json:"current"`
+			} `json:"items"`
+		}
+		getJSON(t, client, baseURL+"/v1/entitlements/states"+query, headers, http.StatusOK, &states)
+		if len(states.Items) > 0 && states.Items[0].State == "exceeded" && states.Items[0].Current == 12 {
+			var events struct {
+				Items []struct {
+					Type string `json:"type"`
+				} `json:"items"`
+			}
+			getJSON(t, client, baseURL+"/v1/entitlements/events"+query, headers, http.StatusOK, &events)
+			for _, event := range events.Items {
+				if event.Type == "exceeded" {
+					return
+				}
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("streamed usage did not produce exceeded entitlement state and event for %s/%s", subject, meterName)
 }
 
 func listUsageEvents(t *testing.T, baseURL string, apiKey string, meterName string) usageEventList {
@@ -252,6 +405,21 @@ func postJSON(t *testing.T, client *http.Client, endpoint string, body any, head
 	}
 	req.Header.Set("Content-Type", "application/json")
 	return doJSON(t, client, req, headers, cookies, wantStatus, out)
+}
+
+func putJSON(t *testing.T, client *http.Client, endpoint string, body any, headers map[string]string, wantStatus int, out any) {
+	t.Helper()
+
+	payload, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	req, err := http.NewRequest(http.MethodPut, endpoint, bytes.NewReader(payload))
+	if err != nil {
+		t.Fatalf("create put request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	doJSON(t, client, req, headers, nil, wantStatus, out)
 }
 
 func getJSON(t *testing.T, client *http.Client, endpoint string, headers map[string]string, wantStatus int, out any) {

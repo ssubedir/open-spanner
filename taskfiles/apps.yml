@@ -1,13 +1,15 @@
 version: '3'
 
 tasks:
-  admin:dev:
-    desc: Run the React admin UI dev server
+  control-plane:dev:
+    desc: Run the Next.js control plane dev server
+    env:
+      OPEN_SPANNER_API_PROXY_URL: http://127.0.0.1:18080
     cmds:
-      - cd web; npm run dev
+      - cd web; npm run dev -- --hostname 127.0.0.1 --port 18081
 
-  admin:build:
-    desc: Build the React admin UI into embedded static files
+  control-plane:build:
+    desc: Build the standalone Next.js control plane
     cmds:
       - cd web; npm run build
 

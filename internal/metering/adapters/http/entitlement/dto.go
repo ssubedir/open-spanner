@@ -6,6 +6,8 @@ type LimitRequest struct {
 	Period         string  `json:"period,omitempty"`
 	Limit          float64 `json:"limit"`
 	WarningPercent float64 `json:"warning_percent,omitempty"`
+	Enforcement    string  `json:"enforcement,omitempty"`
+	FailurePolicy  string  `json:"failure_policy,omitempty"`
 }
 
 // PlanSaveRequest creates or replaces a plan.
@@ -35,6 +37,8 @@ type LimitResponse struct {
 	Period         string  `json:"period"`
 	Limit          float64 `json:"limit"`
 	WarningPercent float64 `json:"warning_percent"`
+	Enforcement    string  `json:"enforcement"`
+	FailurePolicy  string  `json:"failure_policy"`
 	CreatedAt      string  `json:"created_at"`
 	UpdatedAt      string  `json:"updated_at"`
 }

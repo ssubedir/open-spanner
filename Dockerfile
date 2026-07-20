@@ -1,16 +1,5 @@
 # syntax=docker/dockerfile:1
 
-FROM node:24-alpine AS web-build
-WORKDIR /src
-
-RUN npm install --global npm@11.6.2
-
-COPY web/package.json web/package-lock.json ./web/
-RUN cd web && npm ci
-
-COPY web ./web
-RUN mkdir -p internal/ui/static && cd web && npm run build
-
 FROM golang:1.25.5-alpine AS api-build
 WORKDIR /src
 
@@ -18,7 +7,6 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-COPY --from=web-build /src/internal/ui/static ./internal/ui/static
 
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
@@ -26,8 +14,19 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldfl
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/open-spanner-export-worker ./cmd/export-worker
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/open-spanner-alert-worker ./cmd/alert-worker
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/open-spanner-entitlement-worker ./cmd/entitlement-worker
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/open-spanner-usage-worker ./cmd/usage-worker
 
-FROM alpine:3.22
+FROM node:22-alpine AS web-build
+WORKDIR /src/web
+
+COPY web/package.json web/package-lock.json ./
+RUN npm install --global npm@11.6.2 \
+    && npm ci
+
+COPY web ./
+RUN npm run build
+
+FROM alpine:3.22 AS api-runtime
 
 RUN apk add --no-cache ca-certificates \
     && addgroup -S open-spanner \
@@ -39,15 +38,37 @@ COPY --from=api-build /out/open-spanner /usr/local/bin/open-spanner
 COPY --from=api-build /out/open-spanner-export-worker /usr/local/bin/open-spanner-export-worker
 COPY --from=api-build /out/open-spanner-alert-worker /usr/local/bin/open-spanner-alert-worker
 COPY --from=api-build /out/open-spanner-entitlement-worker /usr/local/bin/open-spanner-entitlement-worker
+COPY --from=api-build /out/open-spanner-usage-worker /usr/local/bin/open-spanner-usage-worker
 
-ENV OPEN_SPANNER_HTTP_ADDR=:18081
+ENV OPEN_SPANNER_HTTP_ADDR=:18080
 ENV OPEN_SPANNER_GRPC_ADDR=:18090
 ENV OPEN_SPANNER_DB_DRIVER=sqlite
 ENV OPEN_SPANNER_SQLITE_PATH=/data/open-spanner.db
 ENV OPEN_SPANNER_EXPORT_STORAGE_PATH=/data/exports
-
 USER open-spanner
 VOLUME ["/data"]
-EXPOSE 18081 18090
+EXPOSE 18080 18082 18083 18084 18085 18090
 
 ENTRYPOINT ["/usr/local/bin/open-spanner"]
+
+FROM node:22-alpine AS web-runtime
+
+RUN apk add --no-cache ca-certificates \
+    && addgroup -S open-spanner \
+    && adduser -S -G open-spanner open-spanner
+
+WORKDIR /opt/open-spanner-control-plane
+
+COPY --from=web-build --chown=open-spanner:open-spanner /src/web/.next/standalone ./
+COPY --from=web-build --chown=open-spanner:open-spanner /src/web/.next/static ./.next/static
+
+ENV HOSTNAME=0.0.0.0
+ENV PORT=18081
+ENV OPEN_SPANNER_API_PROXY_URL=http://open-spanner-api:18080
+
+USER open-spanner
+EXPOSE 18081
+
+CMD ["node", "server.js"]
+
+FROM api-runtime AS final

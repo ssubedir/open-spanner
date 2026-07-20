@@ -1,14 +1,13 @@
 package usage
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"io"
 	"net/http"
-	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,32 +15,26 @@ import (
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/fileexport"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/http/internal/request"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/http/internal/respond"
-	appalert "github.com/ssubedir/open-spanner/internal/metering/app/alert"
-	appentitlement "github.com/ssubedir/open-spanner/internal/metering/app/entitlement"
+	appconsumption "github.com/ssubedir/open-spanner/internal/metering/app/consumption"
 	appusage "github.com/ssubedir/open-spanner/internal/metering/app/usage"
 	"github.com/ssubedir/open-spanner/internal/metering/domain"
 	domainusage "github.com/ssubedir/open-spanner/internal/metering/domain/usage"
 )
 
 type Handler struct {
-	service      appusage.Service
-	alerts       AlertEnqueuer
-	entitlements EntitlementEnqueuer
-	exportStore  fileexport.Store
-}
-
-type AlertEnqueuer interface {
-	EnqueueForUsageEvents(ctx context.Context, events []appalert.UsageEvent) error
-}
-
-type EntitlementEnqueuer interface {
-	EnqueueForUsageEvents(ctx context.Context, events []appentitlement.UsageEvent) error
+	service       appusage.Service
+	consumption   appconsumption.Service
+	exportStore   fileexport.Store
+	maxBodyBytes  int64
+	maxBulkEvents int
 }
 
 type HandlerOptions struct {
-	Alerts            AlertEnqueuer
-	Entitlements      EntitlementEnqueuer
+	Consumption       appconsumption.Service
 	ExportStoragePath string
+	ExportStore       fileexport.Store
+	MaxBodyBytes      int64
+	MaxBulkEvents     int
 }
 
 func NewHandler(service appusage.Service, options HandlerOptions) *Handler {
@@ -49,11 +42,24 @@ func NewHandler(service appusage.Service, options HandlerOptions) *Handler {
 	if strings.TrimSpace(options.ExportStoragePath) != "" {
 		exportStoragePath = options.ExportStoragePath
 	}
+	store := options.ExportStore
+	if store == nil {
+		store = fileexport.NewStore(exportStoragePath)
+	}
+	maxBodyBytes := options.MaxBodyBytes
+	if maxBodyBytes <= 0 {
+		maxBodyBytes = 1024 * 1024
+	}
+	maxBulkEvents := options.MaxBulkEvents
+	if maxBulkEvents <= 0 || maxBulkEvents > appusage.MaxBulkEvents {
+		maxBulkEvents = appusage.MaxBulkEvents
+	}
 	return &Handler{
-		service:      service,
-		alerts:       options.Alerts,
-		entitlements: options.Entitlements,
-		exportStore:  fileexport.NewStore(exportStoragePath),
+		service:       service,
+		consumption:   options.Consumption,
+		exportStore:   store,
+		maxBodyBytes:  maxBodyBytes,
+		maxBulkEvents: maxBulkEvents,
 	}
 }
 
@@ -68,11 +74,15 @@ func NewHandler(service appusage.Service, options HandlerOptions) *Handler {
 // @Param request body CreateRequest true "Usage event"
 // @Success 201 {object} Response
 // @Failure 400 {object} respond.ErrorResponse
+// @Failure 413 {object} respond.ErrorResponse
+// @Failure 429 {object} respond.ErrorResponse
+// @Header 429 {string} Retry-After "Seconds until ingestion capacity is available"
 // @Failure 404 {object} respond.ErrorResponse
 // @Failure 409 {object} respond.ErrorResponse
 // @Failure 500 {object} respond.ErrorResponse
 // @Router /v1/usages [post]
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, h.maxBodyBytes)
 	var req CreateRequest
 	if err := request.DecodeJSON(r.Body, &req); err != nil {
 		respond.ValidationError(w, err)
@@ -84,7 +94,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		respond.ValidationError(w, err)
 		return
 	}
-	event, err := h.service.Create(r.Context(), appusage.CreateCommand{
+	event, err := h.service.CreateIngestion(r.Context(), "single", appusage.CreateCommand{
 		IdempotencyKey: req.IdempotencyKey,
 		Subject:        req.Subject,
 		MeterName:      req.Meter,
@@ -97,17 +107,130 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	respond.JSON(w, http.StatusCreated, responseFromResult(event))
+}
+
+// Consume atomically evaluates a plan limit and records accepted usage.
+//
+// @Summary Atomically consume quota
+// @Description Evaluates projected quota under a subject lock. Advisory limits always accept usage; hard limits reject usage that would exceed quota. Accepted and rejected decisions are stored by idempotency key and replayed without reevaluation.
+// @ID consumeEntitlement
+// @Tags entitlements,usages
+// @Accept json
+// @Produce json
+// @Param request body ConsumeRequest true "Consumption event"
+// @Success 201 {object} ConsumeResponse
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 403 {object} respond.ErrorResponse
+// @Failure 429 {object} ConsumeResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/entitlements/consume [post]
+func (h *Handler) Consume(w http.ResponseWriter, r *http.Request) {
+	if h.consumption == nil {
+		respond.ServiceError(w, errors.New("consumption service is not configured"))
+		return
+	}
+	var req ConsumeRequest
+	if err := request.DecodeJSON(r.Body, &req); err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+	eventTime, err := request.OptionalTime("timestamp", req.Timestamp)
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+	result, err := h.consumption.Consume(r.Context(), appconsumption.Command{
+		IdempotencyKey: req.IdempotencyKey,
+		Subject:        req.Subject,
+		MeterName:      req.Meter,
+		Quantity:       req.Quantity,
+		EventTime:      eventTime,
+		Metadata:       req.Metadata,
+	})
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	if !result.Accepted {
+		respond.JSON(w, http.StatusTooManyRequests, consumeResponse(result))
+		return
+	}
 	if _, err := h.service.RecordIngestion(r.Context(), appusage.IngestionCommand{
-		Kind:     "single",
-		Accepted: 1,
+		Kind: "single", Accepted: boolCount(!result.Replayed), Duplicates: boolCount(result.Replayed),
 	}); err != nil {
 		respond.ServiceError(w, err)
 		return
 	}
-	h.enqueueAlerts(r.Context(), []appusage.Result{event})
-	h.enqueueEntitlements(r.Context(), []appusage.Result{event})
+	respond.JSON(w, http.StatusCreated, consumeResponse(result))
+}
 
-	respond.JSON(w, http.StatusCreated, responseFromResult(event))
+// ListConsumptionDecisions lists durable quota decisions without event metadata.
+// @Summary List consumption decisions
+// @ID listConsumptionDecisions
+// @Tags entitlements
+// @Produce json
+// @Param subject query string false "Subject"
+// @Param meter query string false "Meter"
+// @Param outcome query string false "accepted or rejected"
+// @Param evaluation_failed query bool false "Evaluation failure outcome"
+// @Param enforcement query string false "advisory or hard"
+// @Param state query string false "Quota state"
+// @Param limit query int false "Page size"
+// @Param cursor query string false "Pagination cursor"
+// @Success 200 {object} ConsumptionDecisionListResponse
+// @Failure 400 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/entitlements/decisions [get]
+func (h *Handler) ListConsumptionDecisions(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	limit, err := request.ParseLimit(query.Get("limit"))
+	if err != nil {
+		respond.ValidationError(w, err)
+		return
+	}
+	var evaluationFailed *bool
+	if raw := query.Get("evaluation_failed"); raw != "" {
+		value, err := request.ParseOptionalBool("evaluation_failed", raw)
+		if err != nil {
+			respond.ValidationError(w, err)
+			return
+		}
+		evaluationFailed = &value
+	}
+	result, err := h.consumption.ListDecisions(r.Context(), appconsumption.DecisionListQuery{
+		Subject: query.Get("subject"), MeterName: query.Get("meter"), Outcome: query.Get("outcome"),
+		EvaluationFailed: evaluationFailed, Enforcement: query.Get("enforcement"), State: query.Get("state"),
+		Limit: limit, Cursor: query.Get("cursor"),
+	})
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	items := make([]ConsumptionDecisionResponse, 0, len(result.Items))
+	for _, item := range result.Items {
+		items = append(items, consumptionDecisionResponse(item))
+	}
+	respond.JSON(w, http.StatusOK, ConsumptionDecisionListResponse{Items: items, NextCursor: result.NextCursor})
+}
+
+// GetConsumptionDecision returns one durable quota decision without event metadata.
+// @Summary Get consumption decision
+// @ID getConsumptionDecision
+// @Tags entitlements
+// @Produce json
+// @Param idempotency_key path string true "Idempotency key"
+// @Success 200 {object} ConsumptionDecisionResponse
+// @Failure 404 {object} respond.ErrorResponse
+// @Failure 500 {object} respond.ErrorResponse
+// @Router /v1/entitlements/decisions/{idempotency_key} [get]
+func (h *Handler) GetConsumptionDecision(w http.ResponseWriter, r *http.Request) {
+	result, err := h.consumption.GetDecision(r.Context(), chi.URLParam(r, "idempotency_key"))
+	if err != nil {
+		respond.ServiceError(w, err)
+		return
+	}
+	respond.JSON(w, http.StatusOK, consumptionDecisionResponse(result))
 }
 
 // CreateBulk creates usage events in bulk.
@@ -122,13 +245,17 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 // @Param request body []CreateRequest true "Usage events. Maximum 1000 items."
 // @Success 201 {object} BulkResponse
 // @Failure 400 {object} respond.ErrorResponse
+// @Failure 413 {object} respond.ErrorResponse
+// @Failure 429 {object} respond.ErrorResponse
+// @Header 429 {string} Retry-After "Seconds until ingestion capacity is available"
 // @Failure 404 {object} respond.ErrorResponse
 // @Failure 409 {object} respond.ErrorResponse
 // @Failure 500 {object} respond.ErrorResponse
 // @Router /v1/usages/bulk [post]
 func (h *Handler) CreateBulk(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, h.maxBodyBytes)
 	var req []CreateRequest
-	if err := request.DecodeJSONArray(r.Body, &req, func() int { return len(req) }, appusage.MaxBulkEvents, "bulk usage event"); err != nil {
+	if err := request.DecodeJSONArray(r.Body, &req, func() int { return len(req) }, h.maxBulkEvents, "bulk usage event"); err != nil {
 		respond.ValidationError(w, err)
 		return
 	}
@@ -157,15 +284,18 @@ func (h *Handler) CreateBulk(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	result := appusage.BulkResult{Failed: failures}
+	audited := false
 	if len(commands) > 0 || len(failures) == 0 {
-		serviceResult, err := h.service.CreateBulk(r.Context(), r.Header.Get("Idempotency-Key"), commands)
+		serviceResult, err := h.service.CreateBulkIngestion(r.Context(), "bulk", r.Header.Get("Idempotency-Key"), commands, len(failures))
 		if err != nil {
 			respond.ServiceError(w, err)
 			return
 		}
 		result.Accepted = serviceResult.Accepted
 		result.Duplicates = serviceResult.Duplicates
+		result.Replayed = serviceResult.Replayed
 		result.Failed = append(result.Failed, serviceResult.Failed...)
+		audited = true
 	}
 
 	status := http.StatusCreated
@@ -173,18 +303,12 @@ func (h *Handler) CreateBulk(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusBadRequest
 	}
 
-	if _, err := h.service.RecordIngestion(r.Context(), appusage.IngestionCommand{
-		Kind:       "bulk",
-		Accepted:   len(result.Accepted),
-		Duplicates: len(result.Duplicates),
-		Failed:     len(result.Failed),
-	}); err != nil {
-		respond.ServiceError(w, err)
-		return
+	if !audited {
+		if _, err := h.service.RecordIngestion(r.Context(), appusage.IngestionCommand{Kind: "bulk", Failed: len(result.Failed)}); err != nil {
+			respond.ServiceError(w, err)
+			return
+		}
 	}
-	h.enqueueAlerts(r.Context(), result.Accepted)
-	h.enqueueEntitlements(r.Context(), result.Accepted)
-
 	respond.JSON(w, status, bulkResponseFromResult(result))
 }
 
@@ -453,22 +577,113 @@ func (h *Handler) DownloadExportJob(w http.ResponseWriter, r *http.Request) {
 		respond.ServiceError(w, errors.Join(domain.ErrConflict, fmt.Errorf("export job is not ready for download")))
 		return
 	}
-
-	file, info, err := h.exportStore.Open(job.ArtifactPath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			respond.ServiceError(w, errors.Join(domain.ErrNotFound, fmt.Errorf("export artifact was not found")))
-			return
-		}
-		respond.ServiceError(w, err)
+	if !job.ExpiredAt.IsZero() {
+		respond.ServiceError(w, errors.Join(domain.ErrConflict, fmt.Errorf("export artifact has expired")))
 		return
 	}
-	defer file.Close()
+	h.serveExportArtifact(w, r, job)
+}
+
+func (h *Handler) serveExportArtifact(w http.ResponseWriter, r *http.Request, job appusage.ExportJobResult) {
+	// Export artifacts can be arbitrarily large. Clear only this response's write
+	// deadline; request cancellation and coordinated server shutdown still apply.
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+
+	artifact, err := h.exportStore.Stat(r.Context(), job.ArtifactPath)
+	if err != nil {
+		respondExportStoreError(w, err)
+		return
+	}
+
+	byteRange, err := parseDownloadRange(r.Header.Get("Range"), artifact.Size)
+	if err != nil {
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", max(artifact.Size, 0)))
+		respond.Error(w, http.StatusRequestedRangeNotSatisfiable, "range_not_satisfiable", "requested export byte range is not satisfiable")
+		return
+	}
+
+	var object fileexport.Object
+	if r.Method != http.MethodHead {
+		if byteRange == nil {
+			object, err = h.exportStore.Open(r.Context(), job.ArtifactPath)
+		} else {
+			object, err = h.exportStore.OpenRange(r.Context(), job.ArtifactPath, *byteRange)
+		}
+		if err != nil {
+			respondExportStoreError(w, err)
+			return
+		}
+		defer object.Body.Close()
+	}
 
 	filename := fmt.Sprintf("open-spanner-export-%s.csv", job.ID)
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
-	http.ServeContent(w, r, filename, info.ModTime(), file)
+	w.Header().Set("Accept-Ranges", "bytes")
+	if !artifact.ModTime.IsZero() {
+		w.Header().Set("Last-Modified", artifact.ModTime.UTC().Format(http.TimeFormat))
+	}
+	status := http.StatusOK
+	contentLength := artifact.Size
+	if byteRange != nil {
+		status = http.StatusPartialContent
+		contentLength = byteRange.End - byteRange.Start + 1
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", byteRange.Start, byteRange.End, artifact.Size))
+	}
+	if contentLength >= 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(contentLength, 10))
+	}
+	w.WriteHeader(status)
+	if r.Method != http.MethodHead {
+		_, _ = io.Copy(w, object.Body)
+	}
+}
+
+func respondExportStoreError(w http.ResponseWriter, err error) {
+	if errors.Is(err, domain.ErrNotFound) {
+		respond.ServiceError(w, errors.Join(domain.ErrNotFound, fmt.Errorf("export artifact was not found")))
+		return
+	}
+	respond.ServiceError(w, err)
+}
+
+func parseDownloadRange(value string, size int64) (*fileexport.ByteRange, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+	if size <= 0 || !strings.HasPrefix(value, "bytes=") || strings.Contains(value, ",") {
+		return nil, errors.New("invalid byte range")
+	}
+	parts := strings.Split(strings.TrimSpace(strings.TrimPrefix(value, "bytes=")), "-")
+	if len(parts) != 2 {
+		return nil, errors.New("invalid byte range")
+	}
+	if parts[0] == "" {
+		suffix, err := strconv.ParseInt(parts[1], 10, 64)
+		if err != nil || suffix <= 0 {
+			return nil, errors.New("invalid byte range")
+		}
+		if suffix > size {
+			suffix = size
+		}
+		return &fileexport.ByteRange{Start: size - suffix, End: size - 1}, nil
+	}
+	start, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || start < 0 || start >= size {
+		return nil, errors.New("invalid byte range")
+	}
+	end := size - 1
+	if parts[1] != "" {
+		end, err = strconv.ParseInt(parts[1], 10, 64)
+		if err != nil || end < start {
+			return nil, errors.New("invalid byte range")
+		}
+		if end >= size {
+			end = size - 1
+		}
+	}
+	return &fileexport.ByteRange{Start: start, End: end}, nil
 }
 
 // List lists bucketed usage.
@@ -911,40 +1126,6 @@ func writeEventCSV(w http.ResponseWriter, events []appusage.Result) {
 	_ = appusage.WriteEventCSV(w, events)
 }
 
-func (h *Handler) enqueueAlerts(ctx context.Context, events []appusage.Result) {
-	if h.alerts == nil || len(events) == 0 {
-		return
-	}
-	alertEvents := make([]appalert.UsageEvent, 0, len(events))
-	for _, event := range events {
-		alertEvents = append(alertEvents, appalert.UsageEvent{
-			Subject:  event.Subject,
-			Meter:    event.MeterName,
-			Metadata: event.Metadata,
-		})
-	}
-	if err := h.alerts.EnqueueForUsageEvents(ctx, alertEvents); err != nil {
-		log.Printf("alert enqueue failed: %v", err)
-	}
-}
-
-func (h *Handler) enqueueEntitlements(ctx context.Context, events []appusage.Result) {
-	if h.entitlements == nil || len(events) == 0 {
-		return
-	}
-	entitlementEvents := make([]appentitlement.UsageEvent, 0, len(events))
-	for _, event := range events {
-		entitlementEvents = append(entitlementEvents, appentitlement.UsageEvent{
-			Subject:  event.Subject,
-			Meter:    event.MeterName,
-			Quantity: event.Quantity,
-		})
-	}
-	if err := h.entitlements.EnqueueForUsageEvents(ctx, entitlementEvents); err != nil {
-		log.Printf("entitlement enqueue failed: %v", err)
-	}
-}
-
 func validateDirectExportLimit(limit int) error {
 	return request.ValidateOptionalLimit(limit, domainusage.MaxLimit)
 }
@@ -1085,6 +1266,54 @@ func responseFromResult(event appusage.Result) Response {
 	}
 }
 
+func consumeResponse(result appconsumption.Result) ConsumeResponse {
+	var event *Response
+	if result.Accepted {
+		value := responseFromResult(result.Event)
+		event = &value
+	}
+	quota := result.Quota
+	return ConsumeResponse{
+		Accepted: result.Accepted, Replayed: result.Replayed, EvaluationFailed: result.EvaluationFailed,
+		Event: event,
+		Quota: ConsumeQuotaResponse{
+			Allowed: quota.Allowed, State: string(quota.State), Subject: quota.Subject, Meter: quota.MeterName,
+			Quantity: quota.Quantity, Current: quota.Current, Projected: quota.Projected, Limit: quota.Limit,
+			Remaining: quota.Remaining, Overage: quota.Overage, PlanID: quota.PlanID, PlanName: quota.PlanName,
+			Period: string(quota.Period), From: optionalResponseTime(quota.From), To: optionalResponseTime(quota.To),
+			PeriodResetAt: optionalResponseTime(quota.PeriodResetAt), RetryAfterSeconds: quota.RetryAfterSeconds,
+			Enforcement: string(quota.Enforcement), FailurePolicy: string(quota.FailurePolicy), Message: quota.Message,
+		},
+	}
+}
+
+func consumptionDecisionResponse(decision appconsumption.DecisionResult) ConsumptionDecisionResponse {
+	response := consumeResponse(decision.Result)
+	eventID := ""
+	if response.Event != nil {
+		eventID = response.Event.ID
+	}
+	return ConsumptionDecisionResponse{
+		IdempotencyKey: decision.IdempotencyKey, Accepted: decision.Result.Accepted,
+		EvaluationFailed: decision.Result.EvaluationFailed, EventID: eventID,
+		CreatedAt: decision.CreatedAt.Format(time.RFC3339), Quota: response.Quota,
+	}
+}
+
+func optionalResponseTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.Format(time.RFC3339)
+}
+
+func boolCount(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
+}
+
 func listItemResponses(buckets []appusage.ListItemResult) []ListItemResponse {
 	res := make([]ListItemResponse, 0, len(buckets))
 	for _, bucket := range buckets {
@@ -1184,11 +1413,14 @@ func exportJobResponseFromResult(result appusage.ExportJobResult) ExportJobRespo
 		CreatedAt:    result.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:    result.UpdatedAt.Format(time.RFC3339),
 	}
-	if result.Status == string(domainusage.ExportJobCompleted) && result.ArtifactPath != "" {
+	if result.Status == string(domainusage.ExportJobCompleted) && result.ArtifactPath != "" && result.ExpiredAt.IsZero() {
 		res.DownloadURL = "/v1/exports/" + result.ID + "/download"
 	}
 	if !result.CompletedAt.IsZero() {
 		res.CompletedAt = result.CompletedAt.Format(time.RFC3339)
+	}
+	if !result.ExpiredAt.IsZero() {
+		res.ExpiredAt = result.ExpiredAt.Format(time.RFC3339)
 	}
 	return res
 }

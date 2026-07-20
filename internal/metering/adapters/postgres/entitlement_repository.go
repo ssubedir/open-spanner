@@ -6,6 +6,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/google/uuid"
+
 	appauth "github.com/ssubedir/open-spanner/internal/auth"
 	"github.com/ssubedir/open-spanner/internal/metering/adapters/postgres/postgresdb"
 	appentitlement "github.com/ssubedir/open-spanner/internal/metering/app/entitlement"
@@ -128,6 +130,8 @@ func (r *EntitlementRepository) ReplacePlanLimits(ctx context.Context, planID st
 			Period:         string(limit.Period),
 			LimitValue:     limit.Limit,
 			WarningPercent: limit.WarningPercent,
+			Enforcement:    string(limit.Enforcement),
+			FailurePolicy:  string(limit.FailurePolicy),
 			CreatedAt:      formatTime(limit.CreatedAt),
 			UpdatedAt:      formatTime(limit.UpdatedAt),
 		}); err != nil {
@@ -251,6 +255,28 @@ func (r *EntitlementRepository) FindEffectiveSubjectAssignment(ctx context.Conte
 		return appentitlement.SubjectAssignment{}, err
 	}
 	return postgresEffectivePlanSubjectAssignment(row)
+}
+
+func (r *EntitlementRepository) LockEffectiveSubjectAssignment(ctx context.Context, subject string, at time.Time) (appentitlement.SubjectAssignment, error) {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return appentitlement.SubjectAssignment{}, err
+	}
+	if at.IsZero() {
+		at = time.Now().UTC()
+	}
+	row, err := queriesFor(ctx, r.queries).LockEffectivePlanSubjectAssignment(ctx, postgresdb.LockEffectivePlanSubjectAssignmentParams{
+		WorkspaceID: workspaceID,
+		Subject:     subject,
+		Now:         formatTime(at),
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return appentitlement.SubjectAssignment{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return appentitlement.SubjectAssignment{}, err
+	}
+	return postgresLockedPlanSubjectAssignment(row)
 }
 
 func (r *EntitlementRepository) FindSubjectAssignments(ctx context.Context, query appentitlement.AssignmentQuery) ([]appentitlement.SubjectAssignment, error) {
@@ -550,11 +576,12 @@ func (r *EntitlementRepository) RequeueEntitlementCheckJob(ctx context.Context, 
 	}
 	now := time.Now().UTC()
 	rows, err := queriesFor(ctx, r.queries).RequeueEntitlementCheckJob(ctx, postgresdb.RequeueEntitlementCheckJobParams{
-		RunAfter:    formatTime(now.Add(cmd.RetryAfter)),
-		Now:         formatTime(now),
-		WorkspaceID: workspaceID,
-		Subject:     cmd.Subject,
-		MeterName:   cmd.Meter,
+		RunAfter:         formatTime(now.Add(cmd.RetryAfter)),
+		Now:              formatTime(now),
+		WorkspaceID:      workspaceID,
+		Subject:          cmd.Subject,
+		MeterName:        cmd.Meter,
+		ExpectedAttempts: int32(cmd.Attempts),
 	})
 	if err != nil {
 		return err
@@ -571,9 +598,10 @@ func (r *EntitlementRepository) DeleteEntitlementCheckJob(ctx context.Context, c
 		return err
 	}
 	rows, err := queriesFor(ctx, r.queries).DeleteEntitlementCheckJob(ctx, postgresdb.DeleteEntitlementCheckJobParams{
-		WorkspaceID: workspaceID,
-		Subject:     cmd.Subject,
-		MeterName:   cmd.Meter,
+		WorkspaceID:      workspaceID,
+		Subject:          cmd.Subject,
+		MeterName:        cmd.Meter,
+		ExpectedAttempts: int32(cmd.Attempts),
 	})
 	if err != nil {
 		return err
@@ -582,6 +610,20 @@ func (r *EntitlementRepository) DeleteEntitlementCheckJob(ctx context.Context, c
 		return domain.ErrNotFound
 	}
 	return nil
+}
+
+func (r *EntitlementRepository) SaveCheckDeadLetter(ctx context.Context, deadLetter appentitlement.CheckDeadLetter) error {
+	workspaceID, err := appauth.RequireWorkspaceID(ctx)
+	if err != nil {
+		return err
+	}
+	publicID, err := uuid.Parse(deadLetter.ID)
+	if err != nil {
+		return err
+	}
+	return queriesFor(ctx, r.queries).SaveEntitlementWorkerDeadLetter(ctx, postgresdb.SaveEntitlementWorkerDeadLetterParams{
+		PublicID: publicID, WorkspaceID: workspaceID, Subject: deadLetter.Subject, MeterName: deadLetter.MeterName, Attempts: int32(deadLetter.Attempts), LastError: deadLetter.Error, CreatedAt: deadLetter.CreatedAt,
+	})
 }
 
 func postgresPlan(row postgresdb.ListPlansRow) (appentitlement.Plan, error) {
@@ -621,6 +663,8 @@ func postgresPlanLimit(row postgresdb.ListPlanLimitsRow) (appentitlement.PlanLim
 		Period:         appentitlement.Period(row.Period),
 		Limit:          row.LimitValue,
 		WarningPercent: row.WarningPercent,
+		Enforcement:    appentitlement.EnforcementMode(row.Enforcement),
+		FailurePolicy:  appentitlement.FailurePolicy(row.FailurePolicy),
 		CreatedAt:      createdAt,
 		UpdatedAt:      updatedAt,
 	}, nil
@@ -657,6 +701,36 @@ func postgresPlanSubjectAssignment(row postgresdb.ListPlanSubjectAssignmentsRow)
 }
 
 func postgresEffectivePlanSubjectAssignment(row postgresdb.FindEffectivePlanSubjectAssignmentRow) (appentitlement.SubjectAssignment, error) {
+	assignedAt, err := parseEntitlementTime(row.AssignedAt)
+	if err != nil {
+		return appentitlement.SubjectAssignment{}, err
+	}
+	periodAnchorAt, err := parseEntitlementTime(row.PeriodAnchorAt)
+	if err != nil {
+		return appentitlement.SubjectAssignment{}, err
+	}
+	updatedAt, err := parseEntitlementTime(row.UpdatedAt)
+	if err != nil {
+		return appentitlement.SubjectAssignment{}, err
+	}
+	unassignedAt, err := parseNullableEntitlementTime(row.UnassignedAt)
+	if err != nil {
+		return appentitlement.SubjectAssignment{}, err
+	}
+	return appentitlement.SubjectAssignment{
+		ID:             row.ID,
+		Subject:        row.Subject,
+		PlanID:         row.PlanID,
+		PlanName:       row.PlanName,
+		PlanVersion:    int(row.PlanVersion),
+		AssignedAt:     assignedAt,
+		PeriodAnchorAt: periodAnchorAt,
+		UnassignedAt:   unassignedAt,
+		UpdatedAt:      updatedAt,
+	}, nil
+}
+
+func postgresLockedPlanSubjectAssignment(row postgresdb.LockEffectivePlanSubjectAssignmentRow) (appentitlement.SubjectAssignment, error) {
 	assignedAt, err := parseEntitlementTime(row.AssignedAt)
 	if err != nil {
 		return appentitlement.SubjectAssignment{}, err
