@@ -1,0 +1,85 @@
+---
+title: Workspace Access
+description: Share metering data safely with role-based memberships and invitation links.
+---
+
+Workspaces are the isolation boundary for Open Spanner data. Meters, subjects,
+usage, plans, entitlement state, alerts, exports, saved queries, reconciliation
+history, and API keys all belong to one workspace.
+
+Every account starts with a personal workspace. A user can also join shared
+workspaces and switch the active workspace from the dashboard. Switching changes
+the scope of the current session; resources from other workspaces are never
+mixed into the active view.
+
+## Roles
+
+| Role | Resource access | Membership access |
+| --- | --- | --- |
+| Owner | Read and write | Invite members, revoke invitations, change roles, and remove members. |
+| Admin | Read and write | Invite members and revoke invitations. |
+| Viewer | Read only | Cannot manage invitations or members. |
+
+Owners and admins may invite new admins or viewers. Only an owner can promote a
+member to owner, change an existing member's role, or remove a member. A
+workspace must always retain at least one owner, so its final owner cannot be
+demoted or removed.
+
+Role checks are applied on every request. If an owner demotes an admin to viewer,
+the member's existing dashboard session and workspace API keys immediately
+become read-only. Removing a member immediately prevents their sessions and API
+keys from accessing that workspace.
+
+## Invite A Teammate
+
+Open **Settings → Workspace**, enter the teammate's email, choose `admin` or
+`viewer`, and create the invitation. Open Spanner returns a secure invitation
+link once; deliver that link to the intended teammate through a trusted channel.
+
+Invitations:
+
+- expire after seven days;
+- can only be accepted by an account with the invited email address;
+- are single-use;
+- can be revoked before acceptance; and
+- cannot be duplicated while an active invitation exists for the same email.
+
+The recipient signs in or registers, opens the invitation link, reviews the
+workspace and role, and accepts. Acceptance adds the membership and switches
+their current session to the shared workspace.
+
+Open Spanner stores only a hash of the invitation token. Invitation history
+shows pending, accepted, revoked, and expired states without revealing tokens.
+Open Spanner does not send invitation email itself; the owner or admin is
+responsible for delivering the generated link.
+
+## Workspace Switching
+
+The workspace selector lists every workspace available to the signed-in user and
+their role in each one. Switching refreshes the session scope. API keys do not
+switch with the browser session: each key remains bound to the workspace where
+it was created.
+
+Create separate workspaces when environments, customers, or teams require hard
+data separation. Create multiple API keys inside one workspace when services
+share data but need different scopes or allowed-meter restrictions.
+
+## API Operations
+
+The dashboard uses these session-authenticated endpoints:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /v1/auth/workspaces` | List available workspaces and roles. |
+| `POST /v1/auth/session/workspace` | Switch the active session workspace. |
+| `GET /v1/auth/workspace/members` | List members in the active workspace. |
+| `PATCH /v1/auth/workspace/members/{user_id}` | Change a member's role. |
+| `DELETE /v1/auth/workspace/members/{user_id}` | Remove a member. |
+| `GET /v1/auth/workspace/invitations` | List invitation history. |
+| `POST /v1/auth/workspace/invitations` | Create a seven-day invitation. |
+| `DELETE /v1/auth/workspace/invitations/{id}` | Revoke an invitation. |
+| `GET /v1/auth/workspace-invitations/{token}` | Preview an invitation. |
+| `POST /v1/auth/workspace-invitations/{token}/accept` | Accept an invitation and switch workspace. |
+
+Use dashboard session cookies for these operations. Workspace membership is for
+people; backend services should continue to authenticate with scoped API keys.

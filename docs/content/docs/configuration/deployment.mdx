@@ -16,6 +16,7 @@ Run Open Spanner as separate processes against the same Postgres database:
 | Export worker | Claims queued export jobs and writes CSV artifacts. | Dashboard export jobs are enabled |
 | Alert worker | Evaluates alert rules and delivers webhooks. | Alerts are enabled |
 | Entitlement worker | Refreshes quota state, entitlement events, and period snapshots. | Plans and entitlements are enabled |
+| Usage worker | Durably fans committed usage events into alert and entitlement queues. | Always |
 | Postgres | Stores users, sessions, API keys, meters, plans, usage events, jobs, alerts, and query state. | Production deployments |
 
 SQLite is useful for demos and small single-node installs. Use Postgres when you need normal production operations such as backups, connection pooling, multiple API instances, multiple workers, or managed database observability.
@@ -149,7 +150,7 @@ The Docker Compose app stack uses `/ready` for the API container health check.
 
 The web container uses `/ready` for its health check. That endpoint returns success only when the Next.js server can reach the private API and the API can reach its configured database, so it represents end-to-end public REST readiness. The API also exposes its private `/health` liveness and `/ready` storage-readiness endpoints for direct orchestration probes.
 
-Each worker binary exposes the same `/health` and `/ready` contract on its own probe address. Readiness verifies database connectivity and becomes unavailable before the worker drains during shutdown. The defaults are `:18082` for export, `:18083` for alert, and `:18084` for entitlement; use these endpoints for container or Kubernetes probes. Docker Compose health-checks every worker through `/ready`.
+Each worker binary exposes the same `/health` and `/ready` contract on its own probe address. Readiness verifies database connectivity and becomes unavailable before the worker drains during shutdown. The defaults are `:18082` for export, `:18083` for alert, `:18084` for entitlement, and `:18085` for usage; use these endpoints for container or Kubernetes probes. Docker Compose health-checks every worker through `/ready`.
 
 During shutdown, the API marks `/ready` unavailable before it stops accepting traffic. It then drains in-flight HTTP requests and gRPC streams, stops API-owned workers and heartbeats, and closes database and telemetry resources last. Draining is bounded and connections that exceed the shutdown deadline are forced closed, so clients should retry interrupted ingestion with the same idempotency keys.
 
@@ -183,8 +184,8 @@ Before upgrading a production deployment:
 
 1. Pin the target image tag instead of using `latest`.
 2. Back up Postgres.
-3. Confirm web, API, export worker, alert worker, and entitlement worker containers use the same release version.
+3. Confirm web, API, export worker, alert worker, entitlement worker, and usage worker containers use the same release version.
 4. Start the API and wait for `/ready`.
 5. Restart workers after the API has completed migrations.
 6. Start the web deployment and wait for `/login`.
-7. Check the dashboard, queued exports, and alert events after the rollout.
+7. Check the dashboard, usage outbox backlog, queued exports, and alert events after the rollout.

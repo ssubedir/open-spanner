@@ -27,7 +27,7 @@ Open Spanner sits between your product and downstream systems such as billing, f
 
 | Surface | Use it for |
 | --- | --- |
-| Dashboard | Sign in, define meters, inspect usage, manage plans, create API keys, manage exports, and view alert activity. |
+| Dashboard | Sign in, share workspaces, define meters, inspect usage, manage plans, create API keys, manage exports, and view alert activity. |
 | REST API | Meter management, usage writes, usage queries, entitlement checks, exports, and operational endpoints. |
 | Official SDKs | Typed backend clients for meters, usage, direct exports, entitlement checks, and entitlement progress reads in Go, TypeScript, Python, and C#. |
 | gRPC streaming | High-throughput usage ingestion from trusted backend services. |
