@@ -47,8 +47,7 @@ jobs:
         working-directory: docs
         run: npm run build
         env:
-          NEXT_PUBLIC_BASE_PATH: /open-spanner
-          NEXT_PUBLIC_SITE_URL: https://ssubedir.github.io/open-spanner
+          NEXT_PUBLIC_SITE_URL: https://openspanner.ssubedir.com
 
       - name: Disable Jekyll
         run: touch docs/out/.nojekyll

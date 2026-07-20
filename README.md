@@ -46,7 +46,7 @@ quota decisions.
 | Workers | Durable usage fanout, exports, alerts, entitlement state, and maintenance. |
 | Storage | SQLite for local or single-node use; Postgres for production. |
 
-Read the [product documentation](https://ssubedir.github.io/open-spanner/docs).
+Read the [product documentation](https://openspanner.ssubedir.com/docs).
 
 ## Quick Start
 

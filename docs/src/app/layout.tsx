@@ -8,7 +8,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'https://ssubedir.github.io/open-spanner'),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'https://openspanner.ssubedir.com'),
   title: {
     default: 'Open Spanner Docs',
     template: '%s | Open Spanner',

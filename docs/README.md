@@ -40,10 +40,10 @@ The repository deploys this app to GitHub Pages from `.github/workflows/deploy-d
 The workflow builds with:
 
 ```sh
-NEXT_PUBLIC_BASE_PATH=/open-spanner NEXT_PUBLIC_SITE_URL=https://ssubedir.github.io/open-spanner npm run build
+NEXT_PUBLIC_SITE_URL=https://openspanner.ssubedir.com npm run build
 ```
 
-Use the default local commands for development; the base path is only needed for the GitHub Pages project URL.
+The custom domain serves the exported site from `/`, so the deployment does not set a base path.
 
 ## Content
 
